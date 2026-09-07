@@ -43,12 +43,28 @@ curriculum slice — seeded by `make seed`.
 
 | | |
 | --- | --- |
-| **Browse** — ranked word search with bulk edit and a matched-in passage ![Browse](docs/screenshots/browse.png) | **Element** — Markdown description, attributes, links, state card ![Element](docs/screenshots/element.png) |
-| **Markdown editing** — one editor everywhere: insert actions, Edit/Split/Preview, Mermaid rendered live ![Markdown editor](docs/screenshots/markdown-editor.png) | **Metamodel** — the type graph as data, editable and exportable as a pack ![Metamodel](docs/screenshots/metamodel.png) |
+| **Home** — the sample model at a glance, with counts by type and relationship ![Home](docs/screenshots/home.png) | **Browse** — ranked word search with bulk edit and a matched-in passage ![Browse](docs/screenshots/browse.png) |
+
+### Discover
+
+| | |
+| --- | --- |
+| **Element** — Markdown description, attributes, links, state card ![Element](docs/screenshots/element.png) | **Ask** — an answer as a document: view first, cited identifiers, tool trace ![Ask](docs/screenshots/ask.png) |
 | **Impact** — upstream and downstream closure with completeness hints ![Impact](docs/screenshots/impact.png) | **Generated architecture view** — drawn from the model, every shape an element, pan/zoom/arrange ![Generated view](docs/screenshots/generated-view.png) |
-| **Ask** — an answer as a document: view first, cited identifiers, tool trace ![Ask](docs/screenshots/ask.png) | **Import** — template download, validation report, idempotent load ![Import](docs/screenshots/import.png) |
-| **Propose** — destination first, then the proposal; the reader turns it into a merge log ![Propose](docs/screenshots/propose.png) | **Target state** — current against intended, per work package ![Target state](docs/screenshots/target.png) |
-| **Branches** — overlays on main with a merge log and review before merge ![Branches](docs/screenshots/branches.png) | **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) |
+| **Target state** — current against intended, per work package ![Target state](docs/screenshots/target.png) | |
+
+### Contribute
+
+| | |
+| --- | --- |
+| **Propose** — destination first, then the proposal; the reader turns it into a merge log ![Propose](docs/screenshots/propose.png) | **Markdown editing** — one editor everywhere: insert actions, Edit/Split/Preview, Mermaid rendered live ![Markdown editor](docs/screenshots/markdown-editor.png) |
+| **Import** — template download, validation report, idempotent load ![Import](docs/screenshots/import.png) | **Branches** — overlays on main with a merge log and review before merge ![Branches](docs/screenshots/branches.png) |
+
+### Manage
+
+| | |
+| --- | --- |
+| **Metamodel** — the type graph as data, editable and exportable as a pack ![Metamodel](docs/screenshots/metamodel.png) | **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) |
 
 ## Quick start
 

@@ -121,6 +121,7 @@ body { background: #e9ecef; }
 .ea-header-inner { flex-wrap: nowrap; min-height: 56px; }
 .ea-header-controls { min-width: 0; }
 .mantine-NavLink-root { border-radius: 8px; }
+.ea-nav-section { margin: 10px 8px 2px; text-transform: uppercase; letter-spacing: 0.04em; }
 .mantine-NavLink-root[data-active] { background: #edf2ff; color: #3b5bdb; font-weight: 600; }
 
 @media (min-width: 48em) and (max-width: 87.99em) {

@@ -19,17 +19,32 @@ THEME = {
     "headings": {"fontWeight": "650"},
 }
 
-NAV = [
-    ("Home", "/", "tabler:home"),
-    ("Browse", "/browse", "tabler:list-search"),
-    ("Metamodel", "/metamodel", "tabler:hierarchy-2"),
-    ("Impact", "/impact", "tabler:radar"),
-    ("Target state", "/target", "tabler:target-arrow"),
-    ("Branches", "/branches", "tabler:git-branch"),
-    ("Health", "/health", "tabler:heart-rate-monitor"),
-    ("Import", "/import", "tabler:file-import"),
-    ("Ask", "/ask", "tabler:message-chatbot"),
-    ("Propose", "/propose", "tabler:file-plus"),
+NAV_SECTIONS = [
+    ("Home", [("Home", "/", "tabler:home")]),
+    (
+        "Discover",
+        [
+            ("Browse", "/browse", "tabler:list-search"),
+            ("Ask", "/ask", "tabler:message-chatbot"),
+            ("Impact", "/impact", "tabler:radar"),
+            ("Target state", "/target", "tabler:target-arrow"),
+        ],
+    ),
+    (
+        "Contribute",
+        [
+            ("Propose", "/propose", "tabler:file-plus"),
+            ("Import", "/import", "tabler:file-import"),
+            ("Branches", "/branches", "tabler:git-branch"),
+        ],
+    ),
+    (
+        "Manage",
+        [
+            ("Metamodel", "/metamodel", "tabler:hierarchy-2"),
+            ("Health", "/health", "tabler:heart-rate-monitor"),
+        ],
+    ),
 ]
 
 
@@ -206,14 +221,23 @@ def shell(
                     dmc.AppShellNavbar(
                         dmc.Stack(
                             [
-                                dmc.NavLink(
-                                    label=label,
-                                    href=href,
-                                    leftSection=icon(ic, 18),
-                                    id=f"nav-{href.strip('/') or 'home'}",
-                                    variant="light",
-                                )
-                                for label, href, ic in NAV
+                                item
+                                for section, links in NAV_SECTIONS
+                                for item in [
+                                    dmc.Text(
+                                        section, size="xs", fw=700, c="dimmed", className="ea-nav-section"
+                                    ),
+                                    *[
+                                        dmc.NavLink(
+                                            label=label,
+                                            href=href,
+                                            leftSection=icon(ic, 18),
+                                            id=f"nav-{href.strip('/') or 'home'}",
+                                            variant="light",
+                                        )
+                                        for label, href, ic in links
+                                    ],
+                                ]
                             ]
                             + [
                                 dmc.Divider(my="sm"),
