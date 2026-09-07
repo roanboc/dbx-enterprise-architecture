@@ -11,13 +11,17 @@ lives in [`src/ea/`](./src/ea).
 
 **Strategy and information architecture are validated before any other layer,
 and the Requester approves at an explicit gate before development.** A change
-in requirements is never coded directly: align it through the numbered EA
-layers (`architecture/1_strategy` → `3_information` → `4_application`), stop at
-**Understanding** for the Requester's approval, record it in a scope document
-(`architecture/scope/`), then implement. At Depth 1 that is the only gate an
-ordinary change meets; **Direction** belongs to discovery and to the roadmap.
-Pure bug fixes that change no documented behaviour skip the alignment and the
-gate, but still keep the docs true.
+to what the model claims — an element added, removed or re-related, a rule it
+states contradicted — is never coded directly: align it through the numbered
+EA layers (`architecture/1_strategy` → `3_information` → `4_application`),
+stop at **Understanding** for the Requester's approval, record it in a scope
+document (`architecture/scope/`), then implement. At Depth 1 that is the only
+gate an ordinary change meets; **Direction** belongs to discovery and to the
+roadmap. A change inside an element the model already names — a screen, a
+filter, an import format for a service that exists, a defect — is coded
+directly and documents nothing; one that only keeps a row true edits the row
+in the same commit. `model.py --project . names <path>` says which element
+names a file, or that none does.
 
 **Ask only what blocks the work now.** A question reaches the Requester when
 the answer changes what gets built now and nothing in the model settles it.
