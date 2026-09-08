@@ -90,8 +90,8 @@ def allowed(action: str, role: str | None = None) -> bool:
 
 
 def a_role(label: str) -> str:
-    """`a Reader`, `an Architect`: a refusal is a sentence, and reads like one."""
-    return f"{'an' if label[:1].upper() in 'AEIOU' else 'a'} {label}"
+    """`A Reader`, `An Architect`: a refusal stands on its own, so it begins like a sentence."""
+    return f"{'An' if label[:1].upper() in 'AEIOU' else 'A'} {label}"
 
 
 def require(action: str, role: str | None = None, what: str = "") -> None:

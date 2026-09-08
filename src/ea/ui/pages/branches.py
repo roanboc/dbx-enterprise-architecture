@@ -528,7 +528,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         value="open",
                         size="xs",
                     ),
-                    dmc.Text(f"You are on {ctx.branch()} as {ctx.role_label()}.", size="sm", c="dimmed"),
+                    dmc.Text(_where(ctx), id=ids.BR_WHERE, size="sm", c="dimmed"),
                 ],
                 gap="md",
                 mb="sm",
@@ -543,6 +543,16 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             ),
         ]
     )
+
+
+def _where(ctx: AppContext) -> str:
+    """Which branch the reader is standing on, as the page says it.
+
+    Written in one place because a callback has to rewrite it: abandoning the branch you are
+    on moves the header to main, and a line still naming the branch that was thrown away
+    disagrees with the header a few pixels above it.
+    """
+    return f"You are on {ctx.branch()} as {ctx.role_label()}."
 
 
 def _type_names(ctx: AppContext, type_ids: list[str]) -> str:
@@ -585,6 +595,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.BR_LIST, "children", allow_duplicate=True),
         Output(ids.BRANCH_SELECT, "data", allow_duplicate=True),
         Output(ids.BRANCH_SELECT, "value", allow_duplicate=True),
+        Output(ids.BR_WHERE, "children"),
         Input(ids.BR_MERGE, "n_clicks"),
         Input(ids.BR_ABANDON, "n_clicks"),
         State(ids.BR_SELECTED, "data"),
@@ -602,7 +613,7 @@ def register(app: dash.Dash) -> None:
             try:
                 ctx.branches.abandon(branch_id, ctx.actor)
             except (NotFoundError, Forbidden) as exc:
-                return alert(str(exc), "red"), no_update, no_update, no_update, no_update
+                return alert(str(exc), "red"), no_update, no_update, no_update, no_update, no_update
             ctx.graph.invalidate()
             switched = _leave_if_current(ctx, branch_id)
             return (
@@ -618,13 +629,15 @@ def register(app: dash.Dash) -> None:
                 _branch_table(ctx, status or None, branch_id),
                 ctx.branch_options(),
                 MAIN if switched else no_update,
+                _where(ctx),
             )
         if trig != ids.BR_MERGE or not n_merge:
-            return no_update, no_update, no_update, no_update, no_update
+            return (no_update,) * 6
         include = {r["key"] for r in (selected or [])}
         if not include:
             return (
                 alert("Tick at least one row to merge.", "yellow"),
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -639,7 +652,7 @@ def register(app: dash.Dash) -> None:
         try:
             res = ctx.branches.merge(branch_id, ctx.actor, include, resolutions)
         except (ConflictError, NotFoundError, Forbidden) as exc:
-            return alert(str(exc), "red"), no_update, no_update, no_update, no_update
+            return alert(str(exc), "red"), no_update, no_update, no_update, no_update, no_update
         ctx.graph.invalidate()
         msg = f"Merged {len(res.applied)} row(s) to main"
         if res.dropped:
@@ -656,6 +669,7 @@ def register(app: dash.Dash) -> None:
             _branch_table(ctx, status or None, branch_id),
             ctx.branch_options(),
             MAIN if switched else no_update,
+            _where(ctx),
         )
 
     @app.callback(

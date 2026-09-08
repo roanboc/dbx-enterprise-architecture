@@ -209,7 +209,7 @@
     applyView(v);
   }
 
-  function setupViewport(container, svg) {
+  function setupViewport(container, svg, remeasure) {
     const canvas = document.createElement('div');
     canvas.className = 'ea-mermaid-canvas';
     canvas.appendChild(svg);
@@ -248,7 +248,16 @@
     fitView(v);
     requestAnimationFrame(function () { if (!v.touched) { fitView(v); } });
     if (window.ResizeObserver) {
-      new ResizeObserver(function () { if (!v.touched) { fitView(v); } }).observe(container);
+      let hadSize = container.clientWidth > 0;
+      new ResizeObserver(function () {
+        if (!v.touched) { fitView(v); }
+        // A view drawn on a tab nobody had opened has no layout, so every shape measured
+        // the same. The first time it has a size, measure it again and say so, or its
+        // export is a grid of identical boxes.
+        const hasSize = container.clientWidth > 0;
+        if (hasSize && !hadSize && !v.touched && remeasure) { remeasure(); }
+        hadSize = hasSize;
+      }).observe(container);
     }
     return v;
   }
@@ -267,7 +276,9 @@
         if (!svg) { return {}; }
         svg.style.maxWidth = 'none';
         const positions = enableDrag(svg, onChange);
-        setupViewport(el, svg);
+        setupViewport(el, svg, function () {
+          if (onChange) { onChange(positionsOf(nodeInfo(svg))); }
+        });
         return positions;
       }).catch(function (err) {
         el.innerHTML = '<pre style="color:#c92a2a;font-size:12px;white-space:pre-wrap">' + String(err) + '</pre>';

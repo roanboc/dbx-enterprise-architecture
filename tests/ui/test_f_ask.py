@@ -1066,8 +1066,10 @@ def test_a_question_that_matches_nothing(ui, record, finding):
     )
     called = _trace_calls(ui)
     ui.check(
-        "the trace shows the words it searched for and the fallback to the metamodel",
-        called == ["search_elements", "search_elements", "search_elements", "list_types"],
+        # The shape, not the count: how many words the reader tries before giving up is its
+        # own business, and pinning the number here would fail on a better reader.
+        "the trace shows the words it searched for and then the fallback to the metamodel",
+        len(called) > 1 and set(called[:-1]) == {"search_elements"} and called[-1] == "list_types",
         f"the trace lists {called}",
     )
     first = ui.page.locator("#ask-trace .mantine-Accordion-control").first.inner_text()

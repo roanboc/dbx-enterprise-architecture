@@ -1238,7 +1238,11 @@ def test_save_reviewers_forced_by_an_architect(ui, record, finding):
     ui.check("the refusal names the role", "Architect" in feedback, feedback or "no feedback")
     ui.check("it says which action was refused", "assign reviewers" in feedback.lower(), feedback)
     ui.check("nothing reports a save", "saved" not in feedback.lower(), feedback or "no feedback")
-    ui.check("the refusal reads as a sentence", "an Architect" in feedback, feedback or "no feedback")
+    ui.check(
+        "the refusal reads as a sentence",
+        "an architect" in feedback.lower(),
+        feedback or "no feedback",
+    )
     ui.shot("Save reviewers, pressed by an Architect past its disabled state, and the refusal")
     if "a Architect" in feedback:
         finding.append(

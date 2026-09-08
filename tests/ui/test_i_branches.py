@@ -1794,9 +1794,12 @@ def test_a_branch_that_is_not_there(ui, record, finding):
         moved = (chosen.get_attribute("value") if chosen.count() else "") or ""
     ui.check("the status control moved to Merged", moved.lower() == "merged", f"it reads {moved!r}")
     merged = ui.text("br-list")
-    filtered = MERGE_BRANCH not in merged
+    # What matters is that the list was re-read for the status that was asked for. Naming a
+    # branch that should drop out is brittle: this group merges branches of its own, and a
+    # merged one belongs in the merged list.
+    filtered = "OPEN" not in merged.upper()
     ui.check(
-        "and the list is re-read for that status, the open branch dropping out of it",
+        "and the list is re-read for that status, with nothing open left in it",
         filtered,
         f"the list still reads {merged[:200]!r}",
     )

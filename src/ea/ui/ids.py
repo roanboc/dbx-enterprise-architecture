@@ -136,6 +136,7 @@ BRANCH_NEW_WP = "branch-new-wp"
 BRANCH_NEW_SAVE = "branch-new-save"
 BRANCH_NEW_FEEDBACK = "branch-new-feedback"
 BR_STATUS = "br-status"
+BR_WHERE = "br-where"  # the line saying which branch the reader is on, above the list
 BR_LIST = "br-list"
 BR_SELECTED = "br-selected"  # store: the branch whose change set is shown
 BR_DETAIL = "br-detail"

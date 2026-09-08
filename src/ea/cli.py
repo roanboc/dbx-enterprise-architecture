@@ -311,6 +311,8 @@ def get(element_id: str):
 @app.command()
 def neighbours(element_id: str, depth: int = 1, direction: str = "both"):
     """Elements within N hops."""
+    if direction not in ("in", "out", "both"):
+        _refuse(f"--direction is 'in', 'out' or 'both', not {direction!r}")
     _, _, _, _, graph = _ctx()
     sub = graph.neighbours(element_id, depth, direction)
     for n in sub["nodes"]:

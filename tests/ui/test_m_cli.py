@@ -3208,11 +3208,11 @@ def test_m60_reviewer_assignments(cli, record, finding):
     said = refusal(bad)
     check(
         record,
-        "and the refusal does not call the element type an element",
-        "element" not in said.lower(),
+        "and the refusal names an element type, not an element",
+        "element type" in said.lower() and "no element with id" not in said.lower(),
         f"the refusal reads {said!r}",
     )
-    if "element" in said.lower():
+    if "no element with id" in said.lower():
         lodge(
             finding,
             "M-18",
@@ -3323,7 +3323,7 @@ def test_m62_environment_flags(cli, record):
     check(
         record,
         "EA_ROLE sets the role the way --as does",
-        rc_role == 1 and "a Reader may not change main directly" in refused,
+        rc_role == 1 and "reader may not change main directly" in refused.lower(),
         trim(refusal(refused), 130) or role_ev,
     )
     _, as_admin, _ = run(cli, "get", ENTITY, limit=90)
