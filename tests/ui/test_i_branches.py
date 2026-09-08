@@ -48,6 +48,7 @@ D2 = "DEF-UNIT"  # a Business Definition, conflicted and resolved to main
 P1 = "DP-CURR-HEALTH"  # a Data Product, the one row the review decides
 
 GRID = "br-grid"
+MODAL = "branch-new-modal-body"  # dmc.Modal puts the id on its parts, not on a root node
 STATUSES = [
     ("Open", "open"),
     ("In review", "in review"),
@@ -76,7 +77,7 @@ def _branches(ui, branch_id: str | None = None) -> None:
 def _new_branch(ui, opener: str, name: str, description: str, work_package: str = "") -> None:
     """Open the New branch modal from `opener`, fill it in, and create the branch."""
     ui.click(opener)
-    ui.must("the New branch modal opened", ui.visible("branch-new-modal"))
+    ui.must("the New branch modal opened", ui.visible(MODAL))
     ui.fill("branch-new-name", name)
     ui.fill("branch-new-desc", description)
     if work_package:
@@ -129,17 +130,26 @@ def _set_included(ui, key: str, on: bool) -> None:
 
 
 def _set_take(ui, key: str, value: str) -> None:
-    """Choose 'branch' or 'main' in the editable take cell of a conflicting row."""
+    """Choose 'branch' or 'main' in the editable take cell of a conflicting row.
+
+    The cell edits on a single click, which puts a collapsed picker in it; the picker's own
+    click opens the list. Both take a moment, so the two are tried together until the list is up.
+    """
     cell = ui.page.locator(f"#{GRID} .ag-row[row-id='{key}'] .ag-cell[col-id='resolution']").first
-    cell.scroll_into_view_if_needed()
-    cell.click()  # the grid edits on a single click
-    ui.page.wait_for_timeout(250)
-    if not ui.page.locator(".ag-list-item:visible").count():
-        picker = ui.page.locator(f"#{GRID} .ag-cell-editor .ag-picker-field-wrapper").first
-        if picker.count():
-            picker.click()
-            ui.page.wait_for_timeout(250)
+    options = ui.page.locator(".ag-list-item:visible")
+    for _ in range(4):
+        if options.count():
+            break
+        cell.scroll_into_view_if_needed()
+        cell.click()
+        ui.page.wait_for_timeout(350)
+        picker = ui.page.locator(f"#{GRID} .ag-cell-editor .ag-picker-field-wrapper")
+        if not options.count() and picker.count():
+            picker.first.click()
+            ui.page.wait_for_timeout(350)
+    ui.must(f"the take cell of {key} offers a choice", options.count() > 0)
     ui.page.locator(f".ag-list-item:visible:text-is({json.dumps(value)})").first.click()
+    ui.page.wait_for_timeout(250)
     ui.settle()
 
 
@@ -188,8 +198,8 @@ def test_create_from_the_header(ui, record):
     _branches(ui)
     ui.check("the reader starts on main", ui.branch_badge().strip().lower() == "main", ui.branch_badge())
     ui.click("branch-new-open")
-    ui.must("the New branch modal opened", ui.visible("branch-new-modal"))
-    modal = ui.text("branch-new-modal")
+    ui.must("the New branch modal opened", ui.visible(MODAL))
+    modal = ui.text(MODAL)
     ui.check(
         "the modal says what a branch is before asking for a name",
         "stays on the branch until you merge it" in modal,
@@ -202,7 +212,7 @@ def test_create_from_the_header(ui, record):
     ui.fill("branch-new-desc", "Group I: two measures edited on a branch, merged one row at a time.")
     ui.select("branch-new-wp", WP_LABEL)
     ui.click("branch-new-save")
-    ui.check("the modal closed once the branch was created", not ui.visible("branch-new-modal"))
+    ui.check("the modal closed once the branch was created", not ui.visible(MODAL))
     badge = ui.branch_badge()
     ui.check("the header badge left main for the new branch", "branch" in badge.lower(), badge)
     ui.check(
