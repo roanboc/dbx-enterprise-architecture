@@ -929,13 +929,25 @@ def _head_alert(ui) -> str:
     return loc.inner_text().strip() if loc.count() else ""
 
 
+def _long_editor(ui, grid_id: str):
+    """The textarea of a popup cell editor, wherever the grid chose to mount it."""
+    return ui.page.locator(
+        f"#{grid_id} textarea, .ag-popup-editor textarea, .ag-popup textarea, .ag-large-text textarea"
+    ).first
+
+
 def _set_long_text(ui, grid_id: str, row_id: str, col: str, value: str) -> None:
-    """Fill a popup text editor: it commits when the editor loses focus, not on Enter."""
+    """Fill a popup text editor: it opens over the grid and commits when it loses focus."""
     cell = ui.page.locator(f"#{grid_id} .ag-row[row-id='{row_id}'] .ag-cell[col-id='{col}']").first
     cell.scroll_into_view_if_needed()
     cell.click()
-    editor = ui.page.locator(f"#{grid_id} .ag-cell-editor textarea").first
-    editor.wait_for(timeout=10_000)
+    editor = _long_editor(ui, grid_id)
+    try:
+        editor.wait_for(timeout=5_000)
+    except Exception:  # noqa: BLE001 — a single click did not open it; a double click does
+        cell.dblclick()
+        editor = _long_editor(ui, grid_id)
+        editor.wait_for(timeout=10_000)
     editor.fill(value)
     ui.page.locator("#pr-result .ea-section-title").first.click()  # inert text: the editor blurs
     ui.settle()
@@ -1440,7 +1452,14 @@ def test_unreadable_link(ui, record, finding):
 def test_what_landed_on_the_branch(ui, record):
     ui.goto("/propose")
     ui.branch(BRANCH)
-    ui.must("the header says which branch is being read", BRANCH in ui.branch_badge(), ui.branch_badge())
+    badge = ui.branch_badge()
+    ui.must(
+        "the header says the reader has left the model for a branch",
+        "branch" in badge.lower() and badge.strip().lower() != "main",
+        f"the badge reads {badge!r}",
+    )
+    header = ui.page.locator("#branch-select").first.input_value()
+    ui.must("the header names the branch being read", header.startswith(BRANCH), f"it reads {header!r}")
     _open(ui)
     destination = ui.page.locator("#pr-branch").first.input_value()
     ui.check(

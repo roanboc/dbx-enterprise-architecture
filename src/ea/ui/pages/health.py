@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import dash
 import dash_mantine_components as dmc
@@ -51,7 +52,9 @@ def _freshness(ctx: AppContext) -> html.Div:
     body = []
     for r in fresh["sources"]:
         src = r["source"]
-        q = f"&source={src}" if src != "(authored)" else ""
+        # Every row carries its source into the link, `(authored)` included: without it the
+        # figure for the rows nobody imported opened the rows everybody did.
+        q = f"&source={quote(src)}"
         body.append(
             dmc.TableTr(
                 [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import csv
 import fnmatch
 import io
 import zipfile
@@ -167,6 +168,19 @@ def _frames(store: dict, mapping: Mapping):
     return frames, unclassified, malformed
 
 
+def _row_count(text: str) -> int:
+    """How many records a file holds, which is not how many lines it has.
+
+    A quoted field may run over several lines — a description pasted from a document
+    routinely does — and counting lines then says the file holds rows it does not, before
+    the reader has pressed anything.
+    """
+    try:
+        return max(0, sum(1 for _ in csv.reader(io.StringIO(text))) - 1)
+    except csv.Error:
+        return max(0, len(text.splitlines()) - 1)
+
+
 def _malformed_alert(malformed: list[CsvShapeError]):
     """A file whose rows do not match its own header is named, and nothing of it is read."""
     if not malformed:
@@ -258,7 +272,7 @@ def register(app: dash.Dash) -> None:
                 [
                     icon("tabler:file-type-csv"),
                     dmc.Text(n, size="sm"),
-                    dmc.Text(f"{len(t.splitlines()) - 1} rows", size="xs", c="dimmed"),
+                    dmc.Text(f"{_row_count(t)} rows", size="xs", c="dimmed"),
                 ],
                 gap="xs",
             )

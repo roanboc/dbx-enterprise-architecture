@@ -468,8 +468,15 @@ def view_toolbar(
     note: str = "",
     copy_content: str | None = None,
     extra: list[Any] | None = None,
+    md_reason: str = "",
+    drawio_reason: str = "",
+    note_id: str = "",
 ) -> dmc.Group:
-    """Download (and optionally copy) buttons under a generated view or document."""
+    """Download (and optionally copy) buttons under a generated view or document.
+
+    A reason disables the button it names and says why: a button that can produce nothing
+    should not take the click and answer with silence.
+    """
     items: list[Any] = []
     if copy_content is not None:
         items.append(
@@ -485,19 +492,25 @@ def view_toolbar(
                 label="Copy the whole document as Markdown",
             )
         )
-    items += [
-        dmc.Button(
-            "Download Markdown", id=md_id, size="xs", variant="light", leftSection=icon("tabler:download", 14)
-        ),
-        dmc.Button(
-            "Download draw.io",
-            id=drawio_id,
+
+    def download_button(label: str, button_id: str, reason: str) -> Any:
+        return dmc.Button(
+            label,
+            id=button_id,
             size="xs",
             variant="light",
             leftSection=icon("tabler:download", 14),
-        ),
+            disabled=bool(reason),
+        )
+
+    items += [
+        download_button("Download Markdown", md_id, md_reason),
+        download_button("Download draw.io", drawio_id, drawio_reason),
         *(extra or []),
     ]
-    if note:
-        items.append(dmc.Text(note, size="xs", c="dimmed"))
+    # The note is beside the buttons, so a disabled one has its reason where a reader
+    # looking at it is already looking. With an id, a callback can change it.
+    if note or note_id:
+        text = dmc.Text(note, size="xs", c="dimmed")
+        items.append(html.Div(text, id=note_id) if note_id else text)
     return dmc.Group(items, gap="sm", mt="xs", align="center")

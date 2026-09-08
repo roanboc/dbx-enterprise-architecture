@@ -40,7 +40,17 @@ class HealthService:
     def __init__(self, backend: DatabaseBackend, registry: Registry, now: datetime | None = None):
         self.backend = backend
         self.registry = registry
-        self.now = now or datetime.now(UTC).replace(tzinfo=None)
+        self._pinned = now
+
+    @property
+    def now(self) -> datetime:
+        """Read when it is asked for.
+
+        The service is built once and answers for the life of the process, so a moment
+        captured at construction is the moment the application started — and every figure
+        measured against it drifts a little further from true with every hour it runs.
+        """
+        return self._pinned or datetime.now(UTC).replace(tzinfo=None)
 
     # ------------------------------------------------------------ freshness
     def freshness(self) -> dict[str, Any]:
@@ -96,7 +106,8 @@ class HealthService:
 
     def activity(self, weeks: int = ACTIVITY_WEEKS) -> list[dict[str, Any]]:
         """Change-log entries per ISO week for the last `weeks` weeks, by kind of operation."""
-        since = self.now - timedelta(weeks=weeks)
+        first = self.now - timedelta(weeks=weeks - 1)
+        since = first - timedelta(days=first.weekday())  # the Monday the first week begins on
         counts: dict[str, Counter] = defaultdict(Counter)
         for h in self.backend.history(None, 20_000):
             ts = _naive(h.get("changed_at"))
@@ -105,7 +116,7 @@ class HealthService:
             year, week, _ = ts.isocalendar()
             counts[f"{year}-W{week:02d}"][h.get("op") or "?"] += 1
         out = []
-        cursor = since
+        cursor = first
         while cursor <= self.now:
             y, w, _ = cursor.isocalendar()
             key = f"{y}-W{w:02d}"

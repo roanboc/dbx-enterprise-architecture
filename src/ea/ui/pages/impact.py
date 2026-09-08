@@ -33,6 +33,9 @@ def _option(ctx: AppContext, e) -> dict[str, str]:
     return {"value": e.element_id, "label": f"{e.name} [{e.element_id}] \u00b7 {t.name if t else e.type_id}"}
 
 
+NOTHING_TO_EXPORT = "Choose an element and press Run: there is no view to export yet."
+
+
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset = (parse_qs((search or "").lstrip("?")).get("element") or [None])[0]
     data = [_option(ctx, e) for e in ctx.repo.search(limit=50)]
@@ -48,6 +51,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             # Run button refuses one, rather than rendering an empty page that explains
             # nothing. The selector is left empty, because there is nothing to select.
             preset, result = None, alert("Unknown element.", "red")
+    nothing_yet = "" if mermaid else NOTHING_TO_EXPORT
     return html.Div(
         [
             page_title(
@@ -98,7 +102,14 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         mb="xs",
                     ),
                     mermaid_block("imp-view", mermaid),
-                    view_toolbar(ids.IMP_VIEW_MD, ids.IMP_VIEW_DRAWIO),
+                    view_toolbar(
+                        ids.IMP_VIEW_MD,
+                        ids.IMP_VIEW_DRAWIO,
+                        md_reason=nothing_yet,
+                        drawio_reason=nothing_yet,
+                        note=nothing_yet,
+                        note_id=ids.IMP_VIEW_NOTE,
+                    ),
                 ],
                 p="md",
                 withBorder=True,
@@ -215,6 +226,9 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.IMP_RESULT, "children"),
+        Output(ids.IMP_VIEW_MD, "disabled"),
+        Output(ids.IMP_VIEW_DRAWIO, "disabled"),
+        Output(ids.IMP_VIEW_NOTE, "children"),
         Output(gp.store_id("imp"), "data"),
         Output({"type": ids.MERMAID_SRC, "id": "imp-view"}, "children"),
         Input(ids.IMP_RUN, "n_clicks"),
@@ -225,8 +239,11 @@ def register(app: dash.Dash) -> None:
     )
     def run(n, element_id, depth):
         if not element_id:
-            return no_update, no_update, no_update
-        return _result(get_context(), element_id, int(depth or 3))
+            return (no_update,) * 6
+        result, nodes, mermaid = _result(get_context(), element_id, int(depth or 3))
+        blocked = "" if mermaid else NOTHING_TO_EXPORT
+        note = dmc.Text(blocked, size="xs", c="dimmed") if blocked else None
+        return result, bool(blocked), bool(blocked), note, nodes, mermaid
 
     @app.callback(
         Output(ids.URL, "pathname", allow_duplicate=True),

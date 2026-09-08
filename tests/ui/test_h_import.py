@@ -78,6 +78,66 @@ OBJECTS_CSV = (
     f"An application read through the tool-export mapping ({MARKER}).\n"
 )
 
+# ------------------------------------------------ what the first twelve scenarios did not reach
+
+# A row carrying more fields than the header it declares. Read leniently it would load under
+# identifiers the file never wrote, so the importer refuses the file whole.
+RAGGED_CSV = (
+    "id,type,name,description\n"
+    "H-RAGGED-ONE,data_entity,H Ragged One,A tidy row.\n"
+    "H-RAGGED-TWO,data_entity,H Ragged Two,A row with,an unquoted comma,and a field too many\n"
+)
+# An edge between the two elements the first load wrote, of a type the metamodel does not allow
+# between them: the endpoints resolve from the model, the type does not.
+BAD_REL_CSV = f"src_id,rel_type,dst_id\n{LDC},processes,{DE}\n"
+# Four warnings and not one error: a status the vocabulary does not hold, a current and a target
+# state it does not hold either, and the same id twice.
+WARNING_CSV = (
+    "id,type,name,description,status,lifecycle_status,current_state,target_state\n"
+    f"H-DE-WARNED,data_entity,H Warned,A row that warns without failing ({MARKER}).,"
+    "pending,Planned,sideways,maybe\n"
+    f"H-DE-WARNED,data_entity,H Warned Again,The same id a second time ({MARKER}).,"
+    "approved,Planned,planned,keep\n"
+)
+# The tool's own words rather than the pack's: a type label the pack carries under another name,
+# and lifecycle text only the mapping's own table reads.
+TOOL_OBJECTS_CSV = (
+    "ID,Name,Object Type,Lifecycle Status,Description,Level of Logical Data Component\n"
+    f"H-BD-COHORT,H Cohort,Definition,Sunset,A term read through the mapping ({MARKER}).,\n"
+    f"H-LDC-ANALYTICS,H Analytics Data,Logical Data Component,Being built,"
+    f"A data area read through the mapping ({MARKER}).,2\n"
+)
+# Two URLs in the one cell, the way the contract says to write them.
+INLINE_LINKS_CSV = (
+    "id,type,name,description,links\n"
+    f"H-DE-LINKED,data_entity,H Linked,A row carrying two links inline ({MARKER}).,"
+    "https://example.edu/one|https://example.edu/two\n"
+)
+# One link for an element the model already holds, one for an id that is nowhere.
+LINKS_CSV = (
+    "element_id,url,label\n"
+    f"{LDC},https://example.edu/admissions,Admissions source page\n"
+    "H-NOWHERE,https://example.edu/nowhere,A link to nothing\n"
+)
+# The same file name chosen twice, longer the second time.
+GROWN_CSV = (
+    "id,type,name,description\n"
+    "H-DE-ONE,data_entity,H One,The first row of a file chosen twice.\n"
+    "H-DE-TWO,data_entity,H Two,The second row of it.\n"
+)
+GROWN_MORE_CSV = GROWN_CSV + "H-DE-THREE,data_entity,H Three,A row added before it was chosen again.\n"
+# Loaded on the branch and nowhere else, so a search that finds it names the branch it is on.
+BRANCH_ONLY = "H-DE-BRANCHONLY"
+BRANCH_MARKER = "hbranchonly"
+BRANCH_CSV = (
+    "id,type,name,description\n"
+    f"{BRANCH_ONLY},data_entity,H Branch Only,A row loaded onto the branch alone "
+    f"({MARKER} {BRANCH_MARKER}).\n"
+)
+
+NOTHING_LOADED = "Nothing was loaded."
+NOT_READ = "Not read — a row does not match the header the file declares"
+
 
 # --------------------------------------------------------------------------- the controls
 
@@ -566,3 +626,482 @@ def test_spreadsheet_shaped_csv(ui, record, finding):
                 ),
             )
         )
+
+
+# ------------------------------------------------------- reading a file, or refusing to read it
+
+
+def _report_background(ui) -> str:
+    """The colour of the report's own first alert, which is not the page banner's."""
+    return ui.page.evaluate(
+        "() => { const a = document.querySelector('#im-report [class*=\"Alert-root\"]');"
+        " return a ? getComputedStyle(a).backgroundColor : ''; }"
+    )
+
+
+def _issue_rows(ui) -> str:
+    """The body of the issue table, without the summary above it that also says 'errors'."""
+    body = ui.page.locator("#im-report table tbody").first
+    return body.inner_text().replace("\n", " ") if body.count() else ""
+
+
+def _file_count(ui) -> int:
+    return ui.page.locator("#im-files [class*='Group-root']").count()
+
+
+def _row_says(ui, name: str, text: str, tries: int = 20) -> bool:
+    """The file list is rewritten by a callback; give it a moment to say the new thing."""
+    for _ in range(tries):
+        if text in _file_row(ui, name):
+            return True
+        ui.page.wait_for_timeout(200)
+    return False
+
+
+@pytest.mark.scenario(
+    scenario_id="H13",
+    group="H",
+    title="A file whose rows do not match its own header is refused whole, by name and with the reason",
+    feature="Import · a malformed file",
+    expected=(
+        "A CSV holding a row with more fields than its header is not read at all: the page names the "
+        "file, quotes the line the parser stopped on, and says what reading it anyway would cost."
+    ),
+)
+def test_ragged_file_is_refused(ui, record):
+    _open(ui)
+    _upload(ui, _write(ui, "h-ragged-elements.csv", RAGGED_CSV))
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("the file is refused rather than half-read", NOT_READ in text, text[:300])
+    ui.check("the refusal names the file it is about", "h-ragged-elements.csv" in text, text[:300])
+    ui.check(
+        "and quotes the line the parser stopped on, so the row can be found",
+        "Expected 4 fields in line 3" in text,
+        text[:300],
+    )
+    ui.check(
+        "it says why reading it anyway would be worse than refusing it",
+        "identifiers the file never named" in text,
+        text[:300],
+    )
+    ui.check(
+        "and reports no count for a file nothing was read from",
+        "loaded" not in text.lower(),
+        text[:300],
+    )
+    ui.shot("A ragged CSV: refused whole, with the file, the line and the reason")
+
+
+@pytest.mark.scenario(
+    scenario_id="H14",
+    group="H",
+    title="A malformed file among sound ones stops only itself, and turns the summary red",
+    feature="Import · a malformed file beside a sound one",
+    expected=(
+        "Adding a ragged file to a sound one still reports the sound file's two rows, names the ragged "
+        "one as unread, and colours the summary differently from the clean run it followed."
+    ),
+)
+def test_ragged_file_beside_a_sound_one(ui, record, finding):
+    _open(ui)
+    _upload(ui, _write(ui, "h-elements.csv", ELEMENTS_CSV))
+    ui.click("im-validate")
+    clean, clean_bg = _report(ui), _report_background(ui)
+    ui.must("the sound file on its own reports its two rows", "elements 0/2 loaded" in clean, clean[:200])
+    _upload(ui, _write(ui, "h-ragged-elements.csv", RAGGED_CSV))
+    ui.click("im-validate")
+    text, bg = _report(ui), _report_background(ui)
+    ui.check("the sound file is still read", "elements 0/2 loaded" in text, text[:300])
+    ui.check(
+        "the ragged one is named as unread beside it",
+        NOT_READ in text and "h-ragged-elements.csv" in text,
+        text[:400],
+    )
+    ui.check(
+        "and the summary is coloured differently from the clean run before it",
+        bg != clean_bg,
+        f"clean {clean_bg}, with the ragged file {bg}",
+    )
+    ui.check(
+        "the file the reader is still asked to load is the sound one alone",
+        "H-RAGGED-ONE" not in text,
+        text[:400],
+    )
+    ui.shot("A ragged file beside a sound one: two rows read, one file refused, the summary red")
+    if "0 errors" in text and "No issues." in text:
+        finding.append(
+            Finding(
+                finding_id="H4",
+                where="src/ea/ui/pages/import_page.py · the report (`im-report`)",
+                severity="consistency",
+                summary="A refused file is not counted as an error, so the same import reads '0 errors' "
+                "in the app and one error on the command line.",
+                detail=(
+                    "`_run` renders the malformed files as an alert of their own and never adds them to "
+                    "the report, so the summary says '0 errors' and the issue table says 'No issues.' "
+                    "while a whole file went unread. `import_directory`, which the command line uses, "
+                    "appends an error issue coded `ragged_row` for each such file, so `ea import` on the "
+                    "same folder counts it. The count a reader skims and the count the command line "
+                    "prints should agree."
+                ),
+            )
+        )
+
+
+# ------------------------------------------------------ what the report says it did, and did not
+
+
+@pytest.mark.scenario(
+    scenario_id="H15",
+    group="H",
+    title="Load with nothing loadable says so plainly instead of claiming a load",
+    feature="Import · a load that writes nothing",
+    expected=(
+        "Pressing Load on files whose every row is defective reports 'Nothing was loaded.' rather than "
+        "'Loaded.', counts the three errors, and the ids are still absent from the model afterwards."
+    ),
+)
+def test_load_that_writes_nothing(ui, record):
+    _open(ui)
+    _upload(
+        ui,
+        _write(ui, "h-broken-elements.csv", BROKEN_ELEMENTS_CSV),
+        _write(ui, "h-broken-relationships.csv", BROKEN_RELATIONSHIPS_CSV),
+    )
+    ui.fill("im-source", SOURCE)
+    ui.click("im-load")
+    text = _report(ui)
+    ui.check("the report does not claim a load it did not make", LOADED not in text, text[:200])
+    ui.check("it says plainly that nothing was written", NOTHING_LOADED in text, text[:200])
+    ui.check("while making clear this was a load and not a validation", DRY not in text, text[:200])
+    ui.check("every element row was skipped", "elements 0/2 loaded (2 skipped)" in text, text[:300])
+    ui.check("and so was the edge", "relationships 0/1 loaded (1 skipped)" in text, text[:300])
+    ui.check("the three defects are still counted", "3 errors" in text, text[:300])
+    ui.shot("Load with nothing loadable: 'Nothing was loaded.', and the three defects behind it")
+    ui.goto("/element/H-BROKEN-ONE")
+    body = ui.body()
+    ui.check("the row whose type the pack does not know reached nothing", "Not found" in body, body[:200])
+    ui.check("and the page names the id it could not find", "H-BROKEN-ONE" in body, body[:200])
+    ui.goto("/element/H-BROKEN-TWO")
+    ui.check("nor did the row with no name", "Not found" in ui.body(), ui.body()[:200])
+    ui.shot("After a load that wrote nothing, the broken ids are still absent from the model")
+
+
+@pytest.mark.scenario(
+    scenario_id="H16",
+    group="H",
+    title="A relationships file alone finds its endpoints in the model, and a refused type lists what is allowed",
+    feature="Import · a relationship the metamodel does not allow",
+    expected=(
+        "A relationships file uploaded on its own resolves both endpoints from the earlier load rather "
+        "than calling them dangling, and the type it names is refused with the type that is allowed."
+    ),
+)
+def test_relationship_type_refused_names_what_is_allowed(ui, record):
+    ui.goto(f"/browse?q={MARKER}")
+    ui.must(
+        "the elements of the earlier load are in the model to point at",
+        ui.grid_row_count("browse-grid") > 0,
+        ui.text("browse-count"),
+    )
+    _open(ui)
+    _upload(ui, _write(ui, "h-badrel-relationships.csv", BAD_REL_CSV))
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("no element file was needed", "elements 0/0 loaded" in text, text[:300])
+    ui.check(
+        "and the endpoints were found in the model rather than called dangling",
+        "dangling_relationship" not in text,
+        text[:400],
+    )
+    ui.check("the edge is refused by the metamodel", "unknown_relationship_type" in text, text[:400])
+    ui.check("the message names the relationship the file asked for", "'processes'" in text, text[:400])
+    ui.check(
+        "and the two types it was asked to join",
+        "logical_data_component" in text and "data_entity" in text,
+        text[:400],
+    )
+    ui.check(
+        "then lists what the metamodel does allow between them, so the file can be fixed",
+        "allowed: encapsulates" in text,
+        text[:400],
+    )
+    ui.check("the edge is counted as skipped", "relationships 0/1 loaded (1 skipped)" in text, text[:300])
+    ui.check("and counted as an error", "1 errors" in text, text[:300])
+    ui.shot("A relationship the metamodel refuses, answered with the one it allows")
+
+
+@pytest.mark.scenario(
+    scenario_id="H17",
+    group="H",
+    title="A warning says what the importer did instead, and does not cost the row",
+    feature="Import · warnings",
+    expected=(
+        "A file with an unknown status, an unrecognised current and target state and a repeated id "
+        "reports four warnings and no error, every one saying what was used instead, and skips nothing."
+    ),
+)
+def test_warnings_do_not_skip_the_row(ui, record):
+    _open(ui)
+    _upload(ui, _write(ui, "h-warning-elements.csv", WARNING_CSV))
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("nothing about the file is an error", "0 errors" in text, text[:300])
+    ui.check("all four warnings are counted", "4 warnings" in text, text[:300])
+    ui.check("and listed", "Issues (4)" in text, text[:300])
+    ui.check("no row was skipped for a warning", "elements 0/2 loaded (0 skipped)" in text, text[:300])
+    for code in ("unknown_status", "unknown_current_state", "unknown_target_state", "duplicate_id"):
+        ui.check(f"the {code} warning is named by its code", code in text, text[:800])
+    ui.check("the unknown status says what was used instead", "using 'approved'" in text, text[:800])
+    ui.check(
+        "the unrecognised current state says it was derived from the lifecycle text instead",
+        "derived from the lifecycle text instead" in text,
+        text[:800],
+    )
+    ui.check(
+        "the unrecognised target state says it fell back to undecided",
+        "using 'undecided'" in text,
+        text[:800],
+    )
+    ui.check("and the repeated id says which row wins", "last row wins" in text, text[:800])
+    rows = _issue_rows(ui)
+    ui.check("every issue in the table is marked a warning", rows.lower().count("warning") >= 4, rows[:400])
+    ui.check("and none of them an error", "error" not in rows.lower(), rows[:400])
+    ui.shot("Four warnings, no error: each says what was used instead, and no row is skipped")
+
+
+# ---------------------------------------------------- the mapping, the source system, the links
+
+
+@pytest.mark.scenario(
+    scenario_id="H18",
+    group="H",
+    title="With the source box cleared the import falls back to the mapping's own source system",
+    feature="Import · the source system",
+    expected=(
+        "The mapping offers the plain contract and the tool export by the file each comes from; with "
+        "the source box emptied the run is recorded as `import` under no mapping and as `ea-tool` under "
+        "the tool export."
+    ),
+)
+def test_source_system_falls_back(ui, record):
+    _open(ui)
+    ui.click("im-mapping")
+    options = [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    ui.check("the mapping offers exactly the two the page ships with", len(options) == 2, str(options))
+    ui.check(
+        "and names the file the tool export is read from, so it can be adapted",
+        any("connectors/tool-export/mapping.yaml" in o for o in options),
+        str(options),
+    )
+    _upload(ui, _write(ui, "h-elements.csv", ELEMENTS_CSV), _write(ui, "h-objects.csv", OBJECTS_CSV))
+    ui.fill("im-source", "")
+    ui.click("im-validate")
+    plain = _report(ui)
+    ui.check(
+        "with the box empty and no mapping the run is recorded as import",
+        "source=import" in plain,
+        plain[:200],
+    )
+    ui.check("reading the file the contract matches", "elements 0/2 loaded" in plain, plain[:300])
+    ui.check("and naming the one it does not", "h-objects.csv" in plain, plain[:300])
+    ui.select("im-mapping", "EA tool export")
+    ui.click("im-validate")
+    mapped = _report(ui)
+    ui.check(
+        "under a mapping the same empty box takes the source the mapping declares",
+        "source=ea-tool" in mapped,
+        mapped[:200],
+    )
+    ui.check("and both files are now read", "elements 0/3 loaded" in mapped, mapped[:300])
+    ui.check("with nothing left ignored", "Ignored" not in mapped, mapped[:300])
+    ui.check(
+        "the source box is still empty, so nothing was filled in behind the reader",
+        ui.page.locator("#im-source").input_value() == "",
+        ui.page.locator("#im-source").input_value(),
+    )
+    ui.shot("With the source box cleared the mapping's own source system is what the rows would carry")
+
+
+@pytest.mark.scenario(
+    scenario_id="H19",
+    group="H",
+    title="The tool-export mapping resolves the tool's own type label and lifecycle words",
+    feature="Import · a mapping's vocabulary",
+    expected=(
+        "Loading a tool export whose type is written `Definition` and whose lifecycle reads `Being "
+        "built` stores a Business Definition and a current state of in_implementation, under the "
+        "mapping's own source system."
+    ),
+)
+def test_mapping_reads_the_tools_own_words(ui, record):
+    _open(ui)
+    _upload(ui, _write(ui, "h-tool-objects.csv", TOOL_OBJECTS_CSV))
+    ui.select("im-mapping", "EA tool export")
+    ui.fill("im-source", "")
+    ui.click("im-load")
+    text = _report(ui)
+    ui.check("both rows were written", LOADED in text and "elements 2/2 loaded" in text, text[:300])
+    ui.check("with nothing to report", "0 errors" in text and "No issues." in text, text[:300])
+    ui.check("under the source system the mapping declares", "source=ea-tool" in text, text[:200])
+    ui.shot("A tool export loaded through its mapping: two rows, no issue")
+    ui.goto(f"/browse?q={MARKER}")
+    kind = ui.grid_cell_of("browse-grid", "H-BD-COHORT", "type")
+    ui.check(
+        "the label the tool writes is stored as the type the pack names", kind == "Business Definition", kind
+    )
+    retired = ui.grid_cell_of("browse-grid", "H-BD-COHORT", "current_state")
+    ui.check("a lifecycle text of Sunset becomes a current state of retired", retired == "retired", retired)
+    building = ui.grid_cell_of("browse-grid", "H-LDC-ANALYTICS", "current_state")
+    ui.check(
+        "and Being built, which no default keyword reads, is taken from the mapping's own table",
+        building == "in_implementation",
+        building,
+    )
+    source = ui.grid_cell_of("browse-grid", "H-BD-COHORT", "source_system")
+    ui.check(
+        "both rows carry the mapping's source system, so a re-import finds them", source == "ea-tool", source
+    )
+    ui.shot("In Browse: the tool's words stored as the pack's type and the repository's states")
+
+
+@pytest.mark.scenario(
+    scenario_id="H20",
+    group="H",
+    title="Links arrive both in the element row and in a file of their own",
+    feature="Import · links",
+    expected=(
+        "Two URLs separated by a bar in one cell are read as two links, and a links file naming an "
+        "element the model already holds warns only about the id that is nowhere."
+    ),
+)
+def test_links_inline_and_by_file(ui, record, finding):
+    _open(ui)
+    _upload(ui, _write(ui, "h-linked-elements.csv", INLINE_LINKS_CSV))
+    ui.click("im-validate")
+    inline = _report(ui)
+    ui.check("the two URLs in the one cell are read as two links", "links 0/2" in inline, inline[:300])
+    ui.check(
+        "and the row carrying them is clean", "0 errors" in inline and "No issues." in inline, inline[:300]
+    )
+    ui.shot("Two URLs in a single cell, read as two links")
+    _open(ui)  # a fresh page, so the element file above is not in the store to resolve against
+    _upload(ui, _write(ui, "h-links.csv", LINKS_CSV))
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("both rows of the links file are read", "links 0/2" in text, text[:300])
+    ui.check("the link for an id that is nowhere is reported", "H-NOWHERE" in text, text[:500])
+    ui.check("as a warning rather than an error", "0 errors" in text, text[:300])
+    # The endpoints of a relationship are looked up in the model when they are not in the same
+    # upload; the element of a link is not, so a links file on its own is refused row by row.
+    ui.check(
+        "the link for an element the model already holds is not called unknown",
+        LDC not in text,
+        text[:500],
+    )
+    ui.check("so only the id that is nowhere is an issue", "Issues (1)" in text, text[:300])
+    ui.shot("A links file on its own: the id that is nowhere warned, the element in the model accepted")
+    if LDC in text:
+        finding.append(
+            Finding(
+                finding_id="H5",
+                where="src/ea/importer/csv_import.py · `import_frames`, the links it builds",
+                severity="defect",
+                summary="A links file uploaded on its own calls every element unknown, even the ones "
+                "the model already holds.",
+                detail=(
+                    "`import_frames` looks an unknown relationship endpoint up in the store — the "
+                    "comment says 'endpoints may already be in the store from an earlier import' — but "
+                    "does the same for no link, so `build_links` sees only the elements of this upload. "
+                    "A links.csv uploaded without its elements.csv therefore reports 'link for unknown "
+                    "element' for an id the reader can open in the model, and loads nothing. Links are "
+                    "the one kind of file that cannot be re-imported on its own."
+                ),
+            )
+        )
+
+
+# ------------------------------------------------------ the upload zone, and where a load lands
+
+
+@pytest.mark.scenario(
+    scenario_id="H21",
+    group="H",
+    title="Files chosen one after another are kept together, and a file chosen again replaces itself",
+    feature="Import · choosing files more than once",
+    expected=(
+        "A second choice of file adds to the list rather than replacing it, choosing the same name "
+        "again updates that one entry instead of listing it twice, and leaving the page empties the list."
+    ),
+)
+def test_upload_accumulates_and_replaces(ui, record):
+    _open(ui)
+    _upload(ui, _write(ui, "h-grown-elements.csv", GROWN_CSV))
+    ui.check(
+        "the first file is listed with the two rows it holds",
+        _row_says(ui, "h-grown-elements.csv", "2 rows"),
+        _file_row(ui, "h-grown-elements.csv"),
+    )
+    _upload(ui, _write(ui, "h-relationships.csv", RELATIONSHIPS_CSV))
+    listed = ui.text("im-files")
+    ui.check("choosing a second file keeps the first", "h-grown-elements.csv" in listed, listed)
+    ui.check(
+        "and lists both, so one upload can be built up from several choices", _file_count(ui) == 2, listed
+    )
+    _upload(ui, _write(ui, "h-grown-elements.csv", GROWN_MORE_CSV))
+    ui.check(
+        "choosing a file of the same name again replaces its entry rather than adding one",
+        _file_count(ui) == 2,
+        ui.text("im-files"),
+    )
+    ui.check(
+        "and the count beside it follows the new content",
+        _row_says(ui, "h-grown-elements.csv", "3 rows"),
+        _file_row(ui, "h-grown-elements.csv"),
+    )
+    ui.shot("Two files chosen separately, the first replaced by a longer version of itself")
+    _open(ui)
+    ui.check(
+        "and leaving the page is what empties the list, there being nothing else that does",
+        ui.text("im-files") == "",
+        ui.text("im-files"),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="H22",
+    group="H",
+    title="A load on a branch lands on the branch and leaves main alone, as the banner said it would",
+    feature="Import · loading onto a branch",
+    expected=(
+        "Loading an element while on the branch reports it written and finds it in Browse on the "
+        "branch, and the same search on main finds nothing until the branch is merged."
+    ),
+    branch=BRANCH_ID,
+)
+def test_load_onto_a_branch_stays_there(ui, record):
+    _open(ui)
+    _switch_to_branch(ui)
+    ui.must("the page says the load would land on the branch", BRANCH_BANNER in ui.body(), _banner(ui))
+    _upload(ui, _write(ui, "h-branch-elements.csv", BRANCH_CSV))
+    ui.fill("im-source", SOURCE)
+    ui.click("im-load")
+    text = _report(ui)
+    ui.check("the load reports the row it wrote", LOADED in text, text[:200])
+    ui.check("one element, and nothing skipped", "elements 1/1 loaded (0 skipped)" in text, text[:300])
+    ui.shot("A load on the branch: one element written where the banner said it would land")
+    ui.goto(f"/browse?q={BRANCH_MARKER}")
+    on_branch = ui.grid_row_count("browse-grid")
+    ui.check("the row is there for a reader on the branch", on_branch == 1, f"{on_branch} rows")
+    name = ui.grid_cell_of("browse-grid", BRANCH_ONLY, "name")
+    ui.check("under the name the file gave it", name == "H Branch Only", name)
+    ui.shot("On the branch the imported row is in Browse")
+    ui.branch("main")
+    ui.goto(f"/browse?q={BRANCH_MARKER}")
+    on_main = ui.grid_row_count("browse-grid")
+    ui.check("and main is untouched until the branch is merged", on_main == 0, f"{on_main} rows")
+    ui.check("the count says so too", ui.text("browse-count").startswith("0 of"), ui.text("browse-count"))
+    ui.shot("The same search on main finds nothing: the load stayed on the branch")

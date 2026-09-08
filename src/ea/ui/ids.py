@@ -116,6 +116,7 @@ EL_VIEW_MD = "el-view-md"
 EL_VIEW_DRAWIO = "el-view-drawio"
 IMP_VIEW_MD = "imp-view-md"
 IMP_VIEW_DRAWIO = "imp-view-drawio"
+IMP_VIEW_NOTE = "imp-view-note"  # why the downloads are disabled, beside them
 ASK_DOC_MD = "ask-doc-md"
 ASK_DOC_DRAWIO = "ask-doc-drawio"
 ASK_DOC_STORE = "ask-doc-store"

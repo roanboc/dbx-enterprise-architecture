@@ -191,7 +191,14 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
                     ],
                     gap=2,
                 ),
-                view_toolbar(ids.ASK_DOC_MD, ids.ASK_DOC_DRAWIO, copy_content=md),
+                view_toolbar(
+                    ids.ASK_DOC_MD,
+                    ids.ASK_DOC_DRAWIO,
+                    copy_content=md,
+                    drawio_reason=(
+                        "" if doc.views else "This answer drew no diagram, so there is nothing to export."
+                    ),
+                ),
             ],
             justify="space-between",
             align="flex-start",
