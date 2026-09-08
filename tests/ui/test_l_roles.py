@@ -288,6 +288,11 @@ def test_new_branch_per_persona(ui, record, finding):
         bool(live) and bool(reloaded),
         f"switched in place: {live!r}; after a reload: {reloaded!r}",
     )
+    ui.check(
+        "and says the same thing whether the persona was switched in place or loaded",
+        live == reloaded,
+        f"switched in place: {live!r}; after a reload: {reloaded!r}",
+    )
     ui.shot("New branch is disabled for a Reader, with the reason it gives")
     if reloaded and live != reloaded:
         finding.append(
@@ -559,7 +564,12 @@ def test_import_as_reader(ui, record, finding):
     page = _page(ui)
     ui.check("the page says something about where the reader stands", "You are on main" in page, _alerts(ui))
     reason = _tooltip(ui, "#im-load")
-    ui.shot("Import as a Reader: Load refused, template and validation still open")
+    ui.check(
+        "and names the role that may not load, rather than only the branch",
+        "Reader" in page and "may not load an import" in page,
+        _alerts(ui),
+    )
+    ui.shot("Import as a Reader: Load refused, with the role named as the reason")
     if "Reader" not in page and not reason:
         finding.append(
             _f(
@@ -627,7 +637,13 @@ def test_propose_as_reader(ui, record, finding):
     ui.check("the analysis came back", ui.visible("pr-result"))
     ui.check("a Reader may not apply a proposal", _blocked(ui, "pr-apply"))
     reason = _tooltip(ui, "#pr-apply")
-    ui.shot("Propose as a Reader: the analysis runs, Apply to branch does not")
+    why = ui.text("pr-apply-why")
+    ui.check(
+        "and the reason stands beside the button, naming the role",
+        "Reader" in why and "may not apply" in why,
+        why or "(nothing beside the button)",
+    )
+    ui.shot("Propose as a Reader: the analysis runs, Apply to branch does not, and says why")
     if not reason and "may not" not in _page(ui):
         finding.append(
             _f(
@@ -850,8 +866,14 @@ def test_metamodel_as_architect(ui, record, finding):
         "Only an admin saves this table." in _page(ui),
         _page(ui)[:200],
     )
+    why = ui.text("mm-save-why")
+    ui.check(
+        "and Save changes says why it is off, naming the role",
+        "Architect" in why and "only an admin saves it" in why,
+        why or "(nothing beside the button)",
+    )
     ui.shot("The Metamodel's Reviewers tab as an Architect: readable, not saveable")
-    if not _tooltip(ui, "#mm-save"):
+    if not why.strip() and not _tooltip(ui, "#mm-save"):
         finding.append(
             _f(
                 "L-4",

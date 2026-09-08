@@ -290,7 +290,7 @@ def register(app: dash.Dash) -> None:
         trace = dmc.Paper(
             [
                 dmc.Title(
-                    f"Tool trace · {len(items)} calls · provider {res.provider}",
+                    f"Tool trace · {len(items)} call{'s' if len(items) != 1 else ''} · provider {res.provider}",
                     order=2,
                     className="ea-section-title",
                 ),

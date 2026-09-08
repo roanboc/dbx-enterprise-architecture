@@ -342,6 +342,11 @@ def test_file_list(ui, record, finding):
         "1 row" in _file_row(ui, "h-relationships.csv"),
         _file_row(ui, "h-relationships.csv"),
     )
+    ui.check(
+        "each file can be taken back off the list",
+        ui.page.locator("#im-files button, #im-files [role='button']").count() >= 2,
+        f"{ui.page.locator('#im-files button').count()} remove control(s) for 2 files",
+    )
     ui.shot("Two uploaded CSVs, each listed with the number of rows read from it")
     if "1 rows" in _file_row(ui, "h-relationships.csv"):
         finding.append(
@@ -356,19 +361,6 @@ def test_file_list(ui, record, finding):
                 ),
             )
         )
-    finding.append(
-        Finding(
-            finding_id="H2",
-            where="src/ea/ui/pages/import_page.py · the file list (`im-files`)",
-            severity="usability",
-            summary="An uploaded file cannot be removed; the only way to drop one is to reload the page.",
-            detail=(
-                "The upload callback only ever adds to `im-store`, and the list it renders carries no "
-                "remove control, so a file chosen by mistake is loaded with the rest unless the reader "
-                "knows to navigate away and back."
-            ),
-        )
-    )
 
 
 # ------------------------------------------------------------------- validate, then load

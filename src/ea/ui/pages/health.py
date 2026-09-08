@@ -21,6 +21,16 @@ FACET_TITLES = {
     "attributes": "Required attributes",
     "target": "Target decided",
 }
+# A column heading is not a countable noun: '5 target decided missing' says the opposite of
+# what it counts. The totals read as sentences, and in the same words Browse uses for the
+# rows behind them.
+FACET_TOTALS = {
+    "description": "without a description",
+    "links": "without a link",
+    "relationships": "without a relationship",
+    "attributes": "with a required attribute empty",
+    "target": "with an undecided target state",
+}
 
 
 def _pct_cell(pct: int, missing: int, href: str | None):
@@ -179,7 +189,7 @@ def _completeness(ctx: AppContext) -> html.Div:
             dmc.Group(
                 [
                     dmc.Badge(
-                        f"{totals[f]} {FACET_TITLES[f].lower()} missing",
+                        f"{totals[f]} {FACET_TOTALS[f]}",
                         color="orange" if totals[f] else "green",
                         variant="light",
                     )

@@ -798,6 +798,11 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
         f"the answer reads {body[:200]!r}",
     )
     ui.check(
+        "and says what to do about it rather than handing back the tool's error",
+        "search for it by name" in body.lower(),
+        f"the answer reads {body[:200]!r}",
+    )
+    ui.check(
         "nothing was invented for it",
         "depend on it" not in body,
         f"the answer reads {body[:200]!r}",
@@ -828,6 +833,11 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
         "An identifier the model does not carry: the answer says it was not found and the banner marks it unverified"
     )
     trace = ui.text("ask-trace")
+    ui.check(
+        "the trace heading counts one call as one call",
+        "1 call" in trace and "1 calls" not in trace,
+        trace[:120] or "(no trace)",
+    )
     if re.search(r"1 calls", trace, re.IGNORECASE):
         finding.append(
             _f(

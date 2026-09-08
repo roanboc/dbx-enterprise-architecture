@@ -17,7 +17,8 @@ from dash import Input, Output, State, dcc, html, no_update
 from ea.config import ROOT
 from ea.importer import Mapping, import_frames, load_mapping
 from ea.importer.csv_import import CsvShapeError, read_csv_text
-from ea.models import Forbidden
+from ea.models import Forbidden, Issue
+from ea.services.roles import a_role
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, page_title
 from ea.ui.context import AppContext, get_context
@@ -40,7 +41,21 @@ def import_template_archive() -> bytes:
     return out.getvalue()
 
 
+def _why_not(ctx: AppContext) -> str:
+    """Why Load is off, in the reader's own terms, or empty when it is not.
+
+    Telling a Reader to switch to a branch is advice that will never enable the button for
+    them: importing is an Architect's or an Admin's action, and the page has to say which.
+    """
+    if not ctx.can("import"):
+        return f"{a_role(ctx.role_label())} may not load an import; an architect or an admin can."
+    if ctx.frozen_reason():
+        return ctx.frozen_reason()
+    return ""
+
+
 def render(ctx: AppContext) -> html.Div:
+    why_not = _why_not(ctx)
     return html.Div(
         [
             page_title(
@@ -53,6 +68,7 @@ def render(ctx: AppContext) -> html.Div:
                 else "You are on main: what you load changes the model directly. Switch to a branch in the header to stage an import for review.",
                 "orange" if ctx.on_branch() else "blue",
             ),
+            alert(why_not, "blue", dismissible=False) if why_not else None,
             dmc.SimpleGrid(
                 [
                     dmc.Paper(
@@ -116,7 +132,8 @@ def render(ctx: AppContext) -> html.Div:
                                             "Load",
                                             id=ids.IM_LOAD,
                                             leftSection=icon("tabler:database-import"),
-                                            disabled=not (
+                                            disabled=bool(why_not)
+                                            or not (
                                                 ctx.can("import")
                                                 and (ctx.on_branch() or ctx.can("edit_main"))
                                             ),
@@ -252,6 +269,18 @@ def _run(store, source, mapping_key, dry_run: bool):
         )
     except Forbidden as exc:
         return alert(str(exc), "red")
+    for bad in malformed:
+        # The command line counts a file it could not read as an error of the import
+        # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
+        # file that went unread.
+        report.issues.append(
+            Issue(
+                level="error",
+                code="ragged_row",
+                message=f"a row does not match the header this file declares: {bad.detail}",
+                file=bad.filename,
+            )
+        )
     if not dry_run:
         ctx.graph.invalidate()
     color = "green" if report.ok and not malformed else "red"

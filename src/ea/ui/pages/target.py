@@ -123,15 +123,24 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
         gap="xs",
         mb="md",
     )
+
+    # With one work package in scope every row would name it, so the column is an empty
+    # stripe; with all of them in scope both tables need it, the relationships as much as
+    # the elements.
+    def wp_cell(owner: str):
+        return (
+            dmc.Anchor(owner, href=f"/target?wp={owner}", size="xs")
+            if owner
+            else dmc.Text("no work package", size="xs", c="dimmed")
+        )
+
     el_rows = [
         [
             element_anchor(e),
             type_badge(ctx.registry, e.type_id, "xs"),
             current_badge(e.current_state, "xs"),
             target_badge(e.target_state, "xs"),
-            dmc.Anchor(e.target_work_package, href=f"/target?wp={e.target_work_package}", size="xs")
-            if e.target_work_package and not work_package
-            else "",
+            *([] if work_package else [wp_cell(e.target_work_package)]),
             dmc.Text(e.target_note, size="xs"),
         ]
         for e in els
@@ -150,6 +159,7 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                 element_anchor(dst) if dst else r.dst_id,
                 current_badge(r.current_state, "xs"),
                 target_badge(r.target_state, "xs"),
+                *([] if work_package else [wp_cell(r.target_work_package)]),
                 dmc.Text(r.target_note, size="xs"),
             ]
         )
@@ -173,6 +183,9 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                         p="md",
                         withBorder=True,
                         className="ea-card",
+                        # The grid would otherwise stretch a three-row table to the height of
+                        # the diagram beside it and push both tables below the fold.
+                        style={"alignSelf": "start"},
                     ),
                     dmc.Paper(
                         [
@@ -199,13 +212,23 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
             dmc.Paper(
                 [
                     dmc.Title(f"Elements ({len(el_rows)})", order=2, className="ea-section-title"),
-                    simple_table(["element", "type", "current", "target", "work package", "note"], el_rows)
+                    simple_table(
+                        ["element", "type", "current", "target"]
+                        + ([] if work_package else ["work package"])
+                        + ["note"],
+                        el_rows,
+                    )
                     if el_rows
                     else dmc.Text("No elements in this scope.", c="dimmed", size="sm"),
                     dmc.Title(
                         f"Relationships ({len(rel_rows)})", order=2, className="ea-section-title", mt="md"
                     ),
-                    simple_table(["from", "relationship", "to", "current", "target", "note"], rel_rows)
+                    simple_table(
+                        ["from", "relationship", "to", "current", "target"]
+                        + ([] if work_package else ["work package"])
+                        + ["note"],
+                        rel_rows,
+                    )
                     if rel_rows
                     else dmc.Text(
                         "No relationships carry a target state in this scope.", c="dimmed", size="sm"
@@ -222,8 +245,11 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset = (parse_qs((search or "").lstrip("?")).get("wp") or [""])[0]
     wps = ctx.work_package_options()
+    unknown = ""
     if preset and preset not in {w["value"] for w in wps}:
-        preset = ""
+        # Answering for every work package instead would show the whole model as though that
+        # had been asked for, and a reader who followed a stale link would never know.
+        unknown, preset = preset, ""
     return html.Div(
         [
             page_title(
@@ -235,6 +261,26 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     underline="never",
                 ),
             ),
+            dmc.Alert(
+                dmc.Group(
+                    [
+                        dmc.Text(
+                            f"The address asks for the work package '{unknown}', which the model does "
+                            "not hold; it may have been renamed. Every work package is shown instead.",
+                            size="sm",
+                        ),
+                        dmc.Anchor("Pick one below", href="/target", size="sm", fw=600),
+                    ],
+                    gap="sm",
+                ),
+                id=ids.TG_ADDRESS_NOTE,
+                color="yellow",
+                variant="light",
+                withCloseButton=False,
+                mb="md",
+            )
+            if unknown
+            else html.Div(id=ids.TG_ADDRESS_NOTE),
             dmc.Group(
                 [
                     dmc.Select(
@@ -275,6 +321,21 @@ def register(app: dash.Dash) -> None:
             only_changes = not wp  # a work package shows everything it touches; "all" shows what changes
             return _body(ctx, wp or None, only_changes), only_changes
         return _body(ctx, wp or None, bool(only_changes)), no_update
+
+    @app.callback(
+        Output(ids.URL, "search", allow_duplicate=True),
+        Input(ids.TG_WP, "value"),
+        State(ids.URL, "search"),
+        prevent_initial_call=True,
+    )
+    def follow_the_picker(wp, search):
+        """The address is how a scope is shared, so it has to follow the picker.
+
+        Without this, moving from a work package to 'All work packages' leaves the address
+        naming the scope the reader has just left, and copying the link returns them to it.
+        """
+        want = f"?wp={wp}" if wp else ""
+        return no_update if (search or "") == want else want
 
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),

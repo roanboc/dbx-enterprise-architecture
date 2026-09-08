@@ -99,7 +99,16 @@ class StubProvider:
             return AgentResult("\n".join(lines), calls, self.name, "")
         detail = run("get_element", element_id=target)
         if isinstance(detail, dict) and "error" in detail:
-            return AgentResult(detail["error"], calls, self.name, "")
+            # The tool's own error is not an answer: the other dead end in this provider says
+            # what to try next, and a reader deserves the same here.
+            return AgentResult(
+                f"I could not find an element with that identifier: {detail['error']}. It may have "
+                "been renamed, merged or never imported — search for it by name on Browse, or ask "
+                "again using the name rather than the identifier.",
+                calls,
+                self.name,
+                "",
+            )
         e = detail["element"]
         lines.append(
             f"**{e['name']} [{e['element_id']}]** — {e.get('type_name', e['type_id'])}, status {e['status']}."

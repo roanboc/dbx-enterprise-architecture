@@ -874,24 +874,11 @@ def test_notation_grids_and_preview(ui, record, finding):
         "the preview is still drawn after the colour change",
         ui.page.locator(f"{PREVIEW} svg").count() > 0,
     )
-    # The preview is a generated view, and a generated view is filled by ArchiMate layer,
-    # not by the pack's domain colour — so the one column of this grid a reader is most
-    # likely to try changes nothing they can see here.
-    finding.append(
-        Finding(
-            finding_id="J1",
-            where="src/ea/ui/pages/metamodel.py · Notation tab, the Domains grid's `colour` and `hex` columns",
-            severity="usability",
-            summary="A domain's colour changes nothing in the preview it sits above.",
-            detail=(
-                "The tab says 'How each domain and type is drawn in generated views and graphs' and "
-                "'The preview follows every edit'. The preview is a generated view, and "
-                "views/mermaid.py fills a shape from LAYER_STYLE by ArchiMate layer, never from the "
-                "domain's colour; the colour is only used by the network graph panel and the badges "
-                "elsewhere. Changing colour or hex therefore leaves the preview exactly as it was, "
-                "which reads as the edit not having registered."
-            ),
-        )
+    swatches = ui.text("mm-notation-swatches")
+    ui.check(
+        "and the chips that carry the domain colours follow the edit",
+        DOMAIN_COLOUR in swatches,
+        swatches[:200] or "(no chips)",
     )
     ui.shot("A domain colour change leaves the preview unchanged, because a view is filled by layer")
 

@@ -576,8 +576,14 @@ def test_add_element_row(ui, record, finding):
         f"pushback reads {text!r}",
     )
     ui.shot("Re-check rows: the hand-added row is held to the same standard as the ones that were read")
-    # The issues column is the one that says why a row is blocked, and it is the last of ten.
+    # The issues column is the one that says why a row is blocked, so it has to be readable
+    # beside the row it blocks rather than off the right edge of ten columns.
     overflow = _overflow(ui, "pr-el-grid", "e5", "issues")
+    ui.check(
+        "the column that says why a row is blocked is on screen beside it",
+        overflow <= 1,
+        f"it starts {overflow:.0f} px past the right edge of the grid",
+    )
     if overflow > 1:
         finding.append(
             Finding(
@@ -1056,6 +1062,11 @@ def test_analyse_with_nothing(ui, record, finding):
     )
     ui.shot("The hand-built change set, complete: one new element and nothing left to add")
     head, badge = _head(ui), ui.text("pr-provider")
+    ui.check(
+        "the counts line says the rows were typed here rather than naming a reader called 'manual'",
+        "read by manual" not in head,
+        f"the counts line reads {head.splitlines()[-1] if head else ''!r}",
+    )
     if "read by manual" in head and "stub" in badge.lower():
         finding.append(
             Finding(
@@ -1286,6 +1297,11 @@ def test_element_issues(ui, record, finding):
         f"pushback reads {text!r}",
     )
     ui.shot("Four rows, four different reasons the reader cannot settle them")
+    ui.check(
+        "a row that named a type the metamodel does not carry is not also told its type is missing",
+        "type is missing" not in issues["e1"],
+        f"the row's issues read {issues['e1']!r}",
+    )
     if "type 'Fairy Dust Component' is not in the metamodel" in issues["e1"] and (
         "type is missing" in issues["e1"]
     ):
@@ -1420,6 +1436,11 @@ def test_unreadable_link(ui, record, finding):
         "the change set asks for an Elements table, as it does with no source at all",
         "No elements were identified" in _pushback(ui),
         f"pushback reads {_pushback(ui)!r}",
+    )
+    ui.check(
+        "the link is named once in the sentence that refuses it",
+        alert.count(BAD_LINK) == 1,
+        f"it is named {alert.count(BAD_LINK)} time(s): {alert!r}",
     )
     ui.shot("A link the fetcher will not follow: reported above the change set, and nothing guessed at")
     if alert.count(BAD_LINK) > 1:

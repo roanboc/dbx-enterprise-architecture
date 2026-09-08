@@ -60,6 +60,16 @@ def branch_badge(branch_id: str, changes: int | None = None) -> dmc.Badge:
     )
 
 
+def new_branch_tip(can_create_branch: bool) -> str:
+    """What the New branch button says of itself.
+
+    The header is built once and the persona can change without a page load, so the label
+    is written here and re-read by the callback that switches persona; otherwise it goes on
+    telling the reader what the role before them was allowed to do.
+    """
+    return "New branch from main" if can_create_branch else "Your role may not create branches"
+
+
 def role_badge(role: str, display_name: str = "") -> dmc.Badge:
     """Who the reader is and in which role."""
     return dmc.Badge(
@@ -213,9 +223,8 @@ def shell(
                                                 size="lg",
                                                 disabled=not can_create_branch,
                                             ),
-                                            label="New branch from main"
-                                            if can_create_branch
-                                            else "Your role may not create branches",
+                                            id=ids.BRANCH_NEW_TIP,
+                                            label=new_branch_tip(can_create_branch),
                                         ),
                                         html.Div(role_badge(role, display_name), id=ids.ROLE_BADGE),
                                         persona_switcher(persona) if persona else None,

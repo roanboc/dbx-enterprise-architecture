@@ -16,7 +16,7 @@ from ea.models import ANY, Forbidden
 from ea.services.roles import a_role
 from ea.ui import graph as gp
 from ea.ui import ids
-from ea.ui.components import alert, icon, mermaid_block, page_title
+from ea.ui.components import FALLBACK_HEX, alert, icon, mermaid_block, page_title
 from ea.ui.context import AppContext, get_context
 from ea.views.drawio import STENCIL
 from ea.views.mermaid import SHAPES, to_mermaid
@@ -188,6 +188,44 @@ def _type_notation_rows(reg: Registry) -> list[dict[str, Any]]:
     return rows
 
 
+def notation_swatches(reg: Registry) -> Any:
+    """One chip per domain in the colour that domain declares.
+
+    A generated view is filled by ArchiMate layer, so the domain's colour never shows there;
+    it is what the network graph fills a node with and what every badge in the application
+    takes its colour from. Without this the colour column reads as a control that does
+    nothing, which is worse than a control that does something elsewhere.
+    """
+    return dmc.Group(
+        [
+            dmc.Group(
+                [
+                    html.Div(
+                        style={
+                            "width": "14px",
+                            "height": "14px",
+                            "borderRadius": "3px",
+                            "background": d.notation.get("hex") or FALLBACK_HEX,
+                            "border": "1px solid rgba(0,0,0,.2)",
+                        }
+                    ),
+                    dmc.Text(d.name, size="xs"),
+                    dmc.Badge(
+                        d.notation.get("colour") or "gray",
+                        color=d.notation.get("colour") or "gray",
+                        variant="light",
+                        size="xs",
+                    ),
+                ],
+                gap=6,
+            )
+            for d in reg.pack.domains
+        ],
+        gap="md",
+        mb="xs",
+    )
+
+
 def notation_preview(reg: Registry) -> str:
     """One sample node per active type, in its layer, drawn with the notation as it stands."""
     view = View(title="Notation preview")
@@ -356,6 +394,17 @@ def render(ctx: AppContext) -> html.Div:
                 ),
                 subtitle_id=ids.MM_SUBTITLE,
             ),
+            # A disabled button raises no tooltip, so the reason stands under the row it is
+            # in, the way the Reviewers tab already says who saves that table.
+            dmc.Text(
+                f"{a_role(ctx.role_label())} may not change the metamodel; only an admin saves it."
+                if not ctx.can("edit_metamodel")
+                else "",
+                id=ids.MM_SAVE_WHY,
+                size="xs",
+                c="dimmed",
+                mb="xs",
+            ),
             html.Div(id=ids.MM_FEEDBACK),
             dmc.Paper(
                 [
@@ -475,6 +524,14 @@ def render(ctx: AppContext) -> html.Div:
                             ),
                             dmc.Title("Preview", order=2, className="ea-section-title", mt="md"),
                             html.Div(id=ids.MM_NOTATION_NOTE),
+                            dmc.Text(
+                                "The chips take each domain's colour, which the network graph and every "
+                                "badge use; the diagram below takes each type's glyph, stereotype and "
+                                "shape, and is filled by ArchiMate layer rather than by domain.",
+                                size="xs",
+                                c="dimmed",
+                            ),
+                            html.Div(notation_swatches(reg), id=ids.MM_NOTATION_SWATCHES),
                             mermaid_block(ids.MM_NOTATION_PREVIEW, notation_preview(reg)),
                         ],
                         value="notation",
@@ -900,6 +957,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children"),
         Output(ids.MM_NOTATION_NOTE, "children"),
+        Output(ids.MM_NOTATION_SWATCHES, "children"),
         Input(ids.MM_NOTATION_DOMAINS_GRID, "cellValueChanged"),
         Input(ids.MM_NOTATION_TYPES_GRID, "cellValueChanged"),
         State(ids.MM_NOTATION_DOMAINS_GRID, "virtualRowData"),
@@ -943,9 +1001,13 @@ def register(app: dash.Dash) -> None:
         except (ValueError, KeyError) as exc:
             # Freezing in silence looks like an edit that did not take. Say which grid is
             # holding the preview back, so the reader knows what to fix.
-            return no_update, alert(
-                f"The preview cannot be drawn from the grids as they stand: {exc}. "
-                "It will follow again once that is fixed.",
-                "yellow",
+            return (
+                no_update,
+                alert(
+                    f"The preview cannot be drawn from the grids as they stand: {exc}. "
+                    "It will follow again once that is fixed.",
+                    "yellow",
+                ),
+                no_update,
             )
-        return notation_preview(reg), None
+        return notation_preview(reg), None, notation_swatches(reg)

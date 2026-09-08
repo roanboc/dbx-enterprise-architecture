@@ -794,10 +794,9 @@ def test_the_freeze_refuses_a_write(ui, record):
     ui.check("naming the branch that is frozen", REVIEW_ID in why, why[:200])
     ui.shot("A branch in review: Save is off, with the freeze said beside it")
     ui.fill("el-name", f"{before} (refused)")
-    ui.click("el-save")
     feedback = ui.text("el-save-feedback")
     ui.check(
-        "and pressing it changes nothing, because there is nothing to press",
+        "and typing changes nothing, because there is nothing to press",
         "Saved version" not in feedback,
         feedback[:200] or "(no feedback at all)",
     )
@@ -1608,7 +1607,7 @@ def test_a_partial_approval(ui, record, finding):
     ui.must("only the Data Product is left in the control", _pills(ui) == ["Data Product"], f"{_pills(ui)}")
     ui.shot("The reviewer approves one type and leaves the other for somebody else")
     ui.click("rv-approve")
-    feedback = ui.text("br-feedback")
+    feedback = ui.text("rv-feedback")
     ui.check("the approval names the type it approved", "Approved Data Product" in feedback, feedback)
     ui.check("and says the branch is not finished", "still pending" in feedback, feedback)
     # Everywhere else the panel calls a type by its name; in this one sentence the pending
@@ -1682,7 +1681,7 @@ def test_send_back_with_a_comment(ui, record):
     ui.fill("rv-comment", comment)
     ui.shot("The reviewer has said what must change before sending the branch back")
     ui.click("rv-send-back")
-    feedback = ui.text("br-feedback")
+    feedback = ui.text("rv-feedback")
     ui.check(
         "the page says the branch went back to its author", "Sent back to the author" in feedback, feedback
     )

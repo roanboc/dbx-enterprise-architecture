@@ -1428,15 +1428,22 @@ def test_bar_colours(ui, record, finding):
     )
     ui.shot("The completeness bars, one colour per band")
 
-    # The totals above the table are built from the column headings, which are not countable
-    # nouns: the figures are right and the sentences are not.
+    # The totals above the table are sentences about the rows they count, in the same words
+    # Browse uses for those rows, rather than column headings pressed into service as nouns.
     badges = [
         b.strip()
         for b in ui.page.locator('#health-body [class*="Badge-root"]').all_inner_texts()
-        if "missing" in b.lower()
+        if re.search(r"^\d+ (without|with) ", b.strip())
     ]
-    awkward = [b for b in badges if re.search(r"\b(link|target decided|required attributes)\b", b.lower())]
+    awkward = [
+        b for b in badges if re.search(r"\b(link|target decided|required attributes) missing\b", b.lower())
+    ]
     ui.check("the card totals each facet above the table", len(badges) >= len(FACET_COLUMNS), str(badges))
+    ui.check(
+        "and each total reads as what it counts",
+        not awkward,
+        str(awkward) if awkward else str(badges[:5]),
+    )
     if awkward:
         finding.append(
             _finding(

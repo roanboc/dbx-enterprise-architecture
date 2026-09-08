@@ -784,8 +784,8 @@ def test_preselected_element(ui, record):
     group="D",
     title="An element id nothing matches is refused in red",
     feature="Impact · unknown element",
-    expected="Asking for an element the repository does not hold says 'Unknown element.' in red "
-    "rather than an empty answer, whether it was typed or arrived in the address.",
+    expected="Asking for an element the repository does not hold says 'Unknown element.' in red, "
+    "names the identifier the address carried and offers a way on, rather than an empty answer.",
 )
 def test_unknown_element(ui, record):
     unknown = "D-NO-SUCH-ELEMENT"
@@ -797,31 +797,36 @@ def test_unknown_element(ui, record):
         f"the result area read {arrival[:80]!r}",
     )
     ui.check(
+        "and names the identifier the address carried",
+        unknown in arrival,
+        f"the result area read {arrival[:120]!r}",
+    )
+    ui.check(
+        "and offers somewhere to go from a refusal",
+        ui.page.locator("#imp-result a").count() > 0,
+        f"{ui.page.locator('#imp-result a').count()} links in the refusal",
+    )
+    ui.check(
         "and the selector is left empty rather than holding an id that resolves to nothing",
         unknown not in _selected(ui),
         f"the selector reads {_selected(ui)!r}",
     )
-    ui.shot("Arriving at Impact with an element id nothing matches")
-
-    _run(ui)
-    result = _summary(ui)
-    ui.must("running an unknown element refuses it", "Unknown element." in result, result[:120])
     ui.check(
         "the refusal is in red",
         "red" in _alert_colour(ui, "Unknown element."),
         _alert_colour(ui, "Unknown element."),
     )
     ui.check("no closure table is shown for it", not _rows(ui, UPSTREAM) and not _rows(ui, DOWNSTREAM))
-    ui.shot("Running an element id nothing matches is refused in red")
+    ui.shot("Arriving at Impact with an element id nothing matches: named, in red, with a way on")
 
 
 @pytest.mark.scenario(
     scenario_id="D11",
     group="D",
-    title="Run before an element is chosen answers nothing and says nothing",
+    title="Run before an element is chosen asks for one rather than doing nothing",
     feature="Impact · Run with nothing chosen",
-    expected="Pressing Run before an element is chosen leaves the page as it was — no answer, no "
-    "failure — and choosing an element afterwards still works.",
+    expected="Pressing Run before an element is chosen answers the press — 'Choose an element above, "
+    "then press Run.' — invents no answer, and choosing an element afterwards still works.",
 )
 def test_run_with_nothing_chosen(ui, record, finding):
     ui.goto("/impact")
@@ -829,7 +834,16 @@ def test_run_with_nothing_chosen(ui, record, finding):
     ui.check("Run is offered all the same", not ui.disabled("imp-run"))
     _run(ui)
     answered = _summary(ui)
-    ui.check("no answer is invented for an element that was never named", answered == "", answered[:120])
+    ui.check(
+        "the press is answered rather than swallowed",
+        "Choose an element" in answered,
+        answered[:120] or "(nothing at all)",
+    )
+    ui.check(
+        "and no answer is invented for an element that was never named",
+        "elements depend on it within" not in answered,
+        answered[:120],
+    )
     ui.check(
         "and nothing on the page reads as a failure",
         not re.search(r"traceback|exception|error:", ui.text("page"), re.I),
@@ -837,7 +851,7 @@ def test_run_with_nothing_chosen(ui, record, finding):
     )
     ui.check("the graph is left empty", not _graph_nodes(ui), str(_graph_nodes(ui)[:6]))
     ui.check("so is the generated view", ui.text(MERMAID_SVG) == "", ui.text(MERMAID_SVG)[:80])
-    ui.shot("Run pressed before an element is chosen: nothing happens and nothing is said")
+    ui.shot("Run pressed before an element is chosen: the page asks for one")
 
     ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
     ui.check(
@@ -845,7 +859,7 @@ def test_run_with_nothing_chosen(ui, record, finding):
         "elements depend on it within" in _summary(ui),
         _summary(ui)[:120].replace("\n", " · "),
     )
-    if answered == "":
+    if not answered.strip():
         finding.append(
             Finding(
                 finding_id="D-1",
@@ -1032,14 +1046,18 @@ def test_depth_bounds(ui, record, finding):
     box.click()
     box.fill("")
     emptied = _leave_depth(ui)
-    ui.check("an emptied depth box is left empty rather than refilled", emptied == "", repr(emptied))
+    ui.check(
+        "an emptied depth box is refilled with the depth the page answers at",
+        emptied == "3",
+        repr(emptied),
+    )
     _run(ui)
     ui.check(
-        "the answer falls back to three hops and says which depth it used",
+        "and the answer says the same depth the box now shows",
         "within 3 hops" in _sentence(ui),
         _sentence(ui),
     )
-    ui.shot("An emptied depth box is answered at the default three")
+    ui.shot("An emptied depth box is put back to the three the page answers at")
     if emptied == "":
         finding.append(
             Finding(
@@ -1124,7 +1142,13 @@ def test_the_graph_follows_the_depth(ui, record, finding):
         stops_short,
         f"{len(far)} nodes, the three-hop work package {'absent' if stops_short else 'drawn'}",
     )
-    ui.shot("At depth 3 the graph draws two hops of the neighbourhood")
+    note = ui.text("imp-graph-note")
+    ui.check(
+        "and the panel says the picture is shorter than the answer above it",
+        "two hops" in note and "3" in note,
+        note or "(no note)",
+    )
+    ui.shot("At depth 3 the graph draws two hops of the neighbourhood, and says so")
 
     _set_depth(ui, 1)
     _run(ui)
@@ -1137,8 +1161,13 @@ def test_the_graph_follows_the_depth(ui, record, finding):
         str(sorted(near)),
     )
     ui.check("the element itself is still the centre", _graph_centre(ui) == [COURSE], str(_graph_centre(ui)))
+    ui.check(
+        "and with the answer inside the picture there is nothing left to say",
+        ui.text("imp-graph-note") == "",
+        ui.text("imp-graph-note") or "(no note)",
+    )
     ui.shot("At depth 1 the graph draws only the immediate neighbours")
-    if stops_short:
+    if stops_short and not note.strip():
         finding.append(
             Finding(
                 finding_id="D-4",
@@ -1181,7 +1210,12 @@ def test_a_search_that_matches_nothing(ui, record, finding):
         bool(message) and "SRS_Course" not in message,
         repr(message[:120]),
     )
-    ui.shot("A search nothing matches offers no options")
+    ui.check(
+        "and told that this search matched nothing, rather than told to start one",
+        "zzzqqq-no-such-element" in message,
+        repr(message[:160]),
+    )
+    ui.shot("A search nothing matches says so, naming what was searched for")
 
     ui.page.keyboard.press("Escape")
     ui.page.locator("#page h1").first.click()

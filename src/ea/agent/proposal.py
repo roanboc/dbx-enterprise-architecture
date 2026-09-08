@@ -433,7 +433,9 @@ class ProposalService:
                 )
             if not el.name:
                 el.issues.append("name is missing")
-            if not el.type_id:
+            if not el.type_id and not el.type_label:
+                # A row that named a type the metamodel does not carry has already been told
+                # so; saying 'type is missing' as well denies that it named one.
                 el.issues.append("type is missing")
             if len((el.description or "").strip()) < MIN_DESCRIPTION_CHARS:
                 el.issues.append("description is missing or shorter than one sentence")

@@ -209,11 +209,13 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 ),
             ),
             alert(
-                frozen
-                if frozen
-                else f"You are a {ctx.role_label()} on this page: browse and open, but nothing here "
+                # The role first: it is why the buttons are off wherever the reader stands.
+                # The freeze is what stops a role that could otherwise write.
+                f"You are a {ctx.role_label()} on this page: browse and open, but nothing here "
                 "changes the model."
                 if not ctx.can("edit_content")
+                else frozen
+                if frozen
                 else "You are on main: switch to a branch in the header to edit or bulk-edit."
                 if not can_write
                 else "",

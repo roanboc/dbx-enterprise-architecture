@@ -400,14 +400,12 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 dmc.Group(
                     [
                         dmc.Text(
-                            frozen
-                            or (
-                                "Switch to a branch in the header to edit."
-                                if ctx.can("edit_content") and not can_write
-                                else f"{a_role(ctx.role_label())} may not edit."
-                                if not can_write
-                                else ""
-                            ),
+                            # The role first: a Reader is a Reader wherever they stand, and
+                            # the freeze is what stops a role that could otherwise write.
+                            f"{a_role(ctx.role_label())} may not edit."
+                            if not ctx.can("edit_content")
+                            else frozen
+                            or ("Switch to a branch in the header to edit." if not can_write else ""),
                             id=ids.EL_SAVE_WHY,
                             size="xs",
                             c="dimmed",

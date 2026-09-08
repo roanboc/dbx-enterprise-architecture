@@ -214,6 +214,7 @@ def create_app() -> dash.Dash:
             Output(ids.NAV_VERSION, "data", allow_duplicate=True),
             Output(ids.ROLE_BADGE, "children"),
             Output(ids.BRANCH_NEW_OPEN, "disabled"),
+            Output(ids.BRANCH_NEW_TIP, "label"),
             Input(ids.PERSONA_SELECT, "value"),
             State(ids.NAV_VERSION, "data"),
             prevent_initial_call=True,
@@ -225,10 +226,12 @@ def create_app() -> dash.Dash:
             session["persona"] = persona
             user = PERSONAS[persona]
             set_role(user.role)
+            can_create = get_context().can("create_branch")
             return (
                 int(version or 0) + 1 if changed else no_update,
                 layout.role_badge(user.role, user.display_name),
-                not get_context().can("create_branch"),
+                not can_create,
+                layout.new_branch_tip(can_create),
             )
 
     @app.callback(

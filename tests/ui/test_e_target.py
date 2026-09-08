@@ -427,8 +427,13 @@ def test_choosing_a_work_package(ui, record, finding):
     )
     ui.shot("The same work package with 'Only what changes' back on: the kept artefacts drop out")
 
-    work_packages = [row[4] for row in _rows(_table(ui, 0))]
-    if not any(work_packages):
+    headings = [h.strip().lower() for h in _table(ui, 0).locator("thead th").all_inner_texts()]
+    ui.check(
+        "and the work package column is gone, because every row would name the same one",
+        "work package" not in headings,
+        str(headings),
+    )
+    if "work package" in headings:
         finding.append(
             _finding(
                 finding_id="E-4",
@@ -579,6 +584,16 @@ def test_matrix(ui, record, finding):
         selector=MATRIX_CARD,
     )
 
+    matrix = ui.page.locator(MATRIX_CARD).first.bounding_box()
+    beside = ui.page.locator(VIEW_CARD).first.bounding_box()
+    ui.check(
+        "the matrix card is the height of what it holds, not of the diagram beside it",
+        bool(matrix and beside) and matrix["height"] < beside["height"],
+        f"{matrix['height']:.0f} px against {beside['height']:.0f} px"
+        if matrix and beside
+        else "one of the two cards was not drawn",
+    )
+
     if clipped:
         finding.append(
             _finding(
@@ -594,19 +609,6 @@ def test_matrix(ui, record, finding):
                 ),
             )
         )
-    finding.append(
-        _finding(
-            finding_id="E-3",
-            where="src/ea/ui/pages/target.py · _body(), the SimpleGrid of the matrix and the view",
-            severity="usability",
-            summary="The matrix card is stretched to the height of the diagram beside it and is mostly empty",
-            detail=(
-                "The two cards share a SimpleGrid, so the matrix — three rows on the sample model — "
-                "is padded out to the height of the generated view, leaving about two thirds of the "
-                "card blank and pushing the two tables below the fold."
-            ),
-        )
-    )
 
 
 @pytest.mark.scenario(
@@ -723,7 +725,7 @@ def test_the_two_tables(ui, record):
     rel_heads = [h.strip().lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
     ui.check(
         "the relationships table reads from one end to the other",
-        rel_heads == ["from", "relationship", "to", "current", "target", "note"],
+        rel_heads == ["from", "relationship", "to", "current", "target", "work package", "note"],
         str(rel_heads),
     )
     rel_rows = _rows(_table(ui, 1))
@@ -738,6 +740,17 @@ def test_the_two_tables(ui, record):
     ui.check("the element at the other end", realises[2] == "Curriculum Management System", realises[2])
     ui.check("that it is live today", "live" in realises[3].lower(), realises[3])
     ui.check("and decommissioned in the target", "decommission" in realises[4].lower(), realises[4])
+    ui.check(
+        "with the work package that carries the change, as the elements table gives it",
+        WP in realises[5] or "no work package" in realises[5].lower(),
+        realises[5],
+    )
+    rel_links = _links(_table(ui, 1), "Legacy Forms Server")
+    ui.check(
+        "and a row that names one leads to the page scoped to it",
+        f"/target?wp={WP}" in rel_links,
+        str(rel_links),
+    )
     ui.shot("The elements and relationships tables, each artefact with both its states and its note")
     ui.shot(
         "Both tables up close: the element, its type, both its states, its work package and the note",
@@ -836,7 +849,18 @@ def test_unknown_work_package(ui, record, finding):
     )
     ui.check("the matrix is drawn all the same", bool(_matrix(ui)[1]))
     ui.check("and so is the view", _card(ui, "Architecture view, marked").count() > 0)
-    ui.shot("An address naming a work package that does not exist falls back to every work package")
+    note = ui.text("tg-address-note")
+    ui.check(
+        "the page says what the address asked for and that it does not hold it",
+        "NOPE" in note and "does not hold" in note,
+        note or "(nothing at all)",
+    )
+    ui.check(
+        "and says what it is showing instead",
+        "Every work package is shown instead" in note,
+        note or "(nothing at all)",
+    )
+    ui.shot("An address naming a work package that does not exist says so, and shows every one")
 
     ui.goto("/target?wp=PAC-CMS")
     ui.check(
@@ -844,22 +868,17 @@ def test_unknown_work_package(ui, record, finding):
         _wp(ui) == ALL_WPS,
         _wp(ui),
     )
+    ui.check(
+        "and named in the same note", "PAC-CMS" in ui.text("tg-address-note"), ui.text("tg-address-note")
+    )
     ui.check("and the page is the default page again", _only_changes(ui), f"checked={_only_changes(ui)}")
-    ui.shot("An address naming an ordinary element is dropped the same way")
+    ui.shot("An address naming an ordinary element is dropped the same way, and said")
 
-    finding.append(
-        _finding(
-            finding_id="E-1",
-            where="src/ea/ui/pages/target.py · render(), the ?wp= parameter",
-            severity="usability",
-            summary="A work package in the address that the model does not hold is dropped without a word",
-            detail=(
-                "render() resets the preset to '' when it is not in work_package_options(), so a stale "
-                "bookmark or a link to a work package that has since been renamed silently shows the "
-                "whole model instead. Impact refuses an unknown element out loud ('Unknown element.'); "
-                "Target state should say the same rather than answer a different question."
-            ),
-        )
+    ui.goto("/target")
+    ui.check(
+        "and an address that asked for nothing carries no note at all",
+        ui.text("tg-address-note") == "",
+        ui.text("tg-address-note"),
     )
 
 
@@ -1012,9 +1031,14 @@ def test_back_to_every_work_package(ui, record, finding):
     ui.shot("Back to every work package: the scope widens and the switch turns itself on again")
 
     left_behind = ui.page.url
+    ui.check(
+        "the address followed the picker back to every work package",
+        f"wp={WP}" not in left_behind,
+        left_behind,
+    )
     ui.goto(left_behind)
     ui.check(
-        "the address that scoped the page scopes it again when it is opened",
+        "so re-opening the address the reader would copy keeps them where they are",
         WP_NAME in _wp(ui) if f"wp={WP}" in left_behind else _wp(ui) == ALL_WPS,
         f"{left_behind} → {_wp(ui)}",
     )
