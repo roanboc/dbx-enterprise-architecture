@@ -565,3 +565,36 @@ def test_health_facet_links(ui, record):
     ui.goto("/browse")
     ui.check("Browse without a facet shows no filter note", ui.text("browse-filter-note") == "")
     ui.shot("Browse without a Health facet carries no filter note")
+
+
+@pytest.mark.scenario(
+    scenario_id="B18",
+    group="B",
+    title="Dismissing the Health filter note must not hide that the grid is still filtered",
+    feature="Browse · Health filters",
+    expected="Closing the yellow note either clears the filter or leaves something on the page saying the grid is filtered.",
+)
+def test_dismissing_the_filter_note(ui, record):
+    # The note is the only thing that says the grid holds a slice of the model, and
+    # `alert()` in src/ea/ui/components.py always gives it a close button. Closing it
+    # leaves the reader looking at 7 rows of a 48-element model with nothing saying so —
+    # and the count, which browse.py `_load` recomputes as `total = len(rows)` under a
+    # facet, reads "7 of 7" rather than "7 of 48", so it reinforces the illusion.
+    ui.goto("/browse")
+    _, whole_model = _counts(ui)
+    ui.goto("/browse?missing=description")
+    _, filtered = _counts(ui)
+    ui.must("the facet filtered the grid", 0 < filtered < whole_model, f"{filtered} of {whole_model}")
+    ui.must("the note explains the filter", "from the Health page" in ui.text("browse-filter-note"))
+    ui.page.locator("#browse-filter-note button").first.click()
+    ui.settle()
+    ui.check("the note can be dismissed", ui.text("browse-filter-note") == "", ui.text("browse-filter-note"))
+    _, after = _counts(ui)
+    body = ui.body()
+    still_says_so = "from the Health page" in body or "without a description" in body
+    ui.check(
+        "dismissing the note either clears the filter or still says the grid is filtered",
+        after == whole_model or still_says_so,
+        f"the grid still holds {after} of {whole_model} elements and nothing on the page says so",
+    )
+    ui.shot("The filter note dismissed: the grid is still filtered and nothing says so")

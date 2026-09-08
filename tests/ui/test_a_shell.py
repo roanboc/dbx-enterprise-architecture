@@ -159,6 +159,7 @@ def test_navigation_routes(ui, record):
         if marked != [nav_id]:
             unmarked.append(f"{path} -> {marked or 'nothing marked'}")
         if path == "/browse":
+            ui.page.mouse.move(1200, 600)  # away from the link, so hover is not mistaken for marking
             ui.shot("Browse is open, and no link in the navigation is marked as the current page")
     # DEFECT: layout.py builds each dmc.NavLink without `active`, whose default is False — "never
     # active, overrides all matching behaviour". No link is ever marked, so the navigation never
@@ -170,7 +171,8 @@ def test_navigation_routes(ui, record):
         not unmarked,
         "; ".join(unmarked) if unmarked else "",
     )
-    ui.shot("Health, the last page the navigation reached")
+    ui.page.mouse.move(1200, 600)
+    ui.shot("Health, the last page the navigation reached, with nothing marked in the navigation")
     ui.goto("/")
 
 
@@ -205,7 +207,11 @@ def test_navigation_groups(ui, record):
         [label for label, _, _, _ in NAV] == labels,
         f"labels: {labels}",
     )
-    ui.shot("The navigation, grouped Home, Discover, Contribute and Manage")
+    ui.page.mouse.move(1200, 600)
+    ui.shot(
+        "The navigation, grouped Home, Discover, Contribute and Manage",
+        selector=NAVBAR,
+    )
 
 
 @pytest.mark.scenario(
@@ -331,11 +337,12 @@ def test_tab_title(ui, record):
     ui.click("nav-metamodel")
     ui.check("routing does not blank the tab", ui.page.title() == "EA Repository", ui.page.title())
     ui.check("no updating placeholder is left behind", "Updating" not in ui.page.title(), ui.page.title())
+    ui.page.mouse.move(1200, 600)
+    ui.shot("Metamodel, reached by routing, with the tab still named EA Repository")
     ui.goto("/no-such-page")
     ui.check(
         "even an unknown address keeps the tab named", ui.page.title() == "EA Repository", ui.page.title()
     )
-    ui.shot("The tab is named EA Repository whatever page is open")
     ui.goto("/")
 
 
