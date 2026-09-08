@@ -13,12 +13,13 @@ import json
 import re
 
 import pytest
+from tests.ui.evidence import Finding
 
 pytestmark = pytest.mark.gui
 
 EL = "LDC-CURR"  # Curriculum, a Logical Data Component
 DE = "DE-SRS-COURSE"  # SRS_Course, a Data Entity it encapsulates
-POS = "POS-DATA-GOV"  # a Position, whose one relationship type carries qualifiers
+POS = "POS-DATA-GOV"  # a Position, whose one relationship type declares qualifiers
 
 
 def _pm(**parts: str) -> str:
@@ -61,11 +62,12 @@ def _open(ui, element_id: str) -> None:
 
 def _tab(ui, label: str) -> None:
     ui.click(f"#el-tabs [role='tab']:has-text({json.dumps(label)})")
-    ui.page.wait_for_timeout(150)
+    ui.page.wait_for_timeout(200)
 
 
 def _panel(ui, value: str):
-    return ui.page.locator(f"#el-tabs [role='tabpanel'][value='{value}']").first
+    """One tab's panel; Mantine keeps them all mounted, so visibility is what says which is open."""
+    return ui.page.locator(f"#el-tabs-panel-{value}")
 
 
 def _version(ui) -> int:
@@ -75,13 +77,37 @@ def _version(ui) -> int:
 
 
 def _options(ui, selector: str) -> list[str]:
-    """What a Mantine Select offers: open it, read the portal, close it again."""
+    """What a Select offers: open it, read the dropdown that is showing, close it again.
+
+    Every Select on the page keeps its options in the DOM, so only the visible ones belong
+    to the control that was just opened.
+    """
     ui.page.locator(selector).first.click()
     ui.page.wait_for_timeout(350)
-    out = [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
+    out = [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
     ui.page.keyboard.press("Escape")
     ui.page.wait_for_timeout(250)
     return out
+
+
+def _rel_names(options: list[str]) -> list[str]:
+    """'encapsulates  (→ Data Entity)' → 'encapsulates'."""
+    return [re.split(r"\s+\(", o)[0].strip() for o in options]
+
+
+def _pick_other(ui, text: str, element_id: str) -> list[str]:
+    """Search the other-element select for `text` and choose the option carrying `element_id`."""
+    box = ui.page.locator("#el-rel-other").first
+    box.click()
+    box.fill(text)
+    ui.page.wait_for_timeout(700)
+    ui.settle()
+    offered = [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
+    ui.page.locator("[role='option']:visible").filter(
+        has_text=re.compile(re.escape(element_id))
+    ).first.click()
+    ui.settle()
+    return offered
 
 
 def _desc(ui) -> str:
@@ -103,19 +129,16 @@ def _save(ui) -> str:
 def _cy(ui, expression: str):
     """Ask the panel's Cytoscape instance something, e.g. `cy.zoom()`."""
     return ui.page.evaluate(
-        """expr => {
-            const cy = window.eaGraph && window.eaGraph.instance('el');
-            if (!cy) { return null; }
-            return Function('cy', 'return (' + expr + ')')(cy);
-        }""",
-        expression,
+        "() => { const cy = window.eaGraph && window.eaGraph.instance('el');"
+        f" if (!cy) {{ return null; }} return {expression}; }}"
     )
 
 
 def _view_scale(ui) -> float:
     """The zoom the generated view is drawn at, from the transform its canvas carries."""
     transform = ui.page.evaluate(
-        "sel => { const c = document.querySelector(sel + ' .ea-mermaid-canvas'); return c ? c.style.transform : ''; }",
+        "sel => { const c = document.querySelector(sel + ' .ea-mermaid-canvas');"
+        " return c ? c.style.transform : ''; }",
         VIEW,
     )
     match = re.search(r"scale\(([\d.]+)\)", transform or "")
@@ -125,6 +148,14 @@ def _view_scale(ui) -> float:
 def _open_graph_tab(ui) -> None:
     _tab(ui, "Graph")
     ui.wait_graph()
+
+
+def _await_svg(ui, container: str) -> None:
+    ui.page.wait_for_function(
+        "sel => { const el = document.querySelector(sel); return !!(el && el.querySelector('svg')); }",
+        arg=container,
+        timeout=25_000,
+    )
 
 
 # --------------------------------------------------------------------------- the header
@@ -140,11 +171,11 @@ def _open_graph_tab(ui) -> None:
 def test_header(ui, record):
     _open(ui, EL)
     ui.must("the element page rendered", ui.visible("el-tabs"))
-    body = ui.body()
-    ui.check("the name is the page title", "Curriculum" in body, body[:120])
-    ui.check("the type is badged", "Logical Data Component" in body)
+    body = ui.body().lower()
+    ui.check("the name is the page title", "curriculum" in body)
+    ui.check("the type is badged", "logical data component" in body)
     ui.check("the status is badged", "approved" in body)
-    ui.check("the current state is badged", "Live" in body)
+    ui.check("the current state is badged", "live" in body)
     ui.check(
         "the identifier is shown as code",
         ui.page.locator(f"#page code:has-text('{EL}')").count() > 0,
@@ -158,9 +189,7 @@ def test_header(ui, record):
         (impact.get_attribute("href") or "").endswith(f"/impact?element={EL}"),
         impact.get_attribute("href") or "",
     )
-    ui.shot(
-        "The element header: name, type, status, current state, identifier, version and the Impact button"
-    )
+    ui.shot("The element header: name, type, status, current state, identifier, version and Impact")
     impact.click()
     ui.settle()
     ui.check(
@@ -188,18 +217,19 @@ def test_overview(ui, record):
     )
     ui.check("the attributes card lists the level", "Level of Logical Data Component" in text)
     ui.check(
-        "the attribute's value is shown",
-        re.search(r"Level of Logical Data Component\s*\|?\s*2", text) is not None,
+        "the attribute's value is shown beside its label",
+        re.search(r"Level of Logical Data Component\s*2", text) is not None,
         text[:400],
     )
     ui.check("the source attribute is listed", "Reference data model v3" in text)
     link = overview.locator("a[href^='https://example.edu']").first
-    ui.check("the link the model carries is an anchor", link.count() > 0)
+    ui.must("the link the model carries is an anchor", link.count() > 0)
     ui.check(
         "the link opens in a new tab",
-        (link.get_attribute("target") or "") == "_blank" if link.count() else False,
+        (link.get_attribute("target") or "") == "_blank",
+        link.get_attribute("target") or "",
     )
-    ui.check("the type is described", "Type" in text and len(text) > 300)
+    ui.check("the type is described under its own heading", "Type" in text and "encapsulates" in text)
     ui.shot("Overview: the rendered description, the attributes that are set, and the links")
 
 
@@ -212,19 +242,19 @@ def test_overview(ui, record):
 )
 def test_state_card(ui, record):
     _open(ui, EL)
-    card = ui.page.locator("#page").locator("div").filter(has_text=re.compile(r"^State")).first
-    text = _panel(ui, "overview").inner_text()
-    ui.check("the card is headed State", "State" in text)
+    papers = _panel(ui, "overview").locator(".mantine-Paper-root")
+    texts = [papers.nth(i).inner_text() for i in range(papers.count())]
+    card = next((t for t in texts if t.startswith("State")), "")
+    ui.must("Overview has a card of its own for the state", bool(card), str([t[:30] for t in texts]))
     for row in ("Current state", "Target state", "Work package", "Note"):
-        ui.check(f"the card has a '{row}' row", row in text)
-    ui.check("the current state is badged in the card", "Live" in text)
+        ui.check(f"the card has a '{row}' row", row in card, card[:200])
+    ui.check("the current state is badged in the card", "LIVE" in card.upper(), card[:200])
     ui.check(
         "the card says where the two states are edited",
-        "Edit tab" in text and "Target state page" in text,
-        text[-300:],
+        "Edit tab" in card and "Target state page" in card,
+        card[-260:],
     )
     ui.shot("The State card: current against target, with the work package and the note")
-    ui.check("the card is a bordered panel of its own", card.count() > 0)
 
 
 @pytest.mark.scenario(
@@ -255,6 +285,11 @@ def test_five_tabs(ui, record):
         panel = _panel(ui, value)
         ui.check(f"the {label} tab opens", panel.is_visible(), f"panel {value}")
         ui.check(f"the {label} tab shows its own work", marker in panel.inner_text(), marker)
+        ui.check(
+            f"the {label} tab is the only one open",
+            sum(1 for v, _ in expected.values() if _panel(ui, v).is_visible()) == 1,
+            f"open while {label} is selected",
+        )
         if label == "History":
             ui.shot("The History tab, the last of the five, open on its own panel")
     _tab(ui, "Overview")
@@ -268,7 +303,7 @@ def test_five_tabs(ui, record):
     group="C",
     title="The Edit tab renders one input per attribute kind",
     feature="Element · Edit · typed attributes",
-    expected="An integer attribute is a number input, an enumerated one a select of its values, and a boolean one a yes/no select.",
+    expected="An integer attribute is a number input, an enumerated one a select of the values the pack declares, and a boolean one a yes/no select.",
 )
 def test_typed_attribute_inputs(ui, record, finding):
     _open(ui, EL)
@@ -283,33 +318,37 @@ def test_typed_attribute_inputs(ui, record, finding):
         (level.get_attribute("inputmode") or "") in ("numeric", "decimal"),
         f"inputmode={level.get_attribute('inputmode')}",
     )
-    ui.click("#el-tabs [role='tabpanel'][value='edit'] .mantine-Accordion-control")
-    ui.page.wait_for_timeout(300)
+    ui.check(
+        "the number input carries its steppers",
+        ui.page.locator("#el-tabs-panel-edit .mantine-NumberInput-control").count() >= 2,
+    )
+    ui.click("#el-tabs-panel-edit .mantine-Accordion-control")
+    ui.page.wait_for_timeout(400)
     approval = ui.page.locator(_attr("approval_status")).first
-    ui.must("the enumerated attribute has an input", approval.count() > 0, "approval_status")
+    ui.must("the common attributes open on their accordion", approval.is_visible(), "approval_status")
     options = _options(ui, _attr("approval_status"))
     ui.check(
         "the enumerated attribute offers exactly the values the pack declares",
         options == ["Approved", "Not Approved"],
         str(options),
     )
-    ui.shot("The Edit tab renders the integer attribute as a number input and the enumerated one as a select")
-    # A date attribute falls through to a plain text box — no picker, no format help.
+    ui.shot("The Edit tab: the integer attribute as a number input, the enumerated one as a select")
+    # A date attribute has no branch of its own in `_attr_input`, so it falls through to a text box.
     date_attr = ui.page.locator(_attr("standard_creation_date")).first
-    if date_attr.count():
-        is_text = (date_attr.get_attribute("type") or "text") == "text"
-        if is_text:
-            finding.append(
-                _finding(
-                    "C-1",
-                    "src/ea/ui/pages/element.py · _attr_input",
-                    "usability",
-                    "A date attribute renders as a free-text box",
-                    "`_attr_input` branches on boolean, enum, integer/number and text; a `date` attribute "
-                    "(Standard Creation Date and its three siblings in the pack) falls through to a plain "
-                    "TextInput, so the reader gets no picker, no placeholder and no format checking.",
-                )
+    if date_attr.count() and not date_attr.get_attribute("type"):
+        finding.append(
+            Finding(
+                finding_id="C-1",
+                where="src/ea/ui/pages/element.py · _attr_input",
+                severity="usability",
+                summary="A date attribute is edited in a plain text box",
+                detail=(
+                    "`_attr_input` branches on boolean, enum, integer/number and text; the pack's four "
+                    "`date` attributes (Standard Creation Date and its siblings) fall through to a bare "
+                    "TextInput, so the reader gets no picker, no placeholder and no format checking."
+                ),
             )
+        )
     _open(ui, DE)
     _tab(ui, "Edit")
     pii = ui.page.locator(_attr("includes_pii")).first
@@ -318,7 +357,7 @@ def test_typed_attribute_inputs(ui, record, finding):
     ui.check(
         "a boolean reads back the model's value in words",
         {pii.input_value(), analytics.input_value()} == {"no", "yes"},
-        f"includes_pii={pii.input_value()}, available_in_analytics_platform={analytics.input_value()}",
+        f"includes_pii={pii.input_value()}, analytics={analytics.input_value()}",
     )
     options = _options(ui, _attr("includes_pii"))
     ui.check("a boolean offers yes and no", options == ["yes", "no"], str(options))
@@ -330,7 +369,7 @@ def test_typed_attribute_inputs(ui, record, finding):
     group="C",
     title="Saving a description change bumps the version and says which one it wrote",
     feature="Element · Edit · save",
-    expected="A changed description saves as the next version, the page says so, and reloading shows the new text and the new version.",
+    expected="A changed description saves as the next version, the page says so, and reopening shows the new text at the new version.",
 )
 def test_save_bumps_the_version(ui, record):
     _open(ui, EL)
@@ -366,7 +405,7 @@ def test_save_bumps_the_version(ui, record):
     group="C",
     title="A Markdown description with a mermaid fence renders as a diagram",
     feature="Element · Overview · Markdown",
-    expected="A fenced mermaid block in the description is drawn as an SVG on Overview, and the prose around it still renders as prose.",
+    expected="A fenced mermaid block in the description is drawn as an SVG on Overview, and the prose around it still reads as prose.",
 )
 def test_mermaid_in_the_description(ui, record):
     fence = "```mermaid\nflowchart LR\n  a[Course] --> b[Unit]\n```"
@@ -377,18 +416,12 @@ def test_mermaid_in_the_description(ui, record):
     ui.must("the description saved", "Saved version" in _save(ui))
     _open(ui, EL)
     block = _pm(id=f"el-desc-{EL}-mermaid-0", type="mermaid-svg")
-    ui.page.wait_for_function(
-        "sel => { const el = document.querySelector(sel); return !!(el && el.querySelector('svg')); }",
-        arg=block,
-        timeout=25_000,
-    )
+    _await_svg(ui, block)
     ui.check(
         "the fence is drawn as a diagram, not printed as code", ui.page.locator(f"{block} svg").count() > 0
     )
-    svg = ui.page.locator(f"{block} svg").first.inner_text()
-    ui.check(
-        "the diagram carries the shapes the fence declared", "Course" in svg and "Unit" in svg, svg[:120]
-    )
+    drawn = ui.page.locator(f"{block} svg").first.text_content() or ""
+    ui.check("the diagram carries the shapes the fence declared", "Course" in drawn and "Unit" in drawn)
     overview = _panel(ui, "overview").inner_text()
     ui.check("the prose after the fence still reads as prose", "prose after the fence" in overview)
     ui.check("the fence itself is not shown as text", "```" not in overview, overview[-200:])
@@ -424,7 +457,7 @@ def test_empty_name_is_refused(ui, record):
     group="C",
     title="Two people editing the same element: the second save is refused, not silently applied",
     feature="Element · Edit · optimistic concurrency",
-    expected="A save made from a second tab wins; the first tab's save is refused with the version it had and told to reload.",
+    expected="A save made from a second tab wins; the first tab's save is refused, naming the version clash and telling the reader to reload.",
 )
 def test_concurrent_save_is_refused(ui, record):
     _open(ui, EL)
@@ -452,11 +485,11 @@ def test_concurrent_save_is_refused(ui, record):
     ui.check("the first tab's save is refused", "Saved version" not in feedback, feedback)
     ui.check("the refusal says it was not saved", "Not saved" in feedback, feedback)
     ui.check("the refusal names the version clash", "version" in feedback.lower(), feedback)
-    ui.check("the refusal says what to do", "Reload" in feedback, feedback)
+    ui.check("the refusal says what to do about it", "Reload" in feedback, feedback)
     ui.shot("The stale tab's save is refused, naming the version it had and telling the reader to reload")
     _open(ui, EL)
     ui.check(
-        "the second tab's text is the one in the model",
+        "the model holds what the tab that won wrote",
         "written from the second tab" in _panel(ui, "overview").inner_text(),
     )
     _tab(ui, "Edit")
@@ -472,7 +505,7 @@ def test_concurrent_save_is_refused(ui, record):
     group="C",
     title="The direction toggle changes which relationships may be added",
     feature="Element · Relationships · direction",
-    expected="Switching from 'this element →' to '→ this element' replaces the relationship list with the ones this type may receive.",
+    expected="Switching from 'this element →' to '→ this element' replaces the list with the relationships this type may receive.",
 )
 def test_direction_toggle(ui, record):
     _open(ui, EL)
@@ -481,15 +514,20 @@ def test_direction_toggle(ui, record):
     ui.must("the outgoing relationships are offered", len(outgoing) > 0, str(outgoing))
     ui.check(
         "an outgoing relationship of this type is offered",
-        any(o.startswith("encapsulates") for o in outgoing),
+        "encapsulates" in _rel_names(outgoing),
         str(outgoing),
     )
     ui.segmented("el-rel-direction", "→ this element")
     incoming = _options(ui, "el-rel-type")
-    ui.check("the incoming relationships are different", incoming != outgoing, f"{incoming} vs {outgoing}")
+    ui.check("the incoming relationships are a different list", incoming != outgoing, str(incoming))
     ui.check(
         "an incoming relationship of this type is offered",
-        any(o.startswith("processes") for o in incoming),
+        "processes" in _rel_names(incoming),
+        str(incoming),
+    )
+    ui.check(
+        "the incoming list names the type at the other end",
+        any("Physical Application Component →" in o for o in incoming),
         str(incoming),
     )
     ui.shot("The direction toggle set to '→ this element', with the relationships this element may receive")
@@ -507,20 +545,13 @@ def test_pair_constrains_the_relationship_types(ui, record):
     _open(ui, EL)
     _tab(ui, "Relationships")
     before = _options(ui, "el-rel-type")
-    ui.page.locator("#el-rel-other").first.click()
-    ui.page.locator("#el-rel-other").first.fill("SRS_Course")
-    ui.page.wait_for_timeout(700)
-    ui.settle()
-    options = [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
-    ui.must("the search finds something", len(options) > 0, "no options after typing SRS_Course")
+    offered = _pick_other(ui, "SRS_Course", DE)
+    ui.must("the search finds something", len(offered) > 0, "nothing offered for SRS_Course")
     ui.check(
         "an option names the element, its identifier and its type",
-        any(DE in o and "Data Entity" in o for o in options),
-        str(options[:6]),
+        any(DE in o and "Data Entity" in o for o in offered),
+        str(offered[:6]),
     )
-    ui.shot("Searching the other element offers the match with its identifier and type")
-    ui.page.locator("[role='option']").filter(has_text=re.compile(re.escape(DE))).first.click()
-    ui.settle()
     after = _options(ui, "el-rel-type")
     ui.check(
         "the list narrowed once both ends were known",
@@ -529,7 +560,7 @@ def test_pair_constrains_the_relationship_types(ui, record):
     )
     ui.check(
         "only the relationship the metamodel allows between the two types is offered",
-        [o.split("  ")[0] for o in after] == ["encapsulates"],
+        _rel_names(after) == ["encapsulates"],
         str(after),
     )
     ui.shot("With a Data Entity at the other end, only 'encapsulates' remains on offer")
@@ -538,15 +569,15 @@ def test_pair_constrains_the_relationship_types(ui, record):
 @pytest.mark.scenario(
     scenario_id="C12",
     group="C",
-    title="The qualifier is disabled until the relationship type declares qualifiers",
+    title="The qualifier is dead until the relationship type declares qualifiers",
     feature="Element · Relationships · qualifiers",
-    expected="On a Position the qualifier select is dead until the stewardship relationship is chosen, and then offers the four roles the pack declares.",
+    expected="On a Position the qualifier select is disabled until the stewardship relationship is chosen, and then offers the four roles the pack declares.",
 )
 def test_qualifier_enables_with_its_type(ui, record):
     _open(ui, POS)
     _tab(ui, "Relationships")
     ui.check("the qualifier starts disabled", ui.disabled("el-rel-qualifier"), "el-rel-qualifier")
-    ui.select("el-rel-other", "Unit Outlines")
+    _pick_other(ui, "Unit Outlines", "IA-UNIT-OUTLINES")
     ui.check("choosing the other end alone does not enable it", ui.disabled("el-rel-qualifier"))
     types = _options(ui, "el-rel-type")
     ui.must("a relationship is on offer for the pair", len(types) > 0, str(types))
@@ -573,8 +604,8 @@ def test_add_and_delete_a_relationship(ui, record):
     _open(ui, EL)
     _tab(ui, "Relationships")
     tables = ui.page.locator("#el-rel-tables")
-    ui.check("the element does not have this relationship yet", other_name not in tables.inner_text())
-    ui.select("el-rel-other", other_name)
+    ui.must("the element does not have this relationship yet", other_name not in tables.inner_text())
+    _pick_other(ui, "Student Enrolment", "IA-STUDENT-ENROL")
     ui.select("el-rel-type", "categorises")
     ui.click("el-rel-add")
     feedback = ui.text("el-rel-feedback")
@@ -582,7 +613,7 @@ def test_add_and_delete_a_relationship(ui, record):
     ui.check("the outgoing table now holds it", other_name in tables.inner_text(), tables.inner_text()[:300])
     row = ui.page.locator(f"#el-rel-tables tr:has-text({json.dumps(other_name)})").first
     ui.check("the row names the relationship", "categorises" in row.inner_text(), row.inner_text())
-    ui.check("the row says where the relationship came from", "user" in row.inner_text(), row.inner_text())
+    ui.check("the row says where it came from", "user" in row.inner_text().lower(), row.inner_text())
     ui.shot("The relationship that was just added, in the outgoing table")
     row.locator("button").last.click()
     ui.settle()
@@ -605,7 +636,7 @@ def test_add_and_delete_a_relationship(ui, record):
     group="C",
     title="The depth slider widens the neighbourhood the graph draws",
     feature="Element · Graph · depth",
-    expected="Moving the depth from 1 to 2 adds the neighbours of the neighbours to the graph and to the generated view.",
+    expected="Moving the depth from 1 to 2 adds the neighbours of the neighbours to the graph.",
 )
 def test_graph_depth(ui, record):
     _open(ui, EL)
@@ -613,18 +644,18 @@ def test_graph_depth(ui, record):
     first = _cy(ui, "cy.$('.element').length")
     ui.must("the graph drew the neighbourhood", (first or 0) > 1, f"{first} nodes")
     ui.shot("The neighbourhood graph at depth 1")
-    ui.page.locator("#el-graph-depth [role='slider']").first.click()
+    thumb = ui.page.locator("#el-graph-depth [role='slider']").first
+    thumb.click()
     ui.page.keyboard.press("ArrowRight")
-    ui.page.wait_for_timeout(400)
+    ui.page.wait_for_timeout(600)
     ui.settle()
     ui.wait_graph()
     second = _cy(ui, "cy.$('.element').length")
     ui.check("depth 2 draws more than depth 1", (second or 0) > (first or 0), f"{first} then {second} nodes")
     ui.check(
         "the slider reports the depth it is on",
-        (ui.page.locator("#el-graph-depth [role='slider']").first.get_attribute("aria-valuenow") or "")
-        == "2",
-        ui.page.locator("#el-graph-depth [role='slider']").first.get_attribute("aria-valuenow") or "",
+        (thumb.get_attribute("aria-valuenow") or "") == "2",
+        thumb.get_attribute("aria-valuenow") or "",
     )
     ui.shot("The same neighbourhood at depth 2, wider than before")
 
@@ -642,7 +673,7 @@ def test_graph_groupings(ui, record):
     nodes = _cy(ui, "cy.$('.element').length")
     for label in GROUPINGS:
         ui.select(GP_GROUP, label, exact=True)
-        ui.page.wait_for_timeout(400)
+        ui.page.wait_for_timeout(500)
         boxes = _cy(ui, "cy.$('.group').length")
         drawn = _cy(ui, "cy.$('.element').length")
         ui.check(f"'{label}' keeps every node on the canvas", drawn == nodes, f"{drawn} of {nodes}")
@@ -652,7 +683,6 @@ def test_graph_groupings(ui, record):
             ui.check(f"'{label}' draws its boxes", (boxes or 0) > 0, f"{boxes} boxes")
         if label == "Group by layer":
             ui.shot("The graph grouped by layer, each layer a labelled box")
-    ui.select(GP_GROUP, "Group by target state", exact=True)
     ui.shot("The graph grouped by target state, the last of the seven groupings")
     ui.select(GP_GROUP, "Group by domain", exact=True)
 
@@ -662,7 +692,7 @@ def test_graph_groupings(ui, record):
     group="C",
     title="Every layout the panel offers redraws the same graph",
     feature="Element · Graph · layout",
-    expected="All five layouts run, keep every node, and move the nodes to a different arrangement.",
+    expected="All five layouts run, keep every node, and do not all arrange them the same way.",
 )
 def test_graph_layouts(ui, record):
     _open(ui, EL)
@@ -671,7 +701,7 @@ def test_graph_layouts(ui, record):
     seen: list[tuple[float, float]] = []
     for label in LAYOUTS:
         ui.select(GP_LAYOUT, label, exact=True)
-        ui.page.wait_for_timeout(800)
+        ui.page.wait_for_timeout(900)
         drawn = _cy(ui, "cy.$('.element').length")
         ui.check(f"the {label} layout keeps every node", drawn == nodes, f"{drawn} of {nodes}")
         centre = _cy(ui, "(function(){ var p = cy.$('.element')[0].position(); return [p.x, p.y]; })()")
@@ -680,7 +710,7 @@ def test_graph_layouts(ui, record):
             ui.shot("The neighbourhood drawn with the Circle layout")
     ui.check("the five layouts are not all the same arrangement", len(set(seen)) > 1, str(seen))
     ui.select(GP_LAYOUT, "Grouped grid", exact=True)
-    ui.page.wait_for_timeout(600)
+    ui.page.wait_for_timeout(700)
     ui.shot("Back on the grouped grid, the layout the panel opens with")
 
 
@@ -695,21 +725,21 @@ def test_graph_fit_and_zoom(ui, record):
     _open(ui, EL)
     _open_graph_tab(ui)
     ui.click(GP_FIT)
-    ui.page.wait_for_timeout(400)
+    ui.page.wait_for_timeout(500)
     fitted = _cy(ui, "cy.zoom()")
-    ui.must("the graph reports a zoom", fitted is not None, str(fitted))
+    ui.must("the graph reports the zoom it is drawn at", fitted is not None, str(fitted))
     ui.click(GP_ZOOM_IN)
-    ui.page.wait_for_timeout(300)
+    ui.page.wait_for_timeout(400)
     zoomed_in = _cy(ui, "cy.zoom()")
     ui.check("zoom in enlarges the graph", zoomed_in > fitted, f"{fitted} then {zoomed_in}")
     ui.shot("The graph zoomed in on the neighbourhood")
     ui.click(GP_ZOOM_OUT)
     ui.click(GP_ZOOM_OUT)
-    ui.page.wait_for_timeout(300)
+    ui.page.wait_for_timeout(400)
     zoomed_out = _cy(ui, "cy.zoom()")
     ui.check("zoom out shrinks it again", zoomed_out < zoomed_in, f"{zoomed_in} then {zoomed_out}")
     ui.click(GP_FIT)
-    ui.page.wait_for_timeout(400)
+    ui.page.wait_for_timeout(500)
     refitted = _cy(ui, "cy.zoom()")
     ui.check(
         "Fit puts the whole graph back in the window",
@@ -724,25 +754,25 @@ def test_graph_fit_and_zoom(ui, record):
     group="C",
     title="Tapping a node in the graph opens that element",
     feature="Element · Graph · navigation",
-    expected="Tapping the data entity in the neighbourhood leaves the page for that element's own page.",
+    expected="Tapping the data entity in the neighbourhood leaves this page for that element's own page.",
 )
 def test_tapping_a_node_navigates(ui, record):
     _open(ui, EL)
     _open_graph_tab(ui)
     ui.click(GP_FIT)
-    ui.page.wait_for_timeout(400)
+    ui.page.wait_for_timeout(500)
     position = _cy(
         ui,
-        "(function(){ var n = cy.$('node[element_id = \"" + DE + "\"]'); if (!n.length) { return null; } "
-        "var p = n[0].renderedPosition(); return [p.x, p.y]; })()",
+        "(function(){ var n = cy.$('node[element_id = " + json.dumps(DE) + "]');"
+        " if (!n.length) { return null; } var p = n[0].renderedPosition(); return [p.x, p.y]; })()",
     )
     ui.must("the data entity is on the canvas", position is not None, f"no node for {DE}")
     box = ui.page.locator(GP_CY).first.bounding_box()
     ui.page.mouse.click(box["x"] + position[0], box["y"] + position[1])
-    ui.page.wait_for_timeout(600)
+    ui.page.wait_for_timeout(700)
     ui.settle()
     ui.check("tapping the node opened that element", ui.page.url.endswith(f"/element/{DE}"), ui.page.url)
-    ui.check("the page that opened is the one that was tapped", "SRS_Course" in ui.body(), ui.body()[:120])
+    ui.check("the page that opened is the one that was tapped", "SRS_Course" in ui.body())
     ui.shot("Tapping the data entity in the graph opened its own element page")
 
 
@@ -759,33 +789,35 @@ def test_tapping_a_node_navigates(ui, record):
 def test_generated_view(ui, record):
     _open(ui, EL)
     _open_graph_tab(ui)
-    ui.page.wait_for_function(
-        "sel => { const el = document.querySelector(sel); return !!(el && el.querySelector('svg')); }",
-        arg=VIEW,
-        timeout=25_000,
+    _await_svg(ui, VIEW)
+    ui.must("the view is drawn as an SVG", ui.page.locator(f"{VIEW} svg").count() > 0)
+    text = ui.page.locator(f"{VIEW} svg").first.text_content() or ""
+    ui.check("the centre of the view is this element", f"[{EL}]" in text, text[-200:])
+    ui.check(
+        "every shape carries an element identifier",
+        len(re.findall(r"\[[A-Z]{2,}[A-Z0-9-]*\]", text)) >= 3,
+        text[-300:],
     )
-    ui.check("the view is drawn as an SVG", ui.page.locator(f"{VIEW} svg").count() > 0)
-    text = ui.page.locator(f"{VIEW} svg").first.inner_text()
-    ui.check("the centre of the view is this element", EL in text, text[:200])
-    ui.check("every shape carries an element identifier", text.count("[") >= 3, text[:200])
+    ui.check("the shapes carry the pack's stereotypes", "«" in text, text[-200:])
     ui.shot("The generated architecture view of the neighbourhood, drawn from the model")
     fitted = _view_scale(ui)
     ui.must("the view reports the zoom it is drawn at", fitted > 0, str(fitted))
     ui.click(VIEW_ZOOM_IN)
-    ui.page.wait_for_timeout(300)
+    ui.page.wait_for_timeout(400)
     ui.check("zoom in enlarges the view", _view_scale(ui) > fitted, f"{fitted} then {_view_scale(ui)}")
     ui.shot("The generated view zoomed in")
     ui.click(VIEW_ZOOM_OUT)
-    ui.page.wait_for_timeout(200)
+    ui.page.wait_for_timeout(300)
     ui.click(VIEW_FIT)
-    ui.page.wait_for_timeout(400)
+    ui.page.wait_for_timeout(500)
     ui.check(
         "Fit puts the view back where it started",
         abs(_view_scale(ui) - fitted) < max(0.02, fitted * 0.15),
         f"fitted {fitted}, refitted {_view_scale(ui)}",
     )
     ui.click(VIEW_RESET)
-    ui.page.wait_for_timeout(800)
+    ui.page.wait_for_timeout(1000)
+    _await_svg(ui, VIEW)
     ui.check("Reset layout redraws the view", ui.page.locator(f"{VIEW} svg").count() > 0)
     ui.shot("The generated view after Fit and Reset layout")
 
@@ -809,7 +841,7 @@ def test_view_downloads(ui, record):
     ui.check("the draw.io file is named for the element", EL in drawio.name, drawio.name)
     xml = drawio.read_text(encoding="utf-8")
     ui.check("the draw.io file is a diagram", "<mxGraphModel" in xml, xml[:120])
-    ui.check("every shape in it carries an element identifier", EL in xml, xml[:400])
+    ui.check("its shapes carry the element identifiers", EL in xml, xml[:400])
     ui.shot("The generated view, with the two download buttons that produced the files")
 
 
@@ -846,9 +878,3 @@ def test_history_lists_the_change(ui, record):
     _tab(ui, "Edit")
     ui.fill("el-target-note", "")
     ui.check("the note is put back for the groups that follow", "Saved version" in _save(ui))
-
-
-def _finding(finding_id: str, where: str, severity: str, summary: str, detail: str):
-    from tests.ui.evidence import Finding
-
-    return Finding(finding_id=finding_id, where=where, severity=severity, summary=summary, detail=detail)

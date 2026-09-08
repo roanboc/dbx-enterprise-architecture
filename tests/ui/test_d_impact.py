@@ -70,13 +70,14 @@ def _type_in_selector(ui, text: str) -> None:
 
 
 def _options(ui) -> list[str]:
-    return [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
+    """Only the open dropdown's options: the header's own selects keep theirs in the page."""
+    return [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
 
 
 def _pick(ui, text: str, element_id: str) -> bool:
     """Search the selector and choose the option for one element; choosing runs the impact."""
     _type_in_selector(ui, text)
-    option = ui.page.locator("[role='option']").filter(has_text=f"[{element_id}]")
+    option = ui.page.locator("[role='option']:visible").filter(has_text=f"[{element_id}]")
     if not option.count():
         ui.page.keyboard.press("Escape")
         return False
@@ -128,8 +129,8 @@ def _alert(ui, fragment: str):
 
 
 def _alert_colour(ui, fragment: str) -> str:
-    """A Mantine alert paints itself from a CSS variable that names the colour it was given."""
-    return ui.page.evaluate(
+    """What colour an alert was given, read back from the background Mantine paints it with."""
+    painted = ui.page.evaluate(
         """(text) => {
             const found = Array.from(document.querySelectorAll('#imp-result .mantine-Alert-root'))
                 .find(el => (el.textContent || '').includes(text));
@@ -139,6 +140,25 @@ def _alert_colour(ui, fragment: str) -> str:
         }""",
         fragment,
     )
+    return _colour_name(painted)
+
+
+def _colour_name(painted: str) -> str:
+    """`rgba(64, 192, 87, 0.1)` is Mantine's green; name the channels rather than guess at them."""
+    for name in ("green", "yellow", "red", "blue"):
+        if name in painted:
+            return name
+    channels = re.search(r"rgba?\((\d+),\s*(\d+),\s*(\d+)", painted)
+    if not channels:
+        return painted or "no colour"
+    r, g, b = (int(channels.group(i)) for i in (1, 2, 3))
+    if g > r and g > b:
+        return f"green ({painted})"
+    if r > 200 and g > 140 and b < 100:
+        return f"yellow ({painted})"
+    if r > 150 and r - g > 60 and r - b > 60:
+        return f"red ({painted})"
+    return painted
 
 
 # ------------------------------------------------------------------------------ the graph
@@ -249,7 +269,7 @@ def test_selector_search(ui, record):
     )
     ui.shot("The element selector lists the matches for what was typed")
 
-    option = ui.page.locator("[role='option']").filter(has_text=f"[{COURSE}]")
+    option = ui.page.locator("[role='option']:visible").filter(has_text=f"[{COURSE}]")
     ui.must("the wanted element is among them", option.count() > 0)
     option.first.click()
     ui.settle()
@@ -343,7 +363,8 @@ def test_upstream_table(ui, record):
     curriculum = _row_for(rows, "Curriculum")
     ui.must("the data component that encapsulates it is listed", bool(curriculum), str(rows[:3]))
     ui.check("it is one hop away", curriculum[0] == "1", curriculum[0])
-    ui.check("its type is named", curriculum[2] == "Logical Data Component", curriculum[2])
+    # a Mantine badge is upper-cased by CSS, so its text comes back however it was written
+    ui.check("its type is named", curriculum[2].lower() == "logical data component", curriculum[2])
     ui.check("the relationship it was reached by is named", curriculum[3] == "encapsulates", curriculum[3])
 
     srs = _row_for(rows, "Student Records System (SRS)")
@@ -410,10 +431,16 @@ def test_depth_control(ui, record):
         all(int(r[0]) <= 3 for r in far),
         str(sorted({r[0] for r in far})),
     )
+    upgrade = _row_for(far, "Curriculum Management System Upgrade")
     ui.check(
-        "the work package that touches the chain is reached at three hops",
-        _row_for(far, "CMS upgrade")[:1] == ["3"] if _row_for(far, "CMS upgrade") else False,
-        str(_row_for(far, "CMS upgrade")),
+        "the work package that would touch it is reached at three hops",
+        upgrade[:1] == ["3"],
+        str(upgrade),
+    )
+    ui.check(
+        "through the chain that got there",
+        upgrade[3] == "encapsulates › processes › impacts" if upgrade else False,
+        str(upgrade),
     )
     ui.shot("Depth 3: the same element reaches three hops of dependents")
 
@@ -440,10 +467,19 @@ def test_both_directions(ui, record):
         _headers(ui, DOWNSTREAM) == ["hops", "element", "type", "via"],
         str(_headers(ui, DOWNSTREAM)),
     )
-    platform = _row_for(up, "Integration platform")
+    counted = re.search(r"(\d+) elements depend on it within \d+ hops; it depends on (\d+)", _sentence(ui))
+    ui.must("the sentence counts both directions", counted is not None, _sentence(ui))
+    ui.check(
+        "the sentence agrees with both tables",
+        (int(counted.group(1)), int(counted.group(2))) == (len(up), len(down)),
+        f"sentence {counted.group(1)}/{counted.group(2)}, tables {len(up)}/{len(down)}",
+    )
+    platform = _row_for(up, "Integration Platform")
     ui.check("the platform that realises it depends on it", platform[:1] == ["1"], str(platform))
     ui.check(
-        "and the relationship is named", platform[3:] == ["realises"] if platform else False, str(platform)
+        "and the relationship it was reached by is named",
+        platform[3] == "realises" if platform else False,
+        str(platform),
     )
 
     curriculum = _row_for(down, "Curriculum")
@@ -552,7 +588,11 @@ def test_view_and_downloads(ui, record):
         "the draw.io file is named for the element", drawio.name == f"{COURSE}-impact.drawio", drawio.name
     )
     diagram = drawio.read_text(encoding="utf-8")
-    ui.check("it is a draw.io file", diagram.lstrip().startswith("<mxfile"), diagram[:60])
+    ui.check(
+        "it is a draw.io file",
+        diagram.lstrip().startswith("<?xml") and "<mxfile" in diagram,
+        diagram[:60],
+    )
     ui.check("and it carries the element identifiers too", COURSE in diagram, diagram[:200])
 
 
@@ -598,12 +638,20 @@ def test_unknown_element(ui, record):
     unknown = "D-NO-SUCH-ELEMENT"
     ui.goto(f"/impact?element={unknown}")
     arrival = _summary(ui)
-    # A deep link to an element that does not exist is ignored on arrival: the page renders
-    # blank instead of saying the id is unknown, which the Run button then does say.
+    # Believed wrong: `render()` in src/ea/ui/pages/impact.py only computes a result when
+    # `backend.get_element(preset)` returns something, so an unknown id in the address is
+    # dropped without a word — the selector shows its placeholder and the result area stays
+    # empty, while the same id put through Run does say "Unknown element." The element page
+    # gets this right ("No element with id …"), so the refusal belongs on arrival too.
     ui.check(
         "arriving with an unknown element says the id is unknown",
         "Unknown element." in arrival,
         f"the result area read {arrival[:80]!r}",
+    )
+    ui.check(
+        "the selector at least holds the id that was asked for",
+        unknown in _selected(ui),
+        f"the selector reads {_selected(ui)!r}",
     )
     ui.shot("Arriving at Impact with an element id nothing matches")
 
