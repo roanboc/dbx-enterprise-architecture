@@ -545,6 +545,11 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
     )
 
 
+def _type_names(ctx: AppContext, type_ids: list[str]) -> str:
+    """Element types by the names the page uses for them everywhere else."""
+    return ", ".join(ctx.registry.types[t].name if t in ctx.registry.types else t for t in (type_ids or []))
+
+
 def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.BR_LIST, "children"),
@@ -678,14 +683,13 @@ def register(app: dash.Dash) -> None:
                 out = ctx.reviews.approve(branch_id, me.username, types or None, comment or "", me.groups)
                 msg = alert(
                     "Approved "
-                    + ", ".join(
-                        ctx.registry.types[t].name if t in ctx.registry.types else t
-                        for t in out["approved_types"]
-                    )
+                    + _type_names(ctx, out["approved_types"])
                     + (
                         "; the branch is approved."
                         if out["complete"]
-                        else "; still pending: " + ", ".join(out["pending"]) + "."
+                        # Named the way the panel above names them: a reader should not have
+                        # to translate an identifier back into the type they just approved.
+                        else "; still pending: " + _type_names(ctx, out["pending"]) + "."
                     ),
                     "green",
                 )

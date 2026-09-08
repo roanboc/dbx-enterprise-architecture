@@ -84,6 +84,9 @@ class StubProvider:
                     score = (2 if name and name in q else 0, len(name))
                     if best is None or score > best[0]:
                         best = (score, m["element_id"])
+                # Named outright: nothing a later word finds can beat it, so stop looking.
+                if best is not None and best[0][0] == 2:
+                    break
             if best is not None:
                 target = best[1]
         if target is None:

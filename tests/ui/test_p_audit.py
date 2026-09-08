@@ -866,35 +866,65 @@ LODGE_SUMMARY = {
     ),
 }
 
-# Checkpoint 9, which the eleven screen audits leave to the screenshots: the keyboard has
-# to reach a control and the control has to show that it has it. A ring is an outline or a
-# box-shadow the focused element draws; Mantine draws one on :focus-visible, which is what
-# a Tab press produces.
-FOCUS_JS = (
+# Checkpoint 9, which the eleven screen audits leave to the screenshots: the keyboard has to
+# reach a control and the control has to show that it has it. What "shows" means differs by
+# control — an outline on a button, a border colour on an input, a background on a link — so
+# the probe does not look for one particular ring. It photographs the control's computed
+# style while it has the keyboard, and again once nothing has it, and asks whether anything
+# about it changed at all.
+FOCUS_PROPERTIES = (
+    "outline-style",
+    "outline-width",
+    "outline-colour",
+    "box-shadow",
+    "border-colour",
+    "border-width",
+    "background",
+    "colour",
+    "underline",
+)
+
+FOCUS_STOP_JS = (
     """
-() => {
+(index) => {
 """
     + VISIBLE
     + """
   const el = document.activeElement;
   if (!el || el === document.body || el === document.documentElement) return null;
+  el.setAttribute('data-p-focus-stop', String(index));
   const cs = getComputedStyle(el);
   const r = el.getBoundingClientRect();
-  const outlined = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth || '0') > 0;
-  const shadowed = !!cs.boxShadow && cs.boxShadow !== 'none';
   return {
+    stop: index,
     sel: where(el),
     name: (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '')
       .trim().replace(/\\s+/g, ' ').slice(0, 34),
-    ring: outlined || shadowed,
-    how: outlined ? 'outline ' + cs.outlineWidth : (shadowed ? 'box-shadow' : 'nothing'),
     visible: vis(el),
-    onScreen: r.bottom > -2 && r.top < innerHeight + 2 && r.right > -2 && r.left < innerWidth + 2,
     inPage: !!el.closest('#page'),
+    onScreen: r.bottom > -2 && r.top < innerHeight + 2 && r.right > -2 && r.left < innerWidth + 2,
+    style: [cs.outlineStyle, cs.outlineWidth, cs.outlineColor, cs.boxShadow, cs.borderColor,
+            cs.borderWidth, cs.backgroundColor, cs.color, cs.textDecorationLine],
   };
 }
 """
 )
+
+# The same controls read again with nothing focused, and the marks taken back off.
+FOCUS_RESTING_JS = """
+() => {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  const out = {};
+  document.querySelectorAll('[data-p-focus-stop]').forEach(el => {
+    const cs = getComputedStyle(el);
+    out[el.getAttribute('data-p-focus-stop')] = [cs.outlineStyle, cs.outlineWidth, cs.outlineColor,
+      cs.boxShadow, cs.borderColor, cs.borderWidth, cs.backgroundColor, cs.color,
+      cs.textDecorationLine];
+    el.removeAttribute('data-p-focus-stop');
+  });
+  return out;
+}
+"""
 
 
 def audit_current(ui, finding, name: str, state: str, headings: bool = True) -> None:
@@ -1048,6 +1078,17 @@ def _panel_text(ui, root: str) -> str:
     return ""
 
 
+# What each Element tab has to put on the screen: that a panel opened is not proof the right
+# one did. History's single sentence is its own empty state — an element nobody has edited
+# since the import has no versions to list, and says so rather than showing a blank.
+EL_TAB_PROOF = {
+    "Edit": lambda ui, text: ui.visible("el-save"),
+    "Relationships": lambda ui, text: ui.visible("el-rel-add"),
+    "Graph": lambda ui, text: ui.page.locator(".ea-graph-canvas canvas").count() > 0,
+    "History": lambda ui, text: "No changes recorded" in text or "version" in text.lower(),
+}
+
+
 def _element_id(ui) -> str:
     """The identifier of the element the group audits, from the same first row of Browse."""
     return _element_path(ui).rsplit("/", 1)[-1]
@@ -1076,16 +1117,33 @@ def _ask_box(ui):
 
 
 def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[dict]:
-    """Tab through a screen and report where the keyboard went and whether it showed."""
+    """Tab through a screen and report where the keyboard went and whether it showed.
+
+    Each stop is marked as it is reached and read a second time at the end with nothing
+    focused, so `ring` is what actually changed about the control rather than a guess at
+    which property a design uses to draw one.
+    """
     stops: list[dict] = []
     for i in range(presses):
         ui.page.keyboard.press("Tab")
         ui.page.wait_for_timeout(30)
-        stop = ui.page.evaluate(FOCUS_JS)
+        stop = ui.page.evaluate(FOCUS_STOP_JS, i)
         if stop:
             stops.append(stop)
         if caption and i == shot_at:
             ui.shot(caption)
+    resting = ui.page.evaluate(FOCUS_RESTING_JS)
+    for stop in stops:
+        was = resting.get(str(stop["stop"]))
+        changed = (
+            [name for name, a, b in zip(FOCUS_PROPERTIES, stop["style"], was, strict=False) if a != b]
+            if was
+            else []
+        )
+        # A control the second read could not find is not reported either way: it was
+        # measured once and the evidence for it is incomplete.
+        stop["ring"] = bool(changed) or was is None
+        stop["how"] = ", ".join(changed) if changed else ("not measured twice" if was is None else "nothing")
     return stops
 
 
@@ -1190,13 +1248,15 @@ def test_browse_as_a_reader_audit(ui, record, finding):
     ui.persona("Reader")
     audit_screen(ui, record, finding, "Browse as a Reader", "/browse", "src/ea/ui/pages/browse.py")
     ui.check(
-        "the header says which role the screen is being read as", "Reader" in ui.role_badge(), ui.role_badge()
+        "the header says which role the screen is being read as",
+        "reader" in ui.role_badge().lower(),
+        ui.role_badge(),
     )
-    body = ui.body()
+    page = ui.text("page")
     ui.check(
         "checkpoint 6 · the page says in words what a Reader may not do here",
-        "You are a Reader on this page" in body,
-        body[:160].replace("\n", " · "),
+        "You are a Reader on this page" in page,
+        page[:160].replace("\n", " · "),
     )
     ui.check("Bulk edit is off for a Reader", ui.disabled("bulk-open"))
     ui.check("New element is off for a Reader", ui.disabled("new-open"))
@@ -1241,13 +1301,17 @@ def test_missing_element_audit(ui, record, finding):
         "/element/P-NO-SUCH-ELEMENT",
         "src/ea/ui/pages/element.py · render()",
     )
-    body = ui.body()
+    page = ui.text("page")
     ui.check(
         "checkpoint 6 · the refusal names the identifier that was not found",
-        "P-NO-SUCH-ELEMENT" in body,
-        body[:200].replace("\n", " · "),
+        "P-NO-SUCH-ELEMENT" in page,
+        page[:200].replace("\n", " · "),
     )
-    ui.check("and says why an identifier can go missing", "renamed or removed" in body, body[:240])
+    ui.check(
+        "and says why an identifier can go missing",
+        "renamed or removed" in page,
+        page[:240].replace("\n", " · "),
+    )
     ui.check(
         "and offers a way on rather than a dead end",
         ui.page.locator('#page a[href="/browse"]').count() > 0
@@ -1276,7 +1340,12 @@ def test_element_tabs_audit(ui, record, finding):
             except Exception:  # noqa: BLE001 — a graph that never paints is the audit's finding
                 pass
         text = _panel_text(ui, "#el-tabs")
-        ui.check(f"the {label} panel has something in it", len(text) > 20, f"{len(text)} characters")
+        ui.check(f"the {label} panel has something in it", bool(text.strip()), f"{len(text)} characters")
+        ui.check(
+            f"and it is the {label} panel, not another one under its name",
+            EL_TAB_PROOF[label](ui, text),
+            text[:90].replace("\n", " · ") or "(nothing at all)",
+        )
         audit_current(ui, finding, "Element", f"the {label} tab")
         ui.shot(f"The Element screen's {label} tab, which no address of its own reaches")
 
@@ -1320,13 +1389,18 @@ def test_impact_with_a_result_audit(ui, record, finding):
         f"/impact?element={element_id}",
         "src/ea/ui/pages/impact.py · _result",
     )
-    body = ui.body()
+    page = ui.text("page")
     ui.check(
         "the address ran the trace it names rather than only filling the picker",
-        "depend on it within" in body,
-        body[:200].replace("\n", " · "),
+        "depend on it within" in page,
+        page[:200].replace("\n", " · "),
     )
-    ui.check("the answer says how complete it is", "Completeness:" in body, "no completeness caveat")
+    at = page.find("Completeness:")
+    ui.check(
+        "the answer says how complete it is",
+        at >= 0,
+        page[at : at + 140].replace("\n", " · ") if at >= 0 else "no completeness caveat",
+    )
     ui.check(
         "the view can be exported once there is one",
         not ui.disabled("imp-view-md") and not ui.disabled("imp-view-drawio"),
@@ -1398,7 +1472,11 @@ def test_ask_answered_audit(ui, record, finding):
         pass
     answer = ui.text("ask-answer")
     ui.must("the question was answered as a document", len(answer) > 200, f"{len(answer)} characters")
-    ui.check("the document says how it was answered", "How this was answered" in answer, answer[:160])
+    ui.check(
+        "the document says how it was answered",
+        "how this was answered" in answer.lower(),
+        answer[:160].replace("\n", " · "),
+    )
     audit_current(ui, finding, "Ask", "answered")
     ui.shot("The answer document as a reader sees it on a wide screen")
     narrow_pass(ui, finding, "Ask answered", "The answer document at 480 px")
@@ -1418,7 +1496,12 @@ def test_ask_empty_question_audit(ui, record, finding):
     box.click()
     box.fill("")
     ui.settle()
-    ui.check("Ask cannot be pressed on an empty box", ui.disabled("ask-button"), "the button is still live")
+    off = ui.disabled("ask-button")
+    ui.check(
+        "Ask cannot be pressed on an empty box",
+        off,
+        "the button is off" if off else "the button is still live",
+    )
     hint = ui.text("ask-hint")
     ui.check(
         "checkpoint 4 · and the reason stands beside it",
@@ -1470,7 +1553,9 @@ def test_branches_empty_status_audit(ui, record, finding):
     ui.check(
         "a status with no branches under it can be reached",
         bool(empty_status),
-        f"every status had branches; the last read {listed[:80]!r}",
+        f"{empty_status} has none"
+        if empty_status
+        else f"every status had branches; the last read {listed[:80]!r}",
     )
     if empty_status:
         ui.check(
@@ -1510,10 +1595,11 @@ def test_branches_unknown_branch_audit(ui, record, finding):
         "p-no-such-branch" in detail,
         detail[:160] or "(nothing at all)",
     )
+    listed = ui.text("br-list")
     ui.check(
-        "and the list of branches is still there to choose from",
-        len(ui.text("br-list")) > 10,
-        ui.text("br-list")[:100],
+        "and the rest of the screen still renders, so the reader can pick another branch",
+        len(listed) > 10,
+        listed[:100].replace("\n", " · "),
     )
 
 
@@ -1548,7 +1634,12 @@ def test_target_scoped_audit(ui, record, finding):
         not checked,
         f"the switch is {'on' if checked else 'off'}",
     )
-    ui.check("the elements in the scope are listed", "Elements (" in ui.text("tg-body"), "no elements table")
+    scoped = ui.text("tg-body")
+    ui.check(
+        "the elements in the scope are listed",
+        "elements (" in scoped.lower(),
+        scoped[:140].replace("\n", " · ") or "(nothing at all)",
+    )
 
 
 @pytest.mark.scenario(
@@ -1613,14 +1704,22 @@ def test_unknown_address_audit(ui, record, finding):
         "/p-no-such-page",
         "src/ea/ui/app.py · route()",
     )
-    body = ui.body()
+    page = ui.text("page")
     ui.check(
         "checkpoint 6 · the warning names the address that was not found",
-        "/p-no-such-page" in body,
-        body[:200].replace("\n", " · "),
+        "/p-no-such-page" in page,
+        page[:200].replace("\n", " · "),
     )
-    ui.check("and says where the reader has landed instead", "This is the home page" in body, body[:200])
-    ui.check("Home itself is rendered under the warning", "Elements by type" in body, body[:240])
+    ui.check(
+        "and says where the reader has landed instead",
+        "This is the home page" in page,
+        page[:200].replace("\n", " · "),
+    )
+    ui.check(
+        "Home itself is rendered under the warning",
+        "elements by type" in page.lower(),
+        page[:240].replace("\n", " · "),
+    )
     ui.check("the navigation marks Home, which is what was rendered", _marked(ui, "nav-home"))
 
 
@@ -1689,8 +1788,16 @@ def test_focus_audit(ui, record, finding):
         ui.goto(path)
         stops = _focus_walk(ui, 20, f"{name}: where the keyboard is after four Tab presses")
         ui.must(f"tabbing moves the keyboard through {name}", len(stops) >= 3, f"{len(stops)} stops")
-        ringless = [f"{s['sel']} {s['name']!r}" for s in stops if s["visible"] and not s["ring"]]
-        unseen = [s["sel"] for s in stops if not s["visible"]]
+        ringless: list[str] = []
+        for stop in stops:
+            entry = f"{stop['sel']} {stop['name']!r}"
+            if stop["visible"] and not stop["ring"] and entry not in ringless:
+                ringless.append(entry)  # a walk that wraps meets the same control twice
+        drawn = next(
+            (f"{s['sel']} by {s['how']}" for s in stops if s["visible"] and s["ring"] and s["how"]),
+            "nothing was measured twice",
+        )
+        unseen = sorted({s["sel"] for s in stops if not s["visible"]})
         in_page = [s for s in stops if s["inPage"]]
         if ringless:
             _lodge(
@@ -1728,6 +1835,10 @@ def test_focus_audit(ui, record, finding):
             f"checkpoint 9 · focus · {name}",
             True,
             f"{len(stops)} tab stops, {len(in_page)} of them inside the page; "
-            + (f"{len(ringless)} draw nothing: {_brief(ringless)}" if ringless else "every one draws a ring")
+            + (
+                f"{len(ringless)} draw nothing: {_brief(ringless)}"
+                if ringless
+                else "every one changes as it takes the keyboard, e.g. " + drawn
+            )
             + (f"; {len(unseen)} are invisible" if unseen else ""),
         )
