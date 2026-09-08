@@ -421,7 +421,6 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
     )
     return html.Div(
         [
-            dcc.Store(id=ids.BR_SELECTED, data=branch_id),
             head,
             count_badges,
             html.Div(_review_panel(ctx, b, bool(rows)), id=ids.RV_PANEL),
@@ -533,6 +532,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 gap="md",
                 mb="sm",
             ),
+            dcc.Store(id=ids.BR_SELECTED, data=selected),
             html.Div(_branch_table(ctx, "open", selected), id=ids.BR_LIST),
             dmc.Divider(my="md"),
             html.Div(
@@ -572,14 +572,20 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.BR_DETAIL, "children"),
+        Output(ids.BR_SELECTED, "data"),
         Input({"type": ids.BR_OPEN, "id": ALL}, "n_clicks"),
         prevent_initial_call=True,
     )
     def open_branch(clicks):
+        """Open one branch's detail, and remember which one it is.
+
+        The store used to live inside the detail, so it went with it; it belongs to the page,
+        which means the page has to keep it up to date.
+        """
         trig = dash_ctx.triggered_id
         if not trig or not any(clicks):
-            return no_update
-        return _detail(get_context(), trig["id"])
+            return no_update, no_update
+        return _detail(get_context(), trig["id"]), trig["id"]
 
     @app.callback(
         Output(ids.BRANCH_NEW_MODAL, "opened", allow_duplicate=True),
