@@ -211,6 +211,103 @@ def _legend(ui) -> str:
     return match.group(0) if match else ""
 
 
+# ------------------------------------------------- what the view draws, and what marks it
+
+VIEW_SRC = '[id=\'{"id":"tg-view","type":"mermaid-src"}\']'
+TARGET_ORDER = list(TARGET_GLYPHS)  # the vocabulary's own order, which both tables sort by
+MAX_NODES = 60  # what a generated view draws before the rest is left out
+NEW_HEX, DECOMMISSION_HEX = "#2f9e44", "#c92a2a"
+NEW_RGB, DECOMMISSION_RGB = "rgb(47, 158, 68)", "rgb(201, 42, 42)"
+
+
+def _source(ui) -> str:
+    """The Mermaid the page generated, read from the hidden source the browser draws from."""
+    block = ui.page.locator(VIEW_SRC).first
+    return (block.text_content() or "") if block.count() else ""
+
+
+def _drawn_ids(ui) -> set[str]:
+    """Every element identifier the view draws, from the label on each shape."""
+    return set(re.findall(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]", ui.text(VIEW_SVG)))
+
+
+def _edge_strokes(ui) -> set[str]:
+    """The colour the browser actually paints each edge of the view in."""
+    return set(
+        ui.page.evaluate(
+            """() => {
+                const out = new Set();
+                document.querySelectorAll(
+                    '.ea-mermaid .edgePaths path, .ea-mermaid path.flowchart-link'
+                ).forEach(p => out.add(getComputedStyle(p).stroke));
+                return Array.from(out);
+            }"""
+        )
+    )
+
+
+def _state_of(cell: str) -> str:
+    """The state a badge cell names, however the CSS cases it: 'Δ CHANGE' → 'change'."""
+    words = cell.strip().lower().split()
+    return words[-1] if words else ""
+
+
+def _order(rows: list[list[str]], column: int) -> list[int]:
+    """Where each row's target state sits in the vocabulary, read down the table."""
+    return [
+        TARGET_ORDER.index(state)
+        for row in rows
+        if row and (state := _state_of(row[column])) in TARGET_ORDER
+    ]
+
+
+def _ids_by_row(table) -> dict[str, str]:
+    """Each row's element identifier, keyed by what its first cell reads, from the link it carries."""
+    out: dict[str, str] = {}
+    body = table.locator("tbody tr")
+    for i in range(body.count()):
+        row = body.nth(i)
+        name = row.locator("td").first.inner_text().strip()
+        link = row.locator("a[href^='/element/']").first
+        if name and link.count():
+            out[name] = (link.get_attribute("href") or "").rsplit("/", 1)[-1]
+    return out
+
+
+def _clipped_row_labels(ui) -> list[str]:
+    """The matrix's row labels the browser has had to cut off, with what is left of them."""
+    return ui.page.evaluate(
+        """() => {
+            const table = document.querySelectorAll('#tg-body table')[0];
+            if (!table) { return ['no matrix']; }
+            const out = [];
+            table.querySelectorAll('tbody tr td:first-child').forEach(td => {
+                const label = td.querySelector('.mantine-Badge-label') || td;
+                if (label.scrollWidth > label.clientWidth + 1) {
+                    out.push(((td.innerText || '').trim()) + ' → ' +
+                             label.clientWidth + ' of ' + label.scrollWidth + ' px');
+                }
+            });
+            return out;
+        }"""
+    )
+
+
+def _search_options(ui, text: str) -> list[str]:
+    """What the work package selector offers while its search box holds `text`."""
+    box = _input(ui, "tg-wp")
+    box.click()
+    box.fill(text)
+    ui.page.wait_for_timeout(250)
+    return [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
+
+
+def _dropdown_text(ui) -> str:
+    """Whatever the open dropdown says — a message, or nothing at all."""
+    box = ui.page.locator("[role='listbox']:visible, .mantine-Combobox-dropdown:visible")
+    return box.first.inner_text().strip() if box.count() else ""
+
+
 def _finding(finding_id: str, where: str, severity: str, summary: str, detail: str):
     from tests.ui.evidence import Finding
 
@@ -231,7 +328,7 @@ def _finding(finding_id: str, where: str, severity: str, summary: str, detail: s
 )
 def test_default_view(ui, record):
     ui.goto("/target")
-    ui.check("the page is titled Target state", "Target state" in ui.text("#page h2"), ui.text("#page h2"))
+    ui.check("the page is titled Target state", "Target state" in ui.text("#page h1"), ui.text("#page h1"))
     subtitle = re.search(r"What is true of each artefact today[^\n]*", ui.body())
     ui.check(
         "it says what a current and a target state are, and where they are edited",

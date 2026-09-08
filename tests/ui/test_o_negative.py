@@ -559,54 +559,38 @@ def test_bulk_edit_without_a_field(ui, record):
 @pytest.mark.scenario(
     scenario_id="O09",
     group="O",
-    title="Bulk edit pressed with nothing ticked says nothing at all",
+    title="Bulk edit pressed with nothing ticked says so, and says what to tick",
     feature="Negative · browse · bulk edit with no rows",
     expected=(
-        "Pressing Bulk edit with no row ticked should say that a row must be ticked first; the button "
-        "instead does nothing and leaves no message anywhere on the page."
+        "Pressing Bulk edit before any row is ticked opens and answers in words — nothing is "
+        "ticked, and here is how to tick — rather than taking the click and doing nothing a "
+        "reader can see."
     ),
 )
-def test_bulk_edit_without_a_tick(ui, record, finding):
+def test_bulk_edit_without_a_tick(ui, record):
+    # This scenario used to require the opposite, and that requirement was the finding: the
+    # button was live, took the click, and did nothing visible, which reads as a broken page.
     ui.goto("/browse")
     ui.must(
         "nothing is ticked to begin with",
         ui.page.locator(f"#{GRID} .ag-center-cols-container .ag-row[aria-selected='true']").count() == 0,
     )
     ui.check("Bulk edit is offered to an Admin all the same", not ui.disabled("bulk-open"))
-    before = ui.body()
     ui.click("bulk-open")
     ui.page.wait_for_timeout(400)
-    opened = ui.page.locator(f"#{BULK_MODAL}").count() > 0
-    after = ui.body()
-    ui.check("the modal does not open on nothing", not opened, f"{opened=}")
-    said = after != before or bool(ui.text("bulk-feedback"))
-    ui.check(
-        "the page says why the button did nothing",
-        said,
-        "the page is unchanged: no message, no notification, no hint to tick a row first",
+    ui.must(
+        "pressing it is answered rather than ignored",
+        ui.page.locator(f"#{BULK_MODAL}").count() > 0,
+        "the modal did not open and nothing was said",
     )
-    ui.shot("Bulk edit pressed with no row ticked: the grid is exactly as it was, and nothing is said")
-    if not said:
-        finding.append(
-            _finding(
-                finding_id="O-4",
-                where="src/ea/ui/pages/browse.py · open_bulk(), the `if not selected` branch",
-                severity="usability",
-                summary="Bulk edit with nothing ticked is refused in silence",
-                detail=(
-                    "open_bulk() returns (False, no_update) when no row is ticked, so the button is live, "
-                    "takes the click, and does nothing a reader can see — the commonest reading of which "
-                    "is that the page is broken. Every other refusal on this page names itself ('Tick at "
-                    "least one row first.' is already written, one callback below, for the save). Either "
-                    "put that sentence where the reader is looking, or disable the button while nothing "
-                    "is ticked and say why it is disabled."
-                ),
-            )
-        )
-    _close_modal(ui, BULK_MODAL)
-
-
-# ------------------------------------------------------------------------------- an import
+    said = ui.text("bulk-feedback")
+    ui.check("it says nothing is ticked", "Nothing is ticked." in said, said or "(nothing said)")
+    ui.check("and says what to tick instead", "tick the rows" in said, said or "(nothing said)")
+    ui.check("and claims nothing was changed", "Updated" not in said, said)
+    ui.shot("Bulk edit pressed with no row ticked says so, and says what to tick")
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(300)
+    ui.settle()
 
 
 @pytest.mark.scenario(

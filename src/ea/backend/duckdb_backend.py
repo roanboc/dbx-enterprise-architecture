@@ -910,7 +910,7 @@ class DuckDBBackend(DatabaseBackend):
     ) -> Relationship:
         current = self.get_relationship(rel.relationship_id)
         if current is None:
-            raise NotFoundError(rel.relationship_id)
+            raise NotFoundError(rel.relationship_id, "relationship")
         expected = expected_version if expected_version is not None else rel.version
         if current.version != expected:
             raise ConflictError(
@@ -965,7 +965,7 @@ class DuckDBBackend(DatabaseBackend):
     def delete_relationship(self, relationship_id: str, actor: str) -> None:
         current = self.get_relationship(relationship_id)
         if current is None:
-            raise NotFoundError(relationship_id)
+            raise NotFoundError(relationship_id, "relationship")
         branch = current_branch()
         with self._lock:
             if branch == MAIN:
@@ -1198,7 +1198,7 @@ class DuckDBBackend(DatabaseBackend):
         """The branch's rows against `main` today, with a conflict wherever `main` moved since the base version."""
         branch = self.get_branch(branch_id)
         if branch is None:
-            raise NotFoundError(branch_id)
+            raise NotFoundError(branch_id, "branch")
         items: list[ChangeItem] = []
         for row in self._fetch_all(
             f"SELECT {', '.join(ELEMENT_COLUMNS)}, base_version, op FROM branch_element WHERE branch_id = ? ORDER BY element_id",
@@ -1444,7 +1444,7 @@ class DuckDBBackend(DatabaseBackend):
     def abandon_branch(self, branch_id: str, actor: str) -> Branch:
         branch = self.get_branch(branch_id)
         if branch is None:
-            raise NotFoundError(branch_id)
+            raise NotFoundError(branch_id, "branch")
         with self._lock:
             for table in ("branch_element", "branch_relationship", "branch_link"):
                 self._execute(f"DELETE FROM {table} WHERE branch_id = ?", [branch_id])
@@ -1454,7 +1454,7 @@ class DuckDBBackend(DatabaseBackend):
 
     def set_branch_status(self, branch_id: str, status: str, actor: str) -> Branch:
         if self.get_branch(branch_id) is None:
-            raise NotFoundError(branch_id)
+            raise NotFoundError(branch_id, "branch")
         with self._lock:
             if status in ("merged", "abandoned"):
                 self._close_branch(branch_id, status, actor)

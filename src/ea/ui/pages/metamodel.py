@@ -559,6 +559,31 @@ def _split(v: Any) -> list[str]:
     return [x.strip() for x in str(v or "").replace(";", ",").split(",") if x.strip()]
 
 
+def _all_rows(virtual: list[dict] | None, rows: list[dict] | None, *key: str) -> list[dict]:
+    """Every row of a grid, carrying whatever was edited in the rows on screen.
+
+    `virtualRowData` is what the grid is showing — filtered and sorted — and it is the only
+    place a cell edit appears. `rowData` is everything the grid was given. Saving from the
+    first alone means a column filter decides what is written, and everything it hid is
+    dropped; saving from the second alone throws away the edit that prompted the save.
+    So: everything, with the rows on screen laid over it.
+    """
+    rows = list(rows or [])
+    virtual = list(virtual or [])
+    if not rows:
+        return virtual
+    if not virtual:
+        return rows
+
+    def identity(row: dict) -> tuple:
+        return tuple(str(row.get(k, "")) for k in key)
+
+    edited = {identity(r): r for r in virtual}
+    out = [edited.pop(identity(r), r) for r in rows]
+    out.extend(edited.values())  # a row added on screen is not in rowData yet
+    return out
+
+
 def _pack_from_grids(
     reg: Registry,
     types: list[dict],
@@ -656,7 +681,7 @@ def register(app: dash.Dash) -> None:
             return no_update
         ctx = get_context()
         try:
-            for r in virtual_rows or rows or []:
+            for r in _all_rows(virtual_rows, rows, "type_id"):
                 ctx.reviews.set_assignment(r["type_id"], (r.get("reviewers") or "").split(","), ctx.actor)
         except Forbidden as exc:
             return alert(str(exc), "red")
@@ -781,11 +806,11 @@ def register(app: dash.Dash) -> None:
         try:
             d = _pack_from_grids(
                 ctx.registry,
-                t_virtual or t_rows or [],
-                r_virtual or r_rows or [],
-                a_virtual or a_rows or [],
-                dn_virtual or dn_rows or [],
-                tn_virtual or tn_rows or [],
+                _all_rows(t_virtual, t_rows, "id"),
+                _all_rows(r_virtual, r_rows, "id"),
+                _all_rows(a_virtual, a_rows, "type_id", "name"),
+                _all_rows(dn_virtual, dn_rows, "id"),
+                _all_rows(tn_virtual, tn_rows, "id"),
             )
             pack = pack_from_dict(d)
             Registry(pack)  # validates references and cycles before anything is stored
@@ -874,11 +899,11 @@ def register(app: dash.Dash) -> None:
         try:
             d = _pack_from_grids(
                 ctx.registry,
-                t_virtual or t_rows or [],
-                r_virtual or r_rows or [],
-                a_virtual or a_rows or [],
-                dn_virtual or dn_rows or [],
-                tn_virtual or tn_rows or [],
+                _all_rows(t_virtual, t_rows, "id"),
+                _all_rows(r_virtual, r_rows, "id"),
+                _all_rows(a_virtual, a_rows, "type_id", "name"),
+                _all_rows(dn_virtual, dn_rows, "id"),
+                _all_rows(tn_virtual, tn_rows, "id"),
             )
             reg = Registry(pack_from_dict(d))
         except (ValueError, KeyError):

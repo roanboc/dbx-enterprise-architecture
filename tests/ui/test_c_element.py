@@ -200,7 +200,7 @@ def _await_svg(ui, container: str) -> None:
 def test_header(ui, record):
     _open(ui, EL)
     ui.must("the element page rendered", ui.visible("el-tabs"))
-    title = ui.page.locator("#page h2").first.inner_text().strip()
+    title = ui.page.locator("#page h1").first.inner_text().strip()
     ui.check("the name is the page title", title == "Curriculum", title)
     badges = _header_badges(ui)
     ui.check("the type is badged", "Logical Data Component" in badges, str(badges))

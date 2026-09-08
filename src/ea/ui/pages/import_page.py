@@ -10,11 +10,11 @@ from pathlib import Path
 
 import dash
 import dash_mantine_components as dmc
-import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
 
 from ea.config import ROOT
 from ea.importer import Mapping, import_frames, load_mapping
+from ea.importer.csv_import import CsvShapeError, read_csv_text
 from ea.models import Forbidden
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, page_title
@@ -153,14 +153,30 @@ def _classify(name: str, mapping: Mapping) -> str | None:
 
 def _frames(store: dict, mapping: Mapping):
     frames = {"elements": [], "relationships": [], "links": []}
-    unclassified = []
+    unclassified: list[str] = []
+    malformed: list[CsvShapeError] = []
     for name, text in (store or {}).items():
         kind = _classify(name, mapping)
         if kind is None:
             unclassified.append(name)
             continue
-        frames[kind].append((name, pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)))
-    return frames, unclassified
+        try:
+            frames[kind].append((name, read_csv_text(text, name)))
+        except CsvShapeError as exc:
+            malformed.append(exc)
+    return frames, unclassified, malformed
+
+
+def _malformed_alert(malformed: list[CsvShapeError]):
+    """A file whose rows do not match its own header is named, and nothing of it is read."""
+    if not malformed:
+        return None
+    return alert(
+        "Not read — a row does not match the header the file declares, and reading it anyway "
+        "would load rows under identifiers the file never named: "
+        + "; ".join(f"{e.filename} ({e.detail})" for e in malformed),
+        "red",
+    )
 
 
 def _run(store, source, mapping_key, dry_run: bool):
@@ -168,11 +184,13 @@ def _run(store, source, mapping_key, dry_run: bool):
     if not store:
         return alert("Upload at least one CSV file first.", "yellow")
     mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml") if mapping_key else Mapping()
-    frames, unclassified = _frames(store, mapping)
-    if not any(frames.values()):
+    frames, unclassified, malformed = _frames(store, mapping)
+    if not any(frames.values()) and not malformed:
         return alert(
             "None of the files matched the element/relationship/link file patterns of the mapping.", "red"
         )
+    if not any(frames.values()):
+        return html.Div([_malformed_alert(malformed)])
     try:
         report = import_frames(
             ctx.backend,
@@ -198,7 +216,8 @@ def _run(store, source, mapping_key, dry_run: bool):
     head = lead + report.summary()
     return html.Div(
         [
-            alert(head, color),
+            alert(head, "red" if malformed else color),
+            _malformed_alert(malformed),
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified
             else None,

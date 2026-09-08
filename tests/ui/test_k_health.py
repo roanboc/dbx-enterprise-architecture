@@ -157,7 +157,7 @@ def _follow(ui, locator) -> None:
 def _subtitle(ui) -> str:
     """The sentence under the page title, which names the branch the figures were taken on."""
     return ui.page.evaluate(
-        "() => { const h = document.querySelector('#page h2');"
+        "() => { const h = document.querySelector('#page h1');"
         " const p = h && h.parentElement.querySelector('p'); return p ? p.innerText.trim() : ''; }"
     )
 

@@ -6,8 +6,10 @@ uses it); `import_directory` wraps it for files on disk (the CLI uses it).
 
 from __future__ import annotations
 
+import io
 import re
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -42,8 +44,39 @@ def _norm_col(name: str) -> str:
     return slugify(str(name))
 
 
+class CsvShapeError(ValueError):
+    """A file whose rows do not match the header it declares."""
+
+    def __init__(self, filename: str, detail: str) -> None:
+        super().__init__(f"{filename}: {detail}")
+        self.filename = filename
+        self.detail = detail
+
+
+def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.DataFrame:
+    """One CSV, read strictly: a row that does not match the header is refused, not reshaped.
+
+    Left to itself, a row carrying more fields than the header makes the parser promote the
+    first column to the index, and every field on that row shifts one place left. The file
+    then loads without a word, under identifiers it never declared — the worst outcome an
+    importer can have. Refusing it is the only safe answer.
+    """
+    kwargs: dict[str, Any] = {"dtype": str, "keep_default_na": False, "index_col": False}
+    if encoding is not None:
+        kwargs["encoding"] = encoding
+    try:
+        return pd.read_csv(source, **kwargs)
+    except pd.errors.ParserError as exc:
+        raise CsvShapeError(filename, " ".join(str(exc).split())) from None
+
+
+def read_csv_text(text: str, filename: str) -> pd.DataFrame:
+    """The same strict read, for a file that arrived as text rather than a path."""
+    return _read_frame(io.StringIO(text), filename)
+
+
 def _read_csv(path: Path, encoding: str) -> pd.DataFrame:
-    return pd.read_csv(path, dtype=str, keep_default_na=False, encoding=encoding)
+    return _read_frame(path, path.name, encoding)
 
 
 def _rename(df: pd.DataFrame, columns: dict[str, str]) -> pd.DataFrame:
@@ -60,9 +93,15 @@ def _rename(df: pd.DataFrame, columns: dict[str, str]) -> pd.DataFrame:
 
 
 def read_directory(
-    directory: str | Path, mapping: Mapping | None = None
+    directory: str | Path,
+    mapping: Mapping | None = None,
+    problems: list[CsvShapeError] | None = None,
 ) -> dict[str, list[tuple[str, pd.DataFrame]]]:
-    """Frames per kind, tagged with the file they came from."""
+    """Frames per kind, tagged with the file they came from.
+
+    A file whose rows do not match its header is collected into `problems` and left out,
+    so one malformed file does not stop the rest; with no list to collect into, it raises.
+    """
     mapping = mapping or Mapping()
     d = Path(directory)
     if not d.exists():
@@ -79,7 +118,12 @@ def read_directory(
                 if p in seen or not p.is_file():
                     continue
                 seen.add(p)
-                out[kind].append((p.name, _read_csv(p, mapping.encoding)))
+                try:
+                    out[kind].append((p.name, _read_csv(p, mapping.encoding)))
+                except CsvShapeError as exc:
+                    if problems is None:
+                        raise
+                    problems.append(exc)
     return out
 
 
@@ -434,10 +478,11 @@ def import_directory(
     dry_run: bool = False,
 ) -> ImportReport:
     mapping = mapping or Mapping()
-    frames = read_directory(directory, mapping)
-    if not any(frames.values()):
+    problems: list[CsvShapeError] = []
+    frames = read_directory(directory, mapping, problems)
+    if not any(frames.values()) and not problems:
         raise FileNotFoundError(f"no CSV files matched in {directory}")
-    return import_frames(
+    report = import_frames(
         backend,
         registry,
         frames,
@@ -446,3 +491,13 @@ def import_directory(
         actor,
         dry_run,
     )
+    for problem in problems:
+        report.issues.append(
+            Issue(
+                level="error",
+                code="ragged_row",
+                message=f"a row does not match the header this file declares: {problem.detail}",
+                file=problem.filename,
+            )
+        )
+    return report

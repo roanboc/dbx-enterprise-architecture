@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from tests.ui.evidence import Finding
 
 pytestmark = pytest.mark.gui
 
@@ -88,6 +89,34 @@ def _pick(ui, text: str, element_id: str) -> bool:
 
 def _run(ui) -> None:
     ui.click("imp-run")
+
+
+def _leave_depth(ui) -> str:
+    """Leave the depth box, which is when Mantine pulls what was typed back into its range."""
+    ui.page.keyboard.press("Tab")
+    ui.page.wait_for_timeout(300)
+    ui.settle()
+    return _depth(ui)
+
+
+def _dropdown(ui) -> str:
+    """What the open selector is showing — its options, or the message standing in for them."""
+    box = ui.page.locator(".mantine-Select-dropdown:visible, .mantine-Combobox-dropdown:visible").first
+    return box.inner_text().strip() if box.count() else ""
+
+
+def _no_download(ui, button: str, seconds: float = 3.0) -> bool:
+    """True when pressing a download button produces no file at all."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        with ui.page.expect_download(timeout=seconds * 1000):
+            ui.page.locator(f"#{button}").first.click()
+    except PlaywrightTimeout:
+        ui.settle()
+        return True
+    ui.settle()
+    return False
 
 
 # ----------------------------------------------------------------------------- the answer
@@ -161,6 +190,34 @@ def _colour_name(painted: str) -> str:
     return painted
 
 
+def _badge(ui) -> str:
+    """The type badge beside the element's name in the summary (CSS upper-cases what it reads)."""
+    badge = ui.page.locator(f"#{RESULT} .mantine-Paper-root").first.locator(".mantine-Badge-root").first
+    return badge.inner_text().strip() if badge.count() else ""
+
+
+def _by_type(ui) -> dict[str, int]:
+    """The `By type:` breakdown in the summary sentence, as {type name: how many}."""
+    parts = _sentence(ui).split("By type:", 1)
+    if len(parts) < 2:
+        return {}
+    out: dict[str, int] = {}
+    for entry in parts[1].split(","):
+        match = re.match(r"\s*(.+?)\s+(\d+)\s*$", entry)
+        if match:
+            out[match.group(1).lower()] = int(match.group(2))
+    return out
+
+
+def _types_in_tables(ui) -> dict[str, int]:
+    """The same count taken from the type column of both closure tables."""
+    out: dict[str, int] = {}
+    for row in _rows(ui, UPSTREAM) + _rows(ui, DOWNSTREAM):
+        if len(row) > 2:
+            out[row[2].lower()] = out.get(row[2].lower(), 0) + 1
+    return out
+
+
 # ------------------------------------------------------------------------------ the graph
 
 
@@ -207,6 +264,102 @@ def _tap_node(ui, element_id: str) -> bool:
     return True
 
 
+def _graph_centre(ui) -> list[str]:
+    return ui.page.evaluate(
+        """() => {
+            const cy = window.eaGraph && window.eaGraph.instance('imp');
+            return cy ? cy.nodes('.centre').map(n => n.data('element_id')) : [];
+        }"""
+    )
+
+
+def _graph_groups(ui) -> list[str]:
+    return ui.page.evaluate(
+        """() => {
+            const cy = window.eaGraph && window.eaGraph.instance('imp');
+            return cy ? cy.nodes('.group').map(n => n.data('label')) : [];
+        }"""
+    )
+
+
+def _selected_nodes(ui) -> list[str]:
+    return ui.page.evaluate(
+        """() => {
+            const cy = window.eaGraph && window.eaGraph.instance('imp');
+            return cy ? cy.nodes(':selected').map(n => n.data('id')) : [];
+        }"""
+    )
+
+
+def _wait_for_graph(ui, previous: list[str]) -> list[str]:
+    """Wait until the graph holds a different set of elements than it did, then read it back."""
+    ui.page.wait_for_function(
+        """(before) => {
+            const cy = window.eaGraph && window.eaGraph.instance('imp');
+            if (!cy) { return false; }
+            const now = cy.nodes().map(n => n.data('element_id')).filter(Boolean).sort().join('|');
+            return Boolean(now) && now !== before;
+        }""",
+        arg="|".join(sorted(previous)),
+        timeout=20_000,
+    )
+    ui.page.wait_for_timeout(300)
+    return _graph_nodes(ui)
+
+
+def _group_point(ui, label: str):
+    """A point just inside the top of a group box, above the nodes it holds."""
+    return ui.page.evaluate(
+        """(label) => {
+            const cy = window.eaGraph && window.eaGraph.instance('imp');
+            if (!cy) { return null; }
+            const hit = cy.nodes('.group').filter(n => n.data('label') === label);
+            if (!hit.length) { return null; }
+            const bb = hit[0].renderedBoundingBox({includeLabels: false});
+            const box = document.getElementById(JSON.stringify({id: 'imp', type: 'gp-cy'}))
+                .getBoundingClientRect();
+            return {x: box.left + (bb.x1 + bb.x2) / 2, y: box.top + bb.y1 + 10, height: window.innerHeight};
+        }""",
+        label,
+    )
+
+
+def _tap_group(ui, label: str) -> bool:
+    """Tap the box a layer's elements sit in, the way a reader would miss a node and hit the box."""
+    ui.page.locator(GRAPH_FRAME).first.scroll_into_view_if_needed()
+    ui.page.wait_for_timeout(300)
+    point = _group_point(ui, label)
+    if not point:
+        return False
+    if not (0 < point["y"] < point["height"]):
+        ui.page.evaluate("dy => window.scrollBy(0, dy)", point["y"] - point["height"] / 2)
+        ui.page.wait_for_timeout(300)
+        point = _group_point(ui, label)
+        if not point or not (0 < point["y"] < point["height"]):
+            return False
+    ui.page.mouse.click(point["x"], point["y"])
+    ui.settle()
+    return True
+
+
+# ------------------------------------------------------------------------------- the view
+
+
+def _wait_view_shows(ui, token: str) -> bool:
+    """A redrawn view arrives after its callback; wait for the shape that proves it is the new one."""
+    try:
+        ui.page.wait_for_function(
+            "t => Array.from(document.querySelectorAll('.ea-mermaid svg'))"
+            ".some(s => (s.textContent || '').includes(t))",
+            arg=token,
+            timeout=25_000,
+        )
+    except Exception:  # noqa: BLE001 — a view that never redraws is the scenario's finding
+        return False
+    ui.page.wait_for_timeout(200)
+    return True
+
+
 # ------------------------------------------------------------------------------ scenarios
 
 
@@ -220,7 +373,7 @@ def _tap_node(ui, element_id: str) -> bool:
 )
 def test_page_opens(ui, record):
     ui.goto("/impact")
-    heading = ui.page.locator("#page h2").first
+    heading = ui.page.locator("#page h1").first
     ui.must("the page is Impact", heading.count() and heading.inner_text().strip() == "Impact")
     subtitle = ui.text("#page .mantine-Group-root")
     for word in ("upstream", "downstream", "depth"):
@@ -543,7 +696,7 @@ def test_graph_and_tap(ui, record):
     ui.page.wait_for_timeout(500)
     ui.settle()
     ui.check("the tap opened that element", ui.page.url.endswith("/element/LDC-CURR"), ui.page.url)
-    heading = ui.page.locator("#page h2").first
+    heading = ui.page.locator("#page h1").first
     ui.check(
         "and the element page is the one tapped",
         heading.count() and heading.inner_text().strip() == "Curriculum",
@@ -638,19 +791,14 @@ def test_unknown_element(ui, record):
     unknown = "D-NO-SUCH-ELEMENT"
     ui.goto(f"/impact?element={unknown}")
     arrival = _summary(ui)
-    # Believed wrong: `render()` in src/ea/ui/pages/impact.py only computes a result when
-    # `backend.get_element(preset)` returns something, so an unknown id in the address is
-    # dropped without a word — the selector shows its placeholder and the result area stays
-    # empty, while the same id put through Run does say "Unknown element." The element page
-    # gets this right ("No element with id …"), so the refusal belongs on arrival too.
     ui.check(
         "arriving with an unknown element says the id is unknown",
         "Unknown element." in arrival,
         f"the result area read {arrival[:80]!r}",
     )
     ui.check(
-        "the selector at least holds the id that was asked for",
-        unknown in _selected(ui),
+        "and the selector is left empty rather than holding an id that resolves to nothing",
+        unknown not in _selected(ui),
         f"the selector reads {_selected(ui)!r}",
     )
     ui.shot("Arriving at Impact with an element id nothing matches")
@@ -665,3 +813,457 @@ def test_unknown_element(ui, record):
     )
     ui.check("no closure table is shown for it", not _rows(ui, UPSTREAM) and not _rows(ui, DOWNSTREAM))
     ui.shot("Running an element id nothing matches is refused in red")
+
+
+@pytest.mark.scenario(
+    scenario_id="D11",
+    group="D",
+    title="Run before an element is chosen answers nothing and says nothing",
+    feature="Impact · Run with nothing chosen",
+    expected="Pressing Run before an element is chosen leaves the page as it was — no answer, no "
+    "failure — and choosing an element afterwards still works.",
+)
+def test_run_with_nothing_chosen(ui, record, finding):
+    ui.goto("/impact")
+    ui.must("nothing is chosen yet", _selected(ui) == "", _selected(ui))
+    ui.check("Run is offered all the same", not ui.disabled("imp-run"))
+    _run(ui)
+    answered = _summary(ui)
+    ui.check("no answer is invented for an element that was never named", answered == "", answered[:120])
+    ui.check(
+        "and nothing on the page reads as a failure",
+        not re.search(r"traceback|exception|error:", ui.text("page"), re.I),
+        ui.text("page")[:160].replace("\n", " · "),
+    )
+    ui.check("the graph is left empty", not _graph_nodes(ui), str(_graph_nodes(ui)[:6]))
+    ui.check("so is the generated view", ui.text(MERMAID_SVG) == "", ui.text(MERMAID_SVG)[:80])
+    ui.shot("Run pressed before an element is chosen: nothing happens and nothing is said")
+
+    ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
+    ui.check(
+        "the page still answers once an element is chosen",
+        "elements depend on it within" in _summary(ui),
+        _summary(ui)[:120].replace("\n", " · "),
+    )
+    if answered == "":
+        finding.append(
+            Finding(
+                finding_id="D-1",
+                where="src/ea/ui/pages/impact.py · run() (the `if not element_id` branch)",
+                severity="usability",
+                summary="Run is offered with nothing to run, and pressing it says nothing at all",
+                detail=(
+                    "The callback returns three `no_update`s when no element is selected, so the button "
+                    "reports as loading for a moment and then leaves the page exactly as it was: no "
+                    "message, no hint that an element has to be chosen first. Either disable Run until "
+                    "the selector holds something, or answer the press with 'Choose an element first.'"
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="D12",
+    group="D",
+    title="The two downloads are offered before there is anything to download",
+    feature="Impact · the downloads before an answer",
+    expected="Pressing Download Markdown or Download draw.io before an element is chosen produces no "
+    "file and no message; once an element is chosen the same button downloads the view.",
+)
+def test_downloads_before_an_answer(ui, record, finding):
+    ui.goto("/impact")
+    ui.must("nothing is chosen yet", _selected(ui) == "", _selected(ui))
+    ui.check(
+        "both downloads are offered anyway",
+        not ui.disabled("imp-view-md") and not ui.disabled("imp-view-drawio"),
+    )
+    quiet_md = _no_download(ui, "imp-view-md")
+    ui.check("pressing Download Markdown produces no file", quiet_md)
+    quiet_drawio = _no_download(ui, "imp-view-drawio")
+    ui.check("nor does Download draw.io", quiet_drawio)
+    ui.check(
+        "and neither of them says why nothing arrived",
+        _summary(ui) == "" and not ui.page.locator(".mantine-Notification-root").count(),
+        f"the result area read {_summary(ui)[:80]!r}",
+    )
+    ui.shot("Both downloads pressed before an element is chosen")
+
+    ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
+    ui.wait_mermaid()
+    md = ui.download("imp-view-md", ".md")
+    ui.check(
+        "the same button downloads the view once there is one",
+        md.name == f"{COURSE}-impact.md",
+        md.name,
+    )
+    if quiet_md and quiet_drawio:
+        finding.append(
+            Finding(
+                finding_id="D-2",
+                where="src/ea/ui/pages/impact.py · download_view() and the Architecture view panel",
+                severity="usability",
+                summary="Both download buttons are enabled with nothing to download, and pressing one is silent",
+                detail=(
+                    "`download_view` returns `no_update` when no element is selected, so the reader who "
+                    "presses Download Markdown or Download draw.io on the empty page gets no file and no "
+                    "word about why. The buttons sit under an empty view frame that says nothing either. "
+                    "Disable both until a run has produced a view, and give the empty frame a line saying "
+                    "an element has to be chosen."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="D13",
+    group="D",
+    title="The breakdown and the completeness footer agree with what is on screen",
+    feature="Impact · the summary arithmetic",
+    expected="Every element in the two tables is counted once in the by-type breakdown, type by type, "
+    "and the footer's 'of' count agrees with the list of relationship types it says have nothing.",
+)
+def test_breakdown_agrees_with_the_answer(ui, record):
+    ui.goto(f"/impact?element={SYNC}")
+    ui.must("the impact was answered", bool(_sentence(ui)), _summary(ui)[:160].replace("\n", " · "))
+    # the badge itself, not the word in the footer's prose: a badge that lost its type would
+    # still leave "declared for Integration" on the page
+    ui.check(
+        "the element's own type is badged beside its name", _badge(ui).lower() == "integration", _badge(ui)
+    )
+
+    breakdown = _by_type(ui)
+    ui.must("the summary breaks the answer down by type", bool(breakdown), _sentence(ui))
+    up, down = _rows(ui, UPSTREAM), _rows(ui, DOWNSTREAM)
+    ui.check(
+        "every element in both tables is counted once in the breakdown",
+        sum(breakdown.values()) == len(up) + len(down),
+        f"breakdown {sum(breakdown.values())}, tables {len(up)} + {len(down)}",
+    )
+    ui.check(
+        "and each type is counted as often as it appears in them",
+        breakdown == _types_in_tables(ui),
+        f"{breakdown} against {_types_in_tables(ui)}",
+    )
+
+    text = _alert(ui, "Completeness:").inner_text().strip()
+    counted = re.search(r"Completeness: (\d+) of (\d+) relationship types", text)
+    ui.must("the footer counts what is populated out of what is declared", counted is not None, text[:120])
+    populated, declared = int(counted.group(1)), int(counted.group(2))
+    listed = (
+        [item.strip(" .") for item in text.split("No instances yet for:")[1].split(";")]
+        if "No instances yet for:" in text
+        else []
+    )
+    ui.check(
+        "the types it names as empty are exactly the ones it did not count as populated",
+        declared - populated == len(listed),
+        f"{populated} of {declared}, {len(listed)} named",
+    )
+    ui.check(
+        "and each one is named with the pair of types it would relate",
+        bool(listed) and all(re.fullmatch(r".+ \(.+ -> .+\)", item) for item in listed),
+        " | ".join(listed)[:200],
+    )
+    ui.shot("The by-type breakdown counted against both tables, and the footer against its own list")
+
+
+@pytest.mark.scenario(
+    scenario_id="D14",
+    group="D",
+    title="Choosing a second element replaces the whole answer",
+    feature="Impact · asking again",
+    expected="Choosing another element rewrites the sentence, the type badge, both tables and the "
+    "footer, re-centres the graph on it and redraws the architecture view.",
+)
+def test_a_second_element_replaces_the_answer(ui, record):
+    ui.goto(f"/impact?element={COURSE}")
+    ui.wait_graph()
+    ui.wait_mermaid()
+    ui.must("the first element was answered", "SRS_Course" in _summary(ui), _summary(ui)[:120])
+    ui.check(
+        "its downstream table says it depends on nothing",
+        "Nothing." in _panel(ui, DOWNSTREAM).inner_text(),
+        _panel(ui, DOWNSTREAM).inner_text().strip()[:80],
+    )
+    ui.check("and the graph is centred on it", _graph_centre(ui) == [COURSE], str(_graph_centre(ui)))
+    before = _graph_nodes(ui)
+
+    ui.must("the integration was found in the selector", _pick(ui, SYNC, SYNC))
+    ui.check(
+        "the summary now names the element that was chosen",
+        "CMS to SRS curriculum sync" in _summary(ui),
+        _summary(ui)[:120].replace("\n", " · "),
+    )
+    ui.check("badged with its own type", _badge(ui).lower() == "integration", _badge(ui))
+    footer = _alert(ui, "Completeness:").inner_text()
+    ui.check(
+        "the completeness footer is about that type now",
+        "declared for Integration" in footer,
+        footer.replace("\n", " · ")[:160],
+    )
+    ui.check(
+        "the downstream table that said Nothing has rows now",
+        bool(_rows(ui, DOWNSTREAM)),
+        f"{len(_rows(ui, DOWNSTREAM))} rows",
+    )
+    after = _wait_for_graph(ui, before)
+    ui.check("the graph moved to the new element", _graph_centre(ui) == [SYNC], str(_graph_centre(ui)))
+    ui.check("and drew it", SYNC in after, str(sorted(after)[:8]))
+    ui.check(
+        "the architecture view was redrawn for it",
+        _wait_view_shows(ui, f"[{SYNC}]") and f"[{SYNC}]" in ui.text(MERMAID_SVG),
+        ui.text(MERMAID_SVG)[:160].replace("\n", " · "),
+    )
+    ui.shot("A second element replaces the sentence, the tables, the footer, the graph and the view")
+
+
+@pytest.mark.scenario(
+    scenario_id="D15",
+    group="D",
+    title="The depth box holds its reader to the range it allows",
+    feature="Impact · depth · the range",
+    expected="A depth typed beyond six is pulled back to six and answered at six, one below one is "
+    "pulled up to one, and an emptied box answers at the default three.",
+)
+def test_depth_bounds(ui, record, finding):
+    ui.goto("/impact")
+    ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
+
+    _set_depth(ui, 9)
+    ui.check("a depth past the end of the range is pulled back to six", _leave_depth(ui) == "6", _depth(ui))
+    _run(ui)
+    ui.check("and the answer says the depth it used", "within 6 hops" in _sentence(ui), _sentence(ui))
+    deep = _rows(ui, UPSTREAM)
+    ui.check(
+        "nothing came back from further out than that",
+        bool(deep) and all(int(r[0]) <= 6 for r in deep),
+        str(sorted({r[0] for r in deep})),
+    )
+    ui.shot("A depth typed past the end of the range is answered at six")
+
+    _set_depth(ui, 0)
+    ui.check("a depth below the range is pulled up to one", _leave_depth(ui) == "1", _depth(ui))
+    _run(ui)
+    near = _rows(ui, UPSTREAM)
+    ui.check(
+        "and the closure is back to one hop",
+        bool(near) and {r[0] for r in near} == {"1"},
+        str(sorted({r[0] for r in near})),
+    )
+
+    box = _input(ui, "imp-depth")
+    box.click()
+    box.fill("")
+    emptied = _leave_depth(ui)
+    ui.check("an emptied depth box is left empty rather than refilled", emptied == "", repr(emptied))
+    _run(ui)
+    ui.check(
+        "the answer falls back to three hops and says which depth it used",
+        "within 3 hops" in _sentence(ui),
+        _sentence(ui),
+    )
+    ui.shot("An emptied depth box is answered at the default three")
+    if emptied == "":
+        finding.append(
+            Finding(
+                finding_id="D-3",
+                where="src/ea/ui/pages/impact.py · run() (`int(depth or 3)`) and the imp-depth NumberInput",
+                severity="usability",
+                summary="An emptied depth box answers at three while the box itself stays blank",
+                detail=(
+                    "Mantine leaves the NumberInput empty when its contents are deleted, and the callback "
+                    "falls back to `int(depth or 3)`, so the sentence reads 'within 3 hops' over a control "
+                    "showing nothing. The sentence is honest, but the control disagrees with it. Put the "
+                    "default back into the box when it is left empty."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="D16",
+    group="D",
+    title="Every row in a closure table opens the element it names",
+    feature="Impact · the closure tables · navigation",
+    expected="Each row's element is a link to that element's page, and following one leaves Impact "
+    "for the element that was clicked.",
+)
+def test_a_row_opens_the_element_it_names(ui, record):
+    ui.goto(f"/impact?element={COURSE}")
+    rows = _rows(ui, UPSTREAM)
+    ui.must("the upstream table has rows", bool(rows), f"{len(rows)} rows")
+    links = _panel(ui, UPSTREAM).locator("tbody a")
+    hrefs = links.evaluate_all("els => els.map(e => e.getAttribute('href'))")
+    ui.check(
+        "every row names an element that can be opened from it",
+        len(hrefs) == len(rows),
+        f"{len(hrefs)} links for {len(rows)} rows",
+    )
+    ui.check(
+        "each link addresses one element",
+        bool(hrefs) and all((h or "").startswith("/element/") for h in hrefs),
+        str(hrefs[:4]),
+    )
+    ui.check(
+        "the row for the curriculum component points at that component",
+        "/element/LDC-CURR" in hrefs,
+        str(hrefs[:6]),
+    )
+    ui.shot("Each row of the closure table links to the element it names")
+
+    link = _panel(ui, UPSTREAM).locator("tbody a[href='/element/LDC-CURR']").first
+    ui.must("that link is on the page", link.count() > 0)
+    link.click()
+    ui.settle()
+    ui.check("following it opens that element", ui.page.url.endswith("/element/LDC-CURR"), ui.page.url)
+    heading = ui.page.locator("#page h1").first
+    ui.check(
+        "and the page that opened is the one the row named",
+        heading.count() and heading.inner_text().strip() == "Curriculum",
+        heading.inner_text().strip() if heading.count() else "no heading",
+    )
+    ui.shot("Following a row of the closure table opens that element")
+
+
+@pytest.mark.scenario(
+    scenario_id="D17",
+    group="D",
+    title="The graph follows the depth that was asked for, up to the two hops it draws",
+    feature="Impact · the graph and the depth",
+    expected="At depth 1 the graph draws the immediate neighbours only; at depth 3 it reaches two "
+    "hops, which is as far as it ever draws even when the table answers from three.",
+)
+def test_the_graph_follows_the_depth(ui, record, finding):
+    ui.goto(f"/impact?element={COURSE}")
+    ui.wait_graph()
+    far = _graph_nodes(ui)
+    ui.must("the graph drew the neighbourhood", bool(far), f"{len(far)} nodes")
+    ui.check("it reaches two hops out from the element", "INT-CMS-SRS" in far, str(sorted(far)[:10]))
+    upgrade = _row_for(_rows(ui, UPSTREAM), "Curriculum Management System Upgrade")
+    ui.check("the table answers from three hops out", upgrade[:1] == ["3"], str(upgrade))
+    stops_short = "WP-CMS-UPGRADE" not in far
+    ui.check(
+        "the graph stops at the two hops it is built for",
+        stops_short,
+        f"{len(far)} nodes, the three-hop work package {'absent' if stops_short else 'drawn'}",
+    )
+    ui.shot("At depth 3 the graph draws two hops of the neighbourhood")
+
+    _set_depth(ui, 1)
+    _run(ui)
+    near = _wait_for_graph(ui, far)
+    for neighbour in ("LDC-CURR", "PAC-SRS", "PTC-RDBMS", "DEF-COURSE"):
+        ui.check(f"{neighbour} is still drawn one hop away", neighbour in near, str(sorted(near)))
+    ui.check(
+        "and nothing two hops out is drawn any more",
+        "INT-CMS-SRS" not in near and "ORG-ACAD" not in near,
+        str(sorted(near)),
+    )
+    ui.check("the element itself is still the centre", _graph_centre(ui) == [COURSE], str(_graph_centre(ui)))
+    ui.shot("At depth 1 the graph draws only the immediate neighbours")
+    if stops_short:
+        finding.append(
+            Finding(
+                finding_id="D-4",
+                where="src/ea/ui/pages/impact.py · _result() (`ctx.graph.neighbours(element_id, min(depth, 2))`)",
+                severity="usability",
+                summary="The graph is capped at two hops while the tables answer from six, and nothing says so",
+                detail=(
+                    "The picture under the tables is built from `neighbours(element_id, min(depth, 2))`, so "
+                    "an answer run at three hops lists a work package the graph never draws — at depth 3 "
+                    "the table names Curriculum Management System Upgrade three hops out and the graph "
+                    "stops one hop short of it. The cap is sensible (the picture stays readable), but the "
+                    "panel should say it is showing two hops of an answer that reaches further."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="D18",
+    group="D",
+    title="A search nothing matches empties the list rather than leaving the last one up",
+    feature="Impact · the element selector · no matches",
+    expected="Typing something no element matches offers no options and says so, and leaving the "
+    "search keeps the element that was already chosen and its answer.",
+)
+def test_a_search_that_matches_nothing(ui, record, finding):
+    ui.goto("/impact")
+    ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
+    ui.must("it was answered", bool(_sentence(ui)), _summary(ui)[:120].replace("\n", " · "))
+
+    _type_in_selector(ui, "zzzqqq-no-such-element")
+    offered = _options(ui)
+    ui.check("nothing is offered for a search nothing matches", not offered, " | ".join(offered[:4]))
+    message = _dropdown(ui)
+    # The search callback returns `no_update` when the repository matches nothing, so what is
+    # left on screen is Mantine filtering the options it already had — the list has to end up
+    # empty rather than keeping the last search's matches in front of the reader.
+    ui.check(
+        "the reader is told the list is empty rather than shown the last search's matches",
+        bool(message) and "SRS_Course" not in message,
+        repr(message[:120]),
+    )
+    ui.shot("A search nothing matches offers no options")
+
+    ui.page.keyboard.press("Escape")
+    ui.page.locator("#page h1").first.click()
+    ui.page.wait_for_timeout(300)
+    ui.settle()
+    ui.check(
+        "the element that was chosen is still chosen",
+        "SRS_Course" in _selected(ui) or COURSE in _selected(ui),
+        _selected(ui),
+    )
+    ui.check("and its answer is still on screen", "SRS_Course" in _summary(ui), _summary(ui)[:120])
+    if "Type to search" in message:
+        finding.append(
+            Finding(
+                finding_id="D-5",
+                where="src/ea/ui/pages/impact.py · the imp-element Select (`nothingFoundMessage`)",
+                severity="usability",
+                summary="A search that matched nothing tells the reader to type a search",
+                detail=(
+                    "One `nothingFoundMessage` covers two states. Before anything is typed 'Type to "
+                    "search' is the right instruction; after 'zzzqqq-no-such-element' has been typed it "
+                    "reads as though the search never happened, when what the reader needs to know is "
+                    "that the repository holds no element by that name."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="D19",
+    group="D",
+    title="Tapping the box a layer sits in stays where it is",
+    feature="Impact · the graph · the layer boxes",
+    expected="The graph's boxes are named for the layers they hold, and tapping one — rather than a "
+    "node inside it — leaves the reader on Impact with the answer still on screen.",
+)
+def test_tapping_a_layer_box_goes_nowhere(ui, record):
+    ui.goto(f"/impact?element={COURSE}")
+    ui.wait_graph()
+    labels = _graph_groups(ui)
+    ui.must("the graph boxes its nodes", len(labels) > 1, str(labels))
+    ui.check(
+        "and names each box for the layer it holds",
+        {"Application", "Technology"} <= set(labels),
+        str(sorted(labels)),
+    )
+    ui.must("the application box could be tapped", _tap_group(ui, "Application"), str(labels))
+    selected = _selected_nodes(ui)
+    ui.check(
+        "the tap landed on the box itself, not on an element inside it",
+        any(s.startswith("g:layer:") for s in selected),
+        str(selected),
+    )
+    ui.check("tapping a box opens nothing", "/element/" not in ui.page.url, ui.page.url)
+    heading = ui.page.locator("#page h1").first
+    ui.check(
+        "the reader is still on Impact",
+        heading.count() and heading.inner_text().strip() == "Impact",
+        heading.inner_text().strip() if heading.count() else "no heading",
+    )
+    ui.check("with the answer still on screen", "SRS_Course" in _summary(ui), _summary(ui)[:120])
+    ui.shot("Tapping the box a layer's elements sit in leaves the page where it was")

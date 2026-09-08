@@ -364,21 +364,27 @@ def test_created_element_is_findable(ui, record):
 @pytest.mark.scenario(
     scenario_id="B11",
     group="B",
-    title="Bulk edit does not open with nothing ticked",
+    title="Bulk edit with nothing ticked says so and says what to tick",
     feature="Browse · bulk edit",
-    expected="Pressing Bulk edit before any row is ticked leaves the modal shut.",
+    expected="Pressing Bulk edit before any row is ticked is answered in words — nothing is ticked, "
+    "and here is how to tick — rather than by a button that appears to do nothing.",
 )
 def test_bulk_needs_a_tick(ui, record):
+    # This scenario used to require the opposite (the modal stayed shut and nothing was said),
+    # which is what the round found wrong: `open_bulk` now opens it and answers in the feedback.
     ui.goto("/browse")
     ui.check("Bulk edit is offered to an Admin on main", not ui.disabled("bulk-open"))
     ui.click("bulk-open")
-    ui.check(
-        "the modal stays shut with nothing ticked",
-        ui.page.locator("#bulk-modal-body").count() == 0,
+    ui.must(
+        "pressing it with nothing ticked is answered rather than ignored",
+        ui.visible("bulk-modal-body"),
         f"{ui.page.locator('#bulk-modal-body').count()} modal bodies in the page",
     )
-    ui.shot("Bulk edit with nothing ticked leaves the reader on the grid")
-    # Nothing tells the reader why the button did nothing — see the round's findings.
+    feedback = ui.text("bulk-feedback")
+    ui.check("it says nothing is ticked", "Nothing is ticked." in feedback, feedback or "(nothing said)")
+    ui.check("and says what to tick instead", "tick the rows" in feedback, feedback or "(nothing said)")
+    ui.check("and nothing is reported as changed", "Updated" not in feedback, feedback)
+    ui.shot("Bulk edit with nothing ticked says so, and says what to tick")
     _close_modal(ui, "bulk-modal-body")
 
 
@@ -603,3 +609,641 @@ def test_the_filter_note_cannot_be_dismissed(ui, record):
     ui.check("taking it shows every element again", after == whole_model, f"{after} of {whole_model}")
     ui.check("and the note is gone with the filter", ui.text("browse-filter-note") == "")
     ui.shot("Following the note's link restores the whole model")
+
+
+# ------------------------------------------------------- what the address, the grid and the
+# ------------------------------------------------------- bulk modal do that nothing above reaches
+
+# The Browse page reads four things out of the address — `type`, `q`, `missing`/`facet` with its
+# `source` and `days` — of which only `missing` and `days` are exercised above. The grid sorts,
+# selects every row from its header, and keeps a tick while the filters move under it. The bulk
+# modal offers seven fields and only one of them has ever been set. These are those.
+
+ATTR_LEVEL = '[id=\'{"name":"level","type":"el-attr"}\']'
+
+
+def _value(ui, component_id: str) -> str:
+    """What a select or a text box on the page is showing."""
+    return ui.page.locator(f"#{component_id}").first.input_value() or ""
+
+
+def _brief(text: str, limit: int = 240) -> str:
+    return text[:limit].replace("\n", " · ")
+
+
+def _finding(finding_id: str, where: str, severity: str, summary: str, detail: str):
+    from tests.ui.evidence import Finding
+
+    return Finding(finding_id=finding_id, where=where, severity=severity, summary=summary, detail=detail)
+
+
+def _header_cell(ui, col: str):
+    return ui.page.locator(f"#{GRID} .ag-header-cell[col-id='{col}']").first
+
+
+def _page_text(ui) -> str:
+    """What the routed page itself says, without the shell around it."""
+    return ui.text("page")
+
+
+def _choose(ui, component_id: str, label: str, exact: bool = True) -> None:
+    """A select whose options exist on other, closed dropdowns too — pick from the open one only.
+
+    Mantine keeps every dropdown mounted, so `[role='option']` with the text 'retired' matches the
+    page's own status filter as well as the modal's. Only the open dropdown is visible.
+    """
+    ui.page.locator(f"#{component_id}").first.click()
+    ui.page.wait_for_timeout(250)
+    pattern = re.compile(f"^{re.escape(label)}$") if exact else re.compile(re.escape(label))
+    ui.page.locator("[role='option']:visible").filter(has_text=pattern).first.click()
+    ui.settle()
+
+
+def _tab(ui, label: str) -> None:
+    ui.click(f"#el-tabs [role='tab']:has-text('{label}')")
+    ui.page.wait_for_timeout(250)
+
+
+@pytest.mark.scenario(
+    scenario_id="B19",
+    group="B",
+    title="The address can arrive with the type filter and the search already set",
+    feature="Browse · the address",
+    expected="/browse?type=data_entity fills the type filter and shows only that type, ?q= fills the "
+    "search box and finds what typing the same word finds, and the two together apply both.",
+)
+def test_address_presets_the_filters(ui, record):
+    ui.goto("/browse")
+    _, whole_model = _counts(ui)
+    ui.goto("/browse?type=data_entity")
+    label = _value(ui, "browse-type")
+    ui.check("the type filter shows the type the address named", label.startswith("Data Entity"), label)
+    _, of_that_type = _counts(ui)
+    ui.must("the address narrowed the grid to one type", 0 < of_that_type < whole_model, label)
+    types = _column(ui, "type")
+    ui.check(
+        "every row shown is of that type",
+        bool(types) and all(t == "Data Entity" for t in types),
+        str(types),
+    )
+    counted = re.search(r"\((\d+)\)", label)
+    ui.check(
+        "the count the filter carries in its own label is the number of rows it yields",
+        bool(counted) and int(counted.group(1)) == of_that_type,
+        f"{label} against {ui.text('browse-count')}",
+    )
+    ui.shot("The address arrived with the type filter already set to Data Entity")
+
+    ui.goto("/browse?q=curriculum")
+    ui.check("the search box holds the word the address carried", _value(ui, "browse-text") == "curriculum")
+    _, from_address = _counts(ui)
+    first_from_address = ui.grid_cell(GRID, 0, "name")
+    ui.goto("/browse")
+    _search(ui, "curriculum")
+    _, typed = _counts(ui)
+    ui.check(
+        "?q= finds exactly what typing the same word finds",
+        from_address == typed and from_address > 0,
+        f"{from_address} from the address, {typed} typed",
+    )
+    ui.check(
+        "and ranks it the same way",
+        first_from_address == ui.grid_cell(GRID, 0, "name"),
+        f"{first_from_address!r} from the address, {ui.grid_cell(GRID, 0, 'name')!r} typed",
+    )
+    ui.shot("The address arrived with the search word already in the box")
+
+    ui.goto("/browse?type=data_entity&q=unit")
+    _, both = _counts(ui)
+    ui.must("the two together find something", both > 0, ui.text("browse-count"))
+    ui.check(
+        "the two together are narrower than the type alone", both < of_that_type, f"{both} of {whole_model}"
+    )
+    rows = list(zip(_column(ui, "type"), _column(ui, "name"), _column(ui, "snippet"), strict=False))
+    ui.check(
+        "every row is of the type asked for and holds the word asked for",
+        bool(rows) and all(t == "Data Entity" and "unit" in f"{n} {s}".lower() for t, n, s in rows),
+        str(rows[:3]),
+    )
+    ui.shot("The address arrived with both the type and the search word set")
+
+
+@pytest.mark.scenario(
+    scenario_id="B20",
+    group="B",
+    title="A Health link can name the facet either way, and can narrow it to one source",
+    feature="Browse · Health filters",
+    expected="?facet= shows exactly what ?missing= shows, and &source= keeps only that source's rows "
+    "and says so in the note.",
+)
+def test_facet_alias_and_source(ui, record):
+    ui.goto("/browse?missing=description")
+    by_missing = (ui.text("browse-filter-note"), ui.grid_row_ids(GRID), ui.text("browse-count"))
+    ui.must("the facet kept rows to compare", bool(by_missing[1]), by_missing[2])
+    ui.goto("/browse?facet=description")
+    ui.check("?facet= says exactly what ?missing= says", ui.text("browse-filter-note") == by_missing[0])
+    ui.check(
+        "and keeps exactly the same rows", ui.grid_row_ids(GRID) == by_missing[1], ui.text("browse-count")
+    )
+    ui.check(
+        "and counts them the same way", ui.text("browse-count") == by_missing[2], ui.text("browse-count")
+    )
+    ui.shot("?facet= is the same address as ?missing=")
+
+    ui.goto("/browse?missing=never_updated")
+    _, every_source = _counts(ui)
+    sources = [s for s in _column(ui, "source_system") if s]
+    ui.must("the facet holds rows that name a source", bool(sources) and every_source > 0, str(sources[:3]))
+    source = sources[0]
+    ui.goto(f"/browse?missing=never_updated&source={source}")
+    note = ui.text("browse-filter-note")
+    ui.check(
+        "the note says it is showing one source only", f"from source {source}" in note, note or "(no note)"
+    )
+    ui.check("the note still says where the filter came from", "from the Health page" in note, note)
+    _, from_one = _counts(ui)
+    ui.check(
+        "narrowing to one source keeps no more than the facet held",
+        0 < from_one <= every_source,
+        f"{from_one} of {every_source}",
+    )
+    kept = _column(ui, "source_system")
+    ui.check("every row kept came from that source", bool(kept) and all(s == source for s in kept), str(kept))
+    ui.shot("A Health link narrowed to one source system")
+
+    ui.goto("/browse?missing=never_updated&source=zzz-no-such-source")
+    ui.check("a source the model does not hold keeps nothing", _counts(ui) == (0, 0), ui.text("browse-count"))
+    ui.check("and the grid is empty", ui.grid_row_count(GRID) == 0)
+    ui.check(
+        "and the note still says which source was asked for",
+        "from source zzz-no-such-source" in ui.text("browse-filter-note"),
+        ui.text("browse-filter-note") or "(no note)",
+    )
+    ui.check(
+        "with the way back to the whole model still offered",
+        ui.page.locator("#browse-filter-note a").count() > 0,
+    )
+    ui.shot("A source the model does not hold keeps nothing, and the note says which source was asked for")
+
+
+@pytest.mark.scenario(
+    scenario_id="B21",
+    group="B",
+    title="A facet the model does not know empties the grid rather than failing",
+    feature="Browse · a bad address",
+    expected="/browse?missing=nonsense renders the page in full, keeps nothing, and still offers the "
+    "link back to every element.",
+)
+def test_unknown_facet(ui, record, finding):
+    ui.goto("/browse?missing=zzz-no-such-facet")
+    ui.must("the page still renders its grid", ui.visible(GRID), _brief(_page_text(ui)))
+    ui.check(
+        "nothing on the page reads as a failure",
+        not re.search(r"traceback|failed to render|error:", _page_text(ui), re.I),
+        _brief(_page_text(ui)),
+    )
+    ui.check(
+        "the filters are still there to work with", ui.visible("browse-type") and ui.visible("browse-text")
+    )
+    ui.check("nothing is kept", _counts(ui) == (0, 0), ui.text("browse-count"))
+    ui.check("and the grid is empty", ui.grid_row_count(GRID) == 0)
+    note = ui.text("browse-filter-note")
+    ui.check("a note still says the grid is filtered", "from the Health page" in note, note or "(no note)")
+    ui.check(
+        "and the way back to the whole model is offered", ui.page.locator("#browse-filter-note a").count() > 0
+    )
+    ui.shot("A facet the model does not know: an empty grid, and the link back to every element")
+    if "zzz-no-such-facet" in note:
+        finding.append(
+            _finding(
+                finding_id="B-1",
+                where="src/ea/ui/pages/browse.py · _filter_note(), FACET_LABELS.get(facet, facet)",
+                severity="usability",
+                summary="An unknown facet is read back to the reader as though it were a filter the page knows",
+                detail=(
+                    "FACET_LABELS falls back to the raw token, so /browse?missing=zzz-no-such-facet reads "
+                    "'Showing only the elements zzz-no-such-facet (from the Health page).' over an empty "
+                    "grid. A stale bookmark or a renamed facet therefore looks like a model with nothing "
+                    "in it rather than an address the page could not read. Health links are the only "
+                    "source of these addresses, so an unrecognised facet should say so."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="B22",
+    group="B",
+    title="A days= the page cannot read falls back rather than taking the page down",
+    feature="Browse · a bad address",
+    expected="/browse?missing=stale&days=abc still renders the grid and the filters, the way an "
+    "unknown work package still renders the Target state page.",
+)
+def test_unreadable_days(ui, record):
+    ui.goto("/browse?missing=stale&days=30")
+    ui.must("the well-formed link works", ui.visible(GRID), _brief(_page_text(ui)))
+    ui.check("and says how long is too long", "30 days or more" in ui.text("browse-filter-note"))
+
+    ui.goto("/browse?missing=stale&days=abc")
+    ui.check(
+        "a days= that is not a number does not take the page down",
+        ui.visible(GRID),
+        _brief(_page_text(ui)),
+    )
+    ui.check(
+        "and the reader is not shown a raw exception",
+        not re.search(r"valueerror|traceback|failed to render", _page_text(ui), re.I),
+        _brief(_page_text(ui)),
+    )
+    ui.check(
+        "the filters are still there to work with",
+        ui.visible("browse-type") and ui.visible("browse-text"),
+        _brief(_page_text(ui)),
+    )
+    ui.shot("A days= the page cannot read")
+
+    ui.goto("/browse")
+    ui.check("and the page comes back as soon as the address is right", ui.visible(GRID))
+    ui.check("with the whole model in it", _counts(ui)[1] > 0, ui.text("browse-count"))
+
+
+@pytest.mark.scenario(
+    scenario_id="B23",
+    group="B",
+    title="A column header sorts the grid without changing what is in it",
+    feature="Browse · the grid",
+    expected="Clicking the Name header sorts the rows by name, clicking it again reverses them, and "
+    "the 'N of M' count never moves.",
+)
+def test_column_sorting(ui, record):
+    ui.goto("/browse")
+    ui.must("there are rows to sort", ui.grid_row_count(GRID) > 2)
+    before = ui.text("browse-count")
+    header = _header_cell(ui, "name")
+    header.locator(".ag-header-cell-label").first.click()
+    ui.settle()
+    ascending = _column(ui, "name")
+    ui.check(
+        "one click sorts the names upwards",
+        ascending == sorted(ascending) or ascending == sorted(ascending, key=str.lower),
+        str(ascending[:4]),
+    )
+    ui.check(
+        "and the header says which way it is sorted",
+        (_header_cell(ui, "name").get_attribute("aria-sort") or "") == "ascending",
+        f"aria-sort={_header_cell(ui, 'name').get_attribute('aria-sort')}",
+    )
+    ui.shot("The grid sorted by name, upwards")
+    header.locator(".ag-header-cell-label").first.click()
+    ui.settle()
+    descending = _column(ui, "name")
+    ui.check(
+        "a second click sorts them downwards",
+        descending == sorted(descending, reverse=True)
+        or descending == sorted(descending, key=str.lower, reverse=True),
+        str(descending[:4]),
+    )
+    ui.check(
+        "which is not the order they arrived in",
+        bool(descending) and bool(ascending) and descending[0] != ascending[0],
+        f"{ascending[0]!r} upwards, {descending[0]!r} downwards",
+    )
+    ui.check(
+        "and the header says so too",
+        (_header_cell(ui, "name").get_attribute("aria-sort") or "") == "descending",
+        f"aria-sort={_header_cell(ui, 'name').get_attribute('aria-sort')}",
+    )
+    ui.check(
+        "sorting changes no count",
+        ui.text("browse-count") == before,
+        f"{ui.text('browse-count')} against {before}",
+    )
+    ui.shot("The same rows sorted by name, downwards")
+
+
+@pytest.mark.scenario(
+    scenario_id="B24",
+    group="B",
+    title="An identifier finds its element, whatever case it is typed in and however little of a word",
+    feature="Browse · ranked search",
+    expected="Searching an element's identifier finds it and says it matched on the identifier; the "
+    "same search in the other case finds the same row, and part of a word finds the name it is part of.",
+)
+def test_search_by_identifier_and_part_of_a_word(ui, record):
+    ui.goto("/browse")
+    _search(ui, "LDC-CURR")
+    shown, _ = _counts(ui)
+    ui.must("the identifier finds something", shown >= 1, ui.text("browse-count"))
+    ui.check(
+        "the element with that identifier is one of them",
+        "LDC-CURR" in ui.grid_row_ids(GRID),
+        str(ui.grid_row_ids(GRID)[:5]),
+    )
+    ui.check(
+        "and the 'matched in' column says the identifier is why",
+        "LDC-CURR" in ui.grid_cell_of(GRID, "LDC-CURR", "snippet"),
+        ui.grid_cell_of(GRID, "LDC-CURR", "snippet") or "(empty)",
+    )
+    ui.shot("An identifier finds its element and says the identifier is why")
+
+    _search(ui, "ldc-curr")
+    ui.check(
+        "the same identifier in the other case finds the same row",
+        "LDC-CURR" in ui.grid_row_ids(GRID),
+        str(ui.grid_row_ids(GRID)[:5]),
+    )
+    _search(ui, "urriculu")
+    ui.check(
+        "part of a word finds the name it is part of",
+        "LDC-CURR" in ui.grid_row_ids(GRID),
+        str(ui.grid_row_ids(GRID)[:5]),
+    )
+    ui.check(
+        "and a row matched inside its own name shows no snippet",
+        ui.grid_cell_of(GRID, "LDC-CURR", "snippet") == "",
+        ui.grid_cell_of(GRID, "LDC-CURR", "snippet"),
+    )
+    ui.shot("Part of a word finds the names it is part of")
+
+
+@pytest.mark.scenario(
+    scenario_id="B25",
+    group="B",
+    title="Bulk edit sets a status, a note and an attribute in one pass",
+    feature="Browse · bulk edit",
+    expected="Status, Target note and an attribute set together on the ticked row all land: the grid "
+    "shows the new status and the element carries the note and the attribute.",
+)
+def test_bulk_sets_status_note_and_attribute(ui, record):
+    # Only this group's own element is touched, and only in fields no other group reads: the
+    # current state and the work package are left alone because the Target state page counts both.
+    ui.goto("/browse")
+    _search(ui, "B-alpha-capability")
+    shown, _ = _counts(ui)
+    ui.must("the element this group created is in the grid", shown >= 1, ui.text("browse-count"))
+    element_id = ui.grid_cell(GRID, 0, "element_id")
+    ui.check(
+        "it is still a draft before the edit",
+        ui.grid_cell(GRID, 0, "status") == "draft",
+        ui.grid_cell(GRID, 0, "status"),
+    )
+    ui.grid_tick(GRID, [0])
+    ui.click("bulk-open")
+    ui.must("the bulk edit modal opened", ui.visible("bulk-modal-body"))
+    _choose(ui, "bulk-status", "approved")
+    ui.fill("bulk-note", "Approved in bulk by the Browse round")
+    ui.fill("bulk-attr-name", "level")
+    ui.fill("bulk-attr-value", "3")
+    ui.click("bulk-save")
+    ui.check(
+        "it reports the one element it updated",
+        "Updated 1 element(s)" in ui.text("bulk-feedback"),
+        ui.text("bulk-feedback"),
+    )
+    ui.check("nothing was refused", "refused" not in ui.text("bulk-feedback"), ui.text("bulk-feedback"))
+    ui.shot("Bulk edit applying a status, a note and an attribute together")
+    _close_modal(ui, "bulk-modal-body")
+    ui.check(
+        "the grid shows the status it was given",
+        ui.grid_cell(GRID, 0, "status") == "approved",
+        ui.grid_cell(GRID, 0, "status"),
+    )
+    ui.check(
+        "and the target state the round set earlier is untouched",
+        ui.grid_cell(GRID, 0, "target_state") == "change",
+        ui.grid_cell(GRID, 0, "target_state"),
+    )
+    ui.shot("The grid reloads with the new status on the row that was ticked")
+
+    ui.goto(f"/element/{element_id}")
+    ui.must("the element it edited opens", element_id in ui.body(), ui.page.url)
+    ui.check(
+        "the element carries the note bulk edit gave it",
+        "Approved in bulk by the Browse round" in ui.body(),
+        _brief(ui.body()),
+    )
+    _tab(ui, "Edit")
+    level = ui.page.locator(ATTR_LEVEL).first
+    ui.must("the attribute bulk edit named has an input on the element", level.count() > 0, "level")
+    ui.check("and it holds the value bulk edit set", level.input_value() == "3", level.input_value())
+    ui.shot("The element bulk edit changed: the note, and the attribute it was given")
+
+
+@pytest.mark.scenario(
+    scenario_id="B26",
+    group="B",
+    title="The header tick selects every row the filters left, and bulk edit counts them",
+    feature="Browse · bulk edit",
+    expected="Ticking the header box selects every row in view and Bulk edit opens saying how many "
+    "that is; leaving the modal changes nothing.",
+)
+def test_header_tick_selects_every_row(ui, record):
+    ui.goto("/browse")
+    ui.select("browse-type", "Capability")
+    shown, _ = _counts(ui)
+    ui.must("the filter left a handful of rows", 1 < shown <= 20, ui.text("browse-count"))
+    ui.must(
+        "all of them are rendered", ui.grid_row_count(GRID) == shown, f"{ui.grid_row_count(GRID)} of {shown}"
+    )
+    header_box = ui.page.locator(f"#{GRID} .ag-header-cell[col-id='sel'] input").first
+    ui.must("the header offers a tick of its own", header_box.count() > 0)
+    header_box.click(force=True)
+    ui.settle()
+    ticked = ui.page.locator(f"#{GRID} .ag-row .ag-cell[col-id='sel'] input:checked").count()
+    ui.check("it ticks every row in view", ticked == shown, f"{ticked} ticked of {shown} shown")
+    ui.click("bulk-open")
+    ui.must("the bulk edit modal opened", ui.visible("bulk-modal-body"))
+    ui.check(
+        "and it holds every row the filter left",
+        f"{shown} element(s) ticked." in ui.text("bulk-feedback"),
+        ui.text("bulk-feedback"),
+    )
+    ui.shot("The header tick selects every row the type filter left, and bulk edit says how many")
+    _close_modal(ui, "bulk-modal-body")
+    ui.check(
+        "leaving the modal reports nothing as changed",
+        "Updated" not in ui.text("bulk-feedback"),
+        ui.text("bulk-feedback"),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="B27",
+    group="B",
+    title="Every field in the bulk modal holds what it is given, and closing it applies nothing",
+    feature="Browse · bulk edit",
+    expected="Status, Current state, Target state, Work package, Target note and the attribute pair "
+    "each read back what was chosen, and closing the modal leaves the ticked row exactly as it was.",
+)
+def test_bulk_fields_hold_what_they_are_given(ui, record):
+    ui.goto("/browse")
+    _search(ui, "B-alpha-capability")
+    ui.must(
+        "this group's own element is the row to tick", ui.grid_row_count(GRID) >= 1, ui.text("browse-count")
+    )
+    before = (
+        ui.grid_cell(GRID, 0, "status"),
+        ui.grid_cell(GRID, 0, "current_state"),
+        ui.grid_cell(GRID, 0, "target_state"),
+    )
+    ui.grid_tick(GRID, [0])
+    ui.click("bulk-open")
+    ui.must("the bulk edit modal opened", ui.visible("bulk-modal-body"))
+    _choose(ui, "bulk-status", "retired")
+    _choose(ui, "bulk-current", "in_implementation")
+    _choose(ui, "bulk-target", "decommission")
+    _choose(ui, "bulk-wp", "Curriculum Management System Upgrade", exact=False)
+    ui.fill("bulk-note", "Never applied — this scenario closes the modal")
+    ui.fill("bulk-attr-name", "level")
+    ui.fill("bulk-attr-value", "9")
+    for field, value in (
+        ("bulk-status", "retired"),
+        ("bulk-current", "in_implementation"),
+        ("bulk-target", "decommission"),
+        ("bulk-attr-name", "level"),
+        ("bulk-attr-value", "9"),
+    ):
+        ui.check(f"'{field}' reads back what it was given", _value(ui, field) == value, _value(ui, field))
+    ui.check(
+        "the work package offers the model's own work packages",
+        "Curriculum Management System Upgrade" in _value(ui, "bulk-wp"),
+        _value(ui, "bulk-wp"),
+    )
+    ui.check(
+        "and the work package names the element behind it",
+        "WP-" in _value(ui, "bulk-wp"),
+        _value(ui, "bulk-wp"),
+    )
+    ui.check(
+        "the note holds what was typed",
+        _value(ui, "bulk-note").startswith("Never applied"),
+        _value(ui, "bulk-note"),
+    )
+    ui.shot("Every field of the bulk edit modal filled in, before it is closed unapplied")
+    _close_modal(ui, "bulk-modal-body")
+    ui.check(
+        "nothing was reported as updated", "Updated" not in ui.text("bulk-feedback"), ui.text("bulk-feedback")
+    )
+    after = (
+        ui.grid_cell(GRID, 0, "status"),
+        ui.grid_cell(GRID, 0, "current_state"),
+        ui.grid_cell(GRID, 0, "target_state"),
+    )
+    ui.check("and the ticked row is exactly as it was", after == before, f"{before} before, {after} after")
+    ui.shot("Closing the modal leaves the ticked row exactly as it was")
+
+
+@pytest.mark.scenario(
+    scenario_id="B28",
+    group="B",
+    title="A tick does not survive the filter that takes its row away",
+    feature="Browse · bulk edit",
+    expected="Ticking a row and then searching for something else leaves nothing ticked, so bulk edit "
+    "can never change a row the reader cannot see.",
+)
+def test_a_tick_does_not_outlive_its_row(ui, record):
+    ui.goto("/browse")
+    _search(ui, "curriculum")
+    ui.must("there is a row to tick", ui.grid_row_count(GRID) >= 1, ui.text("browse-count"))
+    ticked_id = ui.grid_cell(GRID, 0, "element_id")
+    ui.grid_tick(GRID, [0])
+    ui.check(
+        "the row is ticked to begin with",
+        ui.page.locator(f"#{GRID} .ag-row .ag-cell[col-id='sel'] input:checked").count() == 1,
+        ticked_id,
+    )
+    _search(ui, "B-alpha-capability")
+    ui.must(
+        "the row that was ticked is no longer in the grid",
+        ticked_id not in ui.grid_row_ids(GRID),
+        f"{ticked_id} against {ui.grid_row_ids(GRID)[:5]}",
+    )
+    still_ticked = ui.page.locator(f"#{GRID} .ag-row .ag-cell[col-id='sel'] input:checked").count()
+    ui.check("nothing in the grid is ticked any more", still_ticked == 0, f"{still_ticked} still ticked")
+    ui.click("bulk-open")
+    opened = ui.page.locator("#bulk-modal-body").count() > 0
+    feedback = ui.text("bulk-feedback")
+    # Either answer is a safe one: the modal that stays shut, or the modal that opens holding
+    # nothing. What it must not say is that it holds a row the reader can no longer see.
+    ui.check(
+        "and bulk edit holds nothing, because the row it was given is gone from the grid",
+        (not opened) or "Nothing is ticked." in feedback,
+        feedback or "the modal stayed shut",
+    )
+    ui.shot("A tick left behind by a change of search: what bulk edit says it holds")
+    _close_modal(ui, "bulk-modal-body")
+
+
+@pytest.mark.scenario(
+    scenario_id="B29",
+    group="B",
+    title="Closing the Reader's banner changes nothing about what a Reader may do",
+    feature="Browse · permissions",
+    expected="The banner that says a Reader changes nothing can be closed, and both editing buttons "
+    "stay disabled once it is gone.",
+    role="reader",
+)
+def test_reader_banner_is_dismissible(ui, record, finding):
+    ui.goto("/browse")
+    ui.persona("Reader")
+    ui.goto("/browse")
+    banner = ui.page.locator("[class*='Alert-root']").filter(has_text="You are a Reader on this page")
+    ui.must(
+        "the page explains why a Reader changes nothing", banner.count() == 1, f"{banner.count()} banner(s)"
+    )
+    ui.must(
+        "both editing buttons are disabled to begin with",
+        ui.disabled("new-open") and ui.disabled("bulk-open"),
+        f"new={ui.disabled('new-open')}, bulk={ui.disabled('bulk-open')}",
+    )
+    close = banner.locator("button")
+    dismissible = close.count() > 0
+    if dismissible:
+        close.first.click()
+        ui.page.wait_for_timeout(300)
+        ui.settle()
+        ui.check(
+            "closing the explanation takes it off the page",
+            "You are a Reader on this page" not in ui.body(),
+            _brief(ui.body()),
+        )
+    ui.check("New element is still disabled with the banner gone", ui.disabled("new-open"))
+    ui.check("Bulk edit is still disabled with the banner gone", ui.disabled("bulk-open"))
+    ui.check("and a Reader can still read the model", _counts(ui)[1] > 0, ui.text("browse-count"))
+    ui.shot("Browse as a Reader with the banner closed: both buttons still disabled")
+    if dismissible:
+        finding.append(
+            _finding(
+                finding_id="B-2",
+                where="src/ea/ui/pages/browse.py · render(), the permission banner built by components.alert()",
+                severity="usability",
+                summary="The only reason given for the two disabled buttons can be closed, and nothing replaces it",
+                detail=(
+                    "components.alert() always sets withCloseButton=True, so the reader closes "
+                    "'You are a Reader on this page…' (or 'You are on main: switch to a branch…') and is "
+                    "left with New element and Bulk edit greyed out and unexplained for the rest of the "
+                    "session. Neither button carries a tooltip of its own, although the header's New "
+                    "branch icon in src/ea/ui/layout.py sets exactly that ('Your role may not create "
+                    "branches'). The filter note above the grid was made non-dismissible for the same "
+                    "reason; this banner was not."
+                ),
+            )
+        )
+    if ui.page.locator(f"#{GRID} .ag-row[row-index='0'] .ag-cell[col-id='sel'] input").count():
+        finding.append(
+            _finding(
+                finding_id="B-3",
+                where="src/ea/ui/pages/browse.py · COLUMNS, the 'sel' column",
+                severity="usability",
+                summary="A Reader is offered a tick column that leads nowhere",
+                detail=(
+                    "checkboxSelection and headerCheckboxSelection are set for every role, so a Reader "
+                    "can tick a row — or the header box, and select the whole model — with Bulk edit "
+                    "disabled and no other action to apply to the selection. The column promises "
+                    "something the role cannot do."
+                ),
+            )
+        )
+    # The last scenario of the group: leave the application where the group found it.
+    ui.persona("Admin")
+    ui.goto("/browse")

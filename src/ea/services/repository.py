@@ -379,7 +379,7 @@ class RepositoryService:
         self.check_write()
         r = self.backend.get_relationship(relationship_id)
         if r is None:
-            raise NotFoundError(relationship_id)
+            raise NotFoundError(relationship_id, "relationship")
         for k, v in (
             ("current_state", current_state),
             ("target_state", target_state),

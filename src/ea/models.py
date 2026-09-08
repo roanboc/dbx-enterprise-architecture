@@ -378,7 +378,17 @@ class ConflictError(Exception):
 
 
 class NotFoundError(Exception):
-    pass
+    """Nothing carries the identifier that was asked for.
+
+    It reads as a sentence because it is shown to people: on the command line it is the
+    last line of the failure, and in a bulk edit it is the reason beside the row that was
+    refused. An identifier on its own answers nothing.
+    """
+
+    def __init__(self, identifier: str, kind: str = "element") -> None:
+        super().__init__(f"no {kind} with id {identifier}")
+        self.identifier = identifier
+        self.kind = kind
 
 
 class ValidationError(Exception):

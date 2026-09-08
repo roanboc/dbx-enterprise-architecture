@@ -163,7 +163,7 @@ def _switch_to_branch(ui) -> None:
 )
 def test_page_on_main(ui, record):
     _open(ui)
-    ui.check("the page is titled Import", ui.text("#page h2") == "Import", ui.text("#page h2"))
+    ui.check("the page is titled Import", ui.text("#page h1") == "Import", ui.text("#page h1"))
     ui.check("the banner names main and what a load there does", MAIN_BANNER in ui.body(), _banner(ui))
     for control in ("im-upload", "im-source", "im-mapping", "im-template", "im-validate", "im-load"):
         ui.check(f"{control} is on the page", ui.visible(control))
@@ -364,7 +364,7 @@ def test_load_writes(ui, record):
     ui.shot("Load: two elements and one relationship written, and the report says so")
     ui.goto(f"/element/{LDC}")
     body = ui.body()
-    ui.check("the imported element opens by its id", ui.text("#page h2") == "H Admissions Data", body[:200])
+    ui.check("the imported element opens by its id", ui.text("#page h1") == "H Admissions Data", body[:200])
     # The type badge is upper-cased by the stylesheet, so read it without the case.
     ui.check("carrying the type the file gave it", "logical data component" in body.lower(), body[:400])
     ui.check("and the description it was imported with", MARKER in body, body[:400])
@@ -510,8 +510,8 @@ def test_reimport_updates(ui, record):
     ui.goto(f"/element/{LDC}")
     ui.check(
         "the element carries the name the second file gave it",
-        ui.text("#page h2") == "H Admissions Data (revised)",
-        ui.text("#page h2"),
+        ui.text("#page h1") == "H Admissions Data (revised)",
+        ui.text("#page h1"),
     )
     ui.goto(f"/browse?q={MARKER}")
     after = ui.grid_row_count("browse-grid")
