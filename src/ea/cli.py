@@ -10,6 +10,7 @@ import typer
 
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
+from ea.models import ConflictError, Forbidden, NotFoundError, ValidationError
 from ea.services.roles import set_role
 
 app = typer.Typer(
@@ -57,12 +58,18 @@ def _require_branch_exists(branch: str | None) -> None:
     backend = backend_from_settings(Settings.from_env())
     try:
         if backend.get_branch(branch) is None:
-            raise typer.BadParameter(
+            _refuse(
                 f"no branch with id {branch!r}; `ea branch list` says which there are, "
                 f"and `ea branch create` makes one"
             )
     finally:
         backend.close()
+
+
+def _refuse(message: str) -> None:
+    """Say what is wrong and stop, the way a failed import stops: a message and exit 1."""
+    typer.echo(message, err=True)
+    raise typer.Exit(1)
 
 
 def _ctx(settings: Settings | None = None):
@@ -132,7 +139,7 @@ def export_pack(out: Path, pack_id: str = typer.Option(None, help="pack id (defa
         # Refused before the destination is opened: a pack that cannot be found must not
         # cost the reader the file they were writing over.
         held = ", ".join(sorted(x["pack_id"] for x in backend.list_packs())) or "none"
-        raise typer.BadParameter(f"no pack with id {pack_id!r} in this database; it holds: {held}")
+        _refuse(f"no pack with id {pack_id!r} in this database; it holds: {held}")
     dump_pack(p, out)
     typer.echo(f"pack '{p.id}' written to {out}")
 
@@ -203,7 +210,7 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
     t = registry.resolve_type(type_id) if type_id else None
     if type_id and t is None:
         # Ignoring it would answer the unrestricted search and look like a narrow one.
-        raise typer.BadParameter(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
+        _refuse(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
     for h in SearchService(backend, registry).search(text, t.id if t else None, limit=limit):
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
@@ -318,7 +325,7 @@ def trace(
 ):
     """Transitive reach along relationship direction."""
     if direction not in ("in", "out"):
-        raise typer.BadParameter(f"--direction is 'in' or 'out', not {direction!r}")
+        _refuse(f"--direction is 'in' or 'out', not {direction!r}")
     _, _, _, _, graph = _ctx()
     for r in graph.trace(element_id, direction, depth):
         typer.echo(
@@ -392,7 +399,7 @@ def target(
         # Falling back to the whole model reports every element as though it belonged to a
         # work package that does not exist.
         held = ", ".join(w.element_id for w in svc.work_packages()) or "none"
-        raise typer.BadParameter(f"no element with id {work_package!r}; the work packages are: {held}")
+        _refuse(f"no element with id {work_package!r}; the work packages are: {held}")
     summary = svc.summary(work_package)
     if fmt == "md":
         title = "Target state"
@@ -589,5 +596,20 @@ def summary(types: str = typer.Option(None, help="comma-separated type ids to re
     typer.echo(registry.summary_markdown(types.split(",") if types else None))
 
 
+def run() -> None:
+    """The entry point.
+
+    What the repository refuses is something a person did — an identifier nothing matches,
+    a branch nobody created, a role that may not — and it reaches them as a sentence and a
+    failed exit, not as a class name and a stack trace. Everything else still raises.
+    """
+    try:
+        app()
+    except (NotFoundError, ValidationError, Forbidden, ConflictError, ValueError) as exc:
+        message = "; ".join(str(i) for i in exc.issues) if isinstance(exc, ValidationError) else str(exc)
+        typer.echo(message, err=True)
+        raise SystemExit(1) from None
+
+
 if __name__ == "__main__":
-    app()
+    run()

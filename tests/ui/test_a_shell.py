@@ -256,9 +256,9 @@ def test_home(ui, record):
         "a type name links into Browse",
         ui.page.locator("#page a[href^='/browse?type=']").count() > 0,
     )
-    # DEFECT: home.py writes both card headings as dmc.Title(..., order={"base": 4}). A responsive
-    # order renders nothing at all, so the reader gets two unlabelled tables and no way to tell
-    # which is which. Every other page heading uses a plain integer order and does render.
+    # The two cards were once headed with a responsive order, which renders no heading at all
+    # and left the reader two unlabelled tables. They are plain headings now, and this holds
+    # them to it.
     ui.check("the elements table is headed 'Elements by type'", "Elements by type" in body)
     ui.check("the relationships table is headed 'Most used relationships'", "Most used relationships" in body)
     ui.check(
@@ -293,11 +293,8 @@ def test_navigation_routes(ui, record):
         if path == "/browse":
             ui.page.mouse.move(1200, 600)  # away from the link, so hover is not mistaken for marking
             ui.shot("Browse is open, and no link in the navigation is marked as the current page")
-    # DEFECT: layout.py builds each dmc.NavLink without `active`, whose default is False — "never
-    # active, overrides all matching behaviour". No link is ever marked, so the navigation never
-    # says where the reader is, and the .mantine-NavLink-root[data-active] rule in styles.css that
-    # was written for it can never apply. `active="exact"` on Home and "partial" on the rest would
-    # let Mantine match the address.
+    # No link used to be marked at all, so the navigation never said where the reader was.
+    # A callback marks the current one from the address; this holds it to marking exactly one.
     ui.check(
         "the page the reader is on is the one marked in the navigation",
         not unmarked,
@@ -431,19 +428,16 @@ def test_narrow_viewport(ui, record):
         ui.click("nav-burger")
         opened = ui.page.locator("#nav-burger .mantine-Burger-burger").first.get_attribute("data-opened")
         ui.check("the burger takes the click", opened == "true", f"data-opened={opened!r}")
-        # DEFECT: the click reaches the callback — the burger draws itself open — but the navigation
-        # stays translated a full width off-screen, so at 480 px the ten links cannot be reached at
-        # all and the only way to another page is to type its address. app.py's toggle_mobile_nav
-        # returns a new `navbar` prop to the AppShell; the shell does not act on it.
+        # The burger did nothing for a long time: it took its property from a component that
+        # reports no clicks, so the callback behind it could never fire and at 480 px the ten
+        # links could not be reached at all. This is the check that says it opens.
         reachable = _on_screen(ui, "#nav-browse")
         ui.check(
             "the burger opens the navigation",
             reachable,
             f"navbar at x={ui.page.locator(NAVBAR).first.bounding_box()['x']} in a 480 px viewport",
         )
-        ui.shot(
-            "After the burger is clicked: it draws itself open, the navigation stays away", full_page=False
-        )
+        ui.shot("After the burger is clicked: the navigation slides in over the page", full_page=False)
 
         if reachable:
             ui.click("nav-browse")
@@ -1030,11 +1024,9 @@ def test_home_stat_tiles_line_up(ui, record):
         len({t["tile"]["y"] for t in tiles}) == 1,
         "; ".join(f"{t['label']} at y={t['tile']['y']}" for t in tiles),
     )
-    # DEFECT: home.py's _stat() groups the icon and the figure with no `wrap="nowrap"`, so in a tile
-    # whose label is long enough to wrap — "element types with content", "relationship types with
-    # content", "elements that change" — the figure drops underneath the icon while the three short
-    # labels keep theirs beside it. The row of headline figures is then read at two heights rather
-    # than one, and the tiles only keep their common height by padding the short ones with space.
+    # The tiles used to be read at two heights: a label long enough to wrap pushed its figure
+    # underneath its own icon while the short ones kept theirs beside it. The row does not wrap
+    # now, and this measures every tile rather than trusting the eye.
     beneath = [
         f"{t['label']} at x={t['number']['x']}, its icon at x={t['icon']['x']}"
         for t in tiles

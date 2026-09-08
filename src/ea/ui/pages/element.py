@@ -11,6 +11,7 @@ from dash import ctx as dash_ctx
 
 from ea.models import (
     CURRENT_STATES,
+    LINK_SCHEMES,
     TARGET_STATES,
     ConflictError,
     Forbidden,
@@ -87,6 +88,7 @@ def _rel_tab_label(ctx: AppContext, element_id: str) -> str:
 
 def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     d = ctx.repo.element_detail(element_id)
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
 
     def rows(items, incoming: bool):
         out = []
@@ -106,6 +108,11 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
                         variant="subtle",
                         color="red",
                         size="sm",
+                        # Offered only to a role that may take it: the server refuses the
+                        # rest, and a bin that is offered and then refused is a broken
+                        # promise. Add, beside it, is already gated the same way.
+                        disabled=not can_write,
+                        **{"aria-label": "Remove this relationship"},
                     ),
                 ]
             )
@@ -529,15 +536,25 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     )
 
 
-def _parse_links(element_id: str, text: str) -> list[Link]:
-    out = []
+def _parse_links(element_id: str, text: str) -> tuple[list[Link], list[str]]:
+    """The links in the box, and the lines that are not links.
+
+    A refused line is handed back rather than dropped: the reader typed it, and a line that
+    disappears in silence is worse than one that is refused out loud.
+    """
+    out: list[Link] = []
+    refused: list[str] = []
     for line in (text or "").splitlines():
         line = line.strip()
         if not line:
             continue
         url, _, label = line.partition("|")
-        out.append(Link(element_id, url.strip(), label.strip()))
-    return out
+        url, label = url.strip(), label.strip()
+        if not url.lower().startswith(LINK_SCHEMES):
+            refused.append(line)
+            continue
+        out.append(Link(element_id, url, label))
+    return out, refused
 
 
 def register(app: dash.Dash) -> None:
@@ -586,6 +603,7 @@ def register(app: dash.Dash) -> None:
             if v in (None, ""):
                 continue
             attrs[aid["name"]] = {"true": True, "false": False}.get(v, v) if isinstance(v, str) else v
+        links, refused_links = _parse_links(element_id, links_text)
         try:
             e = ctx.repo.update_element(
                 element_id,
@@ -596,7 +614,7 @@ def register(app: dash.Dash) -> None:
                 status=status,
                 description_md=desc or "",
                 attrs=attrs,
-                links=_parse_links(element_id, links_text),
+                links=links,
                 current_state=current_state or "live",
                 target_state=target_state or "undecided",
                 target_work_package=target_wp or "",
@@ -613,7 +631,20 @@ def register(app: dash.Dash) -> None:
         except Forbidden as exc:
             return alert(str(exc), "red"), no_update, no_update
         ctx.graph.invalidate()
-        return alert(f"Saved version {e.version}.", "green"), e.version, _history_table(ctx, element_id)
+        saved = f"Saved version {e.version}."
+        if refused_links:
+            # Said out loud, and the lines are named: a link that vanishes on save leaves the
+            # reader believing it was kept.
+            return (
+                alert(
+                    saved + " These lines were not kept as links, because a link is an http, https "
+                    "or mailto address: " + "; ".join(refused_links[:5]) + ".",
+                    "yellow",
+                ),
+                e.version,
+                _history_table(ctx, element_id),
+            )
+        return alert(saved, "green"), e.version, _history_table(ctx, element_id)
 
     @app.callback(
         Output(ids.EL_REL_OTHER, "data"),

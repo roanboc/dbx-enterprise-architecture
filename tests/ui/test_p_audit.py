@@ -1,22 +1,34 @@
 """Group P — the screen audit: every screen read against the one usability checklist.
 
-Eleven scenarios, one per screen, each calling the same `audit_screen`. The point of a
-fixed list is comparison: two rounds put side by side show a regression in polish as
-plainly as a regression in behaviour, and a screen that quietly grows an unlabelled
-control is caught the round after it appears.
+Eleven scenarios, one per screen, each calling the same `audit_screen`, and eighteen more
+for the states those screens hold that no plain address renders — a tab moved, a dialog
+opened, an address refused, a search that matches nothing, a role that may not write. The
+point of a fixed list is comparison: two rounds put side by side show a regression in
+polish as plainly as a regression in behaviour, and a screen that quietly grows an
+unlabelled control is caught the round after it appears.
 
 Seven of the twelve checkpoints are automated here — the navigation marking where the
 reader is, heading hierarchy, labelling, disabled-with-a-reason, a card headed with
 nothing under it, text contrast, and sideways scroll at 480 px — and with them a badge
-whose label is clamped to an ellipsis at either width. The rest (error states, loading,
-focus, alignment and terminology) are read from the two screenshots each scenario takes,
-or proved by the groups that exercise those paths.
+whose label is clamped to an ellipsis at either width. Checkpoints 6 and 9 are read too,
+by the scenarios after the eleven: a refusal is asked for by address or by pressing the
+control that refuses it, and the keyboard is walked through three screens with every stop
+measured as it takes the focus and again at rest, so a ring is whatever the control really
+changes rather than one property guessed at. The rest (loading, alignment and terminology)
+are read from the screenshots each scenario takes, or proved by the groups that exercise
+those paths.
 
 **A scenario in this group fails only when a screen does not load.** Everything the
 checklist turns up is lodged as a finding instead, so the audit reports the whole state
 of the application in one pass rather than stopping at the first blemish. The checks
 recorded against each scenario therefore say what the audit found, not whether the
 screen was perfect.
+
+The state scenarios carry assertions of their own beside the checklist — that a refusal
+names what it refused, that an address really narrowed the grid rather than only saying
+so, that a tab opens the panel whose name it wears — and those do fail. They are
+statements about what the application does, not verdicts of the checklist, and a screen
+that stops doing what it says should stop the scenario that says it.
 """
 
 from __future__ import annotations
@@ -872,6 +884,8 @@ LODGE_SUMMARY = {
 # the probe does not look for one particular ring. It photographs the control's computed
 # style while it has the keyboard, and again once nothing has it, and asks whether anything
 # about it changed at all.
+SKIP_LIMIT = 8  # tab stops a reader should not have to pass to reach the page itself
+
 FOCUS_PROPERTIES = (
     "outline-style",
     "outline-width",
@@ -890,12 +904,24 @@ FOCUS_STOP_JS = (
 """
     + VISIBLE
     + """
+  const snap = (cs) => [cs.outlineStyle, cs.outlineWidth, cs.outlineColor, cs.boxShadow,
+    cs.borderColor, cs.borderWidth, cs.backgroundColor, cs.color, cs.textDecorationLine];
+  const out = {};
+  // The control the last press left behind, read now that it no longer has the keyboard:
+  // its resting style, taken from the same element in the same place, with nothing moved.
+  const previous = window.__eaFocusStop;
+  if (previous && previous.el && previous.el.isConnected) {
+    out.rested = {stop: previous.stop, style: snap(getComputedStyle(previous.el))};
+  }
   const el = document.activeElement;
-  if (!el || el === document.body || el === document.documentElement) return null;
-  el.setAttribute('data-p-focus-stop', String(index));
+  if (!el || el === document.body || el === document.documentElement) {
+    window.__eaFocusStop = null;
+    return out;
+  }
+  window.__eaFocusStop = {stop: index, el: el};
   const cs = getComputedStyle(el);
   const r = el.getBoundingClientRect();
-  return {
+  out.here = {
     stop: index,
     sel: where(el),
     name: (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '')
@@ -903,28 +929,12 @@ FOCUS_STOP_JS = (
     visible: vis(el),
     inPage: !!el.closest('#page'),
     onScreen: r.bottom > -2 && r.top < innerHeight + 2 && r.right > -2 && r.left < innerWidth + 2,
-    style: [cs.outlineStyle, cs.outlineWidth, cs.outlineColor, cs.boxShadow, cs.borderColor,
-            cs.borderWidth, cs.backgroundColor, cs.color, cs.textDecorationLine],
+    style: snap(cs),
   };
-}
-"""
-)
-
-# The same controls read again with nothing focused, and the marks taken back off.
-FOCUS_RESTING_JS = """
-() => {
-  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  const out = {};
-  document.querySelectorAll('[data-p-focus-stop]').forEach(el => {
-    const cs = getComputedStyle(el);
-    out[el.getAttribute('data-p-focus-stop')] = [cs.outlineStyle, cs.outlineWidth, cs.outlineColor,
-      cs.boxShadow, cs.borderColor, cs.borderWidth, cs.backgroundColor, cs.color,
-      cs.textDecorationLine];
-    el.removeAttribute('data-p-focus-stop');
-  });
   return out;
 }
 """
+)
 
 
 def audit_current(ui, finding, name: str, state: str, headings: bool = True) -> None:
@@ -1119,31 +1129,37 @@ def _ask_box(ui):
 def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[dict]:
     """Tab through a screen and report where the keyboard went and whether it showed.
 
-    Each stop is marked as it is reached and read a second time at the end with nothing
-    focused, so `ring` is what actually changed about the control rather than a guess at
-    which property a design uses to draw one.
+    Every stop is read twice — once as it takes the keyboard and once, one press later, as
+    it gives it up — so `ring` is whatever actually changed about that control rather than
+    a guess at which property a design draws a ring with. One press more than the walk
+    needs is made at the end, so the last stop is read at rest as well.
     """
     stops: list[dict] = []
-    for i in range(presses):
+    resting: dict[int, list[str]] = {}
+    for i in range(presses + 1):
         ui.page.keyboard.press("Tab")
-        ui.page.wait_for_timeout(30)
-        stop = ui.page.evaluate(FOCUS_STOP_JS, i)
-        if stop:
-            stops.append(stop)
+        # Long enough for a border or a ring that fades in to have arrived: measured any
+        # sooner, a control that does draw one reads as a control that draws nothing.
+        ui.page.wait_for_timeout(140)
+        got = ui.page.evaluate(FOCUS_STOP_JS, i)
+        if got.get("rested"):
+            resting[got["rested"]["stop"]] = got["rested"]["style"]
+        if got.get("here") and i < presses:
+            stops.append(got["here"])
         if caption and i == shot_at:
             ui.shot(caption)
-    resting = ui.page.evaluate(FOCUS_RESTING_JS)
+    ui.page.evaluate("() => { window.__eaFocusStop = null; }")
     for stop in stops:
-        was = resting.get(str(stop["stop"]))
+        was = resting.get(stop["stop"])
         changed = (
             [name for name, a, b in zip(FOCUS_PROPERTIES, stop["style"], was, strict=False) if a != b]
             if was
             else []
         )
-        # A control the second read could not find is not reported either way: it was
-        # measured once and the evidence for it is incomplete.
+        # A stop the second read could not reach is not reported either way: it was measured
+        # once, and one measurement is not evidence of a control that shows nothing.
         stop["ring"] = bool(changed) or was is None
-        stop["how"] = ", ".join(changed) if changed else ("not measured twice" if was is None else "nothing")
+        stop["how"] = ", ".join(changed) if changed else ("not read at rest" if was is None else "nothing")
     return stops
 
 
@@ -1780,8 +1796,10 @@ def test_dialogs_audit(ui, record, finding):
     title="Checkpoint 9 · tabbing reaches the controls and shows where it is",
     feature="Screen audit · focus",
     expected="On Home, Browse and Ask the keyboard moves through the screen, reaches the page's own "
-    "controls and not only the header, and every control it lands on draws something — an outline or a "
-    "ring — to say it has the keyboard; a control that draws nothing is lodged.",
+    "controls and not only the header, and every control it lands on changes as it takes the keyboard — "
+    "an outline, a ring, a border — read by measuring each control focused and again at rest. A control "
+    "that changes in no way at all is lodged, and so is a tab order that makes a reader walk the whole "
+    "header and navigation before the page itself.",
 )
 def test_focus_audit(ui, record, finding):
     for name, path in (("Home", "/"), ("Browse", "/browse"), ("Ask", "/ask")):
@@ -1790,7 +1808,7 @@ def test_focus_audit(ui, record, finding):
         ui.must(f"tabbing moves the keyboard through {name}", len(stops) >= 3, f"{len(stops)} stops")
         ringless: list[str] = []
         for stop in stops:
-            entry = f"{stop['sel']} {stop['name']!r}"
+            entry = f"{stop['sel']} {stop['name']!r} (stop {stop['stop']})"
             if stop["visible"] and not stop["ring"] and entry not in ringless:
                 ringless.append(entry)  # a walk that wraps meets the same control twice
         drawn = next(
@@ -1809,6 +1827,21 @@ def test_focus_audit(ui, record, finding):
                 "nothing on the screen, so a reader working without a mouse cannot tell where they are "
                 "or what pressing Enter would do",
                 [f"{name}: {r}" for r in ringless],
+            )
+        first_in_page = next((n for n, stop in enumerate(stops, 1) if stop["inPage"]), 0)
+        if not first_in_page or first_in_page > SKIP_LIMIT:
+            _lodge(
+                finding,
+                "no-way-past-the-navigation",
+                name,
+                "accessibility",
+                "There is no way to skip the header and the navigation: the first control on the page "
+                "itself is a long way down the tab order, and the same presses are repeated on every "
+                "screen before a keyboard reader reaches what they came for",
+                [
+                    f"{name}: the first control inside the page is tab stop "
+                    f"{first_in_page or 'never reached within ' + str(len(stops))}"
+                ],
             )
         if not in_page:
             _lodge(
@@ -1834,7 +1867,8 @@ def test_focus_audit(ui, record, finding):
         ui.check(
             f"checkpoint 9 · focus · {name}",
             True,
-            f"{len(stops)} tab stops, {len(in_page)} of them inside the page; "
+            f"{len(stops)} tab stops, {len(in_page)} of them inside the page, the first of those at "
+            f"stop {first_in_page or '(none)'}; "
             + (
                 f"{len(ringless)} draw nothing: {_brief(ringless)}"
                 if ringless

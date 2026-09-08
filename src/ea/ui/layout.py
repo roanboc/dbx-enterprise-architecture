@@ -6,7 +6,7 @@ import dash_mantine_components as dmc
 from dash import dcc, html
 
 from ea.backend.branching import MAIN
-from ea.services.roles import DESCRIPTIONS, LABELS
+from ea.services.roles import LABELS
 from ea.ui import ids
 from ea.ui.components import icon, modal_title
 
@@ -73,20 +73,21 @@ def role_badge(role: str, display_name: str = "") -> dmc.Badge:
 
 def persona_switcher(persona: str) -> dmc.Select:
     """The debug switcher of mock authentication: the four user roles a click away, Admin by default."""
+    # The label is the role, and nothing else. A description cut to 48 characters was cut
+    # again by the 200 px the header gives this control, so the value a reader sees while it
+    # is shut ended mid-word — 'Admin — Everything, including the metamodel, main, revie…'.
+    # What each role may do belongs on the Metamodel page and in the README, not in a
+    # control that is 200 px wide.
     return dmc.Select(
         id=ids.PERSONA_SELECT,
         **{"aria-label": "Act as another role (local only)"},
-        data=[
-            {"value": r, "label": f"{LABELS[r]} \u2014 {DESCRIPTIONS[r][:48]}\u2026"}
-            for r in LABELS
-            if r != "agent"
-        ],
+        data=[{"value": r, "label": LABELS[r]} for r in LABELS if r != "agent"],
         value=persona if persona != "agent" else "admin",
-        w=200,
+        w=170,
         size="sm",
         allowDeselect=False,
         leftSection=icon("tabler:user", 14),
-        comboboxProps={"withinPortal": True, "width": 420, "position": "bottom-end"},
+        comboboxProps={"withinPortal": True, "position": "bottom-end"},
     )
 
 

@@ -12,6 +12,11 @@ from typing import Any
 
 ANY = "ANY"
 IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+# A link is published to every reader of the element that carries it, so what may be stored
+# is named rather than guessed at. A `javascript:` line waiting for a click, a `data:`
+# document or a `file:` path off somebody else's disk is not a link to a source.
+LINK_SCHEMES = ("http://", "https://", "mailto:")
+
 ELEMENT_STATUSES = ("draft", "approved", "retired")
 ATTRIBUTE_TYPES = ("string", "text", "integer", "number", "boolean", "date", "json")
 

@@ -215,6 +215,7 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
                     drawio_reason=(
                         "" if doc.views else "This answer drew no diagram, so there is nothing to export."
                     ),
+                    note=("" if doc.views else "This answer drew no diagram, so there is nothing to export."),
                 ),
             ],
             justify="space-between",

@@ -69,6 +69,8 @@ def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.D
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", pd.errors.ParserWarning)
             frame = pd.read_csv(source, **kwargs)
+    except pd.errors.EmptyDataError:
+        raise CsvShapeError(filename, "the file is empty: it has no header row to read") from None
     except pd.errors.ParserError as exc:
         raise CsvShapeError(filename, " ".join(str(exc).split())) from None
     # A surplus field is a warning, not an error: the parser keeps the fields the header

@@ -1052,16 +1052,18 @@ def test_reader_on_a_branch(ui, record):
 @pytest.mark.scenario(
     scenario_id="L25",
     group="L",
-    title="Every relationship row offers a Reader a bin the server then refuses",
+    title="A Reader is not offered a bin on a relationship, any more than Add beside it",
     feature="Element · Relationships · role gating",
     expected=(
         "On the Relationships tab a Reader's Add is disabled and so is the bin on every row — the "
-        "page hides or disables what the role may not use — and pressing the bin all the same is "
-        "refused by the server, naming the role, with the relationship still there afterwards."
+        "page offers only what the role may use — and the relationships are all still there."
     ),
     role="reader",
 )
-def test_relationship_bin_as_reader(ui, record, finding):
+def test_relationship_bin_as_reader(ui, record):
+    # This scenario used to require the opposite: a live bin, pressed, and refused by the
+    # server. That was the finding — a bin that is offered and then refused is a broken
+    # promise, and Add beside it was already gated.
     _as(ui, READER)
     ui.goto(f"/element/{ELEMENT}")
     _el_tab(ui, "Relationships")
@@ -1069,41 +1071,19 @@ def test_relationship_bin_as_reader(ui, record, finding):
     ui.must("the element has a relationship a bin could remove", bins.count() > 0, f"{bins.count()} bins")
     before = _rel_rows(ui)
     ui.check("a Reader may not add a relationship", _blocked(ui, "el-rel-add"))
-    live = bins.first.is_enabled()
+    live = [i for i in range(bins.count()) if bins.nth(i).is_enabled()]
     ui.check(
-        "the bin is refused to the same role, the way Add beside it is",
+        "and no row offers a bin either",
         not live,
-        f"{bins.count()} bins, the first of them enabled: {live}",
+        f"{len(live)} of {bins.count()} bins are live",
     )
-    ui.shot("The Relationships tab as a Reader: Add is refused and every row's bin is not")
-    bins.first.click()
-    ui.settle()
-    feedback = ui.text("el-rel-feedback")
-    ui.check("the server refuses the delete", "may not" in feedback.lower(), feedback or "no feedback")
-    ui.check("the refusal names the role that pressed it", "Reader" in feedback, feedback or "no feedback")
-    ui.shot("What a Reader gets for pressing the bin: a refusal from the server")
-    ui.goto(f"/element/{ELEMENT}")
-    _el_tab(ui, "Relationships")
     ui.check(
-        "the relationship survived the press",
-        _rel_rows(ui) == before,
-        f"{_rel_rows(ui)} rows now, {before} before",
+        "each bin says what it would do, for a reader who cannot see the icon",
+        bins.first.get_attribute("aria-label") == "Remove this relationship",
+        bins.first.get_attribute("aria-label") or "(no name)",
     )
-    if live:
-        finding.append(
-            _f(
-                "L-5",
-                "src/ea/ui/pages/element.py — the bin on every relationship row (ids.EL_REL_DELETE)",
-                "usability",
-                "The Relationships tab disables Add for a role that may not write, and leaves the bin live",
-                "Add is `disabled=not can_write`; the bin beside it, on every row of both tables, "
-                "carries no `disabled` at all, so a Reader is offered a delete on every relationship "
-                "the element has. The service refuses it — `remove_relationship` calls `check_write` "
-                "— but the refusal only arrives after the press, and on main it reads 'may not change "
-                "main directly; work on a branch', which is advice a Reader cannot act on. Disable the "
-                "bin from the same `can_write` the Add button uses.",
-            )
-        )
+    ui.shot("The Relationships tab as a Reader: neither Add nor any row's bin is offered")
+    ui.check("and every relationship is still there", _rel_rows(ui) == before, f"{_rel_rows(ui)} rows")
 
 
 @pytest.mark.scenario(
