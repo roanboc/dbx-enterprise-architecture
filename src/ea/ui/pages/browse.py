@@ -66,6 +66,14 @@ def _type_options(ctx: AppContext) -> list[dict[str, str]]:
     return opts
 
 
+def _days(q: dict, default: int = 90) -> int:
+    """The days= an address carries. An address is typed and pasted, so it is never trusted."""
+    try:
+        return max(1, int((q.get("days") or [default])[0]))
+    except (TypeError, ValueError):
+        return default
+
+
 def _filter_note(ctx: AppContext, q: dict) -> str:
     facet = (q.get("missing") or q.get("facet") or [""])[0]
     if not facet:
@@ -75,7 +83,7 @@ def _filter_note(ctx: AppContext, q: dict) -> str:
     if q.get("source"):
         where = f" from source {q['source'][0]}"
     if facet == "stale":
-        label = f"not updated for {q.get('days', ['90'])[0]} days or more"
+        label = f"not updated for {_days(q)} days or more"
     return f"Showing only the elements {label}{where} (from the Health page)."
 
 
@@ -85,9 +93,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset_text = (q.get("q") or [""])[0]
     facet = (q.get("missing") or q.get("facet") or [""])[0]
     health_filter = (
-        {"facet": facet, "source": (q.get("source") or [""])[0], "days": int((q.get("days") or ["90"])[0])}
-        if facet
-        else None
+        {"facet": facet, "source": (q.get("source") or [""])[0], "days": _days(q)} if facet else None
     )
     can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
     return html.Div(

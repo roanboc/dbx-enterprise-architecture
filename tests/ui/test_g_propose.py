@@ -21,8 +21,16 @@ the template deliberately leaves blank: the work package.
 
 Nothing here asserts a total another group could move. The branch this group applies to is
 named `g-proposal` so it cannot collide, and it is left open — merging belongs to group I.
-The last scenario asks for that same branch name a second time, which the repository refuses,
+A later scenario asks for that same branch name a second time, which the repository refuses,
 so the round never writes the same change set twice.
+
+Beyond the template the group hands the page every other source it accepts — a Markdown file
+and a CSV dropped on the upload zone, a link it will not follow, and nothing at all, which is
+the case the page itself suggests when there is no document — and pastes three short documents
+whose only purpose is to be wrong in one way each, so that what the reader refuses is on the
+record beside what it accepts. The last scenario reads the template back on the branch the
+round applied to: the only proof that what the apply reported is what it wrote, and that main
+was left alone.
 """
 
 from __future__ import annotations
@@ -783,3 +791,701 @@ def test_applying_twice_is_refused(ui, record):
         f"feedback reads {feedback!r}",
     )
     ui.shot("A second apply to a branch name that is taken: refused, and the refusal names the branch")
+
+
+# ------------------------------------------------- the documents the round hands in as files
+
+# Every document below is ASCII, so the number of characters the upload list reports is the
+# number of characters the file holds.
+
+UPLOAD_MD = """# Proposal: G hands in a file
+
+| | |
+| --- | --- |
+| **Work package** | WP-CMS-UPGRADE |
+
+## Summary
+
+One element that exists and one that does not, so the file is read exactly as pasted text is.
+
+## Elements
+
+| Type | Name | Existing id | Description | Current state | Target state |
+| ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |
+| Data Entity | G-CAW_Review_Comment | | A reviewer's comment on a unit proposal, kept with the proposal through approval. | proposed | new |
+
+## Relationships
+
+| Source | Relationship | Target | Note |
+| ------ | ------------ | ------ | ---- |
+| Curriculum Management System | processes | G-CAW_Review_Comment | the comments live with the curriculum |
+"""
+
+UPLOAD_CSV = (
+    "Type,Name,Existing id,Description,Current state,Target state\n"
+    "Physical Technology Component,Legacy Forms Server,PTC-FORMS,,live,decommission\n"
+    "Data Entity,G-CAW_Approval_Record,,"
+    '"The record of who approved a unit proposal and when, kept for audit.",proposed,new\n'
+)
+
+# The work package the document names, against a different one chosen in the panel.
+WP_DOC = """# Proposal: G checks whose work package wins
+
+| | |
+| --- | --- |
+| **Work package** | WP-CMS-UPGRADE |
+
+## Elements
+
+| Type | Name | Existing id | Description | Current state | Target state |
+| ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |
+"""
+
+# Four element rows, each wrong in its own way, and nothing else wrong with them.
+EL_DOC = """# Proposal: G checks what the reader cannot settle
+
+| | |
+| --- | --- |
+| **Work package** | WP-CMS-UPGRADE |
+
+## Elements
+
+| Type | Name | Existing id | Description | Current state | Target state |
+| ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Physical Application Component | Curriculum Management System | PAC-NOSUCH | | live | change |
+| Fairy Dust Component | G-Sparkle Service | | A service of a type the metamodel does not carry, so the reader cannot place it. | proposed | new |
+| Physical Application Component | Curriculum Managment System | | A misspelling of an application that already exists, so the reader should offer the one it found. | proposed | new |
+| Data Entity | CMS_Unit_Outline | DE-CMS-UNIT-OUTLINE | | alive | change |
+"""
+
+# Two ends the repository already carries, and four relationships between them: one the
+# metamodel allows, one it does not, one with a role it does not carry, one with a role it does.
+REL_DOC = """# Proposal: G checks the relationships the metamodel refuses
+
+| | |
+| --- | --- |
+| **Work package** | WP-CMS-UPGRADE |
+
+## Elements
+
+| Type | Name | Existing id | Description | Current state | Target state |
+| ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Physical Technology Component | Legacy Forms Server | PTC-FORMS | | live | decommission |
+| Data Entity | CMS_Unit_Outline | DE-CMS-UNIT-OUTLINE | | live | change |
+
+## Relationships
+
+| Source | Relationship | Target | Qualifier | Note |
+| ------ | ------------ | ------ | --------- | ---- |
+| Legacy Forms Server | stores | CMS_Unit_Outline | | the metamodel allows this one |
+| Legacy Forms Server | processes | CMS_Unit_Outline | | the metamodel does not |
+| Manager, Curriculum Systems | position__is_steward_of__information_asset | Unit Outlines | Chief Wizard | a role the type does not carry |
+| Manager, Curriculum Systems | is Owner / Data Custodian / Data Steward / Data Administrator of | Unit Outlines | Data Steward | a role it does |
+"""
+
+BAD_LINK = "ftp://example.invalid/g-design.md"  # a scheme the fetcher refuses, so nothing is fetched
+
+HAND_NAME = "G-Unit Approval Notice"
+HAND_TYPE = "Data Entity"
+HAND_DESC = "The notice sent to a course coordinator when a unit proposal has been approved."
+
+
+# ------------------------------------------------------------------- the controls (continued)
+
+
+def _write(ui, name: str, text: str) -> Path:
+    """Put a file where the browser can pick it up, beside the run's other evidence."""
+    d = ui.run_dir / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _upload(ui, *paths: Path) -> None:
+    """Hand files to the hidden input inside the upload zone, the way the picker does."""
+    ui.page.locator("#pr-upload input[type=file]").first.set_input_files([str(p) for p in paths])
+    for p in paths:
+        ui.page.locator("#pr-files").get_by_text(p.name, exact=False).first.wait_for(timeout=20_000)
+    ui.settle()
+
+
+def _press_analyse(ui) -> None:
+    """Analyse what the page already holds — an uploaded file, a link, or nothing at all."""
+    ui.click("pr-analyse")
+    ui.page.wait_for_selector("#pr-pushback", timeout=30_000)
+    ui.settle()
+
+
+def _pasted(ui) -> str:
+    return ui.page.locator(PASTE).first.input_value()
+
+
+def _head_alert(ui) -> str:
+    """The alert above the change set, where a source that could not be read is reported."""
+    loc = ui.page.locator("#pr-result [class*='Alert-root']").first
+    return loc.inner_text().strip() if loc.count() else ""
+
+
+def _set_long_text(ui, grid_id: str, row_id: str, col: str, value: str) -> None:
+    """Fill a popup text editor: it commits when the editor loses focus, not on Enter."""
+    cell = ui.page.locator(f"#{grid_id} .ag-row[row-id='{row_id}'] .ag-cell[col-id='{col}']").first
+    cell.scroll_into_view_if_needed()
+    cell.click()
+    editor = ui.page.locator(f"#{grid_id} .ag-cell-editor textarea").first
+    editor.wait_for(timeout=10_000)
+    editor.fill(value)
+    ui.page.locator("#pr-result .ea-section-title").first.click()  # inert text: the editor blurs
+    ui.settle()
+
+
+# ------------------------------------------------------------------ the scenarios (continued)
+
+
+@pytest.mark.scenario(
+    scenario_id="G14",
+    group="G",
+    title="With nothing handed in the page asks for a document, and the rows can be typed instead",
+    feature="Propose · no document",
+    expected=(
+        "Analyse with an empty box returns an empty change set that asks for an Elements table and "
+        "complains about nothing else; Add element row then builds a row by hand — named, typed and "
+        "described in the grid — until the change set is ready to apply."
+    ),
+)
+def test_analyse_with_nothing(ui, record, finding):
+    _open(ui)
+    ui.select("pr-wp", WP_LABEL)
+    _press_analyse(ui)
+    ui.must("the page answered with a change set panel", _result(ui) != "")
+    counts = _counts(ui)
+    ui.check(
+        "nothing was read, so the change set is empty",
+        "0 new" in counts and "0 linked" in counts and "0 relationships" in counts,
+        f"the counts line reads {counts!r}",
+    )
+    ui.check("the elements grid is empty", ui.grid_row_count("pr-el-grid") == 0)
+    ui.check("the relationships grid is empty", ui.grid_row_count("pr-rel-grid") == 0)
+    text = _pushback(ui)
+    ui.check("the change set is not enough to apply", _blocked(ui), f"pushback reads {text!r}")
+    ui.check(
+        "it asks for an Elements table",
+        "No elements were identified" in text and "Add an Elements table" in text,
+        f"pushback reads {text!r}",
+    )
+    ui.check(
+        "it does not complain about a language model — nothing was handed in to read",
+        "No language model is configured" not in text,
+        f"pushback reads {text!r}",
+    )
+    ui.check(
+        "the work package chosen in the panel is already accepted",
+        f"Work package: {WP_ID} (existing)" in _head(ui),
+        f"the counts line reads {_head(ui)!r}",
+    )
+    ui.shot("Analyse with nothing handed in: an empty change set that asks for a document")
+
+    ui.click("pr-add-el")
+    added = "m1-0"  # the key the page gives the first row added to an empty grid
+    ui.must(
+        "a row can be added to an empty grid",
+        added in ui.grid_row_ids("pr-el-grid"),
+        f"row ids are {ui.grid_row_ids('pr-el-grid')}",
+    )
+    ui.grid_set_of("pr-el-grid", added, "name", HAND_NAME)
+    ui.grid_set_of("pr-el-grid", added, "type", HAND_TYPE)
+    ui.check(
+        "the type cell offers the metamodel's types and keeps the one chosen",
+        ui.grid_cell_of("pr-el-grid", added, "type") == HAND_TYPE,
+        f"cell reads {ui.grid_cell_of('pr-el-grid', added, 'type')!r}",
+    )
+    ui.click("pr-analyse-again")
+    ui.must("the typed row became the change set", ui.grid_row_count("pr-el-grid") == 1)
+    ui.check(
+        "it is adopted as a new element of the type that was chosen",
+        ui.grid_cell_of("pr-el-grid", "e0", "action") == "new"
+        and ui.grid_cell_of("pr-el-grid", "e0", "name") == HAND_NAME
+        and ui.grid_cell_of("pr-el-grid", "e0", "type") == HAND_TYPE,
+        f"row reads {ui.grid_cell_of('pr-el-grid', 'e0', 'action')!r} / "
+        f"{ui.grid_cell_of('pr-el-grid', 'e0', 'type')!r}",
+    )
+    ui.check("the counts line now says one new element", "1 new" in _counts(ui), _counts(ui))
+    text = _pushback(ui)
+    ui.check(
+        "the one thing still missing is the description",
+        f"Element row 1 ({HAND_NAME}): description is missing" in text,
+        f"pushback reads {text!r}",
+    )
+    ui.check(
+        "nothing else is asked for",
+        "type is missing" not in text and "name is missing" not in text,
+        f"pushback reads {text!r}",
+    )
+    ui.shot("A row typed into an empty grid: named and typed, still asking for a description")
+
+    _set_long_text(ui, "pr-el-grid", "e0", "description", HAND_DESC)
+    ui.check(
+        "the description typed into the row was kept",
+        ui.grid_cell_of("pr-el-grid", "e0", "description") == HAND_DESC,
+        f"cell reads {ui.grid_cell_of('pr-el-grid', 'e0', 'description')!r}",
+    )
+    ui.click("pr-analyse-again")
+    ui.check(
+        "a row built entirely by hand is ready to apply",
+        not _blocked(ui),
+        f"pushback reads {_pushback(ui)!r}",
+    )
+    ui.check(
+        "and it carries no issue of its own",
+        ui.grid_cell_of("pr-el-grid", "e0", "issues") == "",
+        f"issues read {ui.grid_cell_of('pr-el-grid', 'e0', 'issues')!r}",
+    )
+    ui.shot("The hand-built change set, complete: one new element and nothing left to add")
+    head, badge = _head(ui), ui.text("pr-provider")
+    if "read by manual" in head and "stub" in badge.lower():
+        finding.append(
+            Finding(
+                finding_id="G-2",
+                where="src/ea/ui/pages/propose.py · _preview (the counts line)",
+                severity="consistency",
+                summary="The counts line says 'read by manual' where the reader's name goes",
+                detail=(
+                    "After Analyse with nothing pasted, and after every Re-check rows, the counts line "
+                    f"reads {head.splitlines()[-1] if head else ''!r} while the page badge reads "
+                    f"{badge!r}. 'manual' sits in exactly the slot the provider's name sits in after a "
+                    "document has been read ('read by stub'), so it reads as the name of a third reader "
+                    "rather than as 'these rows came from you, not from a document'."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="G15",
+    group="G",
+    title="A Markdown file dropped on the page is read exactly as pasted text is",
+    feature="Propose · sources · upload",
+    expected=(
+        "The upload zone lists the file with the number of characters it holds, and Analyse with the "
+        "paste box empty returns that file's change set: the element it names by id linked, the one it "
+        "does not adopt as new, its relationship resolved, and its work package taken from the document."
+    ),
+)
+def test_upload_markdown(ui, record):
+    _open(ui)
+    ui.check("nothing is listed before a file is handed in", ui.text("pr-files") == "", ui.text("pr-files"))
+    path = _write(ui, "g-proposal-upload.md", UPLOAD_MD)
+    _upload(ui, path)
+    listed = ui.text("pr-files")
+    ui.check("the file is listed by name", path.name in listed, f"the list reads {listed!r}")
+    ui.check(
+        "and by the number of characters read from it",
+        f"{len(UPLOAD_MD)} chars" in listed,
+        f"the list reads {listed!r}",
+    )
+    ui.shot("A Markdown proposal handed in as a file, listed with the characters read from it")
+    ui.must("the paste box was left empty", _pasted(ui) == "", f"the box holds {_pasted(ui)!r}")
+    _press_analyse(ui)
+    ui.must("the file was read into a change set", ui.grid_row_count("pr-el-grid") == 2)
+    counts = _counts(ui)
+    ui.check(
+        "one element is linked and one adopted as new",
+        "1 new" in counts and "1 linked" in counts and "1 relationships" in counts,
+        f"the counts line reads {counts!r}",
+    )
+    ui.check(
+        "the element the file names by id is linked to it",
+        ui.grid_cell_of("pr-el-grid", "e0", "action") == "link"
+        and ui.grid_cell_of("pr-el-grid", "e0", "existing_id") == "PAC-CMS",
+        f"row reads {ui.grid_cell_of('pr-el-grid', 'e0', 'existing_id')!r}",
+    )
+    ui.check(
+        "the element the repository does not carry is adopted as new",
+        ui.grid_cell_of("pr-el-grid", "e1", "action") == "new"
+        and ui.grid_cell_of("pr-el-grid", "e1", "name") == "G-CAW_Review_Comment",
+        f"row reads {ui.grid_cell_of('pr-el-grid', 'e1', 'name')!r}",
+    )
+    ui.check(
+        "the file's relationship resolved against the metamodel",
+        ui.grid_cell_of("pr-rel-grid", "r0", "resolved")
+        == "physical_application_component__processes__data_entity",
+        f"resolved reads {ui.grid_cell_of('pr-rel-grid', 'r0', 'resolved')!r}",
+    )
+    ui.check(
+        "the work package came from the file, though none was chosen in the panel",
+        f"Work package: {WP_ID} (existing)" in _head(ui),
+        f"the counts line reads {_head(ui)!r}",
+    )
+    ui.check("nothing is left to add", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.shot("The uploaded file read: one element linked, one new, its relationship resolved")
+
+
+@pytest.mark.scenario(
+    scenario_id="G16",
+    group="G",
+    title="A CSV of the Elements columns is read too, and the panel supplies the work package",
+    feature="Propose · sources · upload",
+    expected=(
+        "A .csv with the template's Elements columns is parsed like the table it is: the row naming an "
+        "existing id is linked and keeps its decommission target, the other is adopted as new, and "
+        "because the file names no work package the one chosen in panel 1 is used."
+    ),
+)
+def test_upload_csv(ui, record):
+    _open(ui)
+    ui.select("pr-wp", WP_LABEL)
+    path = _write(ui, "g-elements.csv", UPLOAD_CSV)
+    _upload(ui, path)
+    listed = ui.text("pr-files")
+    ui.check("the CSV is listed by name", path.name in listed, f"the list reads {listed!r}")
+    _press_analyse(ui)
+    ui.must("the CSV was read into a change set", ui.grid_row_count("pr-el-grid") == 2)
+    counts = _counts(ui)
+    ui.check(
+        "one row is linked and one is new",
+        "1 new" in counts and "1 linked" in counts,
+        f"the counts line reads {counts!r}",
+    )
+    ui.check(
+        "the row naming an existing id is linked to it and keeps the target the CSV gives",
+        ui.grid_cell_of("pr-el-grid", "e0", "existing_id") == "PTC-FORMS"
+        and ui.grid_cell_of("pr-el-grid", "e0", "target_state") == "decommission",
+        f"row reads {ui.grid_cell_of('pr-el-grid', 'e0', 'existing_id')!r} / "
+        f"{ui.grid_cell_of('pr-el-grid', 'e0', 'target_state')!r}",
+    )
+    ui.check(
+        "the other row is adopted as new, with the description the CSV quoted",
+        ui.grid_cell_of("pr-el-grid", "e1", "action") == "new"
+        and ui.grid_cell_of("pr-el-grid", "e1", "name") == "G-CAW_Approval_Record"
+        and "kept for audit" in ui.grid_cell_of("pr-el-grid", "e1", "description"),
+        f"row reads {ui.grid_cell_of('pr-el-grid', 'e1', 'description')!r}",
+    )
+    ui.check("a CSV of elements carries no relationships", ui.grid_row_count("pr-rel-grid") == 0)
+    ui.check(
+        "the work package chosen in the panel filled the gap the file left",
+        f"Work package: {WP_ID} (existing)" in _head(ui),
+        f"the counts line reads {_head(ui)!r}",
+    )
+    ui.check("the change set is ready to apply", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.shot("A CSV of the Elements columns, read as the table it is")
+
+
+@pytest.mark.scenario(
+    scenario_id="G17",
+    group="G",
+    title="The work package the document names wins over the one chosen in the panel",
+    feature="Propose · destination · work package",
+    expected=(
+        "The panel says the document's own says wins. With a new work package name typed into panel 1 "
+        "and a document naming WP-CMS-UPGRADE, the change set lands in WP-CMS-UPGRADE and the typed "
+        "name is not used."
+    ),
+)
+def test_document_work_package_wins(ui, record):
+    _open(ui)
+    ui.check(
+        "the panel says the document's own work package wins when it names one",
+        "the document's own says wins when it names one" in ui.body(),
+    )
+    ui.select("pr-wp", "New work package")
+    ui.fill("pr-wp-new", NEW_WP)
+    _analyse(ui, WP_DOC, work_package=None)
+    head = _head(ui)
+    ui.must("the document was read", ui.grid_row_count("pr-el-grid") == 1)
+    ui.check(
+        "the work package the document names is the one used, and it exists",
+        f"Work package: {WP_ID} (existing)" in head,
+        f"the counts line reads {head!r}",
+    )
+    ui.check(
+        "the name typed into the panel was not used",
+        NEW_WP not in head and "will be created" not in head,
+        f"the counts line reads {head!r}",
+    )
+    ui.check("the change set is ready to apply", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.shot("The document names WP-CMS-UPGRADE, so the new name typed in the panel is not used")
+
+
+@pytest.mark.scenario(
+    scenario_id="G18",
+    group="G",
+    title="Every element the reader cannot settle says why, row by row",
+    feature="Propose · pushback · elements",
+    expected=(
+        "An identifier that is not in the repository, a type that is not in the metamodel, a name one "
+        "letter from an element that exists, and a state outside the vocabulary each come back as that "
+        "row's own issue and as a numbered line in the pushback; the change set is blocked."
+    ),
+)
+def test_element_issues(ui, record, finding):
+    _open(ui)
+    _analyse(ui, EL_DOC, work_package=None)
+    ui.must("the four rows came back", ui.grid_row_count("pr-el-grid") == 4)
+    issues = {key: ui.grid_cell_of("pr-el-grid", key, "issues") for key in ("e0", "e1", "e2", "e3")}
+    ui.check(
+        "the identifier that is not in the repository is named as the problem",
+        "existing id 'PAC-NOSUCH' is not in the repository" in issues["e0"],
+        f"row 1 issues read {issues['e0']!r}",
+    )
+    ui.check(
+        "the row is still linked by its name, so the identifier is the only thing wrong with it",
+        ui.grid_cell_of("pr-el-grid", "e0", "action") == "link"
+        and ui.grid_cell_of("pr-el-grid", "e0", "existing_id") == "PAC-CMS",
+        f"row 1 reads {ui.grid_cell_of('pr-el-grid', 'e0', 'existing_id')!r}",
+    )
+    ui.check(
+        "the type that is not in the metamodel is named as the problem",
+        "type 'Fairy Dust Component' is not in the metamodel" in issues["e1"],
+        f"row 2 issues read {issues['e1']!r}",
+    )
+    ui.check(
+        "the misspelled name is answered with the element that exists and its identifier",
+        "a similar element exists" in issues["e2"] and "[PAC-CMS]" in issues["e2"],
+        f"row 3 issues read {issues['e2']!r}",
+    )
+    ui.check(
+        "and with what to do about it",
+        "put its id in Existing id to link it, or keep it new" in issues["e2"],
+        f"row 3 issues read {issues['e2']!r}",
+    )
+    ui.check(
+        "the state outside the vocabulary is named, with the vocabulary",
+        "current state 'alive' is not one of" in issues["e3"] and "non_existent" in issues["e3"],
+        f"row 4 issues read {issues['e3']!r}",
+    )
+    text = _pushback(ui)
+    ui.check("the change set is blocked", _blocked(ui), f"pushback reads {text!r}")
+    for row, name in (
+        (1, "Curriculum Management System"),
+        (2, "G-Sparkle Service"),
+        (3, "Curriculum Managment System"),
+        (4, "CMS_Unit_Outline"),
+    ):
+        ui.check(
+            f"the pushback names row {row} by its number and its name",
+            f"Element row {row} ({name})" in text,
+            f"pushback reads {text!r}",
+        )
+    ui.check(
+        "the work package the document names is not asked for again",
+        "Name the work package" not in text,
+        f"pushback reads {text!r}",
+    )
+    ui.shot("Four rows, four different reasons the reader cannot settle them")
+    if "type 'Fairy Dust Component' is not in the metamodel" in issues["e1"] and (
+        "type is missing" in issues["e1"]
+    ):
+        finding.append(
+            Finding(
+                finding_id="G-3",
+                where="src/ea/agent/proposal.py · _resolve_element",
+                severity="consistency",
+                summary="A row whose type is not in the metamodel is also told its type is missing",
+                detail=(
+                    "The row names a type; the metamodel does not carry it. The resolver says so, then "
+                    "falls through to the new-element checks and adds 'type is missing' because no type "
+                    f"id was resolved, so the cell reads {issues['e1']!r} and the pushback carries both "
+                    "lines for the same cell. The second contradicts what the architect can see in the "
+                    "row and sends them looking for an empty cell rather than a wrong one."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="G19",
+    group="G",
+    title="A relationship the metamodel does not allow is refused with the ones it does",
+    feature="Propose · pushback · relationships",
+    expected=(
+        "Between the same two elements one relationship resolves and one does not: the refusal names "
+        "the two types and lists what is allowed between them. A qualifier the relationship type does "
+        "not carry is refused with the roles it does carry, and the ends may be named from the "
+        "repository alone."
+    ),
+)
+def test_relationship_issues(ui, record):
+    _open(ui)
+    _analyse(ui, REL_DOC, work_package=None)
+    ui.must("the four relationships came back", ui.grid_row_count("pr-rel-grid") == 4)
+    ui.check(
+        "the relationship the metamodel allows resolved",
+        ui.grid_cell_of("pr-rel-grid", "r0", "resolved")
+        == "physical_technology_component__stores__data_entity",
+        f"row 1 resolved to {ui.grid_cell_of('pr-rel-grid', 'r0', 'resolved')!r}",
+    )
+    ui.check("and carries no issue", ui.grid_cell_of("pr-rel-grid", "r0", "issues") == "")
+    refused = ui.grid_cell_of("pr-rel-grid", "r1", "issues")
+    ui.check(
+        "the one it does not allow is refused, naming both types",
+        "no relationship 'processes' from Physical Technology Component to Data Entity" in refused,
+        f"row 2 issues read {refused!r}",
+    )
+    ui.check(
+        "and says what is allowed between them instead",
+        "allowed: stores" in refused,
+        f"row 2 issues read {refused!r}",
+    )
+    ui.check(
+        "the refused row resolved to nothing",
+        ui.grid_cell_of("pr-rel-grid", "r1", "resolved") == "",
+        f"row 2 resolved to {ui.grid_cell_of('pr-rel-grid', 'r1', 'resolved')!r}",
+    )
+    qualifier = ui.grid_cell_of("pr-rel-grid", "r2", "issues")
+    ui.check(
+        "a role the relationship type does not carry is refused with the roles it does",
+        "qualifier 'Chief Wizard' is not one of" in qualifier
+        and "Owner, Data Custodian, Data Steward, Data Administrator" in qualifier,
+        f"row 3 issues read {qualifier!r}",
+    )
+    ui.check(
+        "the ends of that row were resolved from the repository, though the Elements table omits them",
+        ui.grid_cell_of("pr-rel-grid", "r2", "resolved") == "position__is_steward_of__information_asset",
+        f"row 3 resolved to {ui.grid_cell_of('pr-rel-grid', 'r2', 'resolved')!r}",
+    )
+    ui.check(
+        "the same relationship with a role it does carry is accepted",
+        ui.grid_cell_of("pr-rel-grid", "r3", "issues") == ""
+        and ui.grid_cell_of("pr-rel-grid", "r3", "qualifier") == "Data Steward",
+        f"row 4 issues read {ui.grid_cell_of('pr-rel-grid', 'r3', 'issues')!r}",
+    )
+    text = _pushback(ui)
+    ui.check("the change set is blocked", _blocked(ui), f"pushback reads {text!r}")
+    ui.check(
+        "the pushback names the two rows it cannot settle, and only those",
+        "Relationship row 2" in text
+        and "Relationship row 3" in text
+        and "Relationship row 1 " not in text
+        and "Relationship row 4" not in text,
+        f"pushback reads {text!r}",
+    )
+    ui.check(
+        "no element was complained about",
+        "Element row" not in text,
+        f"pushback reads {text!r}",
+    )
+    ui.shot("Between the same two elements: one relationship the metamodel allows, one it refuses")
+
+
+@pytest.mark.scenario(
+    scenario_id="G20",
+    group="G",
+    title="A link that cannot be read is reported, and nothing is invented in its place",
+    feature="Propose · sources · links",
+    expected=(
+        "A link the fetcher will not follow comes back as an alert above the change set naming the "
+        "link and the reason, and the change set itself stays empty rather than being guessed at."
+    ),
+)
+def test_unreadable_link(ui, record, finding):
+    _open(ui)
+    ui.fill("pr-links", BAD_LINK)
+    _press_analyse(ui)
+    alert = _head_alert(ui)
+    ui.must("the page reported the link rather than failing silently", alert != "")
+    ui.check(
+        "the alert says a link could not be read",
+        "Some links could not be read" in alert,
+        f"the alert reads {alert!r}",
+    )
+    ui.check("it names the link", BAD_LINK in alert, f"the alert reads {alert!r}")
+    ui.check(
+        "and the reason it was not followed",
+        "only http(s) links can be fetched" in alert,
+        f"the alert reads {alert!r}",
+    )
+    body = _result(ui).lower()
+    ui.check(
+        "nothing was invented in its place",
+        "0 new" in body and "0 linked" in body and "0 relationships" in body,
+        f"the change set panel reads {body[:200]!r}",
+    )
+    ui.check("both grids are empty", ui.grid_row_count("pr-el-grid") == 0)
+    ui.check("the relationships grid is empty too", ui.grid_row_count("pr-rel-grid") == 0)
+    ui.check(
+        "the change set asks for an Elements table, as it does with no source at all",
+        "No elements were identified" in _pushback(ui),
+        f"pushback reads {_pushback(ui)!r}",
+    )
+    ui.shot("A link the fetcher will not follow: reported above the change set, and nothing guessed at")
+    if alert.count(BAD_LINK) > 1:
+        finding.append(
+            Finding(
+                finding_id="G-4",
+                where="src/ea/ui/pages/propose.py · _sources",
+                severity="consistency",
+                summary="An unreadable link is named twice in the same sentence",
+                detail=(
+                    "`fetch_link` raises with the URL already in the message, and `_sources` prefixes the "
+                    f"URL again, so the alert reads {alert!r}. One link makes the sentence hard to read; "
+                    "a list of them repeats every URL twice."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="G21",
+    group="G",
+    title="On the branch it wrote to, the proposal's element is already there; on main it is not",
+    feature="Propose · apply · what landed",
+    expected=(
+        "Reading on g-proposal, Propose offers that branch as the destination and analysing the same "
+        "template links all five elements, CAW_Unit_Proposal included, because the apply created it "
+        "there. Back on main the same template still adopts it as new, so nothing was written to main."
+    ),
+)
+def test_what_landed_on_the_branch(ui, record):
+    ui.goto("/propose")
+    ui.branch(BRANCH)
+    ui.must("the header says which branch is being read", BRANCH in ui.branch_badge(), ui.branch_badge())
+    _open(ui)
+    destination = ui.page.locator("#pr-branch").first.input_value()
+    ui.check(
+        "Propose offers the branch being read as the destination of the next change",
+        destination.startswith(BRANCH),
+        f"the branch select reads {destination!r}",
+    )
+    _analyse(ui, TEMPLATE, work_package=WP_LABEL)
+    ui.must("the template was read against the branch", ui.grid_row_count("pr-el-grid") == 5)
+    counts = _counts(ui)
+    ui.check(
+        "every element of the template is now linked, and none is new",
+        "5 linked" in counts and "0 new" in counts,
+        f"the counts line reads {counts!r}",
+    )
+    created = ui.grid_cell_of("pr-el-grid", NEW_ROW, "existing_id")
+    ui.check(
+        "the element the proposal created is found on the branch, with an identifier of its own",
+        ui.grid_cell_of("pr-el-grid", NEW_ROW, "action") == "link"
+        and ui.grid_cell_of("pr-el-grid", NEW_ROW, "name") == "CAW_Unit_Proposal"
+        and created != "",
+        f"row {NEW_ROW} reads {ui.grid_cell_of('pr-el-grid', NEW_ROW, 'action')!r} / {created!r}",
+    )
+    ui.check(
+        "it was created in the state the proposal asked for",
+        ui.grid_cell_of("pr-el-grid", NEW_ROW, "current_state") == "proposed",
+        f"row {NEW_ROW} reads {ui.grid_cell_of('pr-el-grid', NEW_ROW, 'current_state')!r}",
+    )
+    ui.shot("The same template read on the branch it was applied to: every element is already there")
+
+    ui.branch("main")
+    ui.must("the reader is back on the model", ui.branch_badge().strip().lower() == "main", ui.branch_badge())
+    _open(ui)
+    _analyse(ui, TEMPLATE, work_package=WP_LABEL)
+    ui.must("the template was read against main", ui.grid_row_count("pr-el-grid") == 5)
+    ui.check(
+        "on main the element is still unknown, so the apply wrote to the branch and nowhere else",
+        ui.grid_cell_of("pr-el-grid", NEW_ROW, "action") == "new"
+        and ui.grid_cell_of("pr-el-grid", NEW_ROW, "existing_id") == "",
+        f"row {NEW_ROW} reads {ui.grid_cell_of('pr-el-grid', NEW_ROW, 'action')!r} / "
+        f"{ui.grid_cell_of('pr-el-grid', NEW_ROW, 'existing_id')!r}",
+    )
+    ui.check(
+        "and the counts on main are the ones the round started with",
+        "1 new" in _counts(ui) and "4 linked" in _counts(ui),
+        f"the counts line reads {_counts(ui)!r}",
+    )
+    ui.shot("The same template read on main: the element the branch carries is still new here")

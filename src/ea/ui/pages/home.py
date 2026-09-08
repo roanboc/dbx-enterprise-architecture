@@ -10,6 +10,12 @@ from ea.ui.context import AppContext
 
 
 def _stat(label: str, value: str | int, ic: str) -> dmc.Paper:
+    """One figure, its icon and what it counts.
+
+    The row does not wrap and the tile does not shrink to its content: with a wrapping row
+    a two-line label pushed the figure underneath its own icon, so the six tiles read as
+    two different designs and no two figures sat on the same line.
+    """
     return dmc.Paper(
         dmc.Group(
             [
@@ -19,10 +25,13 @@ def _stat(label: str, value: str | int, ic: str) -> dmc.Paper:
                 ),
             ],
             gap="md",
+            wrap="nowrap",
+            align="flex-start",
         ),
         p="md",
         withBorder=True,
         radius="md",
+        h="100%",
     )
 
 

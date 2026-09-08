@@ -74,13 +74,20 @@ def render(ctx: AppContext) -> html.Div:
                         dmc.Group(
                             [dmc.Text("Try:", size="xs", c="dimmed")]
                             + [
-                                dmc.Badge(
-                                    q,
+                                # The badge is the chip a reader sees; the wrapper is what
+                                # reports the click, because a badge reports none. It
+                                # generates no box, so the row is unchanged.
+                                html.Div(
+                                    dmc.Badge(
+                                        q,
+                                        variant="outline",
+                                        color="gray",
+                                        size="sm",
+                                        className="ea-chip",
+                                    ),
                                     id={"type": "ask-example", "i": i},
-                                    variant="outline",
-                                    color="gray",
-                                    size="sm",
-                                    className="ea-chip",
+                                    n_clicks=0,
+                                    style={"display": "contents"},
                                 )
                                 for i, q in enumerate(EXAMPLES)
                             ],

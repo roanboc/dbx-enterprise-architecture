@@ -122,6 +122,105 @@ def _document_text(ui) -> str:
     return loc.inner_text() if loc.count() else ""
 
 
+NONSENSE = "Zzqqxx blorptastic wumbulator kwyjibo"  # four words nothing in the model carries
+CATALOGUE = "IA-COURSE-CAT"  # Course Catalogue — an Information Asset with owners and contributors
+SUBJECT_RE = re.compile(r"^(.+?)\s+([A-Z][A-Z0-9]{1,7}-[A-Za-z0-9-]+)\s*[—-]")
+
+
+def _ask_afresh(ui, text: str) -> None:
+    """Ask, and wait until the document on screen is the one *this* question produced.
+
+    A second question replaces the first in place, so waiting for `.ea-document` alone would
+    read the answer that is already there.
+    """
+    _type_question(ui, text)
+    ui.click("ask-button")
+    ui.page.wait_for_function(
+        "want => { const h = document.querySelector('#ask-answer .ea-document h2');"
+        " return !!h && h.textContent.trim() === want; }",
+        arg=text.strip().rstrip("?"),
+        timeout=30_000,
+    )
+    ui.settle()
+
+
+def _subject(ui) -> tuple[str, str]:
+    """The element the answer opens with: the name it leads with and the identifier beside it."""
+    lines = _section_body(ui, "Answer").split("\n")
+    m = SUBJECT_RE.match(lines[0].strip() if lines else "")
+    return (m.group(1).strip(), m.group(2)) if m else ("", "")
+
+
+def _chip_labels(ui) -> list[str]:
+    """The chips' own text — the stylesheet shouts a badge, so read what it was given."""
+    return [
+        (ui.page.locator(_pm(i=i, type="ask-example")).first.text_content() or "").strip()
+        for i in range(len(EXAMPLES))
+    ]
+
+
+def _visible_chip(ui, i: int):
+    """The chip a reader sees. The click may be reported by a wrapper around it that draws nothing."""
+    holder = ui.page.locator(_pm(i=i, type="ask-example")).first
+    inner = holder.locator(".ea-chip")
+    return inner.first if inner.count() else holder
+
+
+def _trace_calls(ui) -> list[str]:
+    """The tools the trace says were called, in order."""
+    return [
+        t.strip() for t in ui.page.locator("#ask-trace .mantine-Accordion-control code").all_text_contents()
+    ]
+
+
+def _refusal_shown(ui) -> bool:
+    """Anything on the page that tells the reader why their question was not asked."""
+    box = _textarea(ui)
+    if (box.get_attribute("aria-invalid") or "").lower() == "true":
+        return True
+    return (
+        ui.page.locator("#page [role='alert'], #page .mantine-Alert-root, .mantine-Notification-root").count()
+        > 0
+    )
+
+
+def _download_or_nothing(ui, control: str):
+    """Press a download control; return the file it produced, or None, and what the browser logged.
+
+    `ui.download` waits for a download and ends the scenario when none comes; a control that
+    produces nothing at all is a finding to be read beside the checks around it.
+    """
+    logged: list[str] = []
+
+    def _console(message) -> None:  # noqa: ANN001 — playwright event payload
+        if message.type == "error":
+            logged.append(message.text)
+
+    ui.page.on("console", _console)
+    path = None
+    try:
+        with ui.page.expect_download(timeout=8_000) as info:
+            ui.page.locator(control).first.click()
+        dl = info.value
+        path = ui.run_dir / "downloads" / dl.suggested_filename
+        dl.save_as(str(path))
+    except Exception:  # noqa: BLE001 — nothing arriving is what this helper reports
+        pass
+    finally:
+        ui.page.wait_for_timeout(200)
+        ui.page.remove_listener("console", _console)
+    ui.settle()
+    return path, logged
+
+
+def _canvas_scale(ui) -> float:
+    """How far the reader has zoomed the generated view: the scale on the canvas it sits on."""
+    canvas = ui.page.locator(f"{VIEW_SVG} .ea-mermaid-canvas").first
+    style = (canvas.get_attribute("style") or "") if canvas.count() else ""
+    m = re.search(r"scale\(([\d.]+)\)", style)
+    return float(m.group(1)) if m else 0.0
+
+
 # --------------------------------------------------------------------------- the scenarios
 
 
@@ -792,3 +891,705 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
         )
     # Leave the page on something that works, so the next group does not open a stale refusal.
     ui.click("ask-reset")
+
+
+@pytest.mark.scenario(
+    scenario_id="F11",
+    group="F",
+    title="The four chips carry exactly the four questions the page offers",
+    feature="Ask · example questions",
+    expected=(
+        "Each chip reads as one whole question — the same question the page would ask — the four "
+        "differ from one another, and the box says what it takes and announces itself."
+    ),
+)
+def test_offered_questions_read_as_questions(ui, record):
+    _open_ask(ui)
+    labels = _chip_labels(ui)
+    for i, question in enumerate(EXAMPLES):
+        ui.check(
+            f"chip {i + 1} reads as the whole question it offers",
+            labels[i] == question,
+            f"it reads {labels[i]!r}, expected {question!r}",
+        )
+    ui.check(
+        "the four chips offer four different questions",
+        len(set(labels)) == len(EXAMPLES),
+        f"the chips read {labels}",
+    )
+    ui.check(
+        "the chips are introduced as questions to try",
+        "Try:" in ui.body(),
+    )
+    box = _textarea(ui)
+    named = bool(
+        box.evaluate(
+            "el => !!(el.getAttribute('aria-label') || (el.labels||[]).length || el.closest('[aria-label]'))"
+        )
+    )
+    ui.check(
+        "the question box has a name a reader who cannot see it is given",
+        named,
+        "" if named else "the box carries neither an aria-label nor a label of its own",
+    )
+    placeholder = box.get_attribute("placeholder") or ""
+    ui.check(
+        "the box says what kind of question it takes",
+        "ask about" in placeholder.lower(),
+        f"the placeholder reads {placeholder!r}",
+    )
+    ui.check("Ask can be pressed", not ui.disabled("ask-button"))
+    ui.shot("The four questions the page offers, each chip carrying one whole question")
+
+
+@pytest.mark.scenario(
+    scenario_id="F12",
+    group="F",
+    title="Every question the page offers is answered, about the element it names",
+    feature="Ask · example questions",
+    expected=(
+        "Each of the four offered questions comes back as a document: an answer about an element "
+        "of the model rather than a refusal, the elements it names in a table, and a generated "
+        "view — and a question that names an element by its name is answered about that element."
+    ),
+)
+def test_every_offered_question_is_answered(ui, record, finding):
+    _open_ask(ui)
+    # The model carries an element named exactly "Course Catalogue", so this question has one subject.
+    named = {1: ("Course Catalogue", CATALOGUE)}
+    wrong: list[str] = []
+    for i, question in enumerate(EXAMPLES):
+        _ask_afresh(ui, question)
+        body = _section_body(ui, "Answer")
+        ui.check(
+            f"question {i + 1} is answered from the model, not refused",
+            "could not match your question" not in body,
+            f"the answer opens {body[:160]!r}",
+        )
+        name, ident = _subject(ui)
+        ui.check(
+            f"question {i + 1} says which element it is about, with its identifier",
+            bool(name and ident),
+            f"the answer opens {body[:160]!r}",
+        )
+        ui.check(
+            f"question {i + 1} lists the elements it names in a table",
+            "Elements in this answer" in _section_titles(ui),
+            f"the sections are {_section_titles(ui)}",
+        )
+        drawn = ui.page.locator(VIEW_SRC).count() > 0
+        ui.check(
+            f"question {i + 1} is drawn as a view of the model",
+            drawn,
+            "" if drawn else "no diagram was placed in the document",
+        )
+        if i in named:
+            want_name, want_id = named[i]
+            about_it = ident == want_id
+            if not about_it:
+                wrong.append(f"{question!r} was answered about {name} [{ident}]")
+            ui.check(
+                f"the question about the {want_name} is answered about the {want_name}",
+                about_it,
+                f"it is answered about {name} [{ident}], not {want_name} [{want_id}]",
+            )
+            ui.shot(f"The answer to the offered question about the {want_name}")
+    ui.shot("The last of the four offered questions, answered as a document")
+    if wrong:
+        finding.append(
+            _f(
+                "F-7",
+                "src/ea/agent/agent.py · StubProvider.answer, the element it takes the question to be about",
+                "defect",
+                "A question naming an element by name is answered about a different element, without saying so",
+                "The stub searches for the longest words of the question and takes `matches[0]`. "
+                "`search_elements` orders its matches alphabetically by name and matches the "
+                "description and the attributes as well as the name, so an exact name match does "
+                "not win: searching 'Catalogue' returns 'CMS to SRS curriculum sync' first and "
+                "'Course Catalogue' third. The page offers the question 'Who owns the Course "
+                "Catalogue and which applications contribute to it?' as one to try, and the answer "
+                "that comes back is about the integration — every identifier in it is real, so "
+                "nothing marks it unverified, and the document never says which element the "
+                "question was taken to be about. " + "; ".join(wrong) + ". Prefer an exact name "
+                "match, or open the answer with the element that was chosen and why.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="F13",
+    group="F",
+    title="A question the model cannot match is refused with the size of the repository and a way forward",
+    feature="Ask · grounding",
+    expected=(
+        "A question whose words match nothing says so plainly, says how much the repository holds "
+        "(from a tool result), says what to try instead, invents no element, draws no view — and "
+        "the refusal can still be taken away as Markdown."
+    ),
+)
+def test_a_question_that_matches_nothing(ui, record, finding):
+    _open_ask(ui)
+    _ask_afresh(ui, NONSENSE)
+    body = _section_body(ui, "Answer")
+    ui.check(
+        "the answer says it could not match the question to an element",
+        "could not match your question to an element" in body,
+        f"the answer reads {body[:200]!r}",
+    )
+    ui.check(
+        "it says how much the repository holds, counted rather than guessed",
+        re.search(r"holds \d+ elements and \d+ relationships", body) is not None,
+        f"the answer reads {body[:200]!r}",
+    )
+    ui.check(
+        "it says what to try instead, so the reader is not left at a dead end",
+        "try naming an element" in body and "ask with its id" in body,
+        f"the answer reads {body[:200]!r}",
+    )
+    ui.check(
+        "no identifier is invented for a question that matched nothing",
+        re.search(r"\b[A-Z][A-Z0-9]{1,7}-[A-Za-z0-9][A-Za-z0-9-]+\b", body) is None,
+        f"the answer reads {body[:200]!r}",
+    )
+    ui.check(
+        "no elements table is shown, because no element was found",
+        "Elements in this answer" not in _section_titles(ui),
+        f"the sections are {_section_titles(ui)}",
+    )
+    ui.check(
+        "no view is drawn, because there is nothing in the model to draw",
+        ui.page.locator(VIEW_SRC).count() == 0,
+    )
+    ui.check(
+        "nothing is marked unverified, because the answer names no identifier",
+        "treat them as unverified" not in _document_text(ui),
+    )
+    called = _trace_calls(ui)
+    ui.check(
+        "the trace shows the words it searched for and the fallback to the metamodel",
+        called == ["search_elements", "search_elements", "search_elements", "list_types"],
+        f"the trace lists {called}",
+    )
+    first = ui.page.locator("#ask-trace .mantine-Accordion-control").first.inner_text()
+    ui.check(
+        "the first search shows the word it looked for",
+        "blorptastic" in first,
+        f"the first row reads {first!r}",
+    )
+    ui.shot("A question that matches nothing: the refusal, the size of the repository and what to try next")
+    # This document carries no view, and the download callback holds a State on a view's position
+    # store, so pressing a download is the moment that costs the reader the file.
+    md, logged = _download_or_nothing(ui, "#ask-doc-md")
+    ui.check(
+        "the refusal can be taken away as Markdown, the way an answer with a view can",
+        md is not None,
+        "" if md is not None else "Download Markdown was pressed and produced no file at all",
+    )
+    ui.check(
+        "pressing Download Markdown raises nothing in the browser",
+        not logged,
+        "" if not logged else f"the browser logged {'; '.join(logged)[:240]!r}",
+    )
+    if md is not None:
+        text = md.read_text(encoding="utf-8")
+        ui.check(
+            "the refusal is what was taken away",
+            "## Answer" in text and "could not match your question to an element" in text,
+            f"the file opens {text[:160]!r}",
+        )
+        ui.check(
+            "the exported Markdown lists no elements, because none were found",
+            "## Elements in this answer" not in text,
+        )
+        ui.check(
+            "the exported Markdown carries no diagram, because none was drawn",
+            "```mermaid" not in text,
+        )
+        ui.check(
+            "the exported Markdown still accounts for how it was answered",
+            "## How this was answered" in text and "list_types()" in text,
+            f"the file closes {text[-200:]!r}",
+        )
+    else:
+        finding.append(
+            _f(
+                "F-10",
+                "src/ea/ui/pages/ask.py · the download_doc callback, and both buttons in the document toolbar",
+                "defect",
+                "Neither download works on an answer that carries no view: the callback never runs",
+                "download_doc holds a State on the position store of the first view "
+                '({"id": "ask-view-0", "type": "mermaid-pos"}), and that store exists only inside a '
+                "rendered view. An answer that names no element in the model — a question that "
+                "matches nothing, or an identifier the model does not carry — has no view, so the "
+                "component is not in the layout and Dash refuses to run the callback at all: the "
+                "browser logs 'A nonexistent object was used in a `State` of a Dash callback' for "
+                "that id and no request is made. Download Markdown is as dead as Download draw.io, "
+                "although the Markdown is composed and already sitting in the document store, so "
+                "the file could be written. This is the cause of the silence F-3 reports on the "
+                "draw.io button. Take the positions with a pattern-matching ALL state, or keep a "
+                "position store in the page whether or not a view was drawn.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="F14",
+    group="F",
+    title="Ask with an empty question keeps the answer already on screen, and says why nothing happened",
+    feature="Ask · the question box",
+    expected=(
+        "Pressing Ask with an empty box (or one holding only spaces) answers nothing and destroys "
+        "nothing: the document already on screen stays, and the page either says why the question "
+        "was not asked or does not offer Ask at all."
+    ),
+)
+def test_ask_with_an_empty_question(ui, record, finding):
+    _open_ask(ui)
+    _ask_afresh(ui, IMPACT_Q)
+    before = ui.page.locator(f"{DOCUMENT} h2").first.inner_text().strip()
+    silent: list[str] = []
+    for what, text in (("an empty box", ""), ("a box holding only spaces", "   ")):
+        _type_question(ui, text)
+        refused = ui.disabled("ask-button")
+        if not refused:
+            ui.click("ask-button")
+            ui.page.wait_for_timeout(600)
+            ui.settle()
+        said = _refusal_shown(ui)
+        if not (refused or said):
+            silent.append(what)
+        ui.check(
+            f"Ask with {what} says why nothing happened, or cannot be pressed",
+            refused or said,
+            ""
+            if (refused or said)
+            else "the button is offered, pressing it does nothing and the page says nothing",
+        )
+        ui.check(
+            f"Ask with {what} leaves exactly one answer on screen",
+            ui.page.locator(DOCUMENT).count() == 1,
+            f"{ui.page.locator(DOCUMENT).count()} documents",
+        )
+        title = ui.page.locator(f"{DOCUMENT} h2").first.inner_text().strip()
+        ui.check(
+            f"Ask with {what} does not replace the answer with an empty document",
+            title == before,
+            f"the document is now titled {title!r}",
+        )
+        kept = bool(ui.text("ask-trace"))
+        ui.check(
+            f"Ask with {what} leaves the trace of the answer that is on screen",
+            kept,
+            "" if kept else "the trace was cleared by a question that was never asked",
+        )
+    ui.shot("Ask pressed on an empty question box: the answer already on screen is untouched")
+    # A question typed after the empty press must still be answered, or the no-op has cost the reader the page.
+    _ask_afresh(ui, f"What is the impact of changing {CATALOGUE}?")
+    ui.check(
+        "a real question typed afterwards is still answered",
+        _subject(ui)[1] == CATALOGUE,
+        f"the answer is about {_subject(ui)}",
+    )
+    if silent:
+        finding.append(
+            _f(
+                "F-8",
+                "src/ea/ui/pages/ask.py · the ask callback and the Ask button",
+                "usability",
+                "Ask with an empty question does nothing, silently",
+                "The callback returns no_update for a question that is empty or only whitespace, "
+                "which is right — but the button stays enabled and pressing it gives the reader "
+                "nothing at all: no message, no mark on the box, no disabled state with a reason "
+                f"({', '.join(silent)}). It is the same silent no-op as the draw.io button on a "
+                "document with no view. Disable Ask while the box is empty, or say that a question "
+                "is needed.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="F15",
+    group="F",
+    title="A second question replaces the document and the trace under it",
+    feature="Ask · the answer document",
+    expected=(
+        "Asking again leaves one document on the page — the new one, with its own title, subject, "
+        "view and elements — and a trace of the calls that answered *this* question, not the one "
+        "before it."
+    ),
+)
+def test_a_second_question_replaces_the_first(ui, record):
+    _open_ask(ui)
+    _ask_afresh(ui, IMPACT_Q)
+    ui.must("there is a first answer to replace", ui.page.locator(DOCUMENT).count() == 1)
+    ui.check(
+        "the first answer is about the element the first question named",
+        _subject(ui)[1] == OFFERING,
+        f"the first answer is about {_subject(ui)}",
+    )
+    second = f"What is the impact of changing {CATALOGUE}?"
+    _ask_afresh(ui, second)
+    ui.check(
+        "one answer is on the page, not two",
+        ui.page.locator(DOCUMENT).count() == 1,
+        f"{ui.page.locator(DOCUMENT).count()} documents",
+    )
+    title = ui.page.locator(f"{DOCUMENT} h2").first.inner_text().strip()
+    ui.check(
+        "the document is titled with the second question",
+        title == second.rstrip("?"),
+        f"the title reads {title!r}",
+    )
+    name, ident = _subject(ui)
+    ui.check(
+        "the answer is about the element the second question named",
+        (ident, name) == (CATALOGUE, "Course Catalogue"),
+        f"the answer is about {name} [{ident}]",
+    )
+    titles = _section_titles(ui)
+    ui.check(
+        "the view is redrawn for the second question",
+        "Impact of Course Catalogue" in titles,
+        f"the sections are {titles}",
+    )
+    ui.check(
+        "the first question's view is gone",
+        "Impact of SRS_Course_Offering" not in titles,
+        f"the sections are {titles}",
+    )
+    called = _trace_calls(ui)
+    ui.check(
+        "the trace is the second question's calls: the id was given, so nothing was searched for",
+        called == ["get_element", "impact", "propose_view"],
+        f"the trace lists {called}",
+    )
+    inputs = " ".join(
+        t.strip() for t in ui.page.locator("#ask-trace .mantine-Accordion-control").all_text_contents()
+    )
+    ui.check(
+        "the trace shows the second element, not the first",
+        CATALOGUE in inputs and OFFERING not in inputs,
+        f"the trace reads {inputs[:200]!r}",
+    )
+    ui.shot("A second question: one document, its own view, and a trace of the calls that answered it")
+
+
+@pytest.mark.scenario(
+    scenario_id="F16",
+    group="F",
+    title="'How this was answered' names every call, in order, with what it was called with",
+    feature="Ask · tool trace",
+    expected=(
+        "The document's own account of how it was answered lists the same calls the trace under it "
+        "lists, in the same order, each with the input it was made with — and the exported Markdown "
+        "numbers them."
+    ),
+)
+def test_how_this_was_answered(ui, record):
+    _open_ask(ui)
+    _ask_afresh(ui, IMPACT_Q)
+    ui.must(
+        "the document accounts for how it was answered",
+        "How this was answered" in _section_titles(ui),
+        f"the sections are {_section_titles(ui)}",
+    )
+    section = _section(ui, "How this was answered").first
+    named = [c.strip() for c in section.locator("code").all_text_contents()]
+    ui.check(
+        "the account names every call, in the order they were made",
+        named == ["search_elements", "get_element", "impact", "propose_view"],
+        f"the account lists {named}",
+    )
+    ui.check(
+        "the account matches the trace under the document",
+        named == _trace_calls(ui),
+        f"the account lists {named}, the trace lists {_trace_calls(ui)}",
+    )
+    body = section.inner_text()
+    ui.check(
+        "the search shows the text it searched for",
+        "text='SRS_Course_Offering'" in body,
+        f"the account reads {body[:240]!r}",
+    )
+    ui.check(
+        "the element calls show the element they were made for",
+        f"element_id='{OFFERING}'" in body,
+        f"the account reads {body[:240]!r}",
+    )
+    ui.check(
+        "the view the reader is looking at is shown as the call that asked for it",
+        "title='Impact of SRS_Course_Offering'" in body,
+        f"the account reads {body[-240:]!r}",
+    )
+    ui.shot("How this was answered: every call the answer rests on, with what it was called with")
+    md = ui.download("ask-doc-md", ".md")
+    text = md.read_text(encoding="utf-8")
+    ui.check(
+        "the exported Markdown numbers the calls in the same order",
+        re.search(r"^1\. `search_elements\(", text, re.M) is not None
+        and re.search(r"^4\. `propose_view\(", text, re.M) is not None,
+        f"the account in the file reads {text[text.find('## How this was answered') :][:240]!r}",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="F17",
+    group="F",
+    title="The refusal for an identifier the model does not carry reads once, on screen and in the file",
+    feature="Ask · grounding",
+    expected=(
+        "The answer for an unknown identifier says once that no element carries it, names the "
+        "identifier once, and the exported Markdown carries the same refusal and repeats the "
+        "warning that the identifier is unverified."
+    ),
+)
+def test_unknown_identifier_refusal_reads_once(ui, record, finding):
+    _open_ask(ui)
+    _ask_afresh(ui, f"What is the impact of changing {GHOST}?")
+    body = _section_body(ui, "Answer")
+    doubled = body.lower().count("no element with id") > 1
+    ui.check(
+        "the refusal is said once, not twice",
+        not doubled,
+        f"the answer reads {body!r}",
+    )
+    ui.check(
+        "the identifier is named once",
+        body.count(GHOST) == 1,
+        f"the answer reads {body!r}",
+    )
+    ui.shot("The refusal for an identifier the model does not carry, as the reader is given it")
+    md, logged = _download_or_nothing(ui, "#ask-doc-md")
+    ui.check(
+        "the refusal can be taken away as Markdown (F-10: on a document with no view, it cannot)",
+        md is not None,
+        "" if md is not None else "Download Markdown was pressed and produced no file at all",
+    )
+    ui.check(
+        "pressing Download Markdown raises nothing in the browser",
+        not logged,
+        "" if not logged else f"the browser logged {'; '.join(logged)[:240]!r}",
+    )
+    if md is not None:
+        text = md.read_text(encoding="utf-8")
+        answer = text[text.find("## Answer") : text.find("## Not found in the model")]
+        ui.check(
+            "the exported Markdown carries the same refusal",
+            GHOST in answer and "no element with id" in answer.lower(),
+            f"the exported answer reads {answer!r}",
+        )
+        ui.check(
+            "the exported Markdown says once that no element carries it",
+            answer.lower().count("no element with id") == 1,
+            f"the exported answer reads {answer!r}",
+        )
+        ui.check(
+            "the exported Markdown repeats the warning that the identifier is unverified",
+            "## Not found in the model" in text
+            and "treat them as unverified" in text
+            and f"`{GHOST}`" in text,
+            f"the file reads {text[:400]!r}",
+        )
+        ui.check(
+            "the exported Markdown lists no elements and draws no diagram",
+            "## Elements in this answer" not in text and "```mermaid" not in text,
+        )
+        ui.check(
+            "the exported Markdown still says which call looked for it",
+            "get_element(element_id='FX-GHOST-ENTITY')" in text,
+            f"the file closes {text[-200:]!r}",
+        )
+    if doubled:
+        finding.append(
+            _f(
+                "F-9",
+                "src/ea/agent/tools.py · ToolBox.call, shown as the whole answer for an unknown identifier",
+                "defect",
+                "The unknown-identifier refusal is printed twice in one sentence",
+                "NotFoundError already reads as a sentence — 'no element with id FX-GHOST-ENTITY' — "
+                "because it is shown to people on the command line and beside a refused row. "
+                "`ToolBox.call` catches it and wraps it in the same words again: "
+                "`{'error': f'no element with id {exc}'}`. The stub makes that string the entire "
+                "answer, so the reader is told 'no element with id no element with id "
+                "FX-GHOST-ENTITY', on screen and in the exported Markdown. Pass the exception "
+                "through as it stands, or name the identifier rather than the exception.",
+            )
+        )
+    # Leave the page on something that works, so the next scenario does not open a stale refusal.
+    ui.click("ask-reset")
+
+
+@pytest.mark.scenario(
+    scenario_id="F18",
+    group="F",
+    title="The reader can zoom and refit the generated view, and put it back",
+    feature="Ask · generated view",
+    expected=(
+        "The view's controls do what they say: zoom in enlarges the diagram, zoom out returns it, "
+        "fit brings it back to the window, and Reset layout redraws it from the model."
+    ),
+)
+def test_the_view_can_be_arranged(ui, record):
+    _open_ask(ui)
+    _ask_afresh(ui, IMPACT_Q)
+    ui.wait_mermaid()
+    ui.must(
+        "the diagram sits on a canvas the reader can move",
+        ui.page.locator(f"{VIEW_SVG} .ea-mermaid-canvas").count() > 0,
+    )
+    fitted = _canvas_scale(ui)
+    ui.must("the diagram was fitted to the window when it was drawn", fitted > 0, f"scale {fitted}")
+    ui.click(_pm(id="ask-view-0", type="mermaid-zoom-in"))
+    ui.page.wait_for_timeout(250)
+    bigger = _canvas_scale(ui)
+    ui.check(
+        "zoom in makes the diagram bigger",
+        bigger > fitted,
+        f"the scale went from {fitted} to {bigger}",
+    )
+    ui.shot("The generated view zoomed in by the reader")
+    ui.click(_pm(id="ask-view-0", type="mermaid-zoom-out"))
+    ui.page.wait_for_timeout(250)
+    back = _canvas_scale(ui)
+    ui.check(
+        "zoom out takes it back",
+        abs(back - fitted) < max(0.01, fitted * 0.02),
+        f"the scale went from {bigger} to {back}, expected about {fitted}",
+    )
+    ui.click(_pm(id="ask-view-0", type="mermaid-zoom-in"))
+    ui.page.wait_for_timeout(250)
+    ui.click(_pm(id="ask-view-0", type="mermaid-fit"))
+    ui.page.wait_for_timeout(250)
+    refitted = _canvas_scale(ui)
+    ui.check(
+        "fit to the window brings it back to the window",
+        abs(refitted - fitted) < max(0.01, fitted * 0.02),
+        f"the scale is {refitted}, expected about {fitted}",
+    )
+    reset = ui.page.locator(_pm(id="ask-view-0", type="mermaid-reset"))
+    ui.check("the view offers Reset layout", reset.count() > 0)
+    if reset.count():
+        ui.click(_pm(id="ask-view-0", type="mermaid-reset"))
+        ui.wait_mermaid()
+        drawn = ui.page.locator(f"{VIEW_SVG} svg").first.text_content() or ""
+        ui.check(
+            "Reset layout redraws the same diagram from the model",
+            f"[{OFFERING}]" in drawn,
+            f"the diagram reads {drawn[:200]!r}",
+        )
+        ui.check(
+            "and the answer it belongs to is still there",
+            ui.page.locator(DOCUMENT).count() == 1 and "Answer" in _section_titles(ui),
+            f"the sections are {_section_titles(ui)}",
+        )
+    ui.shot("The generated view after fit and Reset layout: back where it was drawn")
+
+
+@pytest.mark.scenario(
+    scenario_id="F19",
+    group="F",
+    title="A Reader may ask, and take the answer away",
+    feature="Ask · roles",
+    expected=(
+        "Asking and downloading are what the lowest role may do, so a Reader gets the same "
+        "document — the answer, the elements table linking to each element, and the Markdown "
+        "download — and is refused nothing."
+    ),
+)
+def test_a_reader_may_ask(ui, record):
+    _open_ask(ui)
+    ui.persona("Reader")
+    ui.check(
+        "the header says the reader is a Reader",
+        "reader" in ui.role_badge().lower(),
+        f"the badge reads {ui.role_badge()!r}",
+    )
+    ui.must("the Reader is still offered the question box", _textarea(ui).count() > 0)
+    ui.check("the Reader is offered Ask", ui.visible("ask-button") and not ui.disabled("ask-button"))
+    _ask_afresh(ui, IMPACT_Q)
+    name, ident = _subject(ui)
+    ui.check(
+        "the Reader's question is answered about the element it named",
+        ident == OFFERING,
+        f"the answer is about {name} [{ident}]",
+    )
+    ui.check(
+        "the Reader is given the elements table too",
+        "Elements in this answer" in _section_titles(ui),
+        f"the sections are {_section_titles(ui)}",
+    )
+    row = (
+        _section(ui, "Elements in this answer")
+        .first.locator("tbody tr", has=ui.page.locator(f"code:text-is('{OFFERING}')"))
+        .first
+    )
+    link = row.locator("a").first
+    ui.check(
+        "and the elements a Reader may open still link to their own pages",
+        (link.get_attribute("href") if link.count() else "") == f"/element/{OFFERING}",
+        f"the href is {(link.get_attribute('href') if link.count() else '')!r}",
+    )
+    ui.check(
+        "nothing tells the Reader they are not allowed to ask",
+        "not permitted" not in ui.body().lower() and "forbidden" not in ui.body().lower(),
+    )
+    ui.shot("The Ask page as a Reader: the same document, answered and readable")
+    md = ui.download("ask-doc-md", ".md")
+    text = md.read_text(encoding="utf-8")
+    ui.check(
+        "a Reader may take the answer away as Markdown",
+        text.startswith(f"# {IMPACT_Q.rstrip('?')}") and OFFERING in text,
+        f"the file opens {text[:120]!r}",
+    )
+    ui.persona("Admin")
+
+
+@pytest.mark.scenario(
+    scenario_id="F20",
+    group="F",
+    title="The chip a reader points at is the thing that takes the click",
+    feature="Ask · example questions",
+    expected=(
+        "The badge a reader sees is what carries the pointer cursor, clicking that badge — not "
+        "some wrapper around it — puts its question in the box, and the question it leaves there "
+        "can then be asked."
+    ),
+)
+def test_the_visible_chip_takes_the_click(ui, record):
+    _open_ask(ui)
+    for i, question in enumerate(EXAMPLES):
+        chip = _visible_chip(ui, i)
+        ui.check(
+            f"chip {i + 1} invites the click a reader is about to make",
+            chip.evaluate("el => getComputedStyle(el).cursor") == "pointer",
+            f"the cursor over it is {chip.evaluate('el => getComputedStyle(el).cursor')!r}",
+        )
+        ui.check(
+            f"chip {i + 1} shows the question it will put in the box",
+            (chip.text_content() or "").strip() == question,
+            f"it reads {(chip.text_content() or '').strip()!r}",
+        )
+        # Start from something else each time, so a chip that does nothing is visible.
+        _type_question(ui, "placeholder")
+        chip.click()
+        ui.page.wait_for_timeout(200)
+        ui.settle()
+        got = _question(ui)
+        # F-1 already records a chip that reports no click; this reads the chip a reader points at.
+        ui.check(
+            f"clicking the chip a reader sees puts question {i + 1} in the box",
+            got == question,
+            f"the box holds {got!r}, expected {question!r}",
+        )
+    ui.shot("The question box after clicking the last chip: it holds the question that chip offers")
+    if _question(ui) == EXAMPLES[-1]:
+        ui.click("ask-button")
+        ui.page.wait_for_selector(DOCUMENT, timeout=30_000)
+        ui.settle()
+        title = ui.page.locator(f"{DOCUMENT} h2").first.inner_text().strip()
+        ui.check(
+            "and the question a chip left in the box can then be asked",
+            title == EXAMPLES[-1].rstrip("?"),
+            f"the document is titled {title!r}",
+        )
+        ui.shot("A question taken from a chip and asked: the document it comes back as")

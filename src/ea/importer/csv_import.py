@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -65,9 +66,18 @@ def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.D
     if encoding is not None:
         kwargs["encoding"] = encoding
     try:
-        return pd.read_csv(source, **kwargs)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", pd.errors.ParserWarning)
+            frame = pd.read_csv(source, **kwargs)
     except pd.errors.ParserError as exc:
         raise CsvShapeError(filename, " ".join(str(exc).split())) from None
+    # A surplus field is a warning, not an error: the parser keeps the fields the header
+    # declares and drops the rest. Dropping part of a row silently is the same failure as
+    # shifting it, so the file is refused here too.
+    ragged = [w for w in caught if issubclass(w.category, pd.errors.ParserWarning)]
+    if ragged:
+        raise CsvShapeError(filename, " ".join(str(ragged[0].message).split()))
+    return frame
 
 
 def read_csv_text(text: str, filename: str) -> pd.DataFrame:

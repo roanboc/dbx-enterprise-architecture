@@ -238,6 +238,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     dmc.Select(
                         id=ids.TG_WP,
                         **{"aria-label": "Work package"},
+                        nothingFoundMessage="No work package of that name",
                         data=[{"value": "", "label": "All work packages"}] + wps,
                         value=preset,
                         w=420,

@@ -561,10 +561,12 @@ def test_matrix(ui, record, finding):
         _cell(proposed, "new") >= 1 and _cell(proposed, "keep") == 0,
         str(proposed),
     )
-    # Believed wrong: the column headings are Mantine badges inside the table head, and the
-    # browser clips them to the column width, so the reader sees "= K…" and "⇒ ME…" and cannot
-    # tell one target state from another. The vocabulary is fixed and short; the heading should
-    # fit, wrap, or be spelled out beside the glyph.
+    # The column headings are Mantine badges inside the table head. The round that first wrote
+    # this scenario found the browser clipping them to the column width, so the reader saw
+    # "= K…" and "⇒ ME…" and could not tell one target state from another; a badge now takes the
+    # width its name needs and wraps instead of ellipsising. The check measures the browser's own
+    # layout, so it stands as the guard against that coming back, and the finding below is lodged
+    # only if it does.
     clipped = _clipped_headings(ui)
     ui.check(
         "every column heading can be read in full",
@@ -573,23 +575,25 @@ def test_matrix(ui, record, finding):
     )
     ui.shot("The current-by-target matrix: what is true today against what is intended")
     ui.shot(
-        "The matrix headings up close: every one is cut off, so keep cannot be told from merge",
+        "The matrix headings up close: the glyph each target state is marked with, above its name",
         selector=MATRIX_CARD,
     )
 
-    finding.append(
-        _finding(
-            finding_id="E-2",
-            where="src/ea/ui/pages/target.py · _matrix(), the column headings",
-            severity="usability",
-            summary="The matrix column headings are clipped, so the target states cannot be told apart",
-            detail=(
-                "Each heading is a Badge in a table cell narrower than its text, so the six columns "
-                "read '? UNDECI…', '= K…', '+ N…', 'Δ CHA…', '× DECOMMIS…' and '⇒ ME…'. The reader "
-                "cannot tell keep from merge without counting columns against the badge row above."
-            ),
+    if clipped:
+        finding.append(
+            _finding(
+                finding_id="E-2",
+                where="src/ea/ui/pages/target.py · _matrix(), the column headings",
+                severity="usability",
+                summary="The matrix column headings are clipped, so the target states cannot be told apart",
+                detail=(
+                    "Each heading is a Badge in a table cell narrower than its text, so the six columns "
+                    "read '? UNDECI…', '= K…', '+ N…', 'Δ CHA…', '× DECOMMIS…' and '⇒ ME…'. The reader "
+                    "cannot tell keep from merge without counting columns against the badge row above. "
+                    "Measured: " + "; ".join(clipped)
+                ),
+            )
         )
-    )
     finding.append(
         _finding(
             finding_id="E-3",
@@ -1145,6 +1149,7 @@ def test_what_the_view_draws(ui, record):
         len(drawn) < elements,
         f"{len(drawn)} of {elements} elements",
     )
+    ui.shot("The whole model's view: the handful of artefacts that change or are kept, out of 47")
 
     ui.toggle("tg-only-changes", False)
     ui.wait_mermaid()
@@ -1177,7 +1182,10 @@ def test_what_the_view_draws(ui, record):
         "PAC-SRS" in drawn,
         str(sorted(drawn)),
     )
-    ui.shot("The whole model's view against the table that names every element behind it")
+    ui.shot(
+        "The same picture with the switch off: the list under it grew, the diagram did not",
+        selector=VIEW_CARD,
+    )
 
 
 @pytest.mark.scenario(
@@ -1328,7 +1336,7 @@ def test_the_picker_searches(ui, record, finding):
     )
     by_id = _search_options(ui, WP)
     ui.check("and the identifier finds it just as well", WP_OPTION in by_id, str(by_id))
-    ui.shot("The picker searched by name: the work packages that match, and nothing else")
+    ui.shot("The picker searched by identifier: the one work package that matches, and nothing else")
 
     missing = _search_options(ui, "PAC-CMS")
     ui.check(
@@ -1338,11 +1346,11 @@ def test_the_picker_searches(ui, record, finding):
     )
     said = _dropdown_text(ui)
     ui.check(
-        "and a search that matches nothing says so rather than showing an empty box",
+        "and a search that matches nothing says so rather than leaving the reader with nothing",
         bool(said),
         f"the dropdown reads {said!r}",
     )
-    ui.shot("A search that matches nothing: the picker answers with an empty box")
+    ui.shot("A search that matches nothing: no option, no message, and the field left as it was typed")
     ui.page.keyboard.press("Escape")
     ui.settle()
     if not said:
@@ -1354,11 +1362,12 @@ def test_the_picker_searches(ui, record, finding):
                 summary="The work package picker says nothing when a search matches nothing",
                 detail=(
                     "The picker is searchable but carries no nothingFoundMessage, so typing "
-                    "'PAC-CMS' — an element that exists but is not a work package — leaves an empty "
-                    "dropdown and no word about why. The same control on Impact "
-                    "(src/ea/ui/pages/impact.py) and on an element's relationship form answers "
-                    "'Type to search' in the same situation, and both carry a placeholder saying "
-                    "what may be typed; this one has neither."
+                    "'PAC-CMS' — an element that exists but is not a work package — closes the list "
+                    "altogether: no option, no message, and the field left holding what was typed "
+                    "while the page still answers for every work package. The same control on "
+                    "Impact (src/ea/ui/pages/impact.py) and on an element's relationship form "
+                    "answers 'Type to search' in that situation, and both carry a placeholder "
+                    "saying what may be typed; this one has neither."
                 ),
             )
         )
