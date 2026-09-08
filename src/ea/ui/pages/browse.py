@@ -331,7 +331,13 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update, no_update
         if not selected:
-            return False, no_update
+            # A button that does nothing when pressed reads as broken. Open it and say why
+            # there is nothing to do; Save refuses for the same reason.
+            return True, alert(
+                "Nothing is ticked. Close this, tick the rows you want to change in the "
+                "left-hand column, and open it again.",
+                "yellow",
+            )
         return True, dmc.Text(f"{len(selected)} element(s) ticked.", size="sm", c="dimmed")
 
     @app.callback(

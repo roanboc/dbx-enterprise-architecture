@@ -54,6 +54,8 @@ def validate_branch_id(branch_id: str) -> str:
 def branch_id_from_name(name: str) -> str:
     """A branch id from a free-text name: lowercase, hyphens for anything else."""
     slug = re.sub(r"[^a-z0-9._/-]+", "-", (name or "").strip().lower()).strip("-.")[:80]
-    if not slug or slug == MAIN:
+    if slug == MAIN:
         raise ValueError("a branch needs a name other than 'main'")
+    if not slug:
+        raise ValueError("a branch name needs a letter or a number in it")
     return validate_branch_id(slug)

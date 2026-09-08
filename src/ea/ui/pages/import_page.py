@@ -188,7 +188,14 @@ def _run(store, source, mapping_key, dry_run: bool):
     if not dry_run:
         ctx.graph.invalidate()
     color = "green" if report.ok else "red"
-    head = ("Validation only — nothing written. " if dry_run else "Loaded. ") + report.summary()
+    wrote = report.elements_loaded + report.relationships_loaded + report.links_loaded
+    if dry_run:
+        lead = "Validation only — nothing written. "
+    elif wrote:
+        lead = "Loaded. "
+    else:
+        lead = "Nothing was loaded. "
+    head = lead + report.summary()
     return html.Div(
         [
             alert(head, color),

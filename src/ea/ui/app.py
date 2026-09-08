@@ -165,6 +165,16 @@ def create_app() -> dash.Dash:
                 return propose.render(ctx)
             if page == "health":
                 return health.render(ctx)
+            if (pathname or "/").rstrip("/") not in ("", None):
+                # Falling back to Home is the right answer; doing it in silence is not.
+                # A reader who mistyped, or followed a stale link, is told which it was.
+                return dmc.Stack(
+                    [
+                        alert(f"There is no page at {pathname}. This is the home page.", "yellow"),
+                        home.render(ctx),
+                    ],
+                    gap="sm",
+                )
             return home.render(ctx)
         except Exception as exc:  # noqa: BLE001 — a page error must not blank the shell
             log.exception("page %s failed", page)

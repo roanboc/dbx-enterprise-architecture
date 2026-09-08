@@ -170,7 +170,25 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
         d = ctx.repo.element_detail(element_id)
     except NotFoundError:
         return html.Div(
-            [dmc.Title("Not found", order=1, size="h2"), dmc.Text(f"No element with id {element_id}.")]
+            [
+                dmc.Title("Not found", order=1, size="h2"),
+                dmc.Text(f"No element with id {element_id}."),
+                dmc.Text(
+                    "It may have been renamed or removed, or the identifier may belong to a "
+                    "branch you are not on.",
+                    c="dimmed",
+                    size="sm",
+                    mt="xs",
+                ),
+                dmc.Group(
+                    [
+                        dmc.Anchor("Search the model", href="/browse", size="sm"),
+                        dmc.Anchor("Home", href="/", size="sm"),
+                    ],
+                    gap="md",
+                    mt="sm",
+                ),
+            ]
         )
     e, t = d["element"], d["type"]
     can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
