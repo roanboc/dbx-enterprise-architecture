@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -176,6 +177,12 @@ def _newest_change(ui) -> str:
     return max((s for s in stamps if s), default="")
 
 
+def _a_minute_before(stamp: str) -> str:
+    """One minute of slack, so a recompute that straddles the turn of a minute is not a failure."""
+    moment = datetime.fromisoformat(stamp) - timedelta(minutes=1)
+    return moment.strftime("%Y-%m-%dT%H:%M")
+
+
 def _finding(finding_id: str, where: str, severity: str, summary: str, detail: str):
     from tests.ui.evidence import Finding
 
@@ -203,7 +210,11 @@ def _create_elsewhere(ui, name: str) -> str:
         page.locator("#new-open").click()
         page.wait_for_selector("#new-modal-body", timeout=10_000)
         page.locator("#new-type").click()
-        page.locator("[role='option']").filter(has_text=re.compile(r"^Capability$")).first.click()
+        # Whatever type the metamodel still offers: an earlier group may have renamed or
+        # retired the one this scenario would otherwise have named.
+        options = page.locator("[role='option']")
+        preferred = options.filter(has_text=re.compile(r"^Capability$"))
+        (preferred if preferred.count() else options).first.click()
         page.locator("#new-name").fill(name)
         page.locator("#new-save").click()
         deadline = time.time() + 20
@@ -723,12 +734,20 @@ def test_as_of_moves_with_the_clock(ui, record, finding):
     ui.must("the page says when the figures were taken", bool(stamp), stamp or "(no stamp)")
     newest = _newest_change(ui)
     ui.must("the table shows when its rows last moved", bool(newest), newest or "(no timestamp)")
+    # The browser and the application both keep UTC in this round, so the clock in the page is
+    # the clock the stamp should have been taken from.
+    clock = ui.page.evaluate("() => new Date().toISOString().slice(0, 16)")
     ui.check(
         "recomputing stamps the page with the moment it was recomputed",
+        stamp >= _a_minute_before(clock),
+        f"stamped as of {stamp}, recomputed at {clock}",
+    )
+    ui.check(
+        "and never earlier than a change the same table is showing",
         stamp >= newest,
         f"stamped as of {stamp}, showing a change made at {newest}",
     )
-    if stamp < newest:
+    if stamp < _a_minute_before(clock) or stamp < newest:
         finding.append(
             _finding(
                 finding_id="K-1",
@@ -736,8 +755,9 @@ def test_as_of_moves_with_the_clock(ui, record, finding):
                 severity="defect",
                 summary="Freshness is measured against the moment the application started, not the present, "
                 "and Recompute cannot move it.",
-                detail=f"The page was recomputed and stamped 'as of {stamp}' while the same table shows a "
-                f"row last updated at {newest}. HealthService.now is set when the service is built, and "
+                detail=f"The page was recomputed at {clock} and stamped 'as of {stamp}', with the same "
+                f"table showing a row last updated at {newest}. HealthService.now is set when the service "
+                "is built, and "
                 "get_context() keeps one AppContext for the life of the process, so the 30, 90 and 180 day "
                 "windows are counted back from the application's start time. On a long-running server the "
                 "staleness figures drift by however long it has been up.",

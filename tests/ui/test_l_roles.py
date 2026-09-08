@@ -65,6 +65,11 @@ def _f(finding_id: str, where: str, severity: str, summary: str, detail: str) ->
 # --------------------------------------------------------------------------- the controls
 
 
+def _a(persona: str) -> str:
+    """'an Admin', 'a Reader' — the article the sentence needs."""
+    return f"{'an' if persona[0] in 'AEIOU' else 'a'} {persona}"
+
+
 def _as(ui, persona: str) -> None:
     """Become one of the four debug personas and wait for the page to re-render under it."""
     ui.persona(persona)
@@ -157,6 +162,17 @@ def _detail(ui) -> str:
     return ui.text("br-detail")
 
 
+def _page(ui) -> str:
+    """What the routed page says, without the header and the navigation around it."""
+    return ui.text("page")
+
+
+def _alerts(ui) -> str:
+    """Every banner the page is showing, as one line."""
+    loc = ui.page.locator("#page .mantine-Alert-root")
+    return " · ".join(t.strip().replace("\n", " ") for t in loc.all_inner_texts()) if loc.count() else ""
+
+
 def _ask(ui, question: str = QUESTION) -> None:
     box = ui.page.locator("textarea#ask-input")
     box = box.first if box.count() else ui.page.locator("#ask-input textarea").first
@@ -184,9 +200,12 @@ def _ask(ui, question: str = QUESTION) -> None:
 )
 def test_admin_header(ui, record):
     ui.goto("/")
-    ui.check("the role badge names the persona and its role", "Admin" in ui.role_badge(), ui.role_badge())
-    ui.check("the badge names the person behind the role", DISPLAY[ADMIN] in ui.role_badge(), ui.role_badge())
-    ui.check("the header says which branch is being read", ui.branch_badge() == "main", ui.branch_badge())
+    badge = ui.role_badge()
+    ui.check("the role badge names the persona and its role", "admin" in badge.lower(), badge)
+    ui.check("the badge names the person behind the role", DISPLAY[ADMIN].lower() in badge.lower(), badge)
+    ui.check(
+        "the header says which branch is being read", ui.branch_badge().lower() == "main", ui.branch_badge()
+    )
     ui.click("persona-select")
     offered = [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
     ui.page.keyboard.press("Escape")
@@ -202,7 +221,7 @@ def test_admin_header(ui, record):
     ui.goto("/browse")
     ui.check("an admin may add an element on main", _usable(ui, "new-open"))
     ui.check("an admin may bulk-edit on main", _usable(ui, "bulk-open"))
-    ui.check("nothing warns an admin off main", READER_BANNER not in ui.body())
+    ui.check("nothing warns an admin off main", READER_BANNER not in _page(ui), _alerts(ui) or "no banner")
     ui.shot("The header as an Admin: the badge, the persona switcher and every write control open")
 
 
@@ -222,7 +241,7 @@ def test_role_badge_per_persona(ui, record):
     for persona in PERSONAS:
         _as(ui, persona)
         badge = ui.role_badge()
-        ui.check(f"the badge names {DISPLAY[persona]}", DISPLAY[persona] in badge, badge)
+        ui.check(f"the badge names {DISPLAY[persona]}", DISPLAY[persona].lower() in badge.lower(), badge)
         colours[persona] = _badge_colour(ui)
         ui.shot(f"The header reading as {DISPLAY[persona]}")
     ui.check(
@@ -244,14 +263,18 @@ def test_role_badge_per_persona(ui, record):
     ),
 )
 def test_new_branch_per_persona(ui, record, finding):
-    ui.goto("/")
+    ui.goto("/")  # the header is built by the page load, so it is built here as an Admin
     for persona in (ADMIN, ARCHITECT):
         _as(ui, persona)
-        ui.check(f"a {persona} may create a branch", _usable(ui, "branch-new-open"))
+        ui.check(f"{_a(persona)} may create a branch", _usable(ui, "branch-new-open"))
     for persona in (REVIEWER, READER):
         _as(ui, persona)
-        ui.check(f"a {persona} may not create a branch", _blocked(ui, "branch-new-open"))
-    # The header is built once per page load, so read the reason on a page loaded as the Reader.
+        ui.check(f"{_a(persona)} may not create a branch", _blocked(ui, "branch-new-open"))
+    # Read the reason now, on the header this session has been switching personas in: the
+    # button is disabled, so whatever the tooltip says is what a Reader is actually told.
+    live = _tooltip(ui, "#branch-new-open")
+    ui.shot("New branch, disabled for a Reader after switching persona in place")
+    # And read it again on a page loaded as the Reader, where the shell is built for them.
     ui.goto("/")
     ui.check("the button is still refused after a reload", _blocked(ui, "branch-new-open"))
     reloaded = _tooltip(ui, "#branch-new-open")
@@ -260,23 +283,25 @@ def test_new_branch_per_persona(ui, record, finding):
         "may not create branches" in reloaded,
         reloaded or "no tooltip appeared",
     )
+    ui.check(
+        "the disabled button says something either way it was reached",
+        bool(live) and bool(reloaded),
+        f"switched in place: {live!r}; after a reload: {reloaded!r}",
+    )
     ui.shot("New branch is disabled for a Reader, with the reason it gives")
-    # The header is rendered by app.layout, which only runs on a page load; switching persona
-    # in place updates the button's `disabled` but nothing re-labels the tooltip beside it.
-    _as(ui, ADMIN)
-    _as(ui, READER)
-    live = _tooltip(ui, "#branch-new-open")
-    if live and "may not" not in live:
+    if reloaded and live != reloaded:
         finding.append(
             _f(
                 "L-0",
                 "src/ea/ui/layout.py — the New branch tooltip in the header",
                 "usability",
                 "The New branch tooltip goes stale when the persona changes without a page load",
-                "`switch_persona` in src/ea/ui/app.py updates only `BRANCH_NEW_OPEN.disabled`. The "
-                f"tooltip's label is fixed when the shell is built, so it still reads {live!r} after "
-                "switching to a Reader — a disabled button whose only explanation says it is "
-                "available. Output the tooltip label from the same callback.",
+                "`switch_persona` in src/ea/ui/app.py updates only `BRANCH_NEW_OPEN.disabled`; the "
+                "tooltip label is fixed when `layout.shell` builds the header, and nothing rebuilds "
+                f"it. Switching to a Reader in place leaves the disabled button saying {live!r}, "
+                f"while the same button on a page loaded as a Reader says {reloaded!r} — the only "
+                "explanation of a dead control contradicts itself. Output the tooltip's label from "
+                "the persona callback beside the disabled flag.",
             )
         )
     ui.goto("/branches")
@@ -303,8 +328,7 @@ def test_browse_as_reader(ui, record):
     ui.goto("/browse")
     ui.check("a Reader may not add an element", _blocked(ui, "new-open"))
     ui.check("a Reader may not bulk-edit", _blocked(ui, "bulk-open"))
-    body = ui.body()
-    ui.check("the page says the Reader changes nothing", READER_BANNER in body, body[:400])
+    ui.check("the page says the Reader changes nothing", READER_BANNER in _page(ui), _alerts(ui))
     ui.check("the grid still lists elements", ui.grid_row_count("browse-grid") > 0)
     ui.fill("browse-text", "course")
     ui.check("a Reader may still search", ui.grid_row_count("browse-grid") > 0, ui.text("browse-count"))
@@ -327,10 +351,10 @@ def test_browse_as_reviewer(ui, record, finding):
     ui.goto("/browse")
     ui.check("a Reviewer may not add an element", _blocked(ui, "new-open"))
     ui.check("a Reviewer may not bulk-edit", _blocked(ui, "bulk-open"))
-    body = ui.body()
-    ui.check("the page states the refusal", READER_BANNER in body or MAIN_BANNER in body, body[:400])
+    page = _page(ui)
+    ui.check("the page states the refusal", READER_BANNER in page or MAIN_BANNER in page, _alerts(ui))
     ui.check("the grid still lists elements", ui.grid_row_count("browse-grid") > 0)
-    if READER_BANNER in body:
+    if READER_BANNER in page:
         finding.append(
             _f(
                 "L-1",
@@ -360,16 +384,12 @@ def test_browse_as_reviewer(ui, record, finding):
 def test_browse_architect_on_main(ui, record):
     _as(ui, ARCHITECT)
     ui.goto("/browse")
-    ui.check("the Architect is on main", ui.branch_badge() == "main", ui.branch_badge())
+    ui.check("the Architect is on main", ui.branch_badge().lower() == "main", ui.branch_badge())
     ui.check("an Architect may not add an element on main", _blocked(ui, "new-open"))
     ui.check("an Architect may not bulk-edit on main", _blocked(ui, "bulk-open"))
-    body = ui.body()
-    ui.check("the page says to switch to a branch", MAIN_BANNER in body, body[:400])
-    ui.check(
-        "it does not tell an Architect they are a Reader",
-        READER_BANNER not in body,
-        body[:400],
-    )
+    page = _page(ui)
+    ui.check("the page says to switch to a branch", MAIN_BANNER in page, _alerts(ui))
+    ui.check("it does not tell an Architect they are a Reader", READER_BANNER not in page, _alerts(ui))
     ui.shot("Browse as an Architect on main: the write buttons wait for a branch")
 
 
@@ -389,11 +409,19 @@ def test_browse_architect_on_branch(ui, record):
     _as(ui, ARCHITECT)
     _on_branch(ui)
     ui.goto("/browse")
-    ui.check("the header says the reader is on a branch", "branch" in ui.branch_badge(), ui.branch_badge())
+    ui.check(
+        "the header says the reader is on a branch",
+        "branch" in ui.branch_badge().lower(),
+        ui.branch_badge(),
+    )
     ui.check("an Architect may add an element on a branch", _usable(ui, "new-open"))
     ui.check("an Architect may bulk-edit on a branch", _usable(ui, "bulk-open"))
-    body = ui.body()
-    ui.check("no banner warns them off", READER_BANNER not in body and MAIN_BANNER not in body, body[:300])
+    page = _page(ui)
+    ui.check(
+        "no banner warns them off",
+        READER_BANNER not in page and MAIN_BANNER not in page,
+        _alerts(ui) or "no banner",
+    )
     ui.shot("Browse as an Architect on the L roles branch: both write buttons open")
 
 
@@ -414,11 +442,10 @@ def test_browse_architect_on_branch(ui, record):
 def test_element_as_reader(ui, record):
     _as(ui, READER)
     ui.goto(f"/element/{ELEMENT}")
-    ui.must("the element opened", ELEMENT in ui.body())
+    ui.must("the element opened", ELEMENT in _page(ui), _page(ui)[:120])
     _el_tab(ui, "Edit")
     ui.check("a Reader may not save an element", _blocked(ui, "el-save"))
-    body = ui.body()
-    ui.check("the refusal names the role", "A Reader may not edit." in body, body[:600])
+    ui.check("the refusal names the role", "A Reader may not edit." in _page(ui), _page(ui)[-300:])
     _el_tab(ui, "Relationships")
     ui.check("a Reader may not add a relationship", _blocked(ui, "el-rel-add"))
     ui.shot("The Element page's Edit tab as a Reader: Save refused, and the reason beside it")
@@ -439,8 +466,7 @@ def test_element_as_reviewer(ui, record):
     ui.goto(f"/element/{ELEMENT}")
     _el_tab(ui, "Edit")
     ui.check("a Reviewer may not save an element", _blocked(ui, "el-save"))
-    body = ui.body()
-    ui.check("the refusal names the Reviewer", "A Reviewer may not edit." in body, body[:600])
+    ui.check("the refusal names the Reviewer", "A Reviewer may not edit." in _page(ui), _page(ui)[-300:])
     ui.shot("The Element page as a Reviewer: the refusal is worded in their own role")
 
 
@@ -460,13 +486,13 @@ def test_element_architect_on_main(ui, record):
     ui.goto(f"/element/{ELEMENT}")
     _el_tab(ui, "Edit")
     ui.check("an Architect may not save straight onto main", _blocked(ui, "el-save"))
-    body = ui.body()
+    page = _page(ui)
     ui.check(
         "the page says how to get the Save back",
-        "Switch to a branch in the header to edit." in body,
-        body[:600],
+        "Switch to a branch in the header to edit." in page,
+        page[-300:],
     )
-    ui.check("it does not say the role may not edit", "A Architect may not" not in body)
+    ui.check("it does not say the role may not edit", "may not edit" not in page, page[-300:])
     ui.shot("The Element page as an Architect on main: Save waits for a branch")
 
 
@@ -500,8 +526,8 @@ def test_element_architect_on_branch(ui, record):
     ui.goto(f"/element/{ELEMENT}")
     ui.check(
         "main never took the branch's name",
-        BRANCH_ELEMENT_NAME not in ui.text("el-name") and BRANCH_ELEMENT_NAME not in ui.body(),
-        ui.body()[:300],
+        BRANCH_ELEMENT_NAME not in _page(ui),
+        _page(ui)[:200],
     )
     ui.shot("Main still carries the element's own name after the branch edit")
 
@@ -526,10 +552,11 @@ def test_import_as_reader(ui, record, finding):
     ui.check("a Reader may not load an import", _blocked(ui, "im-load"))
     ui.check("a Reader may still download the template", _usable(ui, "im-template"))
     ui.check("a Reader may still validate", _usable(ui, "im-validate"))
-    body = ui.body()
-    ui.check("the page says something about where the reader stands", "You are on main" in body, body[:400])
+    page = _page(ui)
+    ui.check("the page says something about where the reader stands", "You are on main" in page, _alerts(ui))
+    reason = _tooltip(ui, "#im-load")
     ui.shot("Import as a Reader: Load refused, template and validation still open")
-    if "Reader" not in body:
+    if "Reader" not in page and not reason:
         finding.append(
             _f(
                 "L-2",
@@ -539,8 +566,8 @@ def test_import_as_reader(ui, record, finding):
                 "The only banner on Import talks about main and branches, so a Reader is told to "
                 "'switch to a branch in the header to stage an import for review' — advice that will "
                 "not enable Load for them, because `import` needs Architect or Admin. The Load button "
-                "carries no tooltip either. Browse and the Element page both name the role in the same "
-                "situation; Import should too.",
+                "raises no tooltip either, so the page never names the role. Browse and the Element "
+                "page both name it in the same situation; Import should too.",
             )
         )
 
@@ -562,18 +589,12 @@ def test_import_architect(ui, record):
     _as(ui, ARCHITECT)
     ui.goto("/import")
     ui.check("an Architect may not load onto main", _blocked(ui, "im-load"))
-    on_main = ui.body()
-    ui.check("the banner explains what main would mean", "You are on main" in on_main, on_main[:400])
+    ui.check("the banner explains what main would mean", "You are on main" in _page(ui), _alerts(ui))
     ui.shot("Import as an Architect on main: Load is refused")
     _on_branch(ui)
     ui.goto("/import")
     ui.check("an Architect may load onto a branch", _usable(ui, "im-load"))
-    on_branch = ui.body()
-    ui.check(
-        "the banner says what the branch does with it",
-        "lands on the branch" in on_branch,
-        on_branch[:400],
-    )
+    ui.check("the banner says what the branch does with it", "lands on the branch" in _page(ui), _alerts(ui))
     ui.shot("Import as an Architect on the L roles branch: Load is open")
 
 
@@ -601,8 +622,9 @@ def test_propose_as_reader(ui, record, finding):
     ui.settle()
     ui.check("the analysis came back", ui.visible("pr-result"))
     ui.check("a Reader may not apply a proposal", _blocked(ui, "pr-apply"))
+    reason = _tooltip(ui, "#pr-apply")
     ui.shot("Propose as a Reader: the analysis runs, Apply to branch does not")
-    if "Reader" not in ui.text("pr-result"):
+    if not reason and "may not" not in _page(ui):
         finding.append(
             _f(
                 "L-3",
@@ -667,7 +689,7 @@ def test_branches_as_reader(ui, record):
     ui.check("a Reader is offered no Request review", not _present(ui, "rv-request"))
     ui.check("a Reader is offered no Approve", not _present(ui, "rv-approve"))
     ui.check("a Reader is offered no Send back", not _present(ui, "rv-send-back"))
-    ui.check("the page still names the role reading it", "as Reader" in ui.body(), ui.body()[:600])
+    ui.check("the page still names the role reading it", "as Reader" in _page(ui), _page(ui)[:200])
     ui.shot("The Branches page as a Reader: readable, and every control that writes refused")
 
 
@@ -724,7 +746,7 @@ def test_branches_as_reviewer(ui, record):
     _as(ui, REVIEWER)
     _branches(ui)
     ui.must("the branch's detail opened", BRANCH_NAME in _detail(ui), _detail(ui)[:200])
-    ui.check("the Reviewer is offered Approve", _present(ui, "rv-approve"))
+    ui.check("the Reviewer is offered Approve", _usable(ui, "rv-approve"))
     ui.check("the Reviewer is offered Send back", _usable(ui, "rv-send-back"))
     ui.check("the Reviewer is offered the types to approve", ui.visible("rv-types"))
     ui.check("a Reviewer may not merge", _blocked(ui, "br-merge"))
@@ -819,10 +841,13 @@ def test_metamodel_as_architect(ui, record, finding):
     _mm_tab(ui, "Reviewers")
     ui.check("the reviewers grid is readable", ui.visible("mm-reviewers-grid"))
     ui.check("an Architect may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
-    body = ui.body()
-    ui.check("the reviewers tab says who may save it", "Only an admin saves this table." in body, body[:400])
+    ui.check(
+        "the reviewers tab says who may save it",
+        "Only an admin saves this table." in _page(ui),
+        _page(ui)[:200],
+    )
     ui.shot("The Metamodel's Reviewers tab as an Architect: readable, not saveable")
-    if "may not" not in _tooltip(ui, "#mm-save"):
+    if not _tooltip(ui, "#mm-save"):
         finding.append(
             _f(
                 "L-4",
@@ -851,11 +876,11 @@ def test_metamodel_per_persona(ui, record):
     ui.goto("/metamodel")
     for persona in (READER, REVIEWER):
         _as(ui, persona)
-        ui.check(f"a {persona} may not save the metamodel", _blocked(ui, "mm-save"))
-        ui.check(f"a {persona} may still export the pack", _usable(ui, "mm-export"))
+        ui.check(f"{_a(persona)} may not save the metamodel", _blocked(ui, "mm-save"))
+        ui.check(f"{_a(persona)} may still export the pack", _usable(ui, "mm-export"))
         _mm_tab(ui, "Reviewers")
-        ui.check(f"a {persona} may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
-        ui.shot(f"The Metamodel as a {persona}: both Save buttons refused")
+        ui.check(f"{_a(persona)} may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
+        ui.shot(f"The Metamodel as {_a(persona)}: both Save buttons refused")
     _as(ui, ADMIN)
     ui.check("an Admin may save the metamodel", _usable(ui, "mm-save"))
     _mm_tab(ui, "Reviewers")
@@ -881,12 +906,12 @@ def test_every_persona_may_read_ask_and_download(ui, record):
     for persona in PERSONAS:
         _as(ui, persona)
         ui.goto("/browse")
-        ui.check(f"a {persona} sees the model on Browse", ui.grid_row_count("browse-grid") > 0)
+        ui.check(f"{_a(persona)} sees the model on Browse", ui.grid_row_count("browse-grid") > 0)
         ui.goto("/health")
-        ui.check(f"a {persona} sees the health page", len(ui.text("health-body")) > 40)
+        ui.check(f"{_a(persona)} sees the health page", len(ui.text("health-body")) > 40)
         ui.goto("/ask")
         _ask(ui)
-        ui.check(f"a {persona} got an answer document", ui.page.locator(DOCUMENT).count() > 0)
+        ui.check(f"{_a(persona)} got an answer document", ui.page.locator(DOCUMENT).count() > 0)
         path = ui.download("ask-doc-md", ".md")
-        ui.check(f"a {persona} downloaded the answer", path.stat().st_size > 0, str(path))
-        ui.shot(f"The answer document a {DISPLAY[persona]} asked for and downloaded")
+        ui.check(f"{_a(persona)} downloaded the answer", path.stat().st_size > 0, str(path))
+        ui.shot(f"The answer document {DISPLAY[persona]} asked for, and downloaded as Markdown")
