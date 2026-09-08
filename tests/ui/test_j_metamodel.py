@@ -8,10 +8,11 @@ types, attributes, notation, and who reviews what. "Save changes" rebuilds a who
 from the grids, validates it, and only then stores it; "Reload from file" throws the
 stored pack away and reads the shipped file back.
 
-That last pair is what makes this group safe to run inside a shared round. Three
+That last pair is what makes this group safe to run inside a shared round. Five
 scenarios write something the rest of the round could see — J06 saves an owner onto one
-element type, J12 assigns and then unassigns a reviewer, and J15 saves a pack the grid's
-own filter has cut down — and both J14 and J15 end by reloading
+element type, J12 assigns and then unassigns a reviewer, J15 saves a pack the grid's
+own filter has cut down, J22 saves an edit made under such a filter, and J23 saves one
+added type — and J14, J15, J22 and J23 each end by reloading
 `packs/higher_education/metamodel.yaml`, so every later group reads the shipped
 metamodel. Everything else is typed into a grid and then discarded by navigating away,
 which is exactly what a person does when they change their mind before saving.

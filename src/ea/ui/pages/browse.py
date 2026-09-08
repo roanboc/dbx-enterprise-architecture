@@ -66,6 +66,19 @@ def _type_options(ctx: AppContext) -> list[dict[str, str]]:
     return opts
 
 
+def _on_screen(selected: list[dict] | None, visible: list[dict] | None) -> list[dict]:
+    """The ticked rows that are still in the grid.
+
+    A tick survives the filter that takes its row away, so a reader who ticks a row, narrows
+    the search past it and presses Bulk edit would change a row they can no longer see.
+    """
+    rows = list(selected or [])
+    if visible is None:
+        return rows
+    on_screen = {r.get("element_id") for r in visible}
+    return [r for r in rows if r.get("element_id") in on_screen]
+
+
 def _days(q: dict, default: int = 90) -> int:
     """The days= an address carries. An address is typed and pasted, so it is never trusted."""
     try:
@@ -331,11 +344,13 @@ def register(app: dash.Dash) -> None:
         Output(ids.BULK_FEEDBACK, "children", allow_duplicate=True),
         Input(ids.BULK_OPEN, "n_clicks"),
         State(ids.BROWSE_GRID, "selectedRows"),
+        State(ids.BROWSE_GRID, "virtualRowData"),
         prevent_initial_call=True,
     )
-    def open_bulk(n, selected):
+    def open_bulk(n, selected, visible):
         if not n:
             return no_update, no_update
+        selected = _on_screen(selected, visible)
         if not selected:
             # A button that does nothing when pressed reads as broken. Open it and say why
             # there is nothing to do; Save refuses for the same reason.
@@ -351,6 +366,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.BROWSE_GRID, "rowData", allow_duplicate=True),
         Input(ids.BULK_SAVE, "n_clicks"),
         State(ids.BROWSE_GRID, "selectedRows"),
+        State(ids.BROWSE_GRID, "virtualRowData"),
         State(ids.BULK_STATUS, "value"),
         State(ids.BULK_CURRENT, "value"),
         State(ids.BULK_TARGET, "value"),
@@ -368,6 +384,7 @@ def register(app: dash.Dash) -> None:
     def bulk_save(
         n,
         selected,
+        visible,
         status,
         current,
         target,
@@ -383,7 +400,7 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update, no_update
         ctx = get_context()
-        ids_ = [r["element_id"] for r in (selected or [])]
+        ids_ = [r["element_id"] for r in _on_screen(selected, visible)]
         if not ids_:
             return alert("Tick at least one row first.", "yellow"), no_update
         fields = {

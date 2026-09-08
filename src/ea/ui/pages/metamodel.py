@@ -328,7 +328,7 @@ def render(ctx: AppContext) -> html.Div:
         [
             page_title(
                 "Metamodel",
-                f"{reg.pack.name} — {len(reg.active_types())} active types, {len(reg.pack.element_types) - len(reg.active_types())} inactive, {len(reg.pack.relationship_types)} relationship types. Edit the grids and save; export the result as a pack.",
+                _counts(reg),
                 dmc.Group(
                     [
                         dmc.Button(
@@ -353,6 +353,7 @@ def render(ctx: AppContext) -> html.Div:
                     ],
                     gap="xs",
                 ),
+                subtitle_id=ids.MM_SUBTITLE,
             ),
             html.Div(id=ids.MM_FEEDBACK),
             dmc.Paper(
@@ -586,6 +587,16 @@ def _all_rows(virtual: list[dict] | None, rows: list[dict] | None, *key: str) ->
     return out
 
 
+def _counts(reg: Registry) -> str:
+    """What the page says it holds. A save changes it, so it is written in one place."""
+    inactive = len(reg.pack.element_types) - len(reg.active_types())
+    return (
+        f"{reg.pack.name} — {len(reg.active_types())} active types, {inactive} inactive, "
+        f"{len(reg.pack.relationship_types)} relationship types. Edit the grids and save; "
+        "export the result as a pack."
+    )
+
+
 def _pack_from_grids(
     reg: Registry,
     types: list[dict],
@@ -783,6 +794,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.MM_FEEDBACK, "children"),
         Output(gp.store_id("mm"), "data", allow_duplicate=True),
+        Output(ids.MM_SUBTITLE, "children"),
         Input(ids.MM_SAVE, "n_clicks"),
         State(ids.MM_TYPES_GRID, "virtualRowData"),
         State(ids.MM_TYPES_GRID, "rowData"),
@@ -801,10 +813,10 @@ def register(app: dash.Dash) -> None:
         n, t_virtual, t_rows, r_virtual, r_rows, a_virtual, a_rows, dn_virtual, dn_rows, tn_virtual, tn_rows
     ):
         if not n:
-            return no_update, no_update
+            return no_update, no_update, no_update
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
-            return alert(f"A {ctx.role_label()} may not edit the metamodel.", "red"), no_update
+            return alert(f"A {ctx.role_label()} may not edit the metamodel.", "red"), no_update, no_update
         try:
             d = _pack_from_grids(
                 ctx.registry,
@@ -819,11 +831,16 @@ def register(app: dash.Dash) -> None:
             ctx.backend.save_pack(pack)
             reg = ctx.reload_registry()
         except (ValueError, KeyError) as exc:
-            return alert(f"Not saved: {exc}", "red"), no_update
-        return alert(
-            f"Metamodel saved: {len(reg.pack.element_types)} types, {len(reg.pack.relationship_types)} relationship types.",
-            "green",
-        ), gp.raw_from_types(reg)
+            return alert(f"Not saved: {exc}", "red"), no_update, no_update
+        return (
+            alert(
+                f"Metamodel saved: {len(reg.pack.element_types)} types, "
+                f"{len(reg.pack.relationship_types)} relationship types.",
+                "green",
+            ),
+            gp.raw_from_types(reg),
+            _counts(reg),
+        )
 
     @app.callback(Output(ids.DOWNLOAD, "data"), Input(ids.MM_EXPORT, "n_clicks"), prevent_initial_call=True)
     def export(n):
@@ -842,19 +859,20 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_NOTATION_DOMAINS_GRID, "rowData"),
         Output(ids.MM_NOTATION_TYPES_GRID, "rowData"),
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children", allow_duplicate=True),
+        Output(ids.MM_SUBTITLE, "children", allow_duplicate=True),
         Input(ids.MM_RELOAD, "n_clicks"),
         prevent_initial_call=True,
     )
     def reload(n):
         if not n:
-            return (no_update,) * 8
+            return (no_update,) * 9
         ctx = get_context()
         try:
             pack = load_pack(ctx.settings.pack_path)
             ctx.backend.save_pack(pack)
             reg = ctx.reload_registry()
         except (OSError, ValueError) as exc:
-            return (alert(f"Reload failed: {exc}", "red"),) + (no_update,) * 7
+            return (alert(f"Reload failed: {exc}", "red"),) + (no_update,) * 8
         return (
             alert(f"Reloaded {reg.pack.id} from {ctx.settings.pack_path}.", "green"),
             _type_rows(reg),
@@ -864,6 +882,7 @@ def register(app: dash.Dash) -> None:
             _domain_notation_rows(reg),
             _type_notation_rows(reg),
             notation_preview(reg),
+            _counts(reg),
         )
 
     @app.callback(

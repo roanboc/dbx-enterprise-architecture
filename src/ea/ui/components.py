@@ -367,13 +367,17 @@ def error_alert(exc: Exception) -> dmc.Alert:
     return alert(str(exc), "red")
 
 
-def page_title(title: str, subtitle: str | None = None, right: Any = None) -> dmc.Group:
+def page_title(
+    title: str, subtitle: str | None = None, right: Any = None, subtitle_id: str = ""
+) -> dmc.Group:
     left = dmc.Stack(
         [
             # The one h1 on the page: a document that starts at h2 gives assistive
             # technology no title to announce.
             dmc.Title(title, order=1, size="h2"),
-            dmc.Text(subtitle, c="dimmed", size="sm") if subtitle else None,
+            dmc.Text(subtitle, c="dimmed", size="sm", **({"id": subtitle_id} if subtitle_id else {}))
+            if subtitle
+            else None,
         ],
         gap=2,
     )

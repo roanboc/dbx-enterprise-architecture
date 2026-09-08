@@ -915,3 +915,444 @@ def test_every_persona_may_read_ask_and_download(ui, record):
         path = ui.download("ask-doc-md", ".md")
         ui.check(f"{_a(persona)} downloaded the answer", path.stat().st_size > 0, str(path))
         ui.shot(f"The answer document {DISPLAY[persona]} asked for, and downloaded as Markdown")
+
+
+# ================================================================ the branch is not the role
+#
+# Everything above reads a Reader on main and an Architect on both. The other half of the
+# first rule in the table — `edit_content` **and** (a branch, or `edit_main`) — is a Reader
+# on a branch: the branch is where an Architect's write controls come back, and the
+# scenarios below prove it gives a Reader nothing. The rest of the group then presses the
+# buttons the pages disable, because a gate that only the browser holds is not a gate.
+
+
+FORCED_ELEMENT_NAME = "CMS_Unit_Outline (forced past a disabled Save)"
+FORCED_NEW_NAME = "L27forced Data Entity"
+FORCED_IMPORT_MARKER = "l30forced"
+FORCED_IMPORT_CSV = (
+    "id,type,name,description\n"
+    "L-DE-FORCED,data_entity,L Forced Import,"
+    f"A row a Reader pressed a disabled Load for ({FORCED_IMPORT_MARKER}).\n"
+)
+
+
+def _force_click(ui, selector: str) -> None:
+    """Press a control the page disabled, the way a determined browser can.
+
+    Every gate in the table is drawn twice: the page disables the control, and the service
+    behind it calls `require()`. Taking the attribute off in the browser leaves only the
+    second, which is the one that has to hold.
+    """
+    sel = selector if selector.startswith(("#", ".", "[")) else f"#{selector}"
+    ui.page.evaluate(
+        "sel => { const el = document.querySelector(sel); if (!el) { return; }"
+        " el.removeAttribute('disabled'); el.removeAttribute('data-disabled');"
+        " el.style.pointerEvents = 'auto'; }",
+        sel,
+    )
+    ui.page.locator(sel).first.click(force=True)
+    ui.settle()
+
+
+def _rel_rows(ui) -> int:
+    """How many relationships the Relationships tab is listing, incoming and outgoing."""
+    return ui.page.locator("#el-rel-tables tbody tr").count()
+
+
+def _mm_row(ui, row_id: str) -> int:
+    """Whether a row is on the metamodel's type grid, which renders only what is in view."""
+    body = ui.page.locator("#mm-types-grid .ag-body-viewport").first
+    if body.count():
+        body.evaluate("el => { el.scrollTop = el.scrollHeight; }")
+        ui.page.wait_for_timeout(400)
+    return ui.page.locator(f"#mm-types-grid .ag-row[row-id={json.dumps(row_id)}]").count()
+
+
+@pytest.mark.scenario(
+    scenario_id="L24",
+    group="L",
+    title="A Reader put on a branch is still a Reader on it",
+    feature="Roles · role and branch",
+    expected=(
+        "A Reader may switch onto a branch from the Branches page and read the draft it holds, and "
+        "the branch opens nothing: Browse still refuses New element and still names the role rather "
+        "than main, the Element page still says a Reader may not edit, and Import's Load is dead on "
+        "the very branch its banner on main told the Reader to switch to."
+    ),
+    role="reader",
+    branch=BRANCH_NAME,
+)
+def test_reader_on_a_branch(ui, record):
+    _as(ui, ARCHITECT)
+    _ensure_branch(ui)
+    _as(ui, READER)
+    _branches(ui)
+    ui.must("the branch's detail opened", BRANCH_NAME in _detail(ui), _detail(ui)[:200])
+    ui.must("a Reader may take a branch somebody else wrote", _usable(ui, "br-switch"))
+    ui.click("br-switch")
+    ui.check(
+        "the header says the Reader is on the branch",
+        "branch" in ui.branch_badge().lower(),
+        ui.branch_badge(),
+    )
+    ui.goto("/browse")
+    ui.check("a Reader may not add an element on a branch", _blocked(ui, "new-open"))
+    ui.check("a Reader may not bulk-edit on a branch", _blocked(ui, "bulk-open"))
+    page = _page(ui)
+    ui.check("the page still names the role", READER_BANNER in page, _alerts(ui))
+    ui.check("it no longer sends them to a branch they are on", MAIN_BANNER not in page, _alerts(ui))
+    ui.shot("Browse on the L roles branch as a Reader: the branch changed nothing about the role")
+    ui.goto(f"/element/{ELEMENT}")
+    ui.check("a Reader reads what the branch holds", BRANCH_ELEMENT_NAME in _page(ui), _page(ui)[:200])
+    _el_tab(ui, "Edit")
+    ui.check("a Reader may not save on a branch either", _blocked(ui, "el-save"))
+    ui.check(
+        "the refusal is still the role, not the branch",
+        "A Reader may not edit." in _page(ui),
+        _page(ui)[-300:],
+    )
+    ui.shot("The element as a Reader on the branch: the branch's draft, and the same refusal")
+    ui.goto("/import")
+    ui.check(
+        "the banner says the branch would take the import", "lands on the branch" in _page(ui), _alerts(ui)
+    )
+    ui.check("the advice Import gives on main does not enable Load", _blocked(ui, "im-load"))
+    ui.shot("Import on the branch as a Reader: the advice was followed and Load is refused all the same")
+
+
+# ======================================================= the gate behind the disabled button
+
+
+@pytest.mark.scenario(
+    scenario_id="L25",
+    group="L",
+    title="Every relationship row offers a Reader a bin the server then refuses",
+    feature="Element · Relationships · role gating",
+    expected=(
+        "On the Relationships tab a Reader's Add is disabled, but the bin on every row is live: "
+        "pressing one is refused, the refusal names the role, and the relationship is still there "
+        "when the page is read again."
+    ),
+    role="reader",
+)
+def test_relationship_bin_as_reader(ui, record, finding):
+    _as(ui, READER)
+    ui.goto(f"/element/{ELEMENT}")
+    _el_tab(ui, "Relationships")
+    bins = ui.page.locator("#el-rel-tables button")
+    ui.must("the element has a relationship a bin could remove", bins.count() > 0, f"{bins.count()} bins")
+    before = _rel_rows(ui)
+    ui.check("a Reader may not add a relationship", _blocked(ui, "el-rel-add"))
+    live = bins.first.is_enabled()
+    ui.check(
+        "the bin beside that disabled Add is offered all the same",
+        live,
+        f"{bins.count()} bins, the first one enabled: {live}",
+    )
+    ui.shot("The Relationships tab as a Reader: Add is refused and every row's bin is not")
+    bins.first.click()
+    ui.settle()
+    feedback = ui.text("el-rel-feedback")
+    ui.check("the server refuses the delete", "may not" in feedback.lower(), feedback or "no feedback")
+    ui.check("the refusal names the role that pressed it", "Reader" in feedback, feedback or "no feedback")
+    ui.shot("What a Reader gets for pressing the bin: a refusal from the server")
+    ui.goto(f"/element/{ELEMENT}")
+    _el_tab(ui, "Relationships")
+    ui.check(
+        "the relationship survived the press",
+        _rel_rows(ui) == before,
+        f"{_rel_rows(ui)} rows now, {before} before",
+    )
+    if live:
+        finding.append(
+            _f(
+                "L-5",
+                "src/ea/ui/pages/element.py — the bin on every relationship row (ids.EL_REL_DELETE)",
+                "usability",
+                "The Relationships tab disables Add for a role that may not write, and leaves the bin live",
+                "Add is `disabled=not can_write`; the bin beside it, on every row of both tables, "
+                "carries no `disabled` at all, so a Reader is offered a delete on every relationship "
+                "the element has. The service refuses it — `remove_relationship` calls `check_write` "
+                "— but the refusal only arrives after the press, and on main it reads 'may not change "
+                "main directly; work on a branch', which is advice a Reader cannot act on. Disable the "
+                "bin from the same `can_write` the Add button uses.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="L26",
+    group="L",
+    title="A Reader may type into every field, and the server refuses the save they force",
+    feature="Element · role gating",
+    expected=(
+        "The Edit tab's fields take a Reader's typing — only Save is disabled — and pressing Save "
+        "past that is refused by the server, naming the role, with the element unchanged on main."
+    ),
+    role="reader",
+)
+def test_element_save_forced_by_a_reader(ui, record):
+    _as(ui, READER)
+    ui.goto(f"/element/{ELEMENT}")
+    _el_tab(ui, "Edit")
+    ui.must("Save is disabled for a Reader", _blocked(ui, "el-save"))
+    ui.fill("el-name", FORCED_ELEMENT_NAME)
+    ui.check(
+        "the field itself takes a Reader's typing",
+        ui.page.input_value("#el-name") == FORCED_ELEMENT_NAME,
+        ui.page.input_value("#el-name"),
+    )
+    _force_click(ui, "el-save")
+    feedback = ui.text("el-save-feedback")
+    ui.check("the server refuses the save", "may not" in feedback.lower(), feedback or "no feedback")
+    ui.check("the refusal names the role", "Reader" in feedback, feedback or "no feedback")
+    ui.check("nothing reports a new version", "Saved version" not in feedback, feedback or "no feedback")
+    ui.shot("A Reader who pressed Save past the disabled button, and the answer from the server")
+    ui.goto(f"/element/{ELEMENT}")
+    ui.check("the element kept its own name", FORCED_ELEMENT_NAME not in _page(ui), _page(ui)[:200])
+
+
+@pytest.mark.scenario(
+    scenario_id="L27",
+    group="L",
+    title="A Reader who forces the New element modal open still creates nothing",
+    feature="Browse · role gating",
+    expected=(
+        "New element opens when its disabled state is taken off in the browser, and the Create "
+        "inside it is refused by the server, naming the role; no element by that name is in the "
+        "model afterwards."
+    ),
+    role="reader",
+)
+def test_new_element_forced_by_a_reader(ui, record):
+    _as(ui, READER)
+    ui.goto("/browse")
+    ui.must("New element is disabled for a Reader", _blocked(ui, "new-open"))
+    _force_click(ui, "new-open")
+    ui.must("the modal opened once the browser let the click through", ui.visible("new-modal-body"))
+    ui.select("new-type", "Data Entity", exact=True)
+    ui.fill("new-name", FORCED_NEW_NAME)
+    ui.click("new-save")
+    feedback = ui.text("new-feedback")
+    ui.check("the server refuses the creation", "may not" in feedback.lower(), feedback or "no feedback")
+    ui.check("the refusal names the role", "Reader" in feedback, feedback or "no feedback")
+    ui.shot("The New element modal a Reader forced open, and the refusal Create came back with")
+    ui.check("the reader was not taken to a new element", "/browse" in ui.page.url, ui.page.url)
+    ui.goto("/browse")
+    ui.fill("browse-text", "l27forced")
+    ui.check(
+        "nothing by that name is in the model",
+        ui.grid_row_count("browse-grid") == 0,
+        ui.text("browse-count"),
+    )
+    ui.shot("Browse finds no element for the name the Reader tried to create")
+
+
+@pytest.mark.scenario(
+    scenario_id="L28",
+    group="L",
+    title="The Metamodel lets a Reader fill the grid, and refuses what they save",
+    feature="Metamodel · role gating",
+    expected=(
+        "Add type is offered to a Reader and puts a row on the grid; the save behind the disabled "
+        "button is refused by the server, naming the role; and Reload from file, which replaces the "
+        "stored pack for everybody, is refused for the same reason."
+    ),
+    role="reader",
+)
+def test_metamodel_write_paths_as_reader(ui, record, finding):
+    _as(ui, READER)
+    ui.goto("/metamodel")
+    ui.must("the type grid is on the page", ui.visible("mm-types-grid"))
+    ui.check("a Reader is offered Add type", _usable(ui, "mm-add-type"))
+    ui.check("a Reader is offered Add relationship type", _usable(ui, "mm-add-rel"))
+    ui.click("mm-add-type")
+    ui.check("the row a Reader added is on the grid", _mm_row(ui, "new_type_1") == 1)
+    ui.must("Save changes is disabled for a Reader", _blocked(ui, "mm-save"))
+    _force_click(ui, "mm-save")
+    feedback = ui.text("mm-feedback")
+    ui.check(
+        "the server refuses the save", "may not edit the metamodel" in feedback, feedback or "no feedback"
+    )
+    ui.check("the refusal names the role", "Reader" in feedback, feedback or "no feedback")
+    ui.shot("The Metamodel as a Reader: a row typed in, and the save refused by the server")
+    # Reload from file is the page's other write: it reads the pack off disk and stores it,
+    # discarding whatever an admin saved. It is offered to every role, with no reason beside it.
+    ui.check("Reload from file is offered to a Reader", _usable(ui, "mm-reload"))
+    ui.check("and it says nothing about who may press it", not _tooltip(ui, "#mm-reload"), "no tooltip")
+    ui.click("mm-reload")
+    reload_said = ui.text("mm-feedback")
+    ui.check(
+        "a Reader may not rewrite the stored metamodel from the pack file",
+        "may not" in reload_said.lower(),
+        reload_said or "no feedback",
+    )
+    ui.shot("Reload from file, pressed by a Reader, and what the page said about it")
+    if "Reloaded" in reload_said:
+        finding.append(
+            _f(
+                "L-6",
+                "src/ea/ui/pages/metamodel.py — the `reload` callback (ids.MM_RELOAD)",
+                "defect",
+                "Reload from file rewrites the stored metamodel for every role, with no permission check",
+                "`save` refuses a non-admin twice — the button is disabled and the callback checks "
+                "`ctx.can('edit_metamodel')` — but `reload` beside it calls `load_pack` and then "
+                "`ctx.backend.save_pack(pack)` with no `require()` and no disabled state, so any role, "
+                f"a Reader included, can replace the stored pack: the page answered {reload_said!r}. "
+                "That discards whatever an admin has saved into the metamodel since the file was "
+                "written, for everybody. Gate it on `edit_metamodel` the way the save is gated.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="L29",
+    group="L",
+    title="Save reviewers forced past its disabled state is refused for an Architect",
+    feature="Metamodel · Reviewers · role gating",
+    expected=(
+        "The Reviewers grid's Save is an admin action: pressing it as an Architect with the disabled "
+        "state taken off is refused by the service, and the refusal names the role and the action."
+    ),
+    role="architect",
+)
+def test_save_reviewers_forced_by_an_architect(ui, record):
+    _as(ui, ARCHITECT)
+    ui.goto("/metamodel")
+    _mm_tab(ui, "Reviewers")
+    ui.must("Save reviewers is disabled for an Architect", _blocked(ui, "mm-reviewers-save"))
+    _force_click(ui, "mm-reviewers-save")
+    feedback = ui.text("mm-reviewers-feedback")
+    ui.check("the server refuses the assignment", "may not" in feedback.lower(), feedback or "no feedback")
+    ui.check("the refusal names the role", "Architect" in feedback, feedback or "no feedback")
+    ui.check("it says which action was refused", "assign reviewers" in feedback.lower(), feedback)
+    ui.check("nothing reports a save", "saved" not in feedback.lower(), feedback or "no feedback")
+    ui.shot("Save reviewers, pressed by an Architect past its disabled state, and the refusal")
+
+
+@pytest.mark.scenario(
+    scenario_id="L30",
+    group="L",
+    title="A Reader may validate a file and never load it",
+    feature="Import · role gating",
+    expected=(
+        "A Reader's Validate only runs the file through the metamodel and says nothing was written; "
+        "the Load behind the disabled button is refused by the server, naming the role, and none of "
+        "the file's rows is in the model afterwards."
+    ),
+    role="reader",
+)
+def test_import_load_forced_by_a_reader(ui, record):
+    _as(ui, READER)
+    ui.goto("/import")
+    path = ui.run_dir / "uploads" / "l30-elements.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(FORCED_IMPORT_CSV, encoding="utf-8")
+    ui.page.locator("#im-upload input[type=file]").first.set_input_files(str(path))
+    ui.page.locator("#im-files").get_by_text(path.name, exact=False).first.wait_for(timeout=20_000)
+    ui.settle()
+    ui.click("im-validate")
+    validated = ui.text("im-report")
+    ui.check(
+        "a Reader's validation reads the file and writes nothing",
+        "nothing written" in validated.lower(),
+        validated[:200] or "no report",
+    )
+    ui.shot("Import as a Reader: the file validates, and the report says nothing was written")
+    ui.must("Load is disabled for a Reader", _blocked(ui, "im-load"))
+    _force_click(ui, "im-load")
+    loaded = ui.text("im-report")
+    ui.check("the server refuses the load", "may not" in loaded.lower(), loaded[:200] or "no report")
+    ui.check("the refusal names the role", "Reader" in loaded, loaded[:200] or "no report")
+    ui.check("nothing says it was loaded", "Loaded." not in loaded, loaded[:200] or "no report")
+    ui.shot("The Load a Reader pressed past its disabled state, and the refusal from the server")
+    ui.goto("/browse")
+    ui.fill("browse-text", FORCED_IMPORT_MARKER)
+    ui.check(
+        "none of the file's rows reached the model",
+        ui.grid_row_count("browse-grid") == 0,
+        ui.text("browse-count"),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="L31",
+    group="L",
+    title="A Reader who forces Abandon and Merge changes neither the branch nor main",
+    feature="Branches · role gating",
+    expected=(
+        "Both writes on the Branches page are refused by the service when their disabled state is "
+        "taken off: each refusal names the role, the branch is still in review afterwards, and main "
+        "still carries its own name for the element the branch changed."
+    ),
+    role="reader",
+    branch=BRANCH_NAME,
+)
+def test_branch_writes_forced_by_a_reader(ui, record):
+    _as(ui, READER)
+    _branches(ui)
+    ui.must("the branch's detail opened", BRANCH_NAME in _detail(ui), _detail(ui)[:200])
+    ui.must("Abandon is disabled for a Reader", _blocked(ui, "br-abandon"))
+    _force_click(ui, "br-abandon")
+    abandoned = ui.text("br-feedback")
+    ui.check(
+        "the server refuses the abandon", "may not" in abandoned.lower(), abandoned[:200] or "no feedback"
+    )
+    ui.check("the refusal names the role", "Reader" in abandoned, abandoned[:200] or "no feedback")
+    ui.shot("Abandon, pressed by a Reader past its disabled state, and the refusal")
+    ui.must("Merge is disabled for a Reader", _blocked(ui, "br-merge"))
+    _force_click(ui, "br-merge")
+    merged = ui.text("br-feedback")
+    ui.check("the server refuses the merge", "may not" in merged.lower(), merged[:200] or "no feedback")
+    ui.check("the refusal names the role", "Reader" in merged, merged[:200] or "no feedback")
+    ui.check("nothing says a row was merged", "Merged" not in merged, merged[:200] or "no feedback")
+    ui.shot("Merge, pressed by a Reader past its disabled state, and the refusal")
+    _branches(ui)
+    detail = _detail(ui)
+    ui.check("the branch is still there", BRANCH_NAME in detail, detail[:200])
+    ui.check("and still in review", "in review" in detail.lower(), detail[:300])
+    ui.goto(f"/element/{ELEMENT}")
+    ui.check("main never took the branch's row", BRANCH_ELEMENT_NAME not in _page(ui), _page(ui)[:200])
+    ui.shot("The branch and main after both forced writes were refused")
+
+
+@pytest.mark.scenario(
+    scenario_id="L32",
+    group="L",
+    title="A Reader may build the whole proposal and apply none of it",
+    feature="Propose · role gating",
+    expected=(
+        "Add element row and Add relationship row are open to a Reader, so the merge log fills up "
+        "under a role that may not apply it; the Apply behind the disabled button is refused, and no "
+        "branch was created for it."
+    ),
+    role="reader",
+)
+def test_propose_apply_forced_by_a_reader(ui, record):
+    _as(ui, READER)
+    branches_before = _branch_labels(ui)
+    ui.goto("/propose")
+    ui.must("a Reader may still analyse", _usable(ui, "pr-analyse"))
+    ui.click("pr-analyse")
+    ui.page.wait_for_selector("#pr-pushback", timeout=45_000)
+    ui.settle()
+    rows_before = ui.grid_row_count("pr-el-grid")
+    ui.check("a Reader is offered Add element row", _usable(ui, "pr-add-el"))
+    ui.check("a Reader is offered Add relationship row", _usable(ui, "pr-add-rel"))
+    ui.click("pr-add-el")
+    ui.check(
+        "the row a Reader added is on the merge log",
+        ui.grid_row_count("pr-el-grid") == rows_before + 1,
+        f"{ui.grid_row_count('pr-el-grid')} rows now, {rows_before} before",
+    )
+    ui.must("Apply to branch is disabled for a Reader", _blocked(ui, "pr-apply"))
+    _force_click(ui, "pr-apply")
+    feedback = ui.text("pr-apply-feedback")
+    ui.check("the forced apply is refused", "not applied" in feedback.lower(), feedback or "no feedback")
+    ui.check("nothing says it was applied to a branch", "Applied to branch" not in feedback, feedback)
+    ui.shot("Propose as a Reader: the rows fill in, and the forced Apply is refused")
+    ui.check(
+        "no branch was created for it",
+        _branch_labels(ui) == branches_before,
+        f"{_branch_labels(ui)} vs {branches_before}",
+    )

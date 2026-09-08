@@ -69,6 +69,7 @@ MM_SAVE = "mm-save"
 MM_EXPORT = "mm-export"
 MM_RELOAD = "mm-reload"
 MM_FEEDBACK = "mm-feedback"
+MM_SUBTITLE = "mm-subtitle"  # the counts under the page title, which a save changes
 MM_DOMAIN_FILTER = "mm-domain-filter"
 MM_LAYOUT = "mm-layout"
 MM_NOTATION_DOMAINS_GRID = "mm-notation-domains-grid"

@@ -7,14 +7,15 @@ that the grid it lands on holds exactly the rows the figure counted.
 Nothing here asserts an absolute total: the round shares one database and the groups before
 this one create and edit elements. Every figure is read from the page at the moment it is
 used, and compared with what Browse then shows. The one element this group creates is named
-with a `K-` prefix so it cannot collide with another group's data.
+with a `K-` prefix so it cannot collide with another group's data, and the branch K16 measures
+on is drafted on, never merged, so main carries only what K07 put there.
 """
 
 from __future__ import annotations
 
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -240,7 +241,9 @@ def _create_elsewhere(ui, name: str) -> str:
 def test_health_opens(ui, record):
     _open_health(ui)
     ui.must("the health body rendered", ui.visible("health-body"))
-    heading = ui.page.locator("h2").first.inner_text().strip()
+    # The page title is the one h1 (`page_title` draws it as `order=1, size="h2"`); the h2s
+    # below it are the section headings, so `h2` first reads 'Freshness · as of …'.
+    heading = ui.page.locator("#page h1").first.inner_text().strip()
     ui.check("the page is titled Health", heading == "Health", heading)
     subtitle = _subtitle(ui)
     ui.check("the subtitle says which branch was measured", "on main" in subtitle, subtitle)
@@ -764,3 +767,781 @@ def test_as_of_moves_with_the_clock(ui, record, finding):
             )
         )
     ui.shot("The freshness stamp after a recompute, beside the change the same table is showing")
+
+
+# ------------------------------------------------- what the figures are counted from, and where they lead
+
+# The type column of the completeness table: the name, the domain badge beside it, and the count.
+TYPE_CELL_JS = """
+t => Array.from(t.querySelectorAll('tbody tr')).map(tr => {
+  const tds = Array.from(tr.querySelectorAll('td'));
+  const a = tds[0].querySelector('a');
+  const badge = tds[0].querySelector('[class*="Badge-root"]');
+  return {
+    type: a ? a.innerText.trim() : tds[0].innerText.trim(),
+    href: a ? a.getAttribute('href') : null,
+    domain: badge ? badge.innerText.trim() : '',
+    elements: parseInt(tds[1].innerText.trim(), 10),
+  };
+})
+"""
+
+# Every progress bar in the completeness table, with the colour the browser resolved for it.
+BAR_JS = """
+t => Array.from(t.querySelectorAll('tbody tr')).flatMap(tr => {
+  const tds = Array.from(tr.querySelectorAll('td'));
+  const name = (tds[0].querySelector('a') || tds[0]).innerText.trim();
+  return tds.slice(2).map((td, i) => {
+    const bar = td.querySelector('[role="progressbar"]');
+    const link = td.querySelector('a');
+    return {
+      type: name,
+      facet: i,
+      pct: bar ? parseInt(bar.getAttribute('aria-valuenow'), 10) : -1,
+      colour: bar ? getComputedStyle(bar).backgroundColor : '',
+      text: td.innerText.trim().replace(/\\s+/g, ' '),
+      missing: link ? link.innerText.trim() : '',
+    };
+  });
+})
+"""
+
+BRANCH_NAME = "K-health-branch"  # the group's own branch: drafted on, never merged
+BRANCH_ID = "k-health-branch"  # what `branch_id_from_name` makes of it, and what the page names
+
+
+def _home_figures(ui) -> dict[str, int]:
+    """The stat tiles on the front page: what the application says the model holds."""
+    ui.goto("/")
+    tiles = ui.page.evaluate(
+        "() => Array.from(document.querySelectorAll('#page .mantine-Paper-root'))"
+        ".map(p => p.innerText.trim().replace(/\\s+/g, ' '))"
+    )
+    out: dict[str, int] = {}
+    for tile in tiles:
+        match = re.fullmatch(r"(\d+) ([a-z ]+)", tile)
+        if match:
+            out[match.group(2)] = int(match.group(1))
+    return out
+
+
+def _grid_column(ui, column: str) -> list[str]:
+    """What one column of the Browse grid reads, down the rows it has rendered."""
+    return ui.page.locator(
+        f"#browse-grid .ag-center-cols-container .ag-cell[col-id='{column}']"
+    ).evaluate_all("cells => cells.map(c => c.innerText.trim())")
+
+
+def _search(ui, text: str) -> None:
+    """Type into Browse's search box and wait out its 400 ms debounce before the grid reloads."""
+    ui.fill("browse-text", text)
+    ui.page.wait_for_timeout(700)
+    ui.settle()
+
+
+def _bars(ui):
+    """The bars of the change-activity chart, in the order they are drawn."""
+    return ui.page.locator('#health-body div[style*="width: 22px"]')
+
+
+def _tooltip_of(ui, bars, index: int) -> str:
+    """Hover one bar and read the tooltip it opens, with any earlier one let go of first."""
+    ui.page.mouse.move(2, 400)
+    ui.page.wait_for_timeout(400)
+    bars.nth(index).hover()
+    ui.page.wait_for_timeout(700)
+    tips = ui.page.locator('[class*="Tooltip-tooltip"], [role="tooltip"]')
+    texts = [t.strip() for t in tips.all_inner_texts() if t.strip()]
+    return texts[0] if texts else ""
+
+
+def _week_labels(count: int) -> list[str]:
+    """The ISO weeks a chart of `count` bars should name, the last of them the week we are in."""
+    now = datetime.now(UTC)
+    return [f"W{(now - timedelta(weeks=i)).isocalendar()[1]:02d}" for i in range(count - 1, -1, -1)]
+
+
+def _branch_labels(ui) -> list[str]:
+    """What the header's branch selector offers, leaving it closed again."""
+    ui.page.locator("#branch-select").first.click()
+    ui.page.wait_for_timeout(300)
+    labels = [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(250)
+    return labels
+
+
+def _ensure_branch(ui, name: str) -> bool:
+    """The group's own branch, created once; True when this scenario is the one that created it."""
+    if any(name in label for label in _branch_labels(ui)):
+        return False
+    ui.click("branch-new-open")
+    ui.must("the New branch modal opened", ui.visible("branch-new-modal-body"))
+    ui.fill("branch-new-name", name)
+    ui.fill("branch-new-desc", "Group K: the branch Health is asked to measure.")
+    ui.click("branch-new-save")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    return True
+
+
+@pytest.mark.scenario(
+    scenario_id="K10",
+    group="K",
+    title="Health counts the same model the front page does, and its two cards agree with each other",
+    feature="Health · the figures",
+    expected="The elements and the relationships the freshness table adds up to are the ones Home reports; "
+    "the completeness heading measured all of them and its rows account for all of them; and no source row "
+    "counts more stale or never-updated rows than it holds.",
+)
+def test_figures_agree(ui, record):
+    home = _home_figures(ui)
+    ui.must(
+        "the front page says what the model holds",
+        "elements" in home and "relationships" in home,
+        str(home),
+    )
+    _open_health(ui)
+    rows = _rows(ui, FRESHNESS)
+    ui.must("the freshness table has its rows", bool(rows), f"{len(rows)} row(s)")
+
+    elements = [_number(r[ELEMENTS]) for r in rows]
+    relationships = [_number(r[RELATIONSHIPS]) for r in rows]
+    ui.check(
+        "the source systems add up to every element the front page counts",
+        sum(elements) == home["elements"],
+        f"{' + '.join(str(e) for e in elements)} = {sum(elements)}, Home says {home['elements']}",
+    )
+    ui.check(
+        "and to every relationship",
+        sum(relationships) == home["relationships"],
+        f"{' + '.join(str(r) for r in relationships)} = {sum(relationships)}, "
+        f"Home says {home['relationships']}",
+    )
+    ui.check(
+        "the source system holding the most is at the top",
+        elements == sorted(elements, reverse=True),
+        str(list(zip([r[SOURCE] for r in rows], elements, strict=False))),
+    )
+
+    # A figure that counts more rows than the source has is a figure counted over the wrong set.
+    _every(
+        ui,
+        "no source counts more never-updated rows than it holds",
+        [
+            f"{r[SOURCE]}: {r[NEVER_UPDATED]} never updated of {r[ELEMENTS]}"
+            for r in rows
+            if _number(r[NEVER_UPDATED]) > _number(r[ELEMENTS])
+        ],
+        f"{len(rows)} source(s)",
+    )
+    _every(
+        ui,
+        "nor more stale rows than it holds",
+        [
+            f"{r[SOURCE]}: {r[column]} stale at {days} d of {r[ELEMENTS]}"
+            for r in rows
+            for column, days in STALE_COLUMNS
+            if _number(r[column]) > _number(r[ELEMENTS])
+        ],
+        f"{len(rows)} source(s) × {len(STALE_COLUMNS)} windows",
+    )
+    _every(
+        ui,
+        "and on every row a longer window counts no more than a shorter one",
+        [
+            f"{r[SOURCE]}: {r[STALE_30]} / {r[STALE_90]} / {r[STALE_180]}"
+            for r in rows
+            if not (_number(r[STALE_180]) <= _number(r[STALE_90]) <= _number(r[STALE_30]))
+        ],
+        f"{len(rows)} source(s)",
+    )
+    _every(
+        ui,
+        "no source was last updated before it was first loaded",
+        [
+            f"{r[SOURCE]}: loaded {r[FIRST_LOADED]}, updated {r[LAST_UPDATED]}"
+            for r in rows
+            if r[FIRST_LOADED] and r[LAST_UPDATED] and r[FIRST_LOADED] > r[LAST_UPDATED]
+        ],
+        f"{len(rows)} source(s)",
+    )
+
+    total = _completeness_total(ui)
+    ui.check(
+        "the completeness card measured every element the front page counts",
+        total == home["elements"],
+        f"the heading says {total}, Home says {home['elements']}",
+    )
+    types = _table(ui, COMPLETENESS).evaluate(TYPE_CELL_JS)
+    ui.must("the completeness table has a row per type", bool(types), f"{len(types)} row(s)")
+    counted = sum(t["elements"] for t in types)
+    ui.check(
+        "and its rows account for all of them",
+        counted == total,
+        f"{len(types)} type rows hold {counted}, the heading says {total}",
+    )
+    ui.check(
+        "the front page counts the same types with content",
+        home.get("element types with content") == len(types),
+        f"Home says {home.get('element types with content')}, the table has {len(types)} rows",
+    )
+    ui.check(
+        "the type holding the most elements is at the top",
+        [t["elements"] for t in types] == sorted((t["elements"] for t in types), reverse=True),
+        str([(t["type"], t["elements"]) for t in types]),
+    )
+    _every(
+        ui,
+        "every type row names the domain it belongs to",
+        [t["type"] for t in types if not t["domain"]],
+        f"{len(types)} types",
+    )
+    ui.shot("The freshness and completeness cards, counting the same model the front page counts")
+
+
+@pytest.mark.scenario(
+    scenario_id="K11",
+    group="K",
+    title="A type name on the completeness table opens exactly that type's elements",
+    feature="Health · completeness links",
+    expected="The type name is a link carrying its type id; Browse arrives with that type chosen, counting "
+    "what the table counted, every row of that type, and with no yellow note claiming a facet was filtered.",
+)
+def test_type_link(ui, record):
+    _open_health(ui)
+    types = _table(ui, COMPLETENESS).evaluate(TYPE_CELL_JS)
+    ui.must("the completeness table has a row per type", bool(types), f"{len(types)} row(s)")
+    # The smallest type, so every row it opens can be read without scrolling the grid.
+    index, row = min(enumerate(types), key=lambda pair: pair[1]["elements"])
+    ui.must(f"the {row['type']} row counts its elements", row["elements"] > 0, str(row["elements"]))
+    href = row["href"] or ""
+    ui.must("the type name is a link to its own rows", href.startswith("/browse?type="), href or "(no link)")
+    type_id = href.split("type=")[-1]
+    ui.shot(f"The completeness row for {row['type']}, whose name is a link to its {row['elements']} rows")
+
+    _follow(ui, _cell(ui, COMPLETENESS, index, 0).locator("a").first)
+    ui.check("Browse was asked for that type", f"type={type_id}" in ui.page.url, ui.page.url)
+    selected = _selected_type(ui)
+    ui.check("Browse arrives with the type chosen", row["type"] in selected, f"{selected!r}")
+    labelled = re.search(r"\((\d+)\)\s*$", selected)
+    ui.check(
+        "the type selector counts the elements the Health table counted",
+        bool(labelled) and int(labelled.group(1)) == row["elements"],
+        f"Health said {row['elements']}, the selector says {selected!r}",
+    )
+    shown, total = _browse_counts(ui)
+    ui.check(
+        "Browse holds exactly the elements the row counted",
+        shown == row["elements"] == total,
+        f"the row said {row['elements']}, Browse shows {shown} of {total}",
+    )
+    ui.check(
+        "a type on its own is not dressed up as a Health filter",
+        ui.text("browse-filter-note") == "",
+        ui.text("browse-filter-note") or "(no note)",
+    )
+    kinds = set(_grid_column(ui, "type"))
+    ui.check(
+        "every row the grid shows is of that type",
+        kinds == {row["type"]},
+        f"{sorted(kinds)} against {row['type']!r}",
+    )
+    ui.shot("Following the type name lands on Browse holding that type and nothing else")
+
+
+@pytest.mark.scenario(
+    scenario_id="K12",
+    group="K",
+    title="The activity chart runs week by week up to the week we are in",
+    feature="Health · change activity",
+    expected="The bars are consecutive ISO weeks ending at the current one, and hovering a quiet week says "
+    "that week held no change rather than nothing at all.",
+)
+def test_activity_calendar(ui, record):
+    _open_health(ui)
+    bars = _bars(ui)
+    count = bars.count()
+    ui.must("the chart drew its bars", count > 0, f"{count} bar(s)")
+    labels = bars.evaluate_all("ds => ds.map(d => d.parentElement.innerText.trim())")
+    # Derived from however many bars the chart drew, so this scenario says nothing about how
+    # many there should be — that is K02's question — only that they are the weeks up to now.
+    wanted = _week_labels(count)
+    ui.check(
+        "the bars are consecutive weeks ending at the week we are in",
+        labels == wanted,
+        f"{labels} against {wanted}",
+    )
+    ui.check(
+        "the last bar is the current week", labels[-1] == wanted[-1], f"{labels[-1]} against {wanted[-1]}"
+    )
+
+    colours = bars.evaluate_all("ds => ds.map(d => d.style.background)")
+    quiet = [i for i, c in enumerate(colours) if "233, 236, 239" in c]
+    ui.check(
+        "a week with no change is drawn in the quiet colour",
+        bool(quiet),
+        f"{len(quiet)} quiet of {count}",
+    )
+    if quiet:
+        index = quiet[-1]
+        text = _tooltip_of(ui, bars, index)
+        ui.check(
+            "hovering a quiet week names that week",
+            text.startswith("2") and text.split(":")[0][-3:] == labels[index],
+            f"the bar is labelled {labels[index]}, the tooltip says {text or '(no tooltip)'}",
+        )
+        ui.check(
+            "and says it held no change, rather than saying nothing",
+            "0 change(s)" in text,
+            text or "(no tooltip)",
+        )
+        ui.check(
+            "and names no kind of change for a week that saw none",
+            text.strip().endswith("0 change(s)"),
+            text or "(no tooltip)",
+        )
+    ui.shot("The activity chart with a quiet week's tooltip open, naming the week and its nothing")
+
+
+@pytest.mark.scenario(
+    scenario_id="K13",
+    group="K",
+    title="The rows behind a source figure come from that source and no other",
+    feature="Health · freshness links",
+    expected="Following the never-updated figure on an imported row shows rows that all name that source; "
+    "following it on the (authored) row shows rows that name no source at all.",
+)
+def test_rows_behind_the_figure(ui, record):
+    _open_health(ui)
+    row = _fresh_row(ui, SEEDED_SOURCE)
+    ui.must(f"the '{SEEDED_SOURCE}' source has a row", row is not None)
+    cell = _cell(ui, FRESHNESS, row, NEVER_UPDATED)
+    figure = _number(cell.inner_text())
+    ui.must("its never-updated figure counts something", figure > 0, cell.inner_text())
+    _follow(ui, cell.locator("a").first)
+    sources = _grid_column(ui, "source_system")
+    ui.must("the grid rendered rows to read", bool(sources), f"{len(sources)} cell(s)")
+    _every(
+        ui,
+        f"every row Browse shows was imported from {SEEDED_SOURCE}",
+        sorted({s or "(no source)" for s in sources if s != SEEDED_SOURCE}),
+        f"{len(sources)} rows read of {figure}",
+    )
+    ui.shot(f"The rows behind the {SEEDED_SOURCE} figure, each naming that source")
+
+    _open_health(ui)
+    row = _fresh_row(ui, AUTHORED)
+    ui.must(
+        f"there is an {AUTHORED} row to follow",
+        row is not None,
+        str([r[SOURCE] for r in _rows(ui, FRESHNESS)]),
+    )
+    cell = _cell(ui, FRESHNESS, row, NEVER_UPDATED)
+    authored = _number(cell.inner_text())
+    ui.must("its never-updated figure counts something", authored > 0, cell.inner_text())
+    _follow(ui, cell.locator("a").first)
+    sources = _grid_column(ui, "source_system")
+    ui.must("the grid rendered rows to read", bool(sources), f"{len(sources)} cell(s)")
+    # The figure counted the rows nobody imported: a row naming a source system is a row the
+    # figure never counted, however closely the two numbers happen to agree.
+    _every(
+        ui,
+        f"every row behind the {AUTHORED} figure came from no source system",
+        sorted({s for s in sources if s}),
+        f"{len(sources)} rows read of {authored}",
+    )
+    ui.shot(f"The rows behind the {AUTHORED} figure, none of them from a source system")
+
+
+@pytest.mark.scenario(
+    scenario_id="K14",
+    group="K",
+    title="A grid a Health figure filtered stays honest when it is narrowed, and gives the model back",
+    feature="Health · the way back",
+    expected="Searching inside a grid a Health figure filtered keeps the yellow note and can never show "
+    "more than the figure counted; 'Show all elements' clears the filter, takes the note with it and "
+    "returns the whole model.",
+)
+def test_narrowing_and_the_way_back(ui, record):
+    _open_health(ui)
+    row = _fresh_row(ui, SEEDED_SOURCE)
+    ui.must(f"the '{SEEDED_SOURCE}' source has a row", row is not None)
+    cell = _cell(ui, FRESHNESS, row, NEVER_UPDATED)
+    figure = _number(cell.inner_text())
+    ui.must("the figure counts something to follow", figure > 0, cell.inner_text())
+    _follow(ui, cell.locator("a").first)
+    filtered, _ = _browse_counts(ui)
+    ui.must(
+        "Browse arrived holding the rows the figure counted", filtered == figure, f"{filtered} of {figure}"
+    )
+
+    names = _grid_column(ui, "name")
+    ui.must("the grid rendered rows to search", bool(names), f"{len(names)} row(s)")
+    word = next(iter(re.findall(r"[A-Za-z]{4,}", names[0])), "")
+    ui.must("a word from one of those rows to search for", bool(word), names[0])
+    _search(ui, word)
+    narrowed, _ = _browse_counts(ui)
+    ui.check(
+        "searching inside the filter can never show more than the filter did",
+        0 < narrowed <= filtered,
+        f"{narrowed} after {filtered}, searching for {word!r}",
+    )
+    ui.check(
+        "the note still says the grid is filtered",
+        FACET_NOTES["never_updated"] in ui.text("browse-filter-note"),
+        ui.text("browse-filter-note") or "(no note)",
+    )
+    ui.shot(f"The Health filter narrowed further by searching for {word!r}, with the note still saying so")
+
+    _search(ui, "")
+    restored, _ = _browse_counts(ui)
+    ui.check(
+        "clearing the search leaves the Health filter where it was",
+        restored == filtered,
+        f"{restored} against {filtered}",
+    )
+    back = ui.page.locator("#browse-filter-note a").first
+    ui.must("the note offers the way back to the whole model", back.count() > 0)
+    # Not `_follow`: this address is a /browse the page is already on, so the wait has to be
+    # for the query string to go rather than for the path to arrive.
+    back.click()
+    ui.page.wait_for_url(re.compile(r"/browse$"), timeout=20_000)
+    ui.page.wait_for_selector("#browse-grid", state="attached")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    ui.check(
+        "the way back takes the note with it",
+        ui.text("browse-filter-note") == "",
+        ui.text("browse-filter-note") or "(no note)",
+    )
+    ui.check("and asks Browse for nothing in particular", ui.page.url.endswith("/browse"), ui.page.url)
+    whole, total = _browse_counts(ui)
+    ui.check(
+        "the whole model is back, and it is larger than the filter showed",
+        whole == total > filtered,
+        f"{whole} of {total}, after {filtered}",
+    )
+    ui.check(
+        "and the type filter is back to every type", "All types" in _selected_type(ui), _selected_type(ui)
+    )
+    ui.shot("Show all elements gives the whole model back and the yellow note is gone")
+
+
+@pytest.mark.scenario(
+    scenario_id="K15",
+    group="K",
+    title="A Reader sees the same figures and may still recompute them",
+    feature="Health · roles",
+    expected="Health changes nothing, so a Reader is shown the same page an Admin is, down to the figures, "
+    "and Recompute still works; the Browse page a figure opens tells the Reader they may not edit while "
+    "still showing them the rows.",
+    role="reader",
+)
+def test_health_as_a_reader(ui, record):
+    _open_health(ui)
+    admin_total = _completeness_total(ui)
+    admin_fresh = _rows(ui, FRESHNESS)
+    admin_sections = _section_titles(ui)
+    ui.must("the page was drawn for an Admin first", admin_total > 0, str(admin_total))
+
+    ui.persona("Reader")
+    # The stylesheet renders a badge in capitals, so the persona reads 'REN (READER)'.
+    ui.check(
+        "the header says the reader is a Reader",
+        "reader" in ui.role_badge().lower(),
+        ui.role_badge(),
+    )
+    _open_health(ui)
+    ui.must("Health opens for a Reader at all", ui.visible("health-body"))
+    ui.check(
+        "with the same four sections",
+        [t.split(" · as of")[0] for t in _section_titles(ui)]
+        == [t.split(" · as of")[0] for t in admin_sections],
+        str(_section_titles(ui)),
+    )
+    ui.check(
+        "and the same freshness figures",
+        _rows(ui, FRESHNESS) == admin_fresh,
+        f"{_rows(ui, FRESHNESS)} against {admin_fresh}",
+    )
+    ui.check(
+        "and the same completeness total",
+        _completeness_total(ui) == admin_total,
+        f"{_completeness_total(ui)} against {admin_total}",
+    )
+    ui.check(
+        "a page that changes nothing is not refused: Recompute is offered",
+        ui.visible("health-refresh") and not ui.disabled("health-refresh"),
+    )
+    ui.click("health-refresh")
+    ui.check(
+        "and recomputing gives the Reader the same figures back",
+        _completeness_total(ui) == admin_total,
+        f"{_completeness_total(ui)} against {admin_total}",
+    )
+    ui.shot("Health as a Reader: the same figures, and Recompute still offered")
+
+    row = _fresh_row(ui, SEEDED_SOURCE)
+    ui.must(f"the '{SEEDED_SOURCE}' source has a row", row is not None)
+    cell = _cell(ui, FRESHNESS, row, NEVER_UPDATED)
+    figure = _number(cell.inner_text())
+    _follow(ui, cell.locator("a").first)
+    shown, _ = _browse_counts(ui)
+    ui.check(
+        "the rows behind the figure are shown to a Reader too",
+        shown == figure,
+        f"the figure said {figure}, Browse shows {shown}",
+    )
+    ui.check(
+        "the note says what is being shown",
+        FACET_NOTES["never_updated"] in ui.text("browse-filter-note"),
+        ui.text("browse-filter-note") or "(no note)",
+    )
+    ui.check("but a Reader may not add an element to them", ui.disabled("new-open"))
+    ui.check("nor bulk-edit them", ui.disabled("bulk-open"))
+    ui.check(
+        "and the page says why rather than only refusing",
+        "You are a Reader on this page" in ui.body(),
+        ui.body()[:200].replace("\n", " · "),
+    )
+    ui.shot("A Health figure followed as a Reader: the rows are there, the ways to change them are not")
+
+
+@pytest.mark.scenario(
+    scenario_id="K16",
+    group="K",
+    title="Health measures the branch the reader is on, not main",
+    feature="Health · branches",
+    expected="On a branch the page says so and counts the branch's draft; back on main the same figure is "
+    "what it was, because a draft on a branch is not on main.",
+    branch=BRANCH_NAME,
+)
+def test_health_on_a_branch(ui, record):
+    _open_health(ui)
+    main_total = _completeness_total(ui)
+    ui.must("the completeness heading counts what main holds", main_total > 0, str(main_total))
+    ui.check("the page says it measured main", "on main" in _subtitle(ui), _subtitle(ui))
+
+    created = _ensure_branch(ui, BRANCH_NAME)
+    ui.branch(BRANCH_NAME)
+    ui.must(
+        "the header is on the group's branch",
+        ui.branch_badge().strip().lower() != "main",
+        ui.branch_badge(),
+    )
+    _open_health(ui)
+    subtitle = _subtitle(ui)
+    ui.check("the page names the branch it measured", BRANCH_ID in subtitle.lower(), subtitle)
+    ui.check("and no longer says main", "on main" not in subtitle, subtitle)
+    branch_total = _completeness_total(ui)
+    if created:
+        ui.check(
+            "a branch with nothing drafted on it yet shows the model main shows",
+            branch_total == main_total,
+            f"{branch_total} on the branch, {main_total} on main",
+        )
+    ui.shot("Health on a branch, saying which branch it measured")
+
+    made = _create_elsewhere(ui, "K-branch-probe")
+    ui.must("an element was drafted on the branch", bool(made), made or "(no element opened)")
+    ui.click("health-refresh")
+    ui.check(
+        "the branch counts the element drafted on it",
+        _completeness_total(ui) == branch_total + 1,
+        f"{_completeness_total(ui)} after {branch_total}",
+    )
+    after = _fresh_figures(ui, AUTHORED)
+    ui.check(
+        f"and groups it under {AUTHORED}, like anything written rather than imported",
+        bool(after) and _number(after[ELEMENTS]) >= 1,
+        str(_rows(ui, FRESHNESS)),
+    )
+    ui.shot("The element drafted on the branch, counted by the page measuring that branch")
+
+    ui.branch("main")
+    _open_health(ui)
+    ui.check("the page says it is back on main", "on main" in _subtitle(ui), _subtitle(ui))
+    ui.check(
+        "and main has not moved: a draft on a branch is not on main",
+        _completeness_total(ui) == main_total,
+        f"{_completeness_total(ui)} on main, {main_total} before the branch was written on",
+    )
+    ui.shot("Back on main, whose figures the branch's draft never touched")
+
+
+@pytest.mark.scenario(
+    scenario_id="K17",
+    group="K",
+    title="Every completeness bar is coloured by how far its facet has to go",
+    feature="Health · completeness",
+    expected="The bars are drawn in one colour per band — a facet nearly complete, one part way, one far "
+    "off — no two bands share a colour, and no bar is drawn full while it still offers rows to fix.",
+)
+def test_bar_colours(ui, record, finding):
+    _open_health(ui)
+    cells = _table(ui, COMPLETENESS).evaluate(BAR_JS)
+    ui.must("the completeness table drew its bars", bool(cells), f"{len(cells)} cell(s)")
+    ui.must(
+        "every bar says what it is drawn at",
+        all(c["pct"] >= 0 for c in cells),
+        str([f"{c['type']} · {c['facet']}" for c in cells if c["pct"] < 0][:6]),
+    )
+    ui.must(
+        "and the browser resolved a colour for each",
+        all(c["colour"] for c in cells),
+        str([f"{c['type']} · {c['facet']}" for c in cells if not c["colour"]][:6]),
+    )
+
+    # The page paints a bar green at 90 and over, yellow from 60, red below that. A reader
+    # takes in the colour before the number, so the three bands must not share one.
+    def band(pct: int) -> str:
+        return "nearly complete" if pct >= 90 else "part way" if pct >= 60 else "far off"
+
+    bands: dict[str, set[str]] = {}
+    for cell in cells:
+        bands.setdefault(band(cell["pct"]), set()).add(cell["colour"])
+    for name, colours in sorted(bands.items()):
+        ui.check(
+            f"every bar '{name}' is drawn in one colour",
+            len(colours) == 1,
+            f"{sorted(colours)}",
+        )
+    painted = [next(iter(c)) for c in bands.values()]
+    ui.check(
+        "and no two bands are drawn in the same colour",
+        len(set(painted)) == len(painted),
+        str({name: sorted(c) for name, c in bands.items()}),
+    )
+    ui.check(
+        "the bands the seeded model reaches are all drawn",
+        len(bands) >= 2,
+        str(sorted(bands)),
+    )
+    # Rounding is the trap: 1 missing of 201 rounds to 100%, and a bar drawn full over a link
+    # that says rows are missing tells the reader the opposite of what the link does.
+    _every(
+        ui,
+        "no bar is drawn full while it still offers rows to fix",
+        [f"{c['type']} · facet {c['facet']}: {c['text']}" for c in cells if c["missing"] and c["pct"] >= 100],
+        f"{len([c for c in cells if c['missing']])} facets with rows to fix",
+    )
+    ui.shot("The completeness bars, one colour per band")
+
+    # The totals above the table are built from the column headings, which are not countable
+    # nouns: the figures are right and the sentences are not.
+    badges = [
+        b.strip()
+        for b in ui.page.locator('#health-body [class*="Badge-root"]').all_inner_texts()
+        if "missing" in b.lower()
+    ]
+    awkward = [b for b in badges if re.search(r"\b(link|target decided|required attributes)\b", b.lower())]
+    ui.check("the card totals each facet above the table", len(badges) >= len(FACET_COLUMNS), str(badges))
+    if awkward:
+        finding.append(
+            _finding(
+                finding_id="K-2",
+                where="src/ea/ui/pages/health.py · _completeness(), the totals above the table",
+                severity="usability",
+                summary="The totals badges read as broken English, and one of them says the opposite of "
+                "what it counts.",
+                detail='The badge is built as f"{totals[f]} {FACET_TITLES[f].lower()} missing", and '
+                "FACET_TITLES holds column headings rather than countable nouns, so the card reads "
+                f"{', '.join(repr(b) for b in awkward)}. The numbers are right (K04 checks each against "
+                "the column beneath it), but '38 target decided missing' counts the elements whose target "
+                "is undecided and says the reverse. Browse already has the phrasing: 'without a link', "
+                "'with an undecided target state'.",
+            )
+        )
+    ui.shot("The totals above the completeness table, one badge per facet")
+
+
+@pytest.mark.scenario(
+    scenario_id="K18",
+    group="K",
+    title="A row that has been changed stops being counted as never updated",
+    feature="Health · freshness",
+    expected="Editing one of the rows behind the never-updated figure takes it out of that figure and out "
+    "of the grid the figure opens, leaves the source holding the same elements, and moves the row's last "
+    "update; a figure that has fallen to zero stops offering rows at all.",
+)
+def test_an_edited_row_leaves_the_figure(ui, record):
+    _open_health(ui)
+    row = _fresh_row(ui, AUTHORED)
+    ui.must(
+        f"there is an {AUTHORED} row to work with",
+        row is not None,
+        str([r[SOURCE] for r in _rows(ui, FRESHNESS)]),
+    )
+    before = _fresh_figures(ui, AUTHORED)
+    before_never = _number(before[NEVER_UPDATED])
+    before_elements = _number(before[ELEMENTS])
+    ui.must(
+        "it counts a row nobody has touched since it was written", before_never > 0, before[NEVER_UPDATED]
+    )
+
+    _follow(ui, _cell(ui, FRESHNESS, row, NEVER_UPDATED).locator("a").first)
+    ids = ui.grid_row_ids("browse-grid")
+    names = _grid_column(ui, "name")
+    ui.must("the figure opened the rows behind it", bool(ids), f"{len(ids)} row(s)")
+    # This group's own element where there is one: another group's row is not ours to rename.
+    pairs = list(zip(ids, names, strict=False))
+    element_id = next((i for i, n in pairs if n.startswith("K-")), ids[0])
+
+    ui.goto(f"/element/{element_id}")
+    ui.click("#el-tabs [role='tab']:has-text('Edit')")
+    ui.page.wait_for_timeout(200)
+    name = (ui.page.locator("#el-name").first.input_value() or "").strip()
+    ui.fill("el-name", f"{name} (K touched)")
+    ui.click("el-save")
+    feedback = ui.text("el-save-feedback")
+    ui.must("the row was saved", "Saved version" in feedback, feedback or "(no feedback)")
+    ui.shot("One of the rows behind the never-updated figure, renamed and saved")
+
+    _open_health(ui)
+    after = _fresh_figures(ui, AUTHORED)
+    ui.must(f"the {AUTHORED} row is still there", bool(after), str(_rows(ui, FRESHNESS)))
+    ui.check(
+        "the source still holds the same elements",
+        _number(after[ELEMENTS]) == before_elements,
+        f"{after[ELEMENTS]} after {before_elements}",
+    )
+    ui.check(
+        "but one fewer of them has never been updated",
+        _number(after[NEVER_UPDATED]) == before_never - 1,
+        f"{after[NEVER_UPDATED]} after {before_never}",
+    )
+    ui.check(
+        "and the row's last update is no older than it was",
+        after[LAST_UPDATED] >= before[LAST_UPDATED],
+        f"{after[LAST_UPDATED]} after {before[LAST_UPDATED]}",
+    )
+    cell = _cell(ui, FRESHNESS, _fresh_row(ui, AUTHORED), NEVER_UPDATED)
+    if _number(after[NEVER_UPDATED]):
+        _follow(ui, cell.locator("a").first)
+        shown, _ = _browse_counts(ui)
+        ui.check(
+            "the rows behind the figure are one fewer",
+            shown == before_never - 1,
+            f"{shown} after {before_never}",
+        )
+        ui.check(
+            "and the row that was edited is no longer among them",
+            element_id not in ui.grid_row_ids("browse-grid"),
+            element_id,
+        )
+    else:
+        ui.check(
+            "a figure that has fallen to zero stops offering rows",
+            _href(cell) is None,
+            _href(cell) or f"{cell.inner_text().strip()!r}, plain text",
+        )
+        ui.goto(f"/browse?missing=never_updated&source={AUTHORED}")
+        shown, _ = _browse_counts(ui)
+        ui.check("and the address behind it holds nothing", shown == 0, str(shown))
+        ui.check(
+            "not even the row that was edited",
+            element_id not in ui.grid_row_ids("browse-grid"),
+            element_id,
+        )
+    ui.shot("The never-updated figure after the row it counted was changed")
