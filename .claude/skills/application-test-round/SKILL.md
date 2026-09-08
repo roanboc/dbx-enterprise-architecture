@@ -56,8 +56,8 @@ anything — fixing while it runs loses the picture.
 
 ## 3 — Audit
 
-The report's Findings table is what the round noticed; the screenshots are what it saw.
-Work both:
+The report's Findings table is what the round noticed, with each finding's detail under
+it; the screenshots are what it saw. Work both:
 
 - Read each screen's two screenshots — wide and narrow — against the checklist in
   `tests/ui/README.md`. Checkpoints 1 to 10 are asserted; 11 and 12 (alignment and
@@ -83,6 +83,9 @@ it is the part that grows without noticing.
 
 - Code the fix. A new component id belongs in `src/ea/ui/ids.py`; a new icon in
   `assets/icons/` as a Tabler outline SVG, matching the ones already there.
+- **Turn the finding into a check.** A finding whose fault is fixed should stop firing on
+  its own; if it was lodged unconditionally, replace it with a `ui.check` that asserts the
+  behaviour the fix gives, so the next round proves it rather than reporting it.
 - **A fix without a scenario that would have caught it is not finished.** Extend
   `tests/ui/` in the same commit.
 - `make check` after each fix, before the next.

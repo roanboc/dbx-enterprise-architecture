@@ -122,4 +122,9 @@ CSS selector.
 | A narrow screen | `ui.narrow()` … `ui.wide()` |
 
 A finding that is worth reporting but should not fail a scenario is lodged with the
-`finding` fixture, and reaches the report's Findings table.
+`finding` fixture, and reaches the report's Findings table — the table says what is wrong
+and where, and the block under it carries the detail the finding was written with, so a
+reader can act on one without opening the scenario that raised it.
+
+A finding is written to fire on a condition, never unconditionally: the fix then clears it
+by itself, and the finding stays behind as the guard against that fault coming back.
