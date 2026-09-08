@@ -73,11 +73,19 @@ class StubProvider:
             words = [
                 w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", question) if w.lower() not in _STOPWORDS
             ]
-            for w in sorted(words, key=len, reverse=True)[:3]:
+            best: tuple[tuple[int, int], str] | None = None
+            for w in sorted(words, key=len, reverse=True)[:5]:
                 res = run("search_elements", text=w, limit=5)
-                if isinstance(res, dict) and res.get("matches"):
-                    target = res["matches"][0]["element_id"]
-                    break
+                for m in (res.get("matches") or []) if isinstance(res, dict) else []:
+                    name = (m.get("name") or "").lower()
+                    # An element the question actually names beats one that only matched a
+                    # word in it: "who owns the Course Catalogue" is about the catalogue,
+                    # not about the first thing "applications" happened to find.
+                    score = (2 if name and name in q else 0, len(name))
+                    if best is None or score > best[0]:
+                        best = (score, m["element_id"])
+            if best is not None:
+                target = best[1]
         if target is None:
             res = run("list_types")
             totals = res.get("totals", {}) if isinstance(res, dict) else {}
@@ -106,6 +114,7 @@ class StubProvider:
             for r in down[:10]:
                 lines.append(f"- it depends on: {r['name']} [{r['element_id']}] ({r['type_name']})")
             c = imp["completeness"]
+            lines.append("")  # a line straight after a bullet is read as part of it
             lines.append(
                 f"Completeness: {c['populated']}/{c['declared']} relationship types declared for this element type have instances."
                 + (f" No instances yet for: {', '.join(c['empty'])}." if c["empty"] else "")

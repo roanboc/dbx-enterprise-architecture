@@ -936,22 +936,40 @@ FORCED_IMPORT_CSV = (
 )
 
 
-def _force_click(ui, selector: str) -> None:
-    """Press a control the page disabled, the way a determined browser can.
+def _force_click(ui, component_id: str, clicks: int = 1) -> None:
+    """Press a control the page disabled, from the browser the reader is already holding.
 
-    Every gate in the table is drawn twice: the page disables the control, and the service
-    behind it calls `require()`. Taking the attribute off in the browser leaves only the
-    second, which is the one that has to hold.
+    Taking the attribute off the button is not enough — the component keeps the prop and
+    swallows the click — but the callback behind it is one line of script away, and anyone
+    who can open a console has that line. Every gate in the table is drawn twice: the page
+    disables the control, and the service behind it calls `require()`. This presses past
+    the first to find out whether the second is there.
     """
-    sel = selector if selector.startswith(("#", ".", "[")) else f"#{selector}"
     ui.page.evaluate(
-        "sel => { const el = document.querySelector(sel); if (!el) { return; }"
-        " el.removeAttribute('disabled'); el.removeAttribute('data-disabled');"
-        " el.style.pointerEvents = 'auto'; }",
-        sel,
+        "([id, n]) => window.dash_clientside.set_props(id, {n_clicks: n})",
+        [component_id, clicks],
     )
-    ui.page.locator(sel).first.click(force=True)
+    ui.page.wait_for_timeout(300)
     ui.settle()
+
+
+def _search(ui, text: str) -> tuple[str, int]:
+    """Search Browse and wait out the box's 400 ms debounce; the count and the rows shown."""
+    ui.fill("browse-text", text)
+    ui.page.wait_for_timeout(700)
+    ui.settle()
+    return ui.text("browse-count"), ui.grid_row_count("browse-grid")
+
+
+def _branch_list(ui) -> str:
+    """Every branch the Branches page lists, whatever its status — one block of text.
+
+    Opened on the group's own branch: the status control is wired through the store the
+    branch detail carries, so a page with nothing selected does not filter at all.
+    """
+    _branches(ui)
+    ui.segmented("br-status", "All")
+    return ui.text("br-list")
 
 
 def _rel_rows(ui) -> int:
@@ -966,6 +984,14 @@ def _mm_row(ui, row_id: str) -> int:
         body.evaluate("el => { el.scrollTop = el.scrollHeight; }")
         ui.page.wait_for_timeout(400)
     return ui.page.locator(f"#mm-types-grid .ag-row[row-id={json.dumps(row_id)}]").count()
+
+
+def _mm_row_ids(ui) -> list[str]:
+    """The last few row ids the type grid is rendering, for a failure to be readable."""
+    ids = ui.page.locator("#mm-types-grid .ag-center-cols-container .ag-row").evaluate_all(
+        "rows => rows.map(r => r.getAttribute('row-id'))"
+    )
+    return ids[-5:]
 
 
 @pytest.mark.scenario(
@@ -1139,12 +1165,8 @@ def test_new_element_forced_by_a_reader(ui, record):
     ui.shot("The New element modal a Reader forced open, and the refusal Create came back with")
     ui.check("the reader was not taken to a new element", "/browse" in ui.page.url, ui.page.url)
     ui.goto("/browse")
-    ui.fill("browse-text", "l27forced")
-    ui.check(
-        "nothing by that name is in the model",
-        ui.grid_row_count("browse-grid") == 0,
-        ui.text("browse-count"),
-    )
+    count, rows = _search(ui, "l27forced")
+    ui.check("nothing by that name is in the model", rows == 0 and count.startswith("0 of"), count)
     ui.shot("Browse finds no element for the name the Reader tried to create")
 
 
@@ -1165,9 +1187,17 @@ def test_metamodel_write_paths_as_reader(ui, record, finding):
     ui.goto("/metamodel")
     ui.must("the type grid is on the page", ui.visible("mm-types-grid"))
     ui.check("a Reader is offered Add type", _usable(ui, "mm-add-type"))
+    _mm_tab(ui, "Relationship types")
     ui.check("a Reader is offered Add relationship type", _usable(ui, "mm-add-rel"))
+    _mm_tab(ui, "Attributes")
+    ui.check("a Reader is offered Add attribute", _usable(ui, "mm-add-attr"))
+    _mm_tab(ui, "Element types")
     ui.click("mm-add-type")
-    ui.check("the row a Reader added is on the grid", _mm_row(ui, "new_type_1") == 1)
+    ui.check(
+        "the row a Reader added is on the grid",
+        _mm_row(ui, "new_type_1") > 0,
+        f"the grid ends {_mm_row_ids(ui)}",
+    )
     ui.must("Save changes is disabled for a Reader", _blocked(ui, "mm-save"))
     _force_click(ui, "mm-save")
     feedback = ui.text("mm-feedback")
@@ -1212,11 +1242,12 @@ def test_metamodel_write_paths_as_reader(ui, record, finding):
     feature="Metamodel · Reviewers · role gating",
     expected=(
         "The Reviewers grid's Save is an admin action: pressing it as an Architect with the disabled "
-        "state taken off is refused by the service, and the refusal names the role and the action."
+        "state taken off is refused by the service, and the refusal names the role and the action in "
+        "a sentence a reader can read."
     ),
     role="architect",
 )
-def test_save_reviewers_forced_by_an_architect(ui, record):
+def test_save_reviewers_forced_by_an_architect(ui, record, finding):
     _as(ui, ARCHITECT)
     ui.goto("/metamodel")
     _mm_tab(ui, "Reviewers")
@@ -1227,7 +1258,23 @@ def test_save_reviewers_forced_by_an_architect(ui, record):
     ui.check("the refusal names the role", "Architect" in feedback, feedback or "no feedback")
     ui.check("it says which action was refused", "assign reviewers" in feedback.lower(), feedback)
     ui.check("nothing reports a save", "saved" not in feedback.lower(), feedback or "no feedback")
+    ui.check("the refusal reads as a sentence", "an Architect" in feedback, feedback or "no feedback")
     ui.shot("Save reviewers, pressed by an Architect past its disabled state, and the refusal")
+    if "a Architect" in feedback:
+        finding.append(
+            _f(
+                "L-7",
+                "src/ea/services/roles.py — the message `require()` raises",
+                "consistency",
+                "A refusal for a role whose name starts with a vowel reads 'a Architect', 'a Admin'",
+                '`require()` builds its message as `f"a {LABELS.get(role, role)} may not …"`, so the '
+                "two roles whose names begin with a vowel are handed to the reader ungrammatically: "
+                f"this one came back as {feedback!r}. It is the sentence every refused write shows — "
+                "the Element page, Browse, Import, the Branches page and this one all print what "
+                "`require()` raised. Choose the article from the role's first letter, the way the "
+                "pages that write their own sentences already do.",
+            )
+        )
 
 
 @pytest.mark.scenario(
@@ -1267,12 +1314,8 @@ def test_import_load_forced_by_a_reader(ui, record):
     ui.check("nothing says it was loaded", "Loaded." not in loaded, loaded[:200] or "no report")
     ui.shot("The Load a Reader pressed past its disabled state, and the refusal from the server")
     ui.goto("/browse")
-    ui.fill("browse-text", FORCED_IMPORT_MARKER)
-    ui.check(
-        "none of the file's rows reached the model",
-        ui.grid_row_count("browse-grid") == 0,
-        ui.text("browse-count"),
-    )
+    count, rows = _search(ui, FORCED_IMPORT_MARKER)
+    ui.check("none of the file's rows reached the model", rows == 0 and count.startswith("0 of"), count)
 
 
 @pytest.mark.scenario(
@@ -1330,7 +1373,7 @@ def test_branch_writes_forced_by_a_reader(ui, record):
 )
 def test_propose_apply_forced_by_a_reader(ui, record):
     _as(ui, READER)
-    branches_before = _branch_labels(ui)
+    branches_before = _branch_list(ui)
     ui.goto("/propose")
     ui.must("a Reader may still analyse", _usable(ui, "pr-analyse"))
     ui.click("pr-analyse")
@@ -1351,8 +1394,9 @@ def test_propose_apply_forced_by_a_reader(ui, record):
     ui.check("the forced apply is refused", "not applied" in feedback.lower(), feedback or "no feedback")
     ui.check("nothing says it was applied to a branch", "Applied to branch" not in feedback, feedback)
     ui.shot("Propose as a Reader: the rows fill in, and the forced Apply is refused")
+    branches_after = _branch_list(ui)
     ui.check(
         "no branch was created for it",
-        _branch_labels(ui) == branches_before,
-        f"{_branch_labels(ui)} vs {branches_before}",
+        branches_after == branches_before,
+        f"{branches_after[:300]} · was {branches_before[:300]}",
     )

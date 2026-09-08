@@ -2007,3 +2007,1393 @@ def test_m40_as_architect(cli, record):
         final.splitlines()[0] == before.splitlines()[0],
         final.splitlines()[0] if final else final_ev,
     )
+
+
+# ==================================================== what the first pass left uncovered ===
+# The scenarios below close three kinds of gap. The options no scenario had run (`--limit`,
+# `--lifecycle`, `--mapping`, `--actor`, `--pack-id`, `--resolve`, `--types`, `-b` and the two
+# environment variables the help advertises); the branch of a command only an error reaches
+# (an element that does not exist, a directory that cannot be read, a conflicting merge, a
+# branch that was never created, a branch that is already closed); and the roles the first
+# pass never ran — the Agent, and the review actions refused to everyone but a Reviewer.
+#
+# They keep the same state discipline: everything created carries the group's prefix, every
+# branch opened is merged or abandoned before the scenario ends, and no scenario asserts an
+# absolute total.
+CONFLICT_BRANCH = "m-conflict"  # created, conflicted and merged in M56
+DROP_BRANCH = "m-drop"  # created and closed with its one item dropped in M57
+ROLES_BRANCH = "m-roles"  # created, frozen and abandoned in M58
+REVIEW_BRANCH = "m-review"  # created, reviewed, approved and abandoned in M59
+AGENT_BRANCH = "m-agent"  # created and abandoned in M61
+ENV_BRANCH = "m-env"  # created, written to through EA_BRANCH and abandoned in M62
+CLOSED_BRANCH = "m-closed"  # created, merged and then abandoned again in M63
+GHOST_BRANCH = "m-ghost"  # never created: written to in M55, adopted and abandoned there
+GHOST_ELEMENT = "DE-LMS-UNIT-SITE"  # the element M55 writes into an overlay that does not exist
+AGENT_ELEMENT = "IF-CMS-SRS"  # the element M61 fails to write, as an Agent
+ENV_ELEMENT = "DEF-ENROLLED-STUDENT"  # the element M62 writes through EA_BRANCH
+CLOSED_ELEMENT = "DE-SRS-ENROLMENT"  # the element M63 merges into main
+MAPPED = "M-DE-2"  # the element M49 imports through the connector mapping
+STAMPED = "M-DE-3"  # the element M51 imports under an actor of its own
+MAPPING = "connectors/tool-export/mapping.yaml"
+UNKNOWN = "M-NO-SUCH-ELEMENT"
+NO_WORK_PACKAGE = "M-NO-SUCH-WORK-PACKAGE"
+
+
+def refusal(out: str) -> str:
+    """What the command actually said, after the framework's traceback box."""
+    return out.rsplit("╯", 1)[-1].strip()
+
+
+@pytest.mark.scenario(
+    scenario_id="M41",
+    group="M",
+    title="find takes a limit and a type by its display name, and does not notice a type that is not in the metamodel",
+    feature="Command line · find",
+    expected='`--limit` caps the ranked list, `--type "Data Entity"` is the same filter as `--type data_entity`, an empty query lists the model in name order, and a type the pack does not hold is refused rather than searched as though no type had been given.',
+)
+def test_m41_find_options(cli, record, finding):
+    rc, everything, ev = run(cli, "find", "course", limit=120)
+    all_lines = [ln for ln in everything.splitlines() if ln.strip()]
+    must(record, "the unrestricted search returned a ranked list", rc == 0 and len(all_lines) > 3, ev)
+
+    _, capped, capped_ev = run(cli, "find", "course", "--limit", "2", limit=120)
+    capped_lines = [ln for ln in capped.splitlines() if ln.strip()]
+    check(record, "--limit caps the list", len(capped_lines) == 2, f"{len(capped_lines)} rows for --limit 2")
+    check(
+        record,
+        "the rows it keeps are the top of the ranking, not an arbitrary two",
+        capped_lines == all_lines[:2],
+        capped_ev,
+    )
+
+    _, by_id, _ = run(cli, "find", "course", "--type", "data_entity", limit=120)
+    _, by_name, name_ev = run(cli, "find", "course", "--type", "Data Entity", limit=120)
+    check(
+        record,
+        "a type given by its display name is the same filter as its id",
+        bool(by_name.strip()) and by_name == by_id,
+        name_ev,
+    )
+
+    _, listing, listing_ev = run(cli, "find", "", "--limit", "6", limit=140)
+    rows = [ln for ln in listing.splitlines() if ln.strip()]
+    must(record, "an empty query lists the model instead of searching it", len(rows) == 6, listing_ev)
+    names = [ln.split(None, 2)[2] for ln in rows if len(ln.split(None, 2)) > 2]
+    check(
+        record,
+        "the listing is in name order",
+        names == sorted(names) or names == sorted(names, key=str.lower),
+        trim(" · ".join(names), 140),
+    )
+
+    # `--as wizard` is refused before the command runs (M39); a type outside the pack is not.
+    rc_bad, bad, bad_ev = run(cli, "find", "course", "--type", "not_a_type", expect=None, limit=140)
+    bad_lines = [ln for ln in bad.splitlines() if ln.strip()]
+    check(record, "a type the metamodel does not hold is refused", rc_bad == 1, bad_ev)
+    check(
+        record,
+        "and what it answers is not simply the unrestricted search",
+        bad_lines != all_lines,
+        f"{len(bad_lines)} rows, of which {len([ln for ln in bad_lines if 'data_entity' not in ln])} are of other types",
+    )
+    if bad_lines == all_lines:
+        lodge(
+            finding,
+            "M-7",
+            "src/ea/cli.py · find",
+            "defect",
+            "An unrecognised `--type` is dropped instead of refused, so the search silently returns every type.",
+            f"`ea find course --type not_a_type` exits 0 and returns the same {len(all_lines)} rows as `ea find "
+            "course`. `find` resolves the option with `registry.resolve_type(type_id)` and passes `t.id if t "
+            "else None`, so a mistyped type reads as 'no type given'. A typo therefore produces a plausible "
+            "answer to a different question; `--as wizard` is refused by name, and this should be too.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M42",
+    group="M",
+    title="sql answers the same figures stats reports, so the two faces of the model agree",
+    feature="Command line · sql",
+    expected="`ea sql` counting the element and relationship tables returns exactly the totals `ea stats` prints, and the same per-type figure for Data Entity.",
+)
+def test_m42_sql_agrees_with_stats(cli, record):
+    rc_s, stats_out, stats_ev = run(cli, "stats", limit=120)
+    head = stats_out.splitlines()[0]
+    must(record, "stats reported the model", rc_s == 0 and "elements," in head, stats_ev)
+    elements = int(head.split()[0])
+    relationships = int(head.split(",")[1].split()[0])
+
+    rc, out, ev = run(
+        cli,
+        "sql",
+        "select (select count(*) from element) as elements, (select count(*) from relationship) as relationships",
+        limit=140,
+    )
+    must(record, "the query ran", rc == 0 and "elements" in out, ev)
+    values = out.splitlines()[1].split()
+    check(
+        record,
+        "sql counts the elements stats reports",
+        int(values[0]) == elements,
+        f"sql {values[0]}, stats {elements}",
+    )
+    check(
+        record,
+        "and the relationships",
+        int(values[1]) == relationships,
+        f"sql {values[1]}, stats {relationships}",
+    )
+
+    type_row = next((ln for ln in stats_out.splitlines() if ln.strip().endswith("Data Entity")), "")
+    must(record, "stats breaks Data Entity out", bool(type_row), stats_ev)
+    _, per_type, per_ev = run(
+        cli, "sql", "select count(*) as n from element where type_id = 'data_entity'", limit=120
+    )
+    check(
+        record,
+        "the per-type figure agrees too",
+        int(per_type.splitlines()[1].strip()) == int(type_row.split()[0]),
+        f"sql {per_type.splitlines()[1].strip()}, stats {type_row.strip()}",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M43",
+    group="M",
+    title="sql says nothing useful when a query matches no rows, and exits 1 when the database cannot bind it",
+    feature="Command line · sql",
+    expected="A query that matches nothing still names its columns and says the result is empty in words; a query naming a column that does not exist exits 1 and names it.",
+)
+def test_m43_sql_empty_and_broken(cli, record, finding):
+    rc, empty, ev = run(
+        cli, "sql", f"select element_id, name from element where element_id = '{UNKNOWN}'", limit=140
+    )
+    must(record, "a query that matches nothing still succeeds", rc == 0, ev)
+    check(
+        record,
+        "the columns that were asked for are still named",
+        "element_id" in empty and "name" in empty,
+        trim(empty, 130),
+    )
+    check(record, "the empty result is not printed as silence", bool(empty.strip()), trim(empty, 130))
+    if "Empty DataFrame" in empty:
+        lodge(
+            finding,
+            "M-8",
+            "src/ea/cli.py · sql",
+            "usability",
+            "A query that matches nothing prints the data frame's own repr — 'Empty DataFrame / Columns: […] / Index: []' — instead of a sentence.",
+            f"`ea sql \"select … where element_id = '{UNKNOWN}'\"` printed: {trim(empty, 120)}. The words are the "
+            "library's, not the application's: 'Index: []' means nothing to an operator, and the same query "
+            "with one row prints a plain table. Checkpoint 5 of the round's usability list (empty states), on "
+            "the command line.",
+        )
+
+    rc_bad, bad, bad_ev = run(cli, "sql", "select nope from element", expect=1, limit=140)
+    check(record, "a query the database cannot bind exits 1", rc_bad == 1, bad_ev)
+    check(record, "the failure names the column it could not find", "nope" in bad, trim(refusal(bad), 130))
+    check(
+        record,
+        "and it is not confused with the read-only guard's own refusal",
+        "read-only" not in bad,
+        "the guard let it through; the database rejected it",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M44",
+    group="M",
+    title="set writes the lifecycle text, and a set with no field to set changes nothing",
+    feature="Command line · set",
+    expected="`--lifecycle` writes that field and versions the element; `ea set <id>` with no option reports updated 0, refused 0 and leaves the element exactly as it was.",
+)
+def test_m44_set_lifecycle(cli, record, finding):
+    _, before, before_ev = run(cli, "get", WRITE_ELEMENT, limit=80)
+    version_before = int(before.splitlines()[0].split("version=")[1].split()[0])
+    rc, out, ev = run(cli, "set", WRITE_ELEMENT, "--lifecycle", "M: in production")
+    must(record, "the lifecycle text was written", rc == 0 and "updated 1" in out, ev)
+
+    _, shown, shown_ev = run(
+        cli, "sql", f"select lifecycle_status from element where element_id = '{WRITE_ELEMENT}'", limit=130
+    )
+    check(record, "the field holds what was set", "M: in production" in shown, trim(shown, 120) or shown_ev)
+    _, after, after_ev = run(cli, "get", WRITE_ELEMENT, limit=80)
+    head = after.splitlines()[0]
+    check(record, "the status the earlier scenarios set is untouched", "status=draft" in head, head)
+    version_after = int(head.split("version=")[1].split()[0])
+    check(
+        record,
+        "the write was versioned like any other",
+        version_after == version_before + 1,
+        f"version {version_before} → {version_after}",
+    )
+
+    rc_none, none_out, none_ev = run(cli, "set", WRITE_ELEMENT, limit=120)
+    check(record, "a set with no field to set exits cleanly", rc_none == 0, none_ev)
+    check(
+        record, "it neither updates nor refuses anything", "updated 0, refused 0" in none_out, trim(none_out)
+    )
+    _, still, still_ev = run(cli, "get", WRITE_ELEMENT, limit=80)
+    check(
+        record, "and the element is exactly as it was", still.splitlines()[0] == head, still.splitlines()[0]
+    )
+    if "updated 0, refused 0" in none_out:
+        lodge(
+            finding,
+            "M-9",
+            "src/ea/cli.py · set",
+            "usability",
+            "A `set` with no field to set says 'updated 0, refused 0' and never says that nothing was asked of it.",
+            "`ea set DE-EDW-DIM-COURSE` (no option) exits 0 with that line. `bulk_update` skips an element "
+            "whose change is empty, so the element is neither updated nor refused and the count says nothing "
+            "about why. A line naming the fields the command can set would turn a silent no-op into help.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M45",
+    group="M",
+    title="A direction that is neither in nor out is not refused: trace answers with the opposite of its default",
+    feature="Command line · trace, neighbours",
+    expected="`--direction sideways` is refused by both commands; today trace answers it with the inward walk and neighbours with the walk both ways.",
+)
+def test_m45_unknown_direction(cli, record, finding):
+    _, outward, out_ev = run(cli, "trace", ASSET, "--direction", "out", "--depth", "3", limit=90)
+    _, inward, in_ev = run(cli, "trace", ASSET, "--direction", "in", "--depth", "3", limit=90)
+    must(
+        record, "the two documented directions answer differently", outward.strip() != inward.strip(), out_ev
+    )
+
+    rc, sideways, ev = run(
+        cli, "trace", ASSET, "--direction", "sideways", "--depth", "3", expect=None, limit=90
+    )
+    check(record, "a direction that is neither in nor out is refused", rc == 1, ev)
+    check(
+        record,
+        "and it is not answered as though the other direction had been asked for",
+        sideways.strip() != inward.strip(),
+        f"the answer is the one `--direction in` gives, to the character ({len(inward.splitlines())} rows)"
+        if sideways.strip() == inward.strip()
+        else in_ev,
+    )
+
+    _, both, both_ev = run(cli, "neighbours", ASSET, "--depth", "2", limit=80)
+    rc_n, n_side, n_ev = run(
+        cli, "neighbours", ASSET, "--depth", "2", "--direction", "sideways", expect=None, limit=80
+    )
+    check(record, "neighbours refuses it too", rc_n == 1, n_ev)
+    if sideways.strip() == inward.strip() or n_side.strip() == both.strip():
+        lodge(
+            finding,
+            "M-10",
+            "src/ea/cli.py · trace, neighbours (src/ea/backend/duckdb_backend.py:1084)",
+            "defect",
+            "An unrecognised `--direction` is neither refused nor reported: trace answers it with the inward walk — the opposite of its documented default — and neighbours with both ways.",
+            f"`ea trace {ASSET} --direction sideways` returns exactly what `--direction in` returns, because "
+            "the store chooses `TRACE_OUT_SQL if direction == 'out' else TRACE_IN_SQL`; `ea neighbours "
+            f"{ASSET} --direction sideways` returns what `--direction both` returns. A typo in the flag gives "
+            "a plausible answer to the opposite question, and the two commands do not even fall back the same "
+            f"way. The help says the option is 'out … or in'. ({both_ev})",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M46",
+    group="M",
+    title="A format the command does not offer prints the default instead of saying so",
+    feature="Command line · view, health",
+    expected="`view --fmt svg` and `health --fmt json` name a format neither command has; both print their default output and exit 0.",
+)
+def test_m46_unknown_format(cli, record, finding):
+    _, mermaid, mermaid_ev = run(cli, "view", ASSET, limit=90)
+    rc, svg, ev = run(cli, "view", ASSET, "--fmt", "svg", expect=None, limit=90)
+    check(record, "the command still produced a diagram", rc == 0 and svg.strip().startswith("flowchart"), ev)
+    check(
+        record,
+        "what it produced is the Mermaid default, character for character",
+        svg == mermaid,
+        "identical to `--fmt mermaid`" if svg == mermaid else mermaid_ev,
+    )
+
+    _, table, table_ev = run(cli, "health", limit=90)
+    rc_h, other, other_ev = run(cli, "health", "--fmt", "json", expect=None, limit=90)
+    check(record, "health does the same with a format it does not offer", rc_h == 0, other_ev)
+    check(
+        record,
+        "it prints the table, not a Markdown table and not JSON",
+        "| --- |" not in other and other.splitlines()[1:] == table.splitlines()[1:],
+        table_ev,
+    )
+    if svg == mermaid:
+        lodge(
+            finding,
+            "M-11",
+            "src/ea/cli.py · view, health, target",
+            "usability",
+            "A `--fmt` value the command does not offer is silently replaced by the default rather than refused.",
+            "`view` resolves the option with `{…}.get(fmt, to_mermaid)`, and `health` and `target` compare "
+            "`fmt == 'md'` and fall through. So `ea view IA-COURSE-CAT --fmt svg` prints Mermaid and exits 0. "
+            "The help lists the formats, so a value outside the list is a mistake worth naming — the more so "
+            "with `--out`, where the wrong renderer is written to a file.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M47",
+    group="M",
+    title="target covers the whole model as Markdown, and answers for a work package that does not exist",
+    feature="Command line · target",
+    expected="`target --fmt md` with no work package titles the section for the whole model and draws more of it than one work package does; an id that names no work package is refused, as it is when a branch is created for it.",
+)
+def test_m47_target_whole_model(cli, record, finding):
+    rc, whole, ev = run(cli, "target", "--fmt", "md", limit=140)
+    must(record, "the whole model's target view was generated", rc == 0 and whole.startswith("## "), ev)
+    check(
+        record,
+        "with no work package the heading names none",
+        whole.splitlines()[0].strip() == "## Target state",
+        whole.splitlines()[0],
+    )
+    check(
+        record,
+        "the markers are explained and the diagram is fenced",
+        "```mermaid" in whole and "Markers:" in whole,
+        whole.splitlines()[2].strip(),
+    )
+    _, scoped, scoped_ev = run(cli, "target", "-w", WORK_PACKAGE, "--fmt", "md", limit=100)
+    check(
+        record,
+        "it draws more of the model than one work package does",
+        whole.count(":::") > scoped.count(":::") > 0,
+        f"{whole.count(':::')} nodes for the model, {scoped.count(':::')} under {WORK_PACKAGE}",
+    )
+
+    rc_bad, bad, bad_ev = run(cli, "target", "-w", NO_WORK_PACKAGE, expect=None, limit=140)
+    rc_branch, branch_out, branch_ev = run(
+        cli, "branch", "create", "M no work package", "-w", NO_WORK_PACKAGE, expect=None, limit=140
+    )
+    check(
+        record,
+        "creating a branch for a work package that does not exist is refused",
+        rc_branch == 1 and NO_WORK_PACKAGE in branch_out,
+        trim(refusal(branch_out), 130),
+    )
+    check(
+        record,
+        "and so is reporting the target state of one",
+        rc_bad == 1,
+        f"exit {rc_bad}: {trim(bad, 120)}",
+    )
+    if rc_bad == 0:
+        lodge(
+            finding,
+            "M-12",
+            "src/ea/cli.py · target",
+            "defect",
+            "`target -w <id that is no work package>` reports an empty scope under that id instead of saying there is no such work package.",
+            f"`ea target -w {NO_WORK_PACKAGE}` exits 0 and prints '0 elements, 0 relationships under "
+            f"{NO_WORK_PACKAGE}; 0 elements change', and `--fmt md` draws an empty diagram titled 'Target "
+            f"state of {NO_WORK_PACKAGE}'. `branch create -w` refuses the same id by name, so a typed work "
+            "package reads as a work package with nothing in it on one command and an error on the other.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M48",
+    group="M",
+    title="Every graph command refuses an element that does not exist, and says so in words",
+    feature="Command line · neighbours, trace, impact, view",
+    expected="Each of the four commands exits 1 for an unknown id and ends with a sentence naming it, not a bare identifier.",
+)
+def test_m48_graph_unknown_element(cli, record):
+    for command in ("neighbours", "trace", "impact", "view"):
+        rc, out, ev = run(cli, command, UNKNOWN, expect=1, limit=110)
+        check(record, f"{command} refuses an element that does not exist", rc == 1, ev)
+        check(
+            record,
+            f"the {command} refusal says the element was not found, not only which id",
+            f"no element with id {UNKNOWN}" in out,
+            trim(refusal(out), 120),
+        )
+
+
+# ============================================================ loading, the rest of it ======
+@pytest.mark.scenario(
+    scenario_id="M49",
+    group="M",
+    title="import --mapping reads a vendor's own column names through the connector mapping",
+    feature="Command line · import --mapping",
+    expected="With `connectors/tool-export/mapping.yaml`, files named for the tool are found, its column headers and type label are mapped onto the model, its source system and default status are applied, and its lifecycle wording becomes a current state.",
+)
+def test_m49_import_mapping(cli, record, tmp_path):
+    directory = tmp_path / "m-tool-export"
+    write_csv(
+        directory,
+        "m-tool-objects.csv",
+        "ID,Name,Object Type,Description,Lifecycle Status\n"
+        f"{MAPPED},M_Mapped_Table,Data Entity,A row that arrived through a connector mapping.,Being built\n",
+    )
+    write_csv(
+        directory,
+        "m-tool-relations.csv",
+        f"Source ID,Relationship,Target ID\nLDC-CURR,encapsulates,{MAPPED}\n",
+    )
+
+    rc_dry, dry, dry_ev = run(cli, "validate", str(directory), "--mapping", MAPPING, limit=160)
+    must(record, "the dry run through the mapping ran", rc_dry == 0, dry_ev)
+    check(record, "the files named for the tool were found", "elements 0/1" in dry, trim(dry))
+    check(record, "the source system comes from the mapping", "source=ea-tool" in dry, trim(dry))
+    check(record, "the vendor's columns validate against the pack", "0 errors, 0 warnings" in dry, trim(dry))
+
+    rc, out, ev = run(cli, "import", str(directory), "--mapping", MAPPING, "--source", "m-tool", limit=160)
+    must(record, "the import through the mapping succeeded", rc == 0 and "0 errors" in out, ev)
+    check(
+        record, "--source overrides the source system the mapping declares", "source=m-tool" in out, trim(out)
+    )
+    check(
+        record,
+        "both of the tool's files were loaded",
+        "elements 1/1 loaded" in out and "relationships 1/1 loaded" in out,
+        trim(out),
+    )
+
+    _, got, got_ev = run(cli, "get", MAPPED, limit=150)
+    must(record, "the imported element is in the model", got.startswith(MAPPED), got_ev)
+    check(
+        record,
+        "the vendor's ID and Name columns became the model's",
+        "M_Mapped_Table" in got,
+        got.splitlines()[0],
+    )
+    check(
+        record,
+        "its Object Type column resolved to a type in the pack",
+        "[Data Entity]" in got,
+        got.splitlines()[0],
+    )
+    check(record, "its Description came through", "connector mapping" in got, trim(got, 120))
+    check(
+        record,
+        "the relationship file's Source ID and Target ID were read too",
+        "LDC-CURR" in got,
+        trim(next((ln for ln in got.splitlines() if "LDC-CURR" in ln), ""), 120),
+    )
+    _, state, state_ev = run(
+        cli,
+        "sql",
+        f"select current_state, status, source_system from element where element_id = '{MAPPED}'",
+        limit=150,
+    )
+    check(
+        record,
+        "the vendor's lifecycle wording became a current state",
+        "in_implementation" in state,
+        trim(state, 130),
+    )
+    check(
+        record, "the mapping's default status was applied", "approved" in state, trim(state, 130) or state_ev
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M50",
+    group="M",
+    title="import refuses a directory it cannot read, and says why for one of the two reasons",
+    feature="Command line · import",
+    expected="A directory that does not exist and a directory with no CSV files in it both exit 1 and say, in words, what was wrong with the path.",
+)
+def test_m50_import_unreadable(cli, record, tmp_path, finding):
+    _, before, _ = run(cli, "stats", limit=60)
+    missing = tmp_path / "m-not-here"
+    rc, out, ev = run(cli, "import", str(missing), expect=1, limit=140)
+    check(record, "a directory that does not exist exits 1", rc == 1, ev)
+    said = refusal(out).replace("\n", "")
+    check(record, "the path it could not read is named", str(missing) in said, trim(said, 130))
+    worded = any(w in said.lower() for w in ("no such", "not found", "does not exist", "no directory"))
+    check(
+        record,
+        "and the message says what was wrong with it, not only where it was",
+        worded,
+        f"the refusal reads {said!r}",
+    )
+
+    empty = tmp_path / "m-empty"
+    empty.mkdir()
+    rc_e, out_e, empty_ev = run(cli, "import", str(empty), expect=1, limit=140)
+    check(record, "a directory with no CSV files in it exits 1 too", rc_e == 1, empty_ev)
+    check(
+        record,
+        "that one does say what was wrong",
+        "no CSV files matched" in out_e.replace("\n", ""),
+        trim(refusal(out_e).replace("\n", ""), 130),
+    )
+    _, after, after_ev = run(cli, "stats", limit=60)
+    check(
+        record, "neither attempt touched the model", before.splitlines()[0] == after.splitlines()[0], after_ev
+    )
+    if not worded:
+        lodge(
+            finding,
+            "M-13",
+            "src/ea/importer/csv_import.py:118, through `ea import`",
+            "defect",
+            "A directory that does not exist is reported as the bare path — `FileNotFoundError: /path` — while the line below it, for a directory with no CSVs, writes a sentence.",
+            "`raise FileNotFoundError(str(d))` gives the path as the whole message; `raise FileNotFoundError("
+            'f"no CSV files matched in {directory}")`, 389 lines later in the same module, reads as a '
+            "sentence. The operator is told nothing they did not type, and the two failures of the same "
+            "command read as though they came from different applications.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M51",
+    group="M",
+    title="import --dry-run loads nothing, and --actor is recorded on every row the load writes",
+    feature="Command line · import",
+    expected="`--dry-run` reports the same summary validate does and leaves the model and its freshness untouched; a load under `--actor` records that actor and the source system on the rows.",
+)
+def test_m51_import_dry_run_and_actor(cli, record, tmp_path):
+    _, before, _ = run(cli, "stats", limit=60)
+    rc, dry, ev = run(cli, "import", "data/sample", "--dry-run", "--source", "m-dry", limit=160)
+    must(record, "the dry run ran", rc == 0, ev)
+    check(record, "it reports the source it was given", "source=m-dry" in dry, trim(dry))
+    check(record, "it validates the whole sample", "0 errors, 0 warnings" in dry, trim(dry))
+    check(record, "and it loaded none of it", "elements 0/47" in dry, trim(dry))
+    _, after, after_ev = run(cli, "stats", limit=60)
+    check(record, "the model is untouched by it", before.splitlines()[0] == after.splitlines()[0], after_ev)
+    _, freshness, fresh_ev = run(cli, "health", limit=200)
+    check(record, "and the source it was given never reached the model", "m-dry" not in freshness, fresh_ev)
+
+    directory = tmp_path / "m-stamped"
+    write_csv(directory, "elements.csv", f"id,type,name\n{STAMPED},Data Entity,M_Stamped_Table\n")
+    rc_i, loaded, load_ev = run(
+        cli, "import", str(directory), "--source", "m-stamped", "--actor", "m-nightly", limit=150
+    )
+    must(record, "the load under its own actor ran", rc_i == 0 and "elements 1/1 loaded" in loaded, load_ev)
+    _, who, who_ev = run(
+        cli,
+        "sql",
+        f"select created_by, updated_by, source_system, origin from element where element_id = '{STAMPED}'",
+        limit=160,
+    )
+    check(
+        record, "the actor is recorded against the row it wrote", "m-nightly" in who, trim(who, 140) or who_ev
+    )
+    check(
+        record,
+        "so is the source system, on the row and on its origin",
+        "m-stamped" in who and "import:m-stamped" in who,
+        trim(who, 140),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M52",
+    group="M",
+    title="export-pack writes the pack named by --pack-id, and destroys the destination when the id is wrong",
+    feature="Command line · export-pack",
+    expected="`--pack-id higher_education` writes that pack; a pack id the store does not hold is refused by name and the file it was told to write is left as it was.",
+)
+def test_m52_export_pack_by_id(cli, record, tmp_path, finding):
+    out_file = tmp_path / "m-by-id.yaml"
+    rc, said, ev = run(cli, "export-pack", str(out_file), "--pack-id", "higher_education", limit=130)
+    must(record, "the pack was written by id", rc == 0 and out_file.exists(), ev)
+    text = out_file.read_text(encoding="utf-8")
+    check(record, "it says which pack it wrote", "higher_education" in said, trim(said))
+    check(
+        record,
+        "the file holds that pack",
+        text.startswith("pack:") and "id: higher_education" in text and "element_types:" in text,
+        f"{len(text.splitlines())} lines",
+    )
+
+    keep = tmp_path / "m-keep.yaml"
+    keep.write_text("# M: a file that was already here\n", encoding="utf-8")
+    rc_bad, bad, bad_ev = run(
+        cli, "export-pack", str(keep), "--pack-id", "m-no-such-pack", expect=None, limit=140
+    )
+    check(record, "a pack id the store does not hold fails", rc_bad == 1, bad_ev)
+    check(
+        record,
+        "the failure names the pack id it could not find",
+        "m-no-such-pack" in bad,
+        f"the refusal reads {refusal(bad)!r}",
+    )
+    survived = keep.exists() and keep.read_text(encoding="utf-8").startswith("# M:")
+    check(
+        record,
+        "and the file it was told to write is left as it was",
+        survived,
+        f"{keep.stat().st_size} bytes left in the destination" if keep.exists() else "the file is gone",
+    )
+    if not survived:
+        lodge(
+            finding,
+            "M-14",
+            "src/ea/cli.py · export-pack, src/ea/metamodel/loader.py:153 (dump_pack)",
+            "defect",
+            "An unknown --pack-id truncates the destination file first and then crashes with an AttributeError that never names the pack.",
+            "`export_pack` passes `backend.load_pack(pack_id)` straight to `dump_pack`; the store returns None "
+            "for an id it does not hold, and `dump_pack` opens the destination with 'w' before it touches the "
+            "pack. So `ea export-pack <file> --pack-id <typo>` empties <file> and ends 'AttributeError: "
+            "'NoneType' object has no attribute 'element_types''. Pointed at a pack under version control, a "
+            "mistyped id destroys it.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M53",
+    group="M",
+    title="init loads the pack it is given, and fails on one it cannot read",
+    feature="Command line · init",
+    expected="`init --pack` loads that file into the new database; a pack file that does not exist exits 1 and names the file.",
+)
+def test_m53_init_pack(cli, record, tmp_path, finding):
+    fresh = tmp_path / "m-packed.duckdb"
+    rc, out, ev = run(
+        cli, "init", "--db", str(fresh), "--pack", "packs/higher_education/metamodel.yaml", limit=150
+    )
+    must(record, "the database was created from the pack it was given", rc == 0 and fresh.exists(), ev)
+    check(
+        record,
+        "it names the pack it loaded and how big it is",
+        "higher_education" in out and "element types" in out and "relationship types" in out,
+        trim(out),
+    )
+    _, summary_out, summary_ev = run(cli, "summary", EA_DB_PATH=str(fresh), limit=90)
+    check(
+        record, "the new database holds that metamodel", "pack `higher_education`" in summary_out, summary_ev
+    )
+    _, stats_out, stats_ev = run(cli, "stats", EA_DB_PATH=str(fresh), limit=90)
+    check(record, "and no content", stats_out.strip().startswith("0 elements, 0 relationships"), stats_ev)
+
+    missing = tmp_path / "m-no-pack.yaml"
+    half = tmp_path / "m-half.duckdb"
+    rc_bad, bad, bad_ev = run(cli, "init", "--db", str(half), "--pack", str(missing), expect=1, limit=150)
+    check(record, "a pack file that does not exist fails", rc_bad == 1, bad_ev)
+    check(
+        record,
+        "and the file it could not read is named",
+        str(missing) in refusal(bad).replace("\n", ""),
+        trim(refusal(bad).replace("\n", ""), 130),
+    )
+    if half.exists():
+        lodge(
+            finding,
+            "M-15",
+            "src/ea/cli.py · init",
+            "usability",
+            "An init that fails on its pack leaves the database file it had already created behind.",
+            f"`ea init --db <new file> --pack <a file that does not exist>` exits 1 with the database created "
+            f"and empty ({half.stat().st_size} bytes). `_ctx()` opens the store before `load_pack` is reached, "
+            "so a mistyped pack leaves an artefact that looks like a repository and holds nothing.",
+        )
+
+
+# ================================================= branches: the paths only an error takes =
+@pytest.mark.scenario(
+    scenario_id="M54",
+    group="M",
+    title="branch create refuses a name that cannot become a branch id",
+    feature="Command line · branch create",
+    expected="'main' and a name with no letter or digit in it are both refused, each saying what a name must be, and neither leaves a branch behind.",
+)
+def test_m54_branch_name_refused(cli, record):
+    _, before, before_ev = run(cli, "branch", "list", limit=200)
+    count_before = len([ln for ln in before.splitlines() if ln.strip()])
+    for name, wanted in (("main", "other than 'main'"), ("!!!", "letter or a number")):
+        rc, out, ev = run(cli, "branch", "create", name, expect=1, limit=140)
+        check(record, f"a branch named {name!r} is refused", rc == 1, ev)
+        check(
+            record,
+            f"the refusal of {name!r} says what a name must be",
+            wanted in refusal(out).replace("\n", " "),
+            trim(refusal(out), 130),
+        )
+    _, after, after_ev = run(cli, "branch", "list", limit=200)
+    check(
+        record,
+        "neither attempt left a branch behind",
+        len([ln for ln in after.splitlines() if ln.strip()]) == count_before,
+        f"{count_before} branches before, {len([ln for ln in after.splitlines() if ln.strip()])} after",
+    )
+    check(record, "and 'main' is still not one of them", not after.startswith("main "), after_ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M55",
+    group="M",
+    title="--branch accepts a branch that was never created, and the write lands where nothing can reach it",
+    feature="Command line · --branch",
+    expected="Writing under a branch id no `branch create` ever made is refused; today it is accepted, the rows are invisible to `branch list`, `branch diff` cannot read them, and a branch created later with that id carries them.",
+    branch=GHOST_BRANCH,
+)
+def test_m55_branch_never_created(cli, record, finding):
+    _, main_before, main_ev = run(cli, "get", GHOST_ELEMENT, limit=90)
+    head_before = main_before.splitlines()[0]
+    must(record, "the element reads its main value to start with", "status=" in head_before, main_ev)
+
+    rc, out, ev = run(
+        cli,
+        "--branch",
+        GHOST_BRANCH,
+        "set",
+        GHOST_ELEMENT,
+        "--status",
+        "retired",
+        "--note",
+        "M: written to a branch that was never created",
+        expect=None,
+        limit=140,
+    )
+    check(
+        record,
+        "a write to a branch that was never created is refused",
+        rc == 1 and "updated 1" not in out,
+        ev,
+    )
+
+    _, listed, list_ev = run(cli, "branch", "list", limit=200)
+    check(
+        record,
+        "main is untouched by it either way",
+        run(cli, "get", GHOST_ELEMENT, limit=90)[1].splitlines()[0] == head_before,
+        head_before,
+    )
+    rc_diff, diff, diff_ev = run(cli, "branch", "diff", GHOST_BRANCH, expect=None, limit=140)
+    accepted = "updated 1" in out
+    if accepted:
+        check(
+            record,
+            "whatever was written can at least be read back through branch diff",
+            rc_diff == 0,
+            f"`branch diff {GHOST_BRANCH}` exits {rc_diff}: {trim(refusal(diff), 110)}",
+        )
+        check(record, "and the branch it went to is listed", GHOST_BRANCH in listed, list_ev)
+
+    # Clean up what the write left behind: a branch created with that id adopts the rows,
+    # which is the defect stated as plainly as it can be, and abandoning it discards them.
+    rc_c, created, create_ev = run(cli, "branch", "create", "M ghost", expect=None, limit=140)
+    if rc_c == 0:
+        _, adopted, adopted_ev = run(cli, "branch", "diff", GHOST_BRANCH, limit=160)
+        check(
+            record,
+            "a branch created afterwards with that id starts empty",
+            "0 added, 0 changed" in adopted.splitlines()[0],
+            adopted.splitlines()[0] if adopted else adopted_ev,
+        )
+        rc_a, abandoned, abandon_ev = run(cli, "branch", "abandon", GHOST_BRANCH, limit=130)
+        check(record, "the rows are discarded with it", rc_a == 0 and "abandoned" in abandoned, abandon_ev)
+    else:
+        check(record, "no branch was left to clean up", GHOST_BRANCH not in listed, create_ev)
+    _, final, final_ev = run(cli, "get", GHOST_ELEMENT, limit=90)
+    check(record, "main ends as it started", final.splitlines()[0] == head_before, final_ev)
+    if accepted:
+        lodge(
+            finding,
+            "M-16",
+            "src/ea/backend/branching.py · set_branch, through every writing command",
+            "defect",
+            "A write under a --branch nobody created is accepted into an overlay that `branch list` never shows and `branch diff` cannot read.",
+            f"`ea --branch {GHOST_BRANCH} set {GHOST_ELEMENT} --status retired` reports 'updated 1, refused 0'. "
+            "`validate_branch_id` checks the shape of the id and nothing checks that the branch exists, so "
+            "`check_write` finds no branch record, skips the freeze check and writes the row into "
+            f"`branch_element`. `branch diff {GHOST_BRANCH}` then answers 'no branch with id {GHOST_BRANCH}' "
+            "and `branch list` does not mention it: the edit cannot be reviewed, merged or abandoned. A branch "
+            "created later with that id inherits the orphaned change as though somebody had made it there.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M56",
+    group="M",
+    title="A branch conflicts when main moves under it, and --resolve says which side wins",
+    feature="Command line · branch merge --resolve",
+    expected="`branch diff` marks the item CONFLICT; a merge without a resolution applies nothing and leaves the branch open; `--resolve <key>=branch` applies the branch's row over main's.",
+    branch=CONFLICT_BRANCH,
+)
+def test_m56_merge_conflict(cli, record, finding):
+    rc_c, created, create_ev = run(cli, "branch", "create", "M conflict", limit=130)
+    must(record, "the branch was created", rc_c == 0 and CONFLICT_BRANCH in created, create_ev)
+    rc_b, on_branch, branch_ev = run(
+        cli, "--branch", CONFLICT_BRANCH, "set", WRITE_ELEMENT, "--status", "approved", limit=130
+    )
+    must(record, "the branch carries a change", rc_b == 0 and "updated 1" in on_branch, branch_ev)
+    rc_m, moved, moved_ev = run(cli, "set", WRITE_ELEMENT, "--note", "M: main moved underneath", limit=130)
+    must(record, "main then moved under it", rc_m == 0 and "updated 1" in moved, moved_ev)
+
+    rc, diff, ev = run(cli, "branch", "diff", CONFLICT_BRANCH, limit=190)
+    must(record, "the change set was reported", rc == 0 and diff.strip(), ev)
+    check(
+        record, "the heading counts the conflict", "1 conflicts" in diff.splitlines()[0], diff.splitlines()[0]
+    )
+    row = next((ln for ln in diff.splitlines() if WRITE_ELEMENT in ln), "")
+    must(record, "the conflicting item is listed", bool(row), ev)
+    check(record, "the row is marked as a conflict", "CONFLICT" in row, row.strip())
+    check(
+        record,
+        "and it says which version of main the branch started from",
+        "changed" in row and "element" in row,
+        row.strip(),
+    )
+
+    rc_n, nothing, nothing_ev = run(cli, "branch", "merge", CONFLICT_BRANCH, limit=140)
+    must(record, "a merge with the conflict unresolved ran", rc_n == 0, nothing_ev)
+    check(record, "it applies nothing", "merged 0 item(s)" in nothing, trim(nothing))
+    check(record, "the item stays on the branch", "1 remaining" in nothing, trim(nothing))
+    check(record, "and the branch stays open", "still open" in nothing, trim(nothing))
+    _, kept, kept_ev = run(
+        cli, "sql", f"select status, target_note from element where element_id = '{WRITE_ELEMENT}'", limit=150
+    )
+    check(
+        record,
+        "main keeps its own value meanwhile",
+        "main moved underneath" in kept,
+        trim(kept, 130) or kept_ev,
+    )
+    if "conflict" not in nothing.lower():
+        lodge(
+            finding,
+            "M-17",
+            "src/ea/cli.py · branch merge",
+            "usability",
+            "A merge stopped by an unresolved conflict says 'merged 0 item(s), dropped 0, 1 remaining' and never says a conflict is why.",
+            "The merge exits 0 and reads exactly like a merge with nothing to do. `branch diff` marks the row "
+            "CONFLICT and `merge` takes `--resolve <key>=branch|main`, so the command knows both the cause and "
+            "the cure; naming the conflicting items and the flag that resolves them would close the loop.",
+        )
+
+    rc_r, resolved, resolve_ev = run(
+        cli, "branch", "merge", CONFLICT_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=branch", limit=150
+    )
+    must(record, "the merge with a resolution ran", rc_r == 0, resolve_ev)
+    check(record, "the resolved item is applied", "merged 1 item(s)" in resolved, trim(resolved))
+    check(record, "nothing is left on the branch", "0 remaining" in resolved, trim(resolved))
+    check(record, "so it closes", "branch closed" in resolved, trim(resolved))
+    _, after, after_ev = run(
+        cli, "sql", f"select status, target_note from element where element_id = '{WRITE_ELEMENT}'", limit=150
+    )
+    check(record, "main now carries the branch's status", "approved" in after, trim(after, 130))
+    check(
+        record,
+        "and the branch's row replaced main's wholesale, note and all",
+        "main moved underneath" not in after,
+        trim(after, 130) or after_ev,
+    )
+    _, listed, list_ev = run(cli, "branch", "list", "--status", "merged", limit=200)
+    check(
+        record,
+        "the branch is recorded as merged",
+        any(ln.startswith(CONFLICT_BRANCH) for ln in listed.splitlines()),
+        list_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M57",
+    group="M",
+    title="--resolve <key>=main drops the branch's row and leaves main's value standing",
+    feature="Command line · branch merge --resolve",
+    expected="A conflict resolved to main is reported as dropped rather than merged, main keeps the value it had, and the branch closes because nothing is left on it.",
+    branch=DROP_BRANCH,
+)
+def test_m57_resolve_to_main(cli, record):
+    rc_c, created, create_ev = run(cli, "branch", "create", "M drop", limit=130)
+    must(record, "the branch was created", rc_c == 0 and DROP_BRANCH in created, create_ev)
+    rc_b, wrote, wrote_ev = run(
+        cli, "--branch", DROP_BRANCH, "set", WRITE_ELEMENT, "--status", "retired", limit=130
+    )
+    must(record, "the branch carries a change", rc_b == 0 and "updated 1" in wrote, wrote_ev)
+    rc_m, moved, moved_ev = run(cli, "set", WRITE_ELEMENT, "--note", "M: main wins this one", limit=130)
+    must(record, "main moved under it", rc_m == 0 and "updated 1" in moved, moved_ev)
+    _, diff, diff_ev = run(cli, "branch", "diff", DROP_BRANCH, limit=180)
+    must(record, "the item conflicts", "1 conflicts" in diff.splitlines()[0], diff_ev)
+
+    rc, out, ev = run(
+        cli, "branch", "merge", DROP_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=main", limit=150
+    )
+    must(record, "the merge ran", rc == 0, ev)
+    check(
+        record,
+        "the branch's row is dropped, not applied",
+        "merged 0 item(s)" in out and "dropped 1" in out,
+        trim(out),
+    )
+    check(
+        record,
+        "nothing is left on the branch, so it closes",
+        "0 remaining" in out and "branch closed" in out,
+        trim(out),
+    )
+
+    _, after, after_ev = run(
+        cli, "sql", f"select status, target_note from element where element_id = '{WRITE_ELEMENT}'", limit=150
+    )
+    check(
+        record, "main kept the note it moved to", "main wins this one" in after, trim(after, 130) or after_ev
+    )
+    check(record, "and the branch's status never reached it", "retired" not in after, trim(after, 130))
+    _, listed, list_ev = run(cli, "branch", "list", limit=200)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(DROP_BRANCH)), "")
+    must(record, "the branch is listed", bool(row), list_ev)
+    check(record, "it is closed with no rows left on it", " 0 rows" in row and "merged" in row, row.strip())
+
+
+@pytest.mark.scenario(
+    scenario_id="M58",
+    group="M",
+    title="The review actions are refused to every role that does not hold them",
+    feature="Command line · --as, branch review, approve, send-back, reviewers set",
+    expected="A Reviewer may not request a review or edit a branch, an Architect may not approve one or send it back, and only an Admin may assign reviewers — each refusal naming the role and the action.",
+    role="reviewer",
+    branch=ROLES_BRANCH,
+)
+def test_m58_review_roles(cli, record):
+    rc_c, created, create_ev = run(cli, "branch", "create", "M roles", limit=130)
+    must(record, "a branch to decide was created", rc_c == 0 and ROLES_BRANCH in created, create_ev)
+    rc_w, wrote, wrote_ev = run(cli, "--branch", ROLES_BRANCH, "set", ENTITY, "--status", "draft", limit=130)
+    must(record, "it carries a change to review", rc_w == 0 and "updated 1" in wrote, wrote_ev)
+
+    rc_req, req_refused, req_ev = run(
+        cli, "--as", "reviewer", "branch", "review", ROLES_BRANCH, expect=1, limit=140
+    )
+    check(
+        record,
+        "a reviewer may not request a review",
+        rc_req == 1 and "may not request a review" in req_refused,
+        trim(refusal(req_refused), 130) or req_ev,
+    )
+    rc_edit, edit_refused, edit_ev = run(
+        cli,
+        "--as",
+        "reviewer",
+        "--branch",
+        ROLES_BRANCH,
+        "set",
+        ENTITY,
+        "--status",
+        "approved",
+        expect=1,
+        limit=140,
+    )
+    check(
+        record,
+        "nor edit the branch they are to review",
+        rc_edit == 1 and "may not bulk edit" in edit_refused,
+        trim(refusal(edit_refused), 130) or edit_ev,
+    )
+    rc_assign, assign_refused, assign_ev = run(
+        cli, "--as", "architect", "reviewers", "set", "data_entity", REVIEWER_USER, expect=1, limit=140
+    )
+    check(
+        record,
+        "an architect may not assign reviewers",
+        rc_assign == 1 and "may not assign reviewers" in assign_refused,
+        trim(refusal(assign_refused), 130) or assign_ev,
+    )
+
+    rc_r, requested, requested_ev = run(cli, "branch", "review", ROLES_BRANCH, limit=140)
+    must(record, "the author puts it in review", rc_r == 0 and "is in review" in requested, requested_ev)
+    rc_app, app_refused, app_ev = run(
+        cli,
+        "--as",
+        "architect",
+        "branch",
+        "approve",
+        ROLES_BRANCH,
+        "--actor",
+        REVIEWER_USER,
+        expect=1,
+        limit=140,
+    )
+    check(
+        record,
+        "an architect may not approve a branch",
+        rc_app == 1 and "may not approve a branch" in app_refused,
+        trim(refusal(app_refused), 130) or app_ev,
+    )
+    rc_back, back_refused, back_ev = run(
+        cli,
+        "--as",
+        "architect",
+        "branch",
+        "send-back",
+        ROLES_BRANCH,
+        "--comment",
+        "M: no",
+        expect=1,
+        limit=140,
+    )
+    check(
+        record,
+        "nor send one back",
+        rc_back == 1 and "may not send a branch back" in back_refused,
+        trim(refusal(back_refused), 130) or back_ev,
+    )
+    _, listed, list_ev = run(cli, "branch", "list", limit=200)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(ROLES_BRANCH)), "")
+    check(record, "none of the refusals moved the branch on", "in_review" in row, row.strip() or list_ev)
+
+    rc_end, ended, end_ev = run(cli, "branch", "abandon", ROLES_BRANCH, limit=130)
+    check(
+        record, "an admin closes the branch the scenario opened", rc_end == 0 and "abandoned" in ended, end_ev
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M59",
+    group="M",
+    title="A review needs something to review, happens once, and is not approved by its author",
+    feature="Command line · branch review, approve --types",
+    expected="A branch with nothing on it cannot be reviewed, one already in review is not sent again, its author may not approve it, a type outside its change set cannot be approved, and `--types` approves the one it does touch.",
+    role="reviewer",
+    branch=REVIEW_BRANCH,
+)
+def test_m59_review_conflicts(cli, record):
+    rc_c, created, create_ev = run(cli, "branch", "create", "M review", limit=130)
+    must(record, "the branch was created", rc_c == 0 and REVIEW_BRANCH in created, create_ev)
+
+    rc_empty, empty, empty_ev = run(cli, "branch", "review", REVIEW_BRANCH, expect=1, limit=140)
+    check(
+        record,
+        "a branch with nothing on it cannot be reviewed",
+        rc_empty == 1 and "nothing on the branch to review" in empty,
+        trim(refusal(empty), 130) or empty_ev,
+    )
+
+    rc_w, wrote, wrote_ev = run(
+        cli, "--branch", REVIEW_BRANCH, "set", ENTITY, "--status", "approved", limit=130
+    )
+    must(record, "with a change on it the branch is reviewable", rc_w == 0 and "updated 1" in wrote, wrote_ev)
+    rc_r, requested, req_ev = run(cli, "branch", "review", REVIEW_BRANCH, limit=140)
+    must(record, "the review was requested", rc_r == 0 and "is in review" in requested, req_ev)
+
+    rc_again, again, again_ev = run(cli, "branch", "review", REVIEW_BRANCH, expect=1, limit=140)
+    check(
+        record,
+        "a branch already in review is not sent again",
+        rc_again == 1 and "is in_review" in again,
+        trim(refusal(again), 130) or again_ev,
+    )
+    rc_self, self_out, self_ev = run(
+        cli, "--as", "reviewer", "branch", "approve", REVIEW_BRANCH, "--actor", AUTHOR, expect=1, limit=140
+    )
+    check(
+        record,
+        "the author of a branch may not approve it",
+        rc_self == 1 and "author of a branch may not approve it" in self_out,
+        trim(refusal(self_out), 130) or self_ev,
+    )
+    rc_type, wrong_type, type_ev = run(
+        cli,
+        "--as",
+        "reviewer",
+        "branch",
+        "approve",
+        REVIEW_BRANCH,
+        "--types",
+        "capability",
+        "--actor",
+        REVIEWER_USER,
+        "--groups",
+        REVIEWER_GROUP,
+        expect=1,
+        limit=140,
+    )
+    check(
+        record,
+        "a type the branch does not touch cannot be approved",
+        rc_type == 1 and "none of the given types is in the branch's change set" in wrong_type,
+        trim(refusal(wrong_type), 130) or type_ev,
+    )
+
+    rc_ok, approved, ok_ev = run(
+        cli,
+        "--as",
+        "reviewer",
+        "branch",
+        "approve",
+        REVIEW_BRANCH,
+        "--types",
+        "data_entity",
+        "--actor",
+        REVIEWER_USER,
+        "--groups",
+        REVIEWER_GROUP,
+        limit=140,
+    )
+    must(record, "the type it does touch is approved", rc_ok == 0, ok_ev)
+    check(
+        record,
+        "the approval names that type and nothing else",
+        "approved data_entity" in approved,
+        trim(approved),
+    )
+    check(record, "nothing is left pending", "pending none" in approved, trim(approved))
+    check(record, "so the branch is approved", f"'{REVIEW_BRANCH}' is approved" in approved, trim(approved))
+
+    rc_end, ended, end_ev = run(cli, "branch", "abandon", REVIEW_BRANCH, limit=130)
+    check(
+        record, "the branch the scenario opened is closed again", rc_end == 0 and "abandoned" in ended, end_ev
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M60",
+    group="M",
+    title="reviewers set clears an assignment, resolves a display name, and calls an element type an element",
+    feature="Command line · reviewers set",
+    expected="An empty string returns the type to any reviewer, a display name resolves to its type id, and a type that is not in the metamodel is refused as a type rather than as an element.",
+)
+def test_m60_reviewer_assignments(cli, record, finding):
+    rc, cleared, ev = run(cli, "reviewers", "set", "data_entity", "", limit=140)
+    must(record, "the assignment was cleared", rc == 0, ev)
+    check(record, "it says the type is back to any reviewer", "(any reviewer)" in cleared, trim(cleared))
+    _, empty, empty_ev = run(cli, "reviewers", "list", limit=140)
+    check(
+        record,
+        "and the listing no longer names the type",
+        not any(ln.startswith("data_entity") for ln in empty.splitlines()),
+        trim(empty, 130) or empty_ev,
+    )
+
+    rc_r, restored, restore_ev = run(
+        cli, "reviewers", "set", "data_entity", f"{REVIEWER_USER},{REVIEWER_GROUP}", limit=140
+    )
+    must(record, "the round's own assignment is put back", rc_r == 0, restore_ev)
+    _, back, back_ev = run(cli, "reviewers", "list", limit=140)
+    row = next((ln for ln in back.splitlines() if ln.startswith("data_entity")), "")
+    check(
+        record,
+        "it reads as it did before",
+        REVIEWER_USER in row and REVIEWER_GROUP in row,
+        row.strip() or back_ev,
+    )
+
+    rc_n, by_name, name_ev = run(cli, "reviewers", "set", "Data Product", REVIEWER_GROUP, limit=140)
+    check(
+        record,
+        "a type given by its display name is stored under its id",
+        rc_n == 0 and "reviewers of data_product" in by_name,
+        trim(by_name) or name_ev,
+    )
+    run(cli, "reviewers", "set", "data_product", "", limit=120)  # leave the round's assignments as they were
+
+    rc_bad, bad, bad_ev = run(cli, "reviewers", "set", "not_a_type", REVIEWER_GROUP, expect=1, limit=140)
+    check(record, "a type that is not in the metamodel is refused", rc_bad == 1, bad_ev)
+    said = refusal(bad)
+    check(
+        record,
+        "and the refusal does not call the element type an element",
+        "element" not in said.lower(),
+        f"the refusal reads {said!r}",
+    )
+    if "element" in said.lower():
+        lodge(
+            finding,
+            "M-18",
+            "src/ea/services/reviews.py:33 (set_assignment), through `ea reviewers set`",
+            "defect",
+            "Assigning reviewers to a type that is not in the metamodel is refused as 'no element with id <type>' — the wrong noun for the thing that was not found.",
+            f"`ea reviewers set not_a_type <group>` ends {said!r}. `set_assignment` raises "
+            "`NotFoundError(type_id)` and the class defaults its kind to 'element', so the operator is told an "
+            "element is missing when they named an element type. The same call site knows it is a type: "
+            "`NotFoundError(type_id, 'element type')` would read correctly.",
+        )
+    _, final, final_ev = run(cli, "reviewers", "list", limit=140)
+    check(
+        record,
+        "nothing the scenario tried changed the assignments it leaves behind",
+        "data_product" not in final and REVIEWER_GROUP in final,
+        trim(final, 130) or final_ev,
+    )
+
+
+# ============================================================== who is running it, part two
+@pytest.mark.scenario(
+    scenario_id="M61",
+    group="M",
+    title="--as agent reads exactly what an admin reads and writes nothing at all",
+    feature="Command line · --as agent",
+    expected="Every read returns the same bytes as the Admin's; a write to main, a branch of its own and a write on somebody else's branch are all refused by name.",
+    role="agent",
+    branch=AGENT_BRANCH,
+)
+def test_m61_as_agent(cli, record):
+    for command in (("stats",), ("get", ENTITY), ("summary",), ("find", "course"), ("view", ASSET)):
+        rc, as_agent, ev = run(cli, "--as", "agent", *command, limit=90)
+        _, as_admin, _ = run(cli, *command, limit=90)
+        check(
+            record,
+            f"an agent reads {command[0]} exactly as an admin does",
+            rc == 0 and bool(as_agent.strip()) and as_agent == as_admin,
+            ev,
+        )
+
+    _, before, before_ev = run(cli, "get", AGENT_ELEMENT, limit=90)
+    head_before = before.splitlines()[0]
+    must(record, "the element to be left alone reads its main value", "status=" in head_before, before_ev)
+
+    rc_main, refused, main_ev = run(
+        cli, "--as", "agent", "set", AGENT_ELEMENT, "--status", "retired", expect=1, limit=140
+    )
+    check(
+        record,
+        "an agent may not write to main",
+        rc_main == 1 and "may not change main directly" in refused,
+        trim(refusal(refused), 130) or main_ev,
+    )
+    rc_create, create_refused, create_ev = run(
+        cli, "--as", "agent", "branch", "create", "M agent", expect=1, limit=140
+    )
+    check(
+        record,
+        "nor open a branch to write on",
+        rc_create == 1 and "may not create a branch" in create_refused,
+        trim(refusal(create_refused), 130) or create_ev,
+    )
+
+    rc_open, opened, open_ev = run(cli, "branch", "create", "M agent", limit=130)
+    must(record, "an admin opens one for it instead", rc_open == 0 and AGENT_BRANCH in opened, open_ev)
+    rc_branch, branch_refused, branch_ev = run(
+        cli,
+        "--as",
+        "agent",
+        "--branch",
+        AGENT_BRANCH,
+        "set",
+        AGENT_ELEMENT,
+        "--status",
+        "retired",
+        expect=1,
+        limit=140,
+    )
+    check(
+        record,
+        "and it may not write on that either",
+        rc_branch == 1 and "may not bulk edit" in branch_refused,
+        trim(refusal(branch_refused), 130) or branch_ev,
+    )
+    _, listed, list_ev = run(cli, "branch", "list", limit=200)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(AGENT_BRANCH)), "")
+    check(record, "the branch carries nothing", " 0 rows" in row, row.strip() or list_ev)
+    _, after, after_ev = run(cli, "get", AGENT_ELEMENT, limit=90)
+    check(record, "and the element is untouched by any of it", after.splitlines()[0] == head_before, after_ev)
+    rc_end, ended, end_ev = run(cli, "branch", "abandon", AGENT_BRANCH, limit=130)
+    check(record, "the branch the scenario opened is closed", rc_end == 0 and "abandoned" in ended, end_ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M62",
+    group="M",
+    title="EA_ROLE and EA_BRANCH do what the help says they do, and -b is the short form of --branch",
+    feature="Command line · --as, --branch, the environment",
+    expected="A write under EA_ROLE=reader is refused by name, the same read is byte for byte the Admin's, a write under EA_BRANCH lands on the overlay and not on main, and `-b` reads that overlay exactly as `--branch` does.",
+    role="reader",
+    branch=ENV_BRANCH,
+)
+def test_m62_environment_flags(cli, record):
+    rc_role, refused, role_ev = run(
+        cli, "set", WRITE_ELEMENT, "--status", "retired", expect=1, limit=140, EA_ROLE="reader"
+    )
+    check(
+        record,
+        "EA_ROLE sets the role the way --as does",
+        rc_role == 1 and "a Reader may not change main directly" in refused,
+        trim(refusal(refused), 130) or role_ev,
+    )
+    _, as_admin, _ = run(cli, "get", ENTITY, limit=90)
+    _, as_reader, reader_ev = run(cli, "get", ENTITY, limit=90, EA_ROLE="reader")
+    check(
+        record,
+        "a role narrows what may be written, not what may be read",
+        bool(as_reader.strip()) and as_reader == as_admin,
+        reader_ev,
+    )
+
+    rc_c, created, create_ev = run(cli, "branch", "create", "M env", limit=130)
+    must(record, "a branch to write on was created", rc_c == 0 and ENV_BRANCH in created, create_ev)
+    _, main_before, main_ev = run(cli, "get", ENV_ELEMENT, limit=90)
+    head_before = main_before.splitlines()[0]
+    rc_w, wrote, write_ev = run(
+        cli, "set", ENV_ELEMENT, "--status", "retired", limit=140, EA_BRANCH=ENV_BRANCH
+    )
+    must(record, "EA_BRANCH puts the write on the overlay", rc_w == 0 and "updated 1" in wrote, write_ev)
+    _, on_main, on_main_ev = run(cli, "get", ENV_ELEMENT, limit=90)
+    check(record, "main did not take it", on_main.splitlines()[0] == head_before, on_main.splitlines()[0])
+
+    _, short, short_ev = run(cli, "-b", ENV_BRANCH, "get", ENV_ELEMENT, limit=90)
+    check(
+        record,
+        "-b is the short form of --branch and reads the overlay",
+        "status=retired" in short.splitlines()[0],
+        short.splitlines()[0] if short else short_ev,
+    )
+    _, long_form, long_ev = run(cli, "--branch", ENV_BRANCH, "get", ENV_ELEMENT, limit=90)
+    check(
+        record, "the flag, its short form and the variable name the same branch", short == long_form, long_ev
+    )
+    _, by_env, env_ev = run(cli, "get", ENV_ELEMENT, limit=90, EA_BRANCH=ENV_BRANCH)
+    check(record, "and the variable reads it too", by_env == long_form, env_ev)
+
+    rc_end, ended, end_ev = run(cli, "branch", "abandon", ENV_BRANCH, limit=130)
+    check(record, "the branch the scenario opened is closed", rc_end == 0 and "abandoned" in ended, end_ev)
+    _, final, final_ev = run(cli, "get", ENV_ELEMENT, limit=90)
+    check(record, "main ends as it started", final.splitlines()[0] == head_before, final_ev or on_main_ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M63",
+    group="M",
+    title="A branch that has already been merged can be abandoned, and the record then denies the merge",
+    feature="Command line · branch abandon",
+    expected="Abandoning a closed branch is refused; today it succeeds, rewrites a merged branch's status to abandoned, and can be repeated for ever.",
+    branch=CLOSED_BRANCH,
+)
+def test_m63_abandon_a_closed_branch(cli, record, finding):
+    rc_c, created, create_ev = run(cli, "branch", "create", "M closed", limit=130)
+    must(record, "the branch was created", rc_c == 0 and CLOSED_BRANCH in created, create_ev)
+    rc_w, wrote, write_ev = run(
+        cli, "--branch", CLOSED_BRANCH, "set", CLOSED_ELEMENT, "--status", "draft", limit=130
+    )
+    must(record, "it carries a change", rc_w == 0 and "updated 1" in wrote, write_ev)
+    rc_m, merged, merge_ev = run(cli, "branch", "merge", CLOSED_BRANCH, limit=140)
+    must(
+        record,
+        "the change is merged into main and the branch closes",
+        rc_m == 0 and "merged 1 item(s)" in merged and "branch closed" in merged,
+        merge_ev,
+    )
+    _, on_main, main_ev = run(cli, "get", CLOSED_ELEMENT, limit=90)
+    must(record, "main carries it", "status=draft" in on_main.splitlines()[0], main_ev)
+
+    rc_a, abandoned, abandon_ev = run(cli, "branch", "abandon", CLOSED_BRANCH, expect=None, limit=140)
+    check(record, "a branch that has already been merged cannot be abandoned", rc_a == 1, abandon_ev)
+    _, listed, list_ev = run(cli, "branch", "list", limit=200)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(CLOSED_BRANCH)), "")
+    must(record, "the branch is still in the record", bool(row), list_ev)
+    check(record, "and the record still says its change was merged", " merged " in row, row.strip())
+    _, still, still_ev = run(cli, "get", CLOSED_ELEMENT, limit=90)
+    check(
+        record,
+        "main keeps the change either way",
+        "status=draft" in still.splitlines()[0],
+        still.splitlines()[0] if still else still_ev,
+    )
+    rc_again, again, again_ev = run(cli, "branch", "abandon", CLOSED_BRANCH, expect=None, limit=140)
+    check(record, "and a closed branch cannot be abandoned twice", rc_again == 1, again_ev)
+    if rc_a == 0:
+        lodge(
+            finding,
+            "M-19",
+            "src/ea/backend/duckdb_backend.py:1444 (abandon_branch), through `ea branch abandon`",
+            "defect",
+            "Abandoning a branch that was already merged succeeds and rewrites its status to abandoned, so the record denies a merge that reached main.",
+            f"`ea branch merge {CLOSED_BRANCH}` closed the branch as merged and applied its row to main; "
+            f"`ea branch abandon {CLOSED_BRANCH}` then answered 'branch {CLOSED_BRANCH} abandoned' and the "
+            "listing now reads 'abandoned 0 rows' for a branch whose change is in main. `merge` refuses a "
+            "closed branch ('branch … is abandoned'), `abandon_branch` checks nothing but existence, and it "
+            "can be repeated indefinitely. Anyone reading the branch log afterwards is told the change was "
+            "thrown away.",
+        )

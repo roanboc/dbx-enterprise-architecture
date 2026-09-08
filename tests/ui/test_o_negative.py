@@ -664,16 +664,18 @@ def test_broken_csv_loads_nothing(ui, record, finding):
 @pytest.mark.scenario(
     scenario_id="O11",
     group="O",
-    title="A ragged CSV is silently re-read as a different row instead of being refused",
+    title="A file that is not the shape it claims is refused, not re-read as something else",
     feature="Negative · import · a file that is not the shape it claims",
     expected=(
         "A file whose one data row carries more fields than its header declares is not the file its "
-        "author wrote. The page should refuse it and name the mismatch; instead it reports no issue at "
-        "all, and a load writes an element the file never declared."
+        "author wrote. It is refused and named, nothing of it is loaded, and neither the row it "
+        "declares nor the row assembled from the tail of the same line reaches the model."
     ),
     branch=BRANCH_ID,
 )
-def test_ragged_csv_is_refused(ui, record, finding):
+def test_ragged_csv_is_refused(ui, record):
+    # The finding this scenario was written for: the parser folded the surplus away and the
+    # file loaded without a word, under an identifier it never declared.
     ui.goto("/import")
     ui.must("the Import page rendered its upload zone", ui.visible("im-upload"))
     _upload(ui, _write(ui, "o-ragged-elements.csv", RAGGED_CSV))
@@ -681,20 +683,21 @@ def test_ragged_csv_is_refused(ui, record, finding):
     ui.click("im-validate")
     report = ui.text("im-report")
     ui.must("the check ran and reported something", bool(report.strip()), "the report area stayed empty")
+    ui.check("the file is reported as a problem", "Not read" in report, _brief(report))
     ui.check(
-        "the file that does not match its own header is reported as a problem",
-        "0 errors" not in report,
-        _brief(report),
-    )
-    ui.check(
-        "and names the file it was reading when it found the mismatch",
+        "and it is named, so the reader knows which file to look at",
         "o-ragged-elements.csv" in report,
         _brief(report),
     )
-    ui.shot("A row with more fields than its header declares, after Validate only: no issue is raised")
+    ui.check(
+        "and the report says what is wrong with it",
+        "header" in report.lower(),
+        _brief(report),
+    )
+    ui.shot("A row with more fields than its header declares is refused, and the file is named")
 
-    # Staged onto this group's branch, never onto main: the load below writes a row nobody
-    # wrote, and it must not reach the model other groups are reading.
+    # Staged onto this group's branch, never onto main: if a load did write something, it
+    # must not reach the model the other groups are reading.
     _pick(ui, "branch-select", BRANCH_NAME)
     ui.must(
         "the header left main for this group's branch",
@@ -710,59 +713,19 @@ def test_ragged_csv_is_refused(ui, record, finding):
     _upload(ui, _write(ui, "o-ragged-elements.csv", RAGGED_CSV))
     ui.click("im-load")
     loaded = ui.text("im-report")
-    ui.check("the load reports one element written", "elements 1/1 loaded" in loaded, _brief(loaded))
-    ui.shot("The same file, loaded onto the branch: one element written, and no issue raised")
-
-    ui.goto(f"/element/{RAGGED_DECLARED}")
-    declared = _heading(ui)
     ui.check(
-        "the row the file declares is the row that was written",
-        declared != "Not found",
-        f"{RAGGED_DECLARED} is {declared!r} on the branch",
+        "loading it writes nothing", "elements 0/0 loaded" in loaded or "Not read" in loaded, _brief(loaded)
     )
-    ui.shot(
-        f"The identifier the file declares, {RAGGED_DECLARED}, looked up on the branch it was loaded onto"
-    )
-    ui.goto(f"/element/{RAGGED_GHOST}")
-    ghost = _heading(ui)
-    ui.check(
-        "and nothing was written under an identifier the file never declared",
-        ghost == "Not found",
-        f"{RAGGED_GHOST} is {ghost!r} on the branch",
-    )
-    ui.shot("What the branch holds instead: an element assembled from the tail of the same line")
+    ui.shot("The same file, pressed through Load: still refused, and nothing written")
 
-    if ghost != "Not found":
-        finding.append(
-            _finding(
-                finding_id="O-6",
-                where="src/ea/ui/pages/import_page.py · _frames(), the pd.read_csv call",
-                severity="defect",
-                summary="A CSV row with more fields than its header is silently re-read as a different row",
-                detail=(
-                    "_frames() calls pd.read_csv with nothing but dtype and keep_default_na. When a data "
-                    "row carries more fields than the header declares, the reader takes the surplus as an "
-                    f"index and keeps only the last columns, so '{RAGGED_DECLARED}' — the id the file "
-                    f"declares — is thrown away and '{RAGGED_GHOST}', assembled from the tail of the same "
-                    "line, is imported in its place, with no issue reported and no warning shown. A "
-                    "spreadsheet that writes one unescaped comma is enough to trigger it. Read the file "
-                    "with a fixed column count (or check the field count per row) and report the mismatch "
-                    "as an error with the file and the row, the way every other defect is reported."
-                ),
-            )
-        )
-
-    _pick(ui, "branch-select", "main")
-    ui.goto(f"/element/{RAGGED_GHOST}")
-    ui.check(
-        "whatever the branch took, main is untouched",
-        _heading(ui) == "Not found",
-        f"{RAGGED_GHOST} is {_heading(ui)!r} on main",
-    )
-    ui.shot("Main is untouched: the row the ragged file produced stayed on the branch")
-
-
-# ------------------------------------------------------------------------------ a proposal
+    for element_id, what in (
+        (RAGGED_DECLARED, "the row the file declares"),
+        (RAGGED_GHOST, "the row its tail would make"),
+    ):
+        ui.goto(f"/element/{element_id}")
+        heading = _heading(ui)
+        ui.check(f"{what} did not reach the model", heading == "Not found", f"{element_id} is {heading!r}")
+    ui.shot("Neither identifier reached the branch: a file that cannot be read is not half-read")
 
 
 @pytest.mark.scenario(

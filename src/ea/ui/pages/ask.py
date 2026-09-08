@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import dash
 import dash_mantine_components as dmc
@@ -13,6 +14,7 @@ from ea.ui import ids
 from ea.ui.components import (
     alert,
     element_anchor,
+    element_href,
     icon,
     markdown,
     mermaid_block,
@@ -65,6 +67,7 @@ def render(ctx: AppContext) -> html.Div:
                         dmc.Group(
                             [
                                 dmc.Button("Ask", id=ids.ASK_BUTTON, leftSection=icon("tabler:send")),
+                                dmc.Text("", id=ids.ASK_HINT, size="xs", c="dimmed"),
                                 dmc.Button(
                                     "Reset conversation", id=ids.ASK_RESET, variant="subtle", color="gray"
                                 ),
@@ -107,6 +110,20 @@ def render(ctx: AppContext) -> html.Div:
             dcc.Store(id=ids.ASK_DOC_STORE, data=None),
         ]
     )
+
+
+def _link_ids(text: str, grounded: list[str]) -> str:
+    """Turn every identifier the answer cites into a link to the element it names.
+
+    An answer names its elements in brackets, which Markdown reads as a reference link with
+    no definition and renders as an anchor pointing nowhere. Pointing them at the elements
+    they name is what a reader expects of them anyway.
+    """
+    known = sorted({i for i in (grounded or []) if i}, key=len, reverse=True)
+    if not known:
+        return text
+    pattern = re.compile(r"\[(" + "|".join(re.escape(i) for i in known) + r")\](?!\()")
+    return pattern.sub(lambda m: f"[{m.group(1)}]({element_href(m.group(1))})", text)
 
 
 def _section(title: str, body, subtitle: str | None = None):
@@ -205,7 +222,7 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
             mb="sm",
         ),
         *views,
-        _section("Answer", markdown(doc.answer, "ask-answer-md")),
+        _section("Answer", markdown(_link_ids(doc.answer, doc.grounded_ids), "ask-answer-md")),
         alert(
             "These identifiers appear in the answer but no tool returned them; treat them as unverified: "
             + ", ".join(doc.ungrounded_ids),
@@ -230,7 +247,9 @@ def register(app: dash.Dash) -> None:
         running=[(Output(ids.ASK_BUTTON, "loading"), True, False)],
     )
     def ask(n, question):
-        if not n or not (question or "").strip():
+        if not n:
+            return no_update, no_update, no_update
+        if not (question or "").strip():
             return no_update, no_update, no_update
         ctx = get_context()
         res = ctx.agent.ask(question.strip())
@@ -289,7 +308,9 @@ def register(app: dash.Dash) -> None:
         Input(ids.ASK_DOC_MD, "n_clicks"),
         Input(ids.ASK_DOC_DRAWIO, "n_clicks"),
         State(ids.ASK_DOC_STORE, "data"),
-        State({"type": ids.MERMAID_POS, "id": "ask-view-0"}, "data"),
+        # ALL, not the one id: an answer that drew no diagram has no such component, and
+        # naming a component that is not there fails the callback before it runs.
+        State({"type": ids.MERMAID_POS, "id": dash.ALL}, "data"),
         prevent_initial_call=True,
     )
     def download_doc(n_md, n_drawio, stored, positions):
@@ -299,8 +320,9 @@ def register(app: dash.Dash) -> None:
             if not stored.get("view"):
                 return no_update
             view = view_from_dict(stored["view"])
+            placed = next((p for p in (positions or []) if p), None)
             return dcc.send_string(
-                to_drawio(view, get_context().base_url(), positions or None), f"{stored['name']}.drawio"
+                to_drawio(view, get_context().base_url(), placed), f"{stored['name']}.drawio"
             )
         return dcc.send_string(stored["md"], f"{stored['name']}.md")
 
@@ -314,6 +336,20 @@ def register(app: dash.Dash) -> None:
         if n:
             get_context().agent.reset()
         return None, None
+
+    @app.callback(
+        Output(ids.ASK_BUTTON, "disabled"),
+        Output(ids.ASK_HINT, "children"),
+        Input(ids.ASK_INPUT, "value"),
+    )
+    def guard_ask(question):
+        """Ask cannot be pressed on an empty box, and the reason stands beside it.
+
+        Pressing it and being answered with nothing reads as a page that is broken; and
+        clearing the answer already on screen to say so would lose the reader their work.
+        """
+        empty = not (question or "").strip()
+        return empty, "Type a question, or pick one of the examples." if empty else ""
 
     @app.callback(
         Output(ids.ASK_INPUT, "value"),

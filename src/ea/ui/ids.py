@@ -98,6 +98,7 @@ IM_REPORT = "im-report"
 # ask
 ASK_INPUT = "ask-input"
 ASK_BUTTON = "ask-button"
+ASK_HINT = "ask-hint"  # why Ask cannot be pressed, beside it
 ASK_RESET = "ask-reset"
 ASK_ANSWER = "ask-answer"
 ASK_TRACE = "ask-trace"

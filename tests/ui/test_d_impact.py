@@ -865,53 +865,30 @@ def test_run_with_nothing_chosen(ui, record, finding):
 @pytest.mark.scenario(
     scenario_id="D12",
     group="D",
-    title="The two downloads are offered before there is anything to download",
+    title="The downloads are held back until there is a view to download",
     feature="Impact · the downloads before an answer",
-    expected="Pressing Download Markdown or Download draw.io before an element is chosen produces no "
-    "file and no message; once an element is chosen the same button downloads the view.",
+    expected="Before an element is chosen neither download can be pressed, and the reason stands "
+    "beside them; choosing an element opens both, and the same button downloads the view.",
 )
-def test_downloads_before_an_answer(ui, record, finding):
+def test_downloads_before_an_answer(ui, record):
+    # This scenario used to require the opposite — both buttons live, both silent — and that
+    # was the finding: a button that takes a click and produces nothing reads as broken.
     ui.goto("/impact")
     ui.must("nothing is chosen yet", _selected(ui) == "", _selected(ui))
-    ui.check(
-        "both downloads are offered anyway",
-        not ui.disabled("imp-view-md") and not ui.disabled("imp-view-drawio"),
-    )
-    quiet_md = _no_download(ui, "imp-view-md")
-    ui.check("pressing Download Markdown produces no file", quiet_md)
-    quiet_drawio = _no_download(ui, "imp-view-drawio")
-    ui.check("nor does Download draw.io", quiet_drawio)
-    ui.check(
-        "and neither of them says why nothing arrived",
-        _summary(ui) == "" and not ui.page.locator(".mantine-Notification-root").count(),
-        f"the result area read {_summary(ui)[:80]!r}",
-    )
-    ui.shot("Both downloads pressed before an element is chosen")
+    ui.check("Download Markdown cannot be pressed yet", ui.disabled("imp-view-md"))
+    ui.check("nor can Download draw.io", ui.disabled("imp-view-drawio"))
+    reason = ui.text("imp-view-note")
+    ui.check("and the reason stands beside them", "no view to export yet" in reason, reason or "(nothing)")
+    ui.shot("Before an element is chosen the downloads are held back, and say why")
 
     ui.must("the element was found in the selector", _pick(ui, COURSE, COURSE))
     ui.wait_mermaid()
+    ui.check("choosing one opens Download Markdown", not ui.disabled("imp-view-md"))
+    ui.check("and Download draw.io", not ui.disabled("imp-view-drawio"))
+    ui.check("and the reason is withdrawn", ui.text("imp-view-note") == "", ui.text("imp-view-note"))
     md = ui.download("imp-view-md", ".md")
-    ui.check(
-        "the same button downloads the view once there is one",
-        md.name == f"{COURSE}-impact.md",
-        md.name,
-    )
-    if quiet_md and quiet_drawio:
-        finding.append(
-            Finding(
-                finding_id="D-2",
-                where="src/ea/ui/pages/impact.py · download_view() and the Architecture view panel",
-                severity="usability",
-                summary="Both download buttons are enabled with nothing to download, and pressing one is silent",
-                detail=(
-                    "`download_view` returns `no_update` when no element is selected, so the reader who "
-                    "presses Download Markdown or Download draw.io on the empty page gets no file and no "
-                    "word about why. The buttons sit under an empty view frame that says nothing either. "
-                    "Disable both until a run has produced a view, and give the empty frame a line saying "
-                    "an element has to be chosen."
-                ),
-            )
-        )
+    ui.check("the same button downloads the view", md.name == f"{COURSE}-impact.md", md.name)
+    ui.shot("With an element chosen, both downloads are offered and Markdown arrives")
 
 
 @pytest.mark.scenario(
