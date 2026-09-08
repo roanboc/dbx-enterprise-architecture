@@ -80,7 +80,9 @@ def _on_screen(ui, selector: str) -> bool:
 def test_home(ui, record):
     ui.goto("/")
     ui.must("Home renders a heading", bool(_page_heading(ui)), _page_heading(ui))
-    ui.check("the heading names the pack", _page_heading(ui) == "Higher Education EA Metamodel", _page_heading(ui))
+    ui.check(
+        "the heading names the pack", _page_heading(ui) == "Higher Education EA Metamodel", _page_heading(ui)
+    )
     body = ui.body()
     ui.check("the pack id and version are named", "higher_education" in body and "version" in body)
 
@@ -175,7 +177,9 @@ def test_navigation_groups(ui, record):
 def test_unknown_path(ui, record):
     ui.goto("/no-such-page")
     ui.check("the address is left as typed", ui.page.url.endswith("/no-such-page"), ui.page.url)
-    ui.check("Home is rendered instead", _page_heading(ui) == "Higher Education EA Metamodel", _page_heading(ui))
+    ui.check(
+        "Home is rendered instead", _page_heading(ui) == "Higher Education EA Metamodel", _page_heading(ui)
+    )
     body = ui.body()
     ui.check("nothing reports a failure", "This page failed to render" not in body)
     ui.check("the Home content is there", "Elements by type" in body)
@@ -219,7 +223,9 @@ def test_header(ui, record):
         ui.page.locator("#persona-select").first.input_value(),
     )
     ui.check("the burger is hidden on a wide screen", not ui.visible("nav-burger"))
-    ui.shot("The header: brand, branch badge and selector, new branch, role, persona and pack", selector=HEADER)
+    ui.shot(
+        "The header: brand, branch badge and selector, new branch, role, persona and pack", selector=HEADER
+    )
 
 
 @pytest.mark.scenario(
@@ -245,7 +251,9 @@ def test_narrow_viewport(ui, record):
         ui.shot("The burger opens the four navigation groups over the page", full_page=False)
 
         ui.click("nav-browse")
-        ui.check("a link still routes from the narrow navigation", ui.page.url.endswith("/browse"), ui.page.url)
+        ui.check(
+            "a link still routes from the narrow navigation", ui.page.url.endswith("/browse"), ui.page.url
+        )
         ui.check("Browse renders at 480 px", _page_heading(ui) == "Browse", _page_heading(ui))
         ui.check("choosing a page closes the navigation again", not _on_screen(ui, "#nav-browse"))
     finally:
@@ -316,26 +324,3 @@ def test_new_branch_modal(ui, record):
         ui.page.locator("#branch-select").first.input_value(),
     )
     ui.check("the branch badge still says main", ui.branch_badge() == "main", ui.branch_badge())
-
-
-def test_zz_debug(ui):
-    out = []
-    ui.goto("/")
-    out.append("PAGE-HTML-TAIL: " + repr(ui.page.locator("#page").inner_html()[-1500:]))
-    out.append("GRIDS: " + str(ui.page.locator("#page .mantine-SimpleGrid-root").count()))
-    errors = []
-    ui.page.on("console", lambda m: errors.append(m.type + ":" + m.text[:200]))
-    ui.goto("/")
-    out.append("CONSOLE: " + repr(errors[:10]))
-    ui.narrow()
-    out.append("BURGER-BEFORE: " + repr(ui.page.locator("#nav-burger").first.get_attribute("data-opened")))
-    ui.click("nav-burger")
-    out.append("BURGER-AFTER: " + repr(ui.page.locator("#nav-burger").first.get_attribute("data-opened")))
-    out.append("BURGER-ARIA: " + repr(ui.page.locator("#nav-burger").first.evaluate("e => e.outerHTML.slice(0,300)")))
-    out.append("NAVBAR-AFTER: " + repr(ui.page.evaluate("() => {const n=document.querySelector('.mantine-AppShell-navbar'); const s=getComputedStyle(n); return [n.getBoundingClientRect().x, s.transform, n.getAttribute('data-hidden'), document.querySelector('.mantine-AppShell-root')?.style.cssText.slice(0,400)];}")))
-    ui.page.wait_for_timeout(1500)
-    out.append("NAVBAR-LATER: " + repr(ui.page.evaluate("() => document.querySelector('.mantine-AppShell-navbar').getBoundingClientRect().x")))
-    out.append("CONSOLE2: " + repr(errors[:14]))
-    ui.wide()
-    ui.goto("/")
-    print("\n".join(out))
