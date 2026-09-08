@@ -56,6 +56,11 @@ def _attr(name: str) -> str:
     return _pm(name=name, type="el-attr")
 
 
+def _css(selector: str) -> str:
+    """The harness writes a bare component id as an id; Playwright needs the `#`."""
+    return f"#{selector}" if re.fullmatch(r"[a-z0-9][a-z0-9-]*", selector) else selector
+
+
 def _open(ui, element_id: str) -> None:
     ui.goto(f"/element/{element_id}")
 
@@ -82,7 +87,7 @@ def _options(ui, selector: str) -> list[str]:
     Every Select on the page keeps its options in the DOM, so only the visible ones belong
     to the control that was just opened.
     """
-    ui.page.locator(selector).first.click()
+    ui.page.locator(_css(selector)).first.click()
     ui.page.wait_for_timeout(350)
     out = [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
     ui.page.keyboard.press("Escape")
@@ -108,6 +113,18 @@ def _pick_other(ui, text: str, element_id: str) -> list[str]:
     ).first.click()
     ui.settle()
     return offered
+
+
+def _rel_tab_count(ui) -> int:
+    """The number the Relationships tab prints in its own label."""
+    label = ui.page.locator("#el-tabs [role='tab']:has-text('Relationships')").first.inner_text()
+    match = re.search(r"\((\d+)\)", label)
+    return int(match.group(1)) if match else -1
+
+
+def _rel_rows(ui) -> int:
+    """How many relationships the two tables under the form hold."""
+    return ui.page.locator("#el-rel-tables tbody tr").count()
 
 
 def _desc(ui) -> str:
@@ -273,18 +290,24 @@ def test_five_tabs(ui, record):
         any(re.fullmatch(r"Relationships \(\d+\)", label) for label in labels),
         str(labels),
     )
+    # An element nothing has changed yet has an empty History, which says so rather than
+    # printing an empty table, so either answer counts as the tab doing its work.
     expected = {
-        "Overview": ("overview", "Description"),
-        "Edit": ("edit", "Save"),
-        "Relationships": ("rels", "Add a relationship"),
-        "Graph": ("graph", "Depth"),
-        "History": ("history", "when"),
+        "Overview": ("overview", ("Description",)),
+        "Edit": ("edit", ("Save",)),
+        "Relationships": ("rels", ("Add a relationship",)),
+        "Graph": ("graph", ("Depth",)),
+        "History": ("history", ("when", "No changes recorded")),
     }
-    for label, (value, marker) in expected.items():
+    for label, (value, markers) in expected.items():
         _tab(ui, label)
         panel = _panel(ui, value)
         ui.check(f"the {label} tab opens", panel.is_visible(), f"panel {value}")
-        ui.check(f"the {label} tab shows its own work", marker in panel.inner_text(), marker)
+        ui.check(
+            f"the {label} tab shows its own work",
+            any(marker in panel.inner_text() for marker in markers),
+            panel.inner_text()[:80],
+        )
         ui.check(
             f"the {label} tab is the only one open",
             sum(1 for v, _ in expected.values() if _panel(ui, v).is_visible()) == 1,
@@ -459,7 +482,7 @@ def test_empty_name_is_refused(ui, record):
     feature="Element · Edit · optimistic concurrency",
     expected="A save made from a second tab wins; the first tab's save is refused, naming the version clash and telling the reader to reload.",
 )
-def test_concurrent_save_is_refused(ui, record):
+def test_concurrent_save_is_refused(ui, record, finding):
     _open(ui, EL)
     _tab(ui, "Edit")
     original = _desc(ui)
@@ -487,6 +510,21 @@ def test_concurrent_save_is_refused(ui, record):
     ui.check("the refusal names the version clash", "version" in feedback.lower(), feedback)
     ui.check("the refusal says what to do about it", "Reload" in feedback, feedback)
     ui.shot("The stale tab's save is refused, naming the version it had and telling the reader to reload")
+    if re.search(r"\d{2}:\d{2}:\d{2}\.\d{3}", feedback):
+        finding.append(
+            Finding(
+                finding_id="C-2",
+                where="src/ea/ui/pages/element.py · save · the conflict message",
+                severity="usability",
+                summary="The conflict message prints the stored timestamp raw, to the microsecond",
+                detail=(
+                    "The refusal reads 'changed by admin@example.edu at 2026-09-08 08:04:13.219652'. "
+                    "It says the right things, but the time comes straight from the row: seconds and "
+                    "microseconds, no time zone, and the actor as a raw identifier rather than the "
+                    "display name the header shows for the same person."
+                ),
+            )
+        )
     _open(ui, EL)
     ui.check(
         "the model holds what the tab that won wrote",
@@ -645,9 +683,8 @@ def test_graph_depth(ui, record):
     ui.must("the graph drew the neighbourhood", (first or 0) > 1, f"{first} nodes")
     ui.shot("The neighbourhood graph at depth 1")
     thumb = ui.page.locator("#el-graph-depth [role='slider']").first
-    thumb.click()
-    ui.page.keyboard.press("ArrowRight")
-    ui.page.wait_for_timeout(600)
+    thumb.press("ArrowRight")
+    ui.page.wait_for_timeout(700)
     ui.settle()
     ui.wait_graph()
     second = _cy(ui, "cy.$('.element').length")
@@ -878,3 +915,44 @@ def test_history_lists_the_change(ui, record):
     _tab(ui, "Edit")
     ui.fill("el-target-note", "")
     ui.check("the note is put back for the groups that follow", "Saved version" in _save(ui))
+
+
+@pytest.mark.scenario(
+    scenario_id="C22",
+    group="C",
+    title="The Relationships tab keeps its count true when one is added",
+    feature="Element · Relationships · the tab count",
+    expected="The count in the tab label is the number of relationships in the tables, before an addition and after it.",
+)
+def test_relationship_count_follows_the_table(ui, record):
+    # The tab label is rendered once, with the page; adding a relationship rewrites the
+    # tables but not the label, so the screen ends up saying two different numbers.
+    other_name = "Student Enrolment Records"
+    _open(ui, EL)
+    _tab(ui, "Relationships")
+    before_label, before_rows = _rel_tab_count(ui), _rel_rows(ui)
+    ui.must(
+        "the tab counts what the tables hold", before_label == before_rows, f"{before_label} vs {before_rows}"
+    )
+    _pick_other(ui, "Student Enrolment", "IA-STUDENT-ENROL")
+    ui.select("el-rel-type", "categorises")
+    ui.click("el-rel-add")
+    ui.must("the relationship was added", "added" in ui.text("el-rel-feedback").lower())
+    ui.check("the tables hold one more", _rel_rows(ui) == before_rows + 1, f"{_rel_rows(ui)} rows")
+    ui.check(
+        "the tab counts the relationship that was just added",
+        _rel_tab_count(ui) == before_rows + 1,
+        f"the tab says {_rel_tab_count(ui)}, the tables hold {_rel_rows(ui)}",
+    )
+    ui.shot("The tab label and the tables, after a relationship was added")
+    row = ui.page.locator(f"#el-rel-tables tr:has-text({json.dumps(other_name)})").first
+    row.locator("button").last.click()
+    ui.settle()
+    ui.page.wait_for_timeout(300)
+    ui.must("the relationship was removed again", "removed" in ui.text("el-rel-feedback").lower())
+    ui.check(
+        "the tab counts what is left after the delete",
+        _rel_tab_count(ui) == _rel_rows(ui),
+        f"the tab says {_rel_tab_count(ui)}, the tables hold {_rel_rows(ui)}",
+    )
+    ui.shot("The tab label and the tables, after the relationship was deleted again")
