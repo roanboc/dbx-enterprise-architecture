@@ -211,13 +211,15 @@ def _choose(ui, selector: str, label: str) -> None:
 def _description(ui, control_id: str) -> str:
     """What a control says under itself.
 
-    A Mantine `description` is rendered inside the control's wrapper, so it is read
-    from there rather than from the page, which would find any sentence at all.
+    A Mantine `description` is rendered inside the control's own wrapper, so it is read
+    from there rather than from the page, which would find any sentence at all. The class
+    the library writes is `mantine-InputWrapper-description`, so the match is on the tail:
+    `Input-description` finds nothing, because `Wrapper` sits between the two words.
     """
     return ui.page.evaluate(
         "id => { const e = document.getElementById(id);"
         " const w = e && e.closest('.mantine-InputWrapper-root');"
-        " const d = w && w.querySelector('[class*=\"Input-description\"]');"
+        " const d = w && w.querySelector('[class*=\"-description\"]');"
         " return d ? d.innerText.trim() : ''; }",
         control_id,
     )
