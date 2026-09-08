@@ -166,12 +166,12 @@ body { background: #e9ecef; }
 }
 
 /* Branches: the merge log */
-.ag-theme-alpine .ea-added { color: #2b8a3e; font-weight: 600; }
+.ag-theme-alpine .ea-added { color: #237032; font-weight: 600; }
 .ag-theme-alpine .ea-changed { color: #d9480f; font-weight: 600; }
 .ag-theme-alpine .ea-deleted { color: #c92a2a; font-weight: 600; }
 .ag-theme-alpine .ea-conflict { color: #c92a2a; font-weight: 700; }
 .ag-theme-alpine .ea-editable { background: #fff4e6; cursor: pointer; }
-.ag-theme-alpine .ea-link { color: #1c7ed6; font-weight: 600; }
+.ag-theme-alpine .ea-link { color: #14507f; font-weight: 600; }
 .ag-theme-alpine .ea-snippet { color: #495057; font-style: italic; }
 
 

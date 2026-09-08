@@ -8,6 +8,7 @@ import fnmatch
 import io
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import dash
 import dash_mantine_components as dmc
@@ -20,6 +21,8 @@ from ea.models import Forbidden
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, page_title
 from ea.ui.context import AppContext, get_context
+
+ISSUE_LIMIT = 500  # a page cannot usefully show more, and says so when it holds back
 
 MAPPINGS = {
     "": "No mapping (CSV contract)",
@@ -181,6 +184,38 @@ def _row_count(text: str) -> int:
         return max(0, len(text.splitlines()) - 1)
 
 
+def _file_list(store: dict) -> Any:
+    """What has been uploaded so far, each with the way to take it back off."""
+    if not store:
+        return dmc.Text("No files yet.", size="xs", c="dimmed")
+    return dmc.Stack(
+        [
+            dmc.Group(
+                [
+                    icon("tabler:file-type-csv"),
+                    dmc.Text(name, size="sm"),
+                    dmc.Text(_rows_label(_row_count(text)), size="xs", c="dimmed"),
+                    dmc.ActionIcon(
+                        icon("tabler:trash", 14),
+                        id={"type": ids.IM_DROP, "name": name},
+                        variant="subtle",
+                        color="red",
+                        size="sm",
+                        **{"aria-label": f"Remove {name}"},
+                    ),
+                ],
+                gap="xs",
+            )
+            for name, text in store.items()
+        ],
+        gap=4,
+    )
+
+
+def _rows_label(n: int) -> str:
+    return f"{n} row" if n == 1 else f"{n} rows"
+
+
 def _malformed_alert(malformed: list[CsvShapeError]):
     """A file whose rows do not match its own header is named, and nothing of it is read."""
     if not malformed:
@@ -219,7 +254,7 @@ def _run(store, source, mapping_key, dry_run: bool):
         return alert(str(exc), "red")
     if not dry_run:
         ctx.graph.invalidate()
-    color = "green" if report.ok else "red"
+    color = "green" if report.ok and not malformed else "red"
     wrote = report.elements_loaded + report.relationships_loaded + report.links_loaded
     if dry_run:
         lead = "Validation only — nothing written. "
@@ -228,6 +263,10 @@ def _run(store, source, mapping_key, dry_run: bool):
     else:
         lead = "Nothing was loaded. "
     head = lead + report.summary()
+    if malformed:
+        # A file that could not be read is an error, and the count a reader compares with
+        # the command line has to say so.
+        head += f"; {len(malformed)} file(s) refused"
     return html.Div(
         [
             alert(head, "red" if malformed else color),
@@ -236,7 +275,15 @@ def _run(store, source, mapping_key, dry_run: bool):
             if unclassified
             else None,
             dmc.Title(f"Issues ({len(report.issues)})", order=2, size="h5", my="sm"),
-            issues_table(report.issues[:500]),
+            issues_table(report.issues[:ISSUE_LIMIT]),
+            dmc.Text(
+                f"Showing the first {ISSUE_LIMIT} of {len(report.issues)}. "
+                "Fix these and run it again to see the rest.",
+                size="xs",
+                c="dimmed",
+            )
+            if len(report.issues) > ISSUE_LIMIT
+            else None,
         ]
     )
 
@@ -267,18 +314,24 @@ def register(app: dash.Dash) -> None:
         for content, name in zip(contents, names, strict=True):
             _, b64 = content.split(",", 1)
             store[name] = base64.b64decode(b64).decode("utf-8-sig", errors="replace")
-        rows = [
-            dmc.Group(
-                [
-                    icon("tabler:file-type-csv"),
-                    dmc.Text(n, size="sm"),
-                    dmc.Text(f"{_row_count(t)} rows", size="xs", c="dimmed"),
-                ],
-                gap="xs",
-            )
-            for n, t in store.items()
-        ]
-        return store, dmc.Stack(rows, gap=4)
+        return store, _file_list(store)
+
+    @app.callback(
+        Output(ids.IM_STORE, "data", allow_duplicate=True),
+        Output(ids.IM_FILES, "children", allow_duplicate=True),
+        Input({"type": ids.IM_DROP, "name": dash.ALL}, "n_clicks"),
+        State(ids.IM_STORE, "data"),
+        prevent_initial_call=True,
+    )
+    def drop_file(clicks, store):
+        """Take one file back off the list. Uploading the wrong file was the commonest way
+        to end up reloading the page, because there was no way to undo it."""
+        trigger = dash.ctx.triggered_id
+        if not isinstance(trigger, dict) or not any(clicks or []):
+            return no_update, no_update
+        store = dict(store or {})
+        store.pop(trigger.get("name"), None)
+        return store, _file_list(store)
 
     @app.callback(
         Output(ids.IM_REPORT, "children"),

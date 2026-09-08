@@ -387,8 +387,18 @@ def build_relationships(
 
 
 def build_links(
-    frames: list[tuple[str, pd.DataFrame]], mapping: Mapping, known: dict[str, str], report: ImportReport
+    frames: list[tuple[str, pd.DataFrame]],
+    mapping: Mapping,
+    known: dict[str, str],
+    report: ImportReport,
+    backend: DatabaseBackend | None = None,
 ) -> list[Link]:
+    """Links for elements this import brought, and for elements the model already holds.
+
+    A links file is routinely loaded on its own — a second pass adding documentation to
+    elements imported last week. Knowing only what came in the same upload would call
+    every one of those unknown and drop the file.
+    """
     links: list[Link] = []
     for fname, raw in frames:
         df = _rename(raw, mapping.link_columns)
@@ -396,7 +406,10 @@ def build_links(
             report.links_read += 1
             rec = {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
             eid, url = rec.get("element_id", ""), rec.get("url", "")
-            if eid not in known or not url:
+            here = eid in known or (
+                bool(eid) and backend is not None and backend.get_element(eid) is not None
+            )
+            if not here or not url:
                 report.issues.append(
                     Issue(
                         "warning",
@@ -442,7 +455,7 @@ def import_frames(
     rels = build_relationships(
         registry, frames.get("relationships", []), mapping, source_system, known, report
     )
-    links = inline_links + build_links(frames.get("links", []), mapping, known, report)
+    links = inline_links + build_links(frames.get("links", []), mapping, known, report, backend)
     for e in elements + rels:  # type: ignore[operator]
         wp = e.target_work_package
         if wp and wp not in known and backend.get_element(wp) is None:

@@ -159,7 +159,11 @@ DISABLED_JS = (
     + VISIBLE
     + """
   const out = [];
+  // Only a control a reader would try to use. A grid draws disabled wrappers around its
+  // own decorations, and those owe nobody an explanation.
+  const CONTROLS = 'button,input,select,textarea,a[href],[role="button"],[role="link"],[role="tab"]';
   document.querySelectorAll('[disabled],[aria-disabled="true"],[data-disabled]').forEach(el => {
+    if (!el.matches(CONTROLS)) return;
     if (el.getAttribute('data-disabled') === 'false') return;
     if (!vis(el)) return;
     const title = (el.getAttribute('title') || '').trim();
@@ -226,6 +230,8 @@ CONTRAST_JS = """
   for (const el of nodes) {
     if (out.length > 400) break;
     if (el.closest('svg') || el.tagName === 'CANVAS' || el.tagName === 'SCRIPT') continue;
+    // An inactive control is exempt (WCAG 1.4.3): reading as unavailable is the point of it.
+    if (el.closest('[disabled],[aria-disabled="true"],[data-disabled]')) continue;
     const own = Array.from(el.childNodes)
       .filter(n => n.nodeType === 3 && (n.textContent || '').trim())
       .map(n => n.textContent.trim()).join(' ');

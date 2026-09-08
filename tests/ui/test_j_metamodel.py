@@ -1157,3 +1157,710 @@ def test_a_filter_does_not_decide_what_is_saved(ui, record, finding):
     )
     _grid_home(ui, "mm-rels-grid")
     ui.shot("Reload from file has put every relationship type back, whatever the save did")
+
+
+# ------------------------------------------------------------- a second pass over the page
+#
+# Everything below came from reading the page source against the scenarios above: a control
+# or a column no scenario worked (the Notation tab's three list columns, the ANY diamond,
+# the Reviewers grid's own rule), a branch of a callback nothing reached (the preview's
+# rebuild failing, the graph store a save writes), and a claim the page makes about itself
+# that nothing checked (the counts in its subtitle, "a blank cell inherits from the
+# supertype, then the domain"). The two that write anything — J22 and J23 — end by
+# reloading `packs/higher_education/metamodel.yaml`, exactly as J14 and J15 do.
+
+SUPER_GLYPH = "✤"  # nowhere in the shipped pack, so an inherited glyph names where it came from
+DOMAIN_GLYPH = "✜"
+FILTER_OWNER = "J filtered custodian"  # what J22 writes under a filter and then takes back off
+UNUSED_LAYER = "physical"  # no active type is drawn in it, so a new band is the edit landing
+NEW_TYPE_NAME = "J Saved Type"
+COUNTS = re.compile(r"(\d+) active types, (\d+) inactive, (\d+) relationship types")
+
+
+def _tap_any(ui) -> bool:
+    """Tap the diamond that stands for 'any element' — a node with no element behind it."""
+    ui.click(GP_FIT)
+    ui.page.wait_for_timeout(500)
+    position = _cy(
+        ui,
+        "(function(){ var n = cy.$('node.any'); if (!n.length) { return null; }"
+        " var p = n[0].renderedPosition(); return [p.x, p.y]; })()",
+    )
+    if position is None:
+        return False
+    box = ui.page.locator(GP_CY).first.bounding_box()
+    ui.page.mouse.click(box["x"] + position[0], box["y"] + position[1])
+    ui.page.wait_for_timeout(600)
+    ui.settle()
+    return True
+
+
+def _clusters(ui) -> list[str]:
+    """The layer bands the preview is drawn in, in the order mermaid stacked them."""
+    return ui.page.evaluate(
+        "sel => { const el = document.querySelector(sel);"
+        " if (!el) { return []; }"
+        " return Array.from(el.querySelectorAll('g.cluster')).map(n => (n.textContent || '').trim()); }",
+        PREVIEW,
+    )
+
+
+def _outline(ui, type_id: str) -> str:
+    """What mermaid drew a type's shape with: a box is a <rect>, a hexagon a <polygon>."""
+    return (
+        ui.page.evaluate(
+            "([sel, needle]) => { const el = document.querySelector(sel);"
+            " if (!el) { return ''; }"
+            " const g = Array.from(el.querySelectorAll('g.node'))"
+            ".find(n => (n.textContent || '').includes(needle));"
+            " if (!g) { return ''; }"
+            " return Array.from(g.querySelectorAll('rect,polygon,path,circle,ellipse'))"
+            ".map(e => e.tagName.toLowerCase()).sort().join(','); }",
+            [PREVIEW, f"[{type_id}]"],
+        )
+        or ""
+    )
+
+
+def _label_of(ui, type_id: str) -> str:
+    """The one label the preview drew for a type, so a check shows exactly what it said."""
+    return (
+        ui.page.evaluate(
+            "([sel, needle]) => { const el = document.querySelector(sel);"
+            " if (!el) { return ''; }"
+            " const g = Array.from(el.querySelectorAll('g.node'))"
+            ".find(n => (n.textContent || '').includes(needle));"
+            " return g ? (g.textContent || '').trim() : ''; }",
+            [PREVIEW, f"[{type_id}]"],
+        )
+        or f"(nothing drawn for {type_id})"
+    )
+
+
+def _await_outline(ui, type_id: str, was: str) -> str:
+    """The preview is redrawn in the browser; wait for the shape itself to change, not the label."""
+    for _ in range(60):
+        now = _outline(ui, type_id)
+        if now and now != was:
+            return now
+        ui.page.wait_for_timeout(250)
+    return _outline(ui, type_id)
+
+
+def _editor_values(ui, grid_id: str, row_id: str, col: str) -> list[str]:
+    """The list a cell offers, read by opening its editor and then leaving the cell alone."""
+    _reveal_cell(ui, grid_id, row_id, col)
+    cell = ui.page.locator(f"#{grid_id} .ag-row[row-id={json.dumps(row_id)}] .ag-cell[col-id='{col}']").first
+    cell.scroll_into_view_if_needed()
+    cell.dblclick()
+    ui.page.wait_for_timeout(300)
+    picker = ui.page.locator(f"#{grid_id} .ag-cell-editor .ag-picker-field-wrapper").first
+    if picker.count():
+        picker.click()
+        ui.page.wait_for_timeout(400)
+    values = [v.strip() for v in ui.page.locator(".ag-list-item").all_inner_texts()]
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(150)
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    return values
+
+
+def _opens_an_editor(ui, grid_id: str, row_id: str, col: str) -> bool:
+    """Whether a cell may be typed into at all — the answer a read-only column has to give."""
+    _reveal_cell(ui, grid_id, row_id, col)
+    cell = ui.page.locator(f"#{grid_id} .ag-row[row-id={json.dumps(row_id)}] .ag-cell[col-id='{col}']").first
+    cell.scroll_into_view_if_needed()
+    cell.dblclick()
+    ui.page.wait_for_timeout(300)
+    open_ = bool(ui.page.locator(f"#{grid_id} .ag-cell-editor").count())
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    return open_
+
+
+@pytest.mark.scenario(
+    scenario_id="J16",
+    group="J",
+    title="The page's own counts agree with the grids and the graph beneath them",
+    feature="Metamodel · page title",
+    expected=(
+        "The subtitle's active, inactive and relationship-type counts are the numbers the graph "
+        "and the two grids actually hold, not a summary that has drifted from them."
+    ),
+)
+def test_the_counts_agree_with_what_is_drawn(ui, record):
+    _open(ui)
+    page = ui.text("#page")
+    counts = COUNTS.search(page)
+    ui.must("the subtitle says what the pack holds", counts is not None, page[:240])
+    active, inactive, rels = (int(g) for g in counts.groups())
+    ui.check("the pack it names holds something", active > 0 and rels > 0, counts.group(0))
+    drawn = _cy(ui, "cy.$('node.type').length")
+    ui.check(
+        "the graph draws one node per active type it counted",
+        drawn == active,
+        f"{drawn} nodes drawn, {active} counted",
+    )
+    _tab(ui, "Element types")
+    held = _row_total(ui, "mm-types-grid")
+    ui.check(
+        "the element types grid holds the active and the inactive types together",
+        held == active + inactive,
+        f"{held} rows, {active} active + {inactive} inactive = {active + inactive}",
+    )
+    _grid_home(ui, "mm-types-grid")
+    _tab(ui, "Relationship types")
+    rel_rows = _row_total(ui, "mm-rels-grid")
+    ui.check(
+        "the relationship types grid holds the relationship types it counted",
+        rel_rows == rels,
+        f"{rel_rows} rows, {rels} counted",
+    )
+    _grid_home(ui, "mm-rels-grid")
+    ui.check(
+        "the subtitle says what the page is for as well as what it holds",
+        "Edit the grids and save" in ui.body(),
+    )
+    ui.shot("The relationship types grid holding exactly what the page's subtitle counts")
+
+
+@pytest.mark.scenario(
+    scenario_id="J17",
+    group="J",
+    title="The Notation tab's three list columns are what a view is drawn from",
+    feature="Metamodel · Notation · layer, shape and ArchiMate",
+    expected=(
+        "Changing a type's layer moves it into that band of the preview, changing its shape "
+        "redraws the shape itself, and the ArchiMate column offers the draw.io stencils."
+    ),
+)
+def test_notation_layer_shape_and_stencil(ui, record):
+    _open(ui)
+    _tab(ui, "Notation")
+    ui.must("the preview is drawn", ui.page.locator(f"{PREVIEW} svg").count() > 0)
+    ui.must("the type override row is in the grid", _reveal(ui, "mm-notation-types-grid", TYPE))
+    bands = _clusters(ui)
+    ui.must("the preview draws a band per layer", bool(bands), str(bands))
+    ui.check(
+        "the type is drawn in the layer the pack gives it",
+        _cell(ui, "mm-notation-types-grid", TYPE, "layer") == "application",
+        _cell(ui, "mm-notation-types-grid", TYPE, "layer"),
+    )
+    ui.check("Application is one of the bands", "Application" in bands, str(bands))
+    ui.check(
+        "no type is drawn in the physical layer to begin with",
+        "Physical" not in bands,
+        str(bands),
+    )
+    _set_select(ui, "mm-notation-types-grid", TYPE, "layer", UNUSED_LAYER)
+    ui.check(
+        "the layer cell holds what was chosen",
+        _cell(ui, "mm-notation-types-grid", TYPE, "layer") == UNUSED_LAYER,
+        _cell(ui, "mm-notation-types-grid", TYPE, "layer"),
+    )
+    ui.check(
+        "the preview opened a band for the new layer", _await_preview(ui, "Physical"), str(_clusters(ui))
+    )
+    ui.check(
+        "the type is still drawn, and only it moved",
+        f"[{TYPE}]" in _preview_text(ui) and "Application" in _clusters(ui),
+        str(_clusters(ui)),
+    )
+    ui.shot("Changing a type's layer moves it into that band of the preview")
+
+    was = _outline(ui, TYPE)
+    ui.check("the type is drawn as a box to begin with", "rect" in was, was or "(no shape found)")
+    _set_select(ui, "mm-notation-types-grid", TYPE, "shape", "hex")
+    now = _await_outline(ui, TYPE, was)
+    ui.check("the preview redrew the type as another shape", now != was, f"{was!r} → {now!r}")
+    ui.check(
+        "the hexagon is drawn with an outline a box does not have",
+        ("path" in now or "polygon" in now) and "path" not in was and "polygon" not in was,
+        f"the box was drawn with {was!r}, the hexagon with {now!r}",
+    )
+    ui.shot("Changing a type's shape redraws the shape itself, not only its label")
+
+    values = _editor_values(ui, "mm-notation-types-grid", TYPE, "archimate")
+    ui.check(
+        "the ArchiMate column offers a list rather than free text",
+        len(values) > 5,
+        f"{len(values)} options: {values[:8]}",
+    )
+    ui.check(
+        "the list is the draw.io stencil set",
+        "ApplicationComponent" in values,
+        f"{len(values)} options: {values[:8]}",
+    )
+    # The ArchiMate name is what the draw.io export picks a stencil with; mermaid draws from
+    # `shape` instead, so this column is read by the downloads (group N), not by the preview.
+    _set_select(ui, "mm-notation-types-grid", TYPE, "archimate", "BusinessObject")
+    ui.check(
+        "the ArchiMate cell holds the stencil that was chosen",
+        _cell(ui, "mm-notation-types-grid", TYPE, "archimate") == "BusinessObject",
+        _cell(ui, "mm-notation-types-grid", TYPE, "archimate"),
+    )
+    _open(ui)
+    _tab(ui, "Notation")
+    ui.must("the type override row came back", _reveal(ui, "mm-notation-types-grid", TYPE))
+    ui.check(
+        "leaving the page without saving discards the layer, the shape and the stencil",
+        (
+            _cell(ui, "mm-notation-types-grid", TYPE, "layer") == "application"
+            and _cell(ui, "mm-notation-types-grid", TYPE, "shape") == "rect"
+            and _cell(ui, "mm-notation-types-grid", TYPE, "archimate") == "DataObject"
+        ),
+        f"layer={_cell(ui, 'mm-notation-types-grid', TYPE, 'layer')} "
+        f"shape={_cell(ui, 'mm-notation-types-grid', TYPE, 'shape')} "
+        f"archimate={_cell(ui, 'mm-notation-types-grid', TYPE, 'archimate')}",
+    )
+    ui.check(
+        "the preview is drawn from the stored pack again", "Physical" not in _clusters(ui), str(_clusters(ui))
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="J18",
+    group="J",
+    title="A blank notation cell inherits from the supertype, then the domain",
+    feature="Metamodel · Notation · inheritance",
+    expected=(
+        "Emptying a type's glyph draws it with its supertype's; emptying the supertype's too "
+        "draws both with the domain's, and a type in another domain is left alone."
+    ),
+)
+def test_a_blank_notation_cell_inherits(ui, record):
+    _open(ui)
+    _tab(ui, "Notation")
+    ui.check(
+        "the tab says what a blank cell falls back to",
+        "inherits from the supertype, then the domain" in ui.body(),
+    )
+    ui.must("the sub-type's notation row is in the grid", _reveal(ui, "mm-notation-types-grid", SUB))
+    ui.must(
+        "its supertype's row is in the grid", _reveal(ui, "mm-notation-types-grid", "business_information")
+    )
+    _set(ui, "mm-notation-types-grid", "business_information", "glyph", SUPER_GLYPH)
+    ui.check(
+        "the supertype is drawn with the glyph it was given",
+        _await_preview(ui, f"{SUPER_GLYPH} «Business Object» Business Information"),
+        _label_of(ui, "business_information"),
+    )
+    ui.check(
+        "the sub-type still draws the glyph of its own",
+        _label_of(ui, SUB).startswith("▤"),
+        _label_of(ui, SUB),
+    )
+    _clear_cell(ui, "mm-notation-types-grid", SUB, "glyph")
+    ui.check(
+        "emptying the sub-type's glyph draws it with its supertype's",
+        _await_preview(ui, f"{SUPER_GLYPH} «Business Object» Business Definition"),
+        _label_of(ui, SUB),
+    )
+    ui.shot("With its own glyph emptied, the sub-type is drawn with the one its supertype carries")
+    _clear_cell(ui, "mm-notation-types-grid", "business_information", "glyph")
+    _set(ui, "mm-notation-domains-grid", "information", "glyph", DOMAIN_GLYPH)
+    ui.check(
+        "with neither the type nor its supertype naming one, the domain's glyph is drawn",
+        _await_preview(ui, f"{DOMAIN_GLYPH} «Business Object» Business Definition"),
+        _label_of(ui, SUB),
+    )
+    ui.check(
+        "the supertype falls back to the same domain",
+        _label_of(ui, "business_information").startswith(DOMAIN_GLYPH),
+        _label_of(ui, "business_information"),
+    )
+    ui.check(
+        "a type in the same domain that names a glyph of its own keeps it",
+        _label_of(ui, TYPE) == f"▤ «Data Object» Data Entity [{TYPE}]",
+        _label_of(ui, TYPE),
+    )
+    ui.check(
+        "a type in another domain is not touched by this domain's glyph",
+        _label_of(ui, "process") == "⚙ «Business Process» Process [process]",
+        _label_of(ui, "process"),
+    )
+    ui.shot("With the supertype's glyph emptied too, both fall back to the domain's")
+    _open(ui)
+    _tab(ui, "Notation")
+    ui.must("the sub-type's row came back", _reveal(ui, "mm-notation-types-grid", SUB))
+    ui.check(
+        "leaving the page without saving puts the shipped glyphs back",
+        _cell(ui, "mm-notation-types-grid", SUB, "glyph") not in ("", SUPER_GLYPH, DOMAIN_GLYPH),
+        _cell(ui, "mm-notation-types-grid", SUB, "glyph"),
+    )
+    ui.check(
+        "and the preview is drawn from them",
+        SUPER_GLYPH not in _preview_text(ui) and DOMAIN_GLYPH not in _preview_text(ui),
+        f"{_label_of(ui, SUB)} · {_label_of(ui, 'business_information')}",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="J19",
+    group="J",
+    title="The preview keeps following an edit, or says why it cannot",
+    feature="Metamodel · Notation · preview",
+    expected=(
+        "With a row in another grid the pack cannot be built from, a notation edit either still "
+        "reaches the preview or the tab says the preview has stopped following."
+    ),
+)
+def test_the_preview_when_another_grid_is_broken(ui, record, finding):
+    _open(ui)
+    _tab(ui, "Element types")
+    ui.must("the Data Entity row is in the grid", _reveal(ui, "mm-types-grid", TYPE))
+    _set(ui, "mm-types-grid", TYPE, "supertype", "j_no_such_type")
+    ui.check(
+        "the element types grid holds the row the pack cannot be built from",
+        _cell(ui, "mm-types-grid", TYPE, "supertype") == "j_no_such_type",
+        _cell(ui, "mm-types-grid", TYPE, "supertype"),
+    )
+    _tab(ui, "Notation")
+    before = _preview_text(ui)
+    ui.must("the preview is drawn", bool(before), "(nothing in the preview)")
+    _set(ui, "mm-notation-types-grid", TYPE, "glyph", GLYPH)
+    ui.check(
+        "the glyph cell holds what was typed into it",
+        _cell(ui, "mm-notation-types-grid", TYPE, "glyph") == GLYPH,
+        _cell(ui, "mm-notation-types-grid", TYPE, "glyph"),
+    )
+    followed = _await_preview(ui, GLYPH)
+    said_why = any(
+        w in ui.body().lower() for w in ("preview cannot", "not drawn", "out of date", "unknown supertype")
+    )
+    # The callback behind the preview rebuilds the *whole* pack from every grid, so one row
+    # it cannot build stops it — and it returns no_update, which leaves the last drawing on
+    # screen with nothing to say it is stale.
+    ui.check(
+        "the preview either follows the edit or says why it cannot",
+        followed or said_why,
+        f"the glyph {GLYPH} never reached the preview and nothing on the page mentions it; "
+        f"the preview is unchanged: {before[:160]!r}",
+    )
+    ui.shot("A notation edit made while another grid holds an unbuildable row, and the preview beneath it")
+    if not (followed or said_why):
+        finding.append(
+            Finding(
+                finding_id="J3",
+                where="src/ea/ui/pages/metamodel.py · the `preview` callback behind mm-notation-preview",
+                severity="defect",
+                summary=(
+                    "The preview stops following edits, with nothing said, while any grid on the page "
+                    "holds a row the pack cannot be built from."
+                ),
+                detail=(
+                    "The Notation tab promises 'The preview follows every edit'. The callback that "
+                    "keeps that promise rebuilds the entire pack from all five grids and constructs a "
+                    "Registry, so a single unrelated row that does not validate — a supertype typed "
+                    "into the Element types grid that does not exist, which is exactly what a person "
+                    "does mid-edit — raises ValueError and the callback returns no_update. The last "
+                    "drawing stays on screen unchanged and nothing marks it stale, so every notation "
+                    "edit made from then on looks as though it did not register. Save changes reports "
+                    "the same problem plainly ('Not saved: …'); the preview says nothing at all."
+                ),
+            )
+        )
+    _open(ui)
+    _tab(ui, "Notation")
+    ui.must("the type override row came back", _reveal(ui, "mm-notation-types-grid", TYPE))
+    _set(ui, "mm-notation-types-grid", TYPE, "glyph", GLYPH)
+    ui.check(
+        "with every grid buildable again, the same edit reaches the preview",
+        _await_preview(ui, GLYPH),
+        _preview_text(ui)[:300],
+    )
+    ui.shot("The same glyph edit, with nothing broken elsewhere, redraws the preview at once")
+
+
+@pytest.mark.scenario(
+    scenario_id="J20",
+    group="J",
+    title="Tapping the diamond for 'any element' leaves the detail pane as it was",
+    feature="Metamodel · type graph · the ANY diamond",
+    expected=(
+        "The diamond stands for no type, so tapping it neither fills the detail pane nor empties "
+        "it, and the hint beneath the graph says what it is."
+    ),
+)
+def test_tapping_the_any_diamond(ui, record):
+    _open(ui)
+    ui.check("the hint says what the diamond is", "diamond = any element" in ui.text("#page"))
+    ui.check("the hint says what a dashed edge is", "Dashed edge = sub-type" in ui.text("#page"))
+    ui.check(
+        "the diamond is labelled on the canvas too",
+        _cy(ui, "cy.$('node.any')[0].data('label')") == "Any element",
+        str(_cy(ui, "cy.$('node.any')[0].data('label')")),
+    )
+    ui.check(
+        "the diamond stands for no element type",
+        _cy(ui, "cy.$('node.any')[0].data('element_id')") == "",
+        str(_cy(ui, "cy.$('node.any')[0].data('element_id')")),
+    )
+    ui.must("the type node was tapped", _tap_type(ui, TYPE), f"no node for {TYPE}")
+    filled = ui.text("mm-detail")
+    ui.must("the pane is showing a type to begin with", "Data Entity" in filled, filled[:200])
+    ui.must("the diamond was tapped", _tap_any(ui))
+    after = ui.text("mm-detail")
+    ui.check("tapping the diamond does not empty the pane", bool(after.strip()), "(the pane went blank)")
+    ui.check(
+        "the pane is left showing the type the reader last opened",
+        after == filled,
+        f"{after[:160]!r} after, {filled[:160]!r} before",
+    )
+    ui.shot("Tapping the diamond leaves the type the reader was reading in the detail pane")
+
+
+@pytest.mark.scenario(
+    scenario_id="J21",
+    group="J",
+    title="The Reviewers grid holds every active type and nothing else",
+    feature="Metamodel · Reviewers · what the grid lists",
+    expected=(
+        "A reviewer may be assigned to every type in use and to no retired one, the type's id and "
+        "name are read-only, and only the reviewers cell may be typed into."
+    ),
+)
+def test_the_reviewers_grid_lists_the_active_types(ui, record):
+    _open(ui)
+    active = _cy(ui, "cy.$('node.type').length")
+    ui.must("the graph counted the active types", bool(active), f"{active}")
+    _tab(ui, "Reviewers")
+    total = _row_total(ui, "mm-reviewers-grid")
+    ui.check(
+        "there is a row for every type in use",
+        total == active,
+        f"{total} rows in the grid, {active} active types on the graph",
+    )
+    ui.check(
+        "a retired type is not offered a reviewer",
+        not _reveal(ui, "mm-reviewers-grid", "gateway"),
+        "gateway is inactive; nothing on a branch can carry it",
+    )
+    ui.must("the type this group uses is in the grid", _reveal(ui, "mm-reviewers-grid", REVIEW_TYPE))
+    ui.check(
+        "the grid says who saves it",
+        "Only an admin saves this table" in ui.body(),
+    )
+    ui.check(
+        "the type's name is read-only, because renaming it here would mean nothing",
+        not _opens_an_editor(ui, "mm-reviewers-grid", REVIEW_TYPE, "type"),
+    )
+    ui.check(
+        "the type's id is read-only too",
+        not _opens_an_editor(ui, "mm-reviewers-grid", REVIEW_TYPE, "type_id"),
+    )
+    ui.check(
+        "the reviewers cell is the one that may be typed into",
+        _opens_an_editor(ui, "mm-reviewers-grid", REVIEW_TYPE, "reviewers"),
+    )
+    _grid_home(ui, "mm-reviewers-grid")
+    ui.shot("The reviewers grid: one row per active type, with only the reviewers column editable")
+
+
+@pytest.mark.scenario(
+    scenario_id="J22",
+    group="J",
+    title="An edit made under a column filter is the one that gets saved",
+    feature="Metamodel · Save changes · grid filters",
+    expected=(
+        "Narrowing the element types grid to one row, editing it and saving stores that edit and "
+        "keeps every row the filter hid, in this grid and in the others."
+    ),
+)
+def test_an_edit_under_a_filter_is_saved(ui, record):
+    _open(ui)
+    _tab(ui, "Element types")
+    types_before = _row_total(ui, "mm-types-grid")
+    ui.must("the element types grid was counted", types_before > 1, f"{types_before} rows")
+    _grid_home(ui, "mm-types-grid")
+    _tab(ui, "Relationship types")
+    rels_before = _row_total(ui, "mm-rels-grid")
+    ui.must("the relationship types grid was counted", rels_before > 1, f"{rels_before} rows")
+    _grid_home(ui, "mm-rels-grid")
+    _tab(ui, "Element types")
+    _filter(ui, "mm-types-grid", "id", TYPE)
+    shown = _row_total(ui, "mm-types-grid")
+    ui.must("the filter narrowed the grid to the one row", shown == 1, f"{shown} rows shown")
+    _set(ui, "mm-types-grid", TYPE, "type_owner", FILTER_OWNER)
+    ui.check(
+        "the cell holds what was typed into it",
+        _cell(ui, "mm-types-grid", TYPE, "type_owner") == FILTER_OWNER,
+        _cell(ui, "mm-types-grid", TYPE, "type_owner"),
+    )
+    ui.shot("The element types grid narrowed to one row, with that row edited")
+    feedback = _save(ui)
+    ui.must("the save was accepted", feedback.startswith("Metamodel saved:"), feedback[:300])
+    stored = re.search(r"(\d+) types, (\d+) relationship types", feedback)
+    ui.must("the save said what it stored", stored is not None, feedback[:300])
+    ui.check(
+        "saving keeps the element types the filter hid",
+        int(stored.group(1)) == types_before,
+        f"{types_before} element types before the filter, {stored.group(1)} stored",
+    )
+    ui.check(
+        "saving keeps the relationship types, which the filter never touched",
+        int(stored.group(2)) == rels_before,
+        f"{rels_before} relationship types before, {stored.group(2)} stored",
+    )
+    ui.shot("What the save reports it stored, with the filter still on the grid")
+    _open(ui)
+    _tab(ui, "Element types")
+    ui.must("the Data Entity row came back", _reveal(ui, "mm-types-grid", TYPE))
+    ui.check(
+        "the edit made under the filter is the one that was stored",
+        _cell(ui, "mm-types-grid", TYPE, "type_owner") == FILTER_OWNER,
+        _cell(ui, "mm-types-grid", TYPE, "type_owner"),
+    )
+    ui.check(
+        "the grid holds as many types as it did before the save",
+        _row_total(ui, "mm-types-grid") == types_before,
+        f"{_row_total(ui, 'mm-types-grid')} rows, {types_before} before",
+    )
+    ui.must("the sub-type row came back", _reveal(ui, "mm-types-grid", SUB))
+    ui.check(
+        "a row the filter hid kept everything it carried",
+        _cell(ui, "mm-types-grid", SUB, "supertype") == "business_information",
+        _cell(ui, "mm-types-grid", SUB, "supertype"),
+    )
+    ui.must("the type node was tapped", _tap_type(ui, TYPE), f"no node for {TYPE}")
+    detail = ui.text("mm-detail")
+    ui.check("the saved pack still holds the type's own attributes", "includes_pii" in detail, detail)
+    ui.check(
+        "and the relationship types it takes part in",
+        "logical_data_component encapsulates" in detail,
+        detail,
+    )
+    _grid_home(ui, "mm-types-grid")
+    ui.shot("After a save made under a filter, the pack is whole and the edit is in it")
+    ui.click("mm-reload")
+    ui.page.wait_for_timeout(600)
+    ui.settle()
+    ui.must(
+        "the pack was reloaded from the file",
+        ui.text("mm-feedback").startswith("Reloaded"),
+        ui.text("mm-feedback"),
+    )
+    ui.must("the Data Entity row is in the reloaded grid", _reveal(ui, "mm-types-grid", TYPE))
+    ui.check(
+        "the reload put the file's owner back for the groups that follow",
+        _cell(ui, "mm-types-grid", TYPE, "type_owner") == SHIPPED_OWNER,
+        _cell(ui, "mm-types-grid", TYPE, "type_owner"),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="J23",
+    group="J",
+    title="A type added and saved reaches the pack, the graph and the page's own count",
+    feature="Metamodel · Add type · Save changes",
+    expected=(
+        "Filling in an added row and saving stores one more type, draws it on the type graph "
+        "without the page being reloaded, and leaves no count on the page contradicting it."
+    ),
+)
+def test_adding_a_type_and_saving_reaches_the_graph(ui, record, finding):
+    _open(ui)
+    page = ui.text("#page")
+    counts = COUNTS.search(page)
+    ui.must("the subtitle says what the pack holds", counts is not None, page[:240])
+    active_before = int(counts.group(1))
+    drawn_before = _cy(ui, "cy.$('node.type').length")
+    _tab(ui, "Element types")
+    types_before = _row_total(ui, "mm-types-grid")
+    ui.click("mm-add-type")
+    ui.page.wait_for_timeout(400)
+    ui.page.evaluate(
+        "() => { const v = document.querySelector('#mm-types-grid .ag-body-viewport');"
+        " if (v) { v.scrollTop = v.scrollHeight; } }"
+    )
+    ui.page.wait_for_timeout(400)
+    added = [r for r in ui.grid_row_ids("mm-types-grid") if r and r.startswith("new_type_")]
+    ui.must("Add type added a row", bool(added), f"rows at the end: {ui.grid_row_ids('mm-types-grid')[-3:]}")
+    new_id = added[0]
+    _set(ui, "mm-types-grid", new_id, "name", NEW_TYPE_NAME)
+    _set(ui, "mm-types-grid", new_id, "plural", "J Saved Types")
+    _set(ui, "mm-types-grid", new_id, "domain", "information")
+    _set(ui, "mm-types-grid", new_id, "prefix", "JST")
+    _grid_home(ui, "mm-types-grid")
+    feedback = _save(ui)
+    ui.must("the save was accepted", feedback.startswith("Metamodel saved:"), feedback[:300])
+    stored = re.search(r"(\d+) types", feedback)
+    ui.must("the save said how many types it stored", stored is not None, feedback[:300])
+    # A row added by the button is in the grid but not yet in the rowData the page was given,
+    # so this is the one path where the save has to take what is only on screen.
+    ui.check(
+        "the save stored one type more than the pack held",
+        int(stored.group(1)) == types_before + 1,
+        f"{types_before} before, {stored.group(1)} stored",
+    )
+    ui.wait_graph()
+    ui.page.wait_for_timeout(600)
+    drawn_after = _cy(ui, "cy.$('node.type').length")
+    ui.check(
+        "the type graph followed the save without the page being reloaded",
+        drawn_after == drawn_before + 1,
+        f"{drawn_before} nodes before, {drawn_after} after",
+    )
+    ui.check("the new type is a node of its own", _has_node(ui, new_id), f"no node for {new_id}")
+    page = ui.text("#page")
+    after = COUNTS.search(page)
+    ui.check(
+        "the page's own count of active types followed the save too",
+        after is not None and int(after.group(1)) == active_before + 1,
+        f"the subtitle still reads {after.group(0)!r} over a graph of {drawn_after} types "
+        f"and a message reading {feedback[:80]!r}"
+        if after
+        else page[:240],
+    )
+    ui.shot("A type added and saved: on the graph at once, and the subtitle above it")
+    if after and int(after.group(1)) == active_before:
+        finding.append(
+            Finding(
+                finding_id="J4",
+                where="src/ea/ui/pages/metamodel.py · the page subtitle in `render`, against the `save` callback",
+                severity="consistency",
+                summary=(
+                    "The subtitle's counts are rendered once and never refreshed, so after a save the "
+                    "page states two different sizes of the same pack at the same time."
+                ),
+                detail=(
+                    "`page_title` writes 'N active types, M inactive, K relationship types' when the "
+                    "page is rendered. The save callback writes the new pack, updates the graph store "
+                    "— so the graph redraws immediately — and reports 'Metamodel saved: N+1 types …', "
+                    "but it does not touch the subtitle. Saving one added type therefore leaves a page "
+                    f"whose subtitle says {active_before} active types, whose graph draws "
+                    f"{drawn_after}, and whose alert says {stored.group(1)} types were stored. A "
+                    "reader who came to add a type sees the count they were watching stay still. The "
+                    "same three outputs the reload callback already refreshes would fix it."
+                ),
+            )
+        )
+    ui.click("mm-reload")
+    ui.page.wait_for_timeout(600)
+    ui.settle()
+    ui.must(
+        "the pack was reloaded from the file",
+        ui.text("mm-feedback").startswith("Reloaded"),
+        ui.text("mm-feedback"),
+    )
+    _open(ui)
+    _tab(ui, "Element types")
+    ui.page.evaluate(
+        "() => { const v = document.querySelector('#mm-types-grid .ag-body-viewport');"
+        " if (v) { v.scrollTop = v.scrollHeight; } }"
+    )
+    ui.page.wait_for_timeout(400)
+    ui.check(
+        "reloading from the file takes the added type back off",
+        new_id not in set(ui.grid_row_ids("mm-types-grid")),
+        f"rows at the end: {ui.grid_row_ids('mm-types-grid')[-3:]}",
+    )
+    drawn_back = _cy(ui, "cy.$('node.type').length")
+    ui.check(
+        "the type graph is the shipped one again, for the groups that follow",
+        not _has_node(ui, new_id) and drawn_back == drawn_before,
+        f"{drawn_back} type nodes, {drawn_before} before this scenario",
+    )
+    _grid_home(ui, "mm-types-grid")
+    ui.shot("Reload from file has taken the added type off the grid and the graph")

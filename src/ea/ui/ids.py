@@ -85,6 +85,7 @@ IMP_GRAPH = "imp-graph"
 # import
 IM_UPLOAD = "im-upload"
 IM_FILES = "im-files"
+IM_DROP = "im-drop"  # pattern-matching: {"type": IM_DROP, "name": <filename>}
 IM_STORE = "im-store"
 IM_SOURCE = "im-source"
 IM_MAPPING = "im-mapping"
