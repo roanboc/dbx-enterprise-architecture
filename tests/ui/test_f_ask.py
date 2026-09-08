@@ -83,12 +83,11 @@ def _type_question(ui, text: str) -> None:
     ui.settle()
 
 
-def _ask(ui, text: str, expect_document: bool = True) -> None:
+def _ask(ui, text: str) -> None:
     """Put a question and press Ask, then wait for the document the callback returns."""
     _type_question(ui, text)
     ui.click("ask-button")
-    if expect_document:
-        ui.page.wait_for_selector(DOCUMENT, timeout=30_000)
+    ui.page.wait_for_selector(DOCUMENT, timeout=30_000)
     ui.settle()
 
 
@@ -235,7 +234,7 @@ def test_example_chips_fill_the_box(ui, record, finding):
         "and its impact, and the stub's closing sentence that no language model is configured."
     ),
 )
-def test_answer_document(ui, record):
+def test_answer_document(ui, record, finding):
     _open_ask(ui)
     _ask(ui, IMPACT_Q)
     ui.must("the answer came back as a document", ui.page.locator(DOCUMENT).count() > 0)
@@ -289,9 +288,32 @@ def test_answer_document(ui, record):
         "the document is not marked as holding unverified identifiers",
         "treat them as unverified" not in text,
     )
+    # The caveat is a statement about the whole answer, so it must not read as part of the last
+    # element in the list above it. It is appended without a blank line, so the renderer swallows
+    # it into the final bullet; this check asserts the caveat a reader should get instead.
+    glued = ui.page.locator("#ask-answer .ea-doc li", has_text="Completeness:")
+    ui.check(
+        "the completeness caveat stands on its own, not as the tail of the last bullet",
+        glued.count() == 0,
+        "" if glued.count() == 0 else f"it reads {glued.first.inner_text()[-160:]!r}",
+    )
     ui.shot(
         "The answer document: the question as its title, the provenance line under it, and the answer assembled from tool results"
     )
+    if glued.count():
+        finding.append(
+            _f(
+                "F-4",
+                "src/ea/agent/agent.py · the stub answer, and the Answer section that renders it",
+                "usability",
+                "The completeness caveat is swallowed into the last bullet of the answer",
+                "The stub appends 'Completeness: n/m relationship types ... have instances.' straight "
+                "after the last '- it depends on:' line with no blank line between them, so Markdown "
+                "reads it as more of that list item. The caveat qualifies the whole answer and is the "
+                "one sentence that says what the answer might be missing, and it arrives looking like "
+                "a note about one element. A blank line before it separates the paragraph.",
+            )
+        )
 
 
 @pytest.mark.scenario(
@@ -365,7 +387,7 @@ def test_cited_identifiers_are_openable(ui, record, finding):
     _ask(ui, IMPACT_Q)
     links = ui.page.locator("#ask-answer .ea-doc a")
     cited = links.count()
-    ui.must("the answer renders its citations as links", cited > 0, "no anchors in the answer text")
+    ui.must("the answer renders its citations as links", cited > 0, f"{cited} anchors in the answer text")
     hrefs = links.evaluate_all("els => els.map(e => [e.textContent.trim(), e.getAttribute('href')])")
     wrong = [(t, h) for t, h in hrefs if h != f"/element/{t}"]
     ui.check(
@@ -706,6 +728,33 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
     ui.shot(
         "An identifier the model does not carry: the answer says it was not found and the banner marks it unverified"
     )
+    trace = ui.text("ask-trace")
+    if re.search(r"1 calls", trace, re.IGNORECASE):
+        finding.append(
+            _f(
+                "F-5",
+                "src/ea/ui/pages/ask.py · the tool trace heading",
+                "consistency",
+                "The tool trace heading reads '1 calls' when only one tool was called",
+                "The heading is built as '{n} calls' with no singular form, so a one-call answer — "
+                "which is what a question about an identifier the model does not carry produces — "
+                "is headed 'Tool trace · 1 calls · provider stub'.",
+            )
+        )
+    if body.strip().lower().startswith("no element with id"):
+        finding.append(
+            _f(
+                "F-6",
+                "src/ea/agent/agent.py · the stub answer for an unknown identifier, shown as the Answer",
+                "usability",
+                "An unknown identifier is answered with the raw tool error and no way forward",
+                "The tool's error string, 'no element with id FX-GHOST-ENTITY', becomes the whole "
+                "answer: no capital, no full stop, and nothing about what the reader might do "
+                "instead — search for the name, browse the type, or check the identifier. The other "
+                "dead end in the same provider (a question that matches nothing) does say what to "
+                "try next, so the two refusals do not read alike.",
+            )
+        )
 
     # The document has no view, so Download draw.io has nothing to write — but the button is
     # offered all the same, and clicking it does nothing and says nothing. The correct behaviour

@@ -21,6 +21,8 @@ the template deliberately leaves blank: the work package.
 
 Nothing here asserts a total another group could move. The branch this group applies to is
 named `g-proposal` so it cannot collide, and it is left open — merging belongs to group I.
+The last scenario asks for that same branch name a second time, which the repository refuses,
+so the round never writes the same change set twice.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import re
 from pathlib import Path
 
 import pytest
+from tests.ui.evidence import Finding
 
 pytestmark = pytest.mark.gui
 
@@ -69,13 +72,26 @@ def _paste(ui, text: str) -> None:
     ui.settle()
 
 
-def _options(ui, select_id: str) -> list[str]:
-    """The labels a Mantine select offers, read without choosing one."""
+def _open_select(ui, select_id: str) -> list[str]:
+    """Open a select and read the labels it offers, leaving the dropdown open.
+
+    Every select on the page keeps its option list mounted, so only the visible ones
+    belong to the select that was just opened.
+    """
     ui.click(select_id)
-    labels = [t.strip() for t in ui.page.locator("[role='option']").all_inner_texts()]
+    return [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
+
+
+def _pick(ui, label: str) -> None:
+    """Choose an option from the dropdown that is open."""
+    options = ui.page.locator("[role='option']:visible")
+    options.filter(has_text=re.compile(re.escape(label))).first.click()
+    ui.settle()
+
+
+def _close_select(ui) -> None:
     ui.page.keyboard.press("Escape")
     ui.settle()
-    return labels
 
 
 def _analyse(ui, text: str = TEMPLATE, work_package: str | None = WP_LABEL) -> None:
@@ -100,9 +116,25 @@ def _blocked(ui) -> bool:
     return "Not enough to apply" in _pushback(ui)
 
 
-def _badges(ui) -> str:
-    """The counts line above the pushback block."""
-    return _result(ui).split("\n\n")[0]
+def _head(ui) -> str:
+    """The line above the pushback block: the counts, the work package, and who read it."""
+    return ui.text("#pr-result .mantine-Group-root")
+
+
+def _counts(ui) -> str:
+    """The three count badges, which the theme renders in upper case."""
+    return _head(ui).lower()
+
+
+def _overflow(ui, grid_id: str, row_id: str, col: str) -> float:
+    """How far a cell sticks out past the right edge of its grid, in pixels."""
+    cell = ui.page.locator(f"#{grid_id} .ag-row[row-id='{row_id}'] .ag-cell[col-id='{col}']").first
+    if not cell.count():
+        return 0.0
+    box, grid = cell.bounding_box(), ui.page.locator(f"#{grid_id}").first.bounding_box()
+    if not box or not grid:
+        return 0.0
+    return max(0.0, (box["x"] + box["width"]) - (grid["x"] + grid["width"]))
 
 
 # --------------------------------------------------------------------------- the scenarios
@@ -173,13 +205,13 @@ def test_new_branch_field(ui, record):
         "its label is not shown either",
         "New branch name" not in ui.body(),
     )
-    labels = _options(ui, "pr-branch")
+    labels = _open_select(ui, "pr-branch")
     ui.check(
         "the branch select offers to create a new branch",
         any("New branch" in x for x in labels),
         f"options: {labels}",
     )
-    ui.select("pr-branch", "New branch")
+    _pick(ui, "New branch")
     ui.check("choosing New branch reveals the name field", ui.visible("pr-branch-new"))
     ui.check("the revealed field is labelled", "New branch name" in ui.body())
     placeholder = ui.page.locator("#pr-branch-new").first.get_attribute("placeholder") or ""
@@ -204,7 +236,7 @@ def test_new_branch_field(ui, record):
 def test_work_package_field(ui, record):
     _open(ui)
     ui.check("the New work package name field is hidden until it is needed", not ui.visible("pr-wp-new"))
-    labels = _options(ui, "pr-wp")
+    labels = _open_select(ui, "pr-wp")
     ui.check(
         "the select offers the sample model's work package with its identifier",
         any(WP_LABEL in x and WP_ID in x for x in labels),
@@ -215,7 +247,7 @@ def test_work_package_field(ui, record):
         any("New work package" in x for x in labels),
         f"options: {labels}",
     )
-    ui.select("pr-wp", "New work package")
+    _pick(ui, "New work package")
     ui.check("choosing New work package reveals the name field", ui.visible("pr-wp-new"))
     ui.check("the revealed field is labelled", "New work package name" in ui.body())
     ui.shot("The work package select lists the model's initiatives and can name a new one")
@@ -292,11 +324,11 @@ def test_free_text_is_pushed_back(ui, record):
         "it asks for the work package too",
         "Name the work package" in text,
     )
-    badges = _badges(ui)
+    counts = _counts(ui)
     ui.check(
         "nothing was invented: no new element, none linked, no relationship",
-        "0 new" in badges and "0 linked" in badges and "0 relationships" in badges,
-        f"badges read {badges!r}",
+        "0 new" in counts and "0 linked" in counts and "0 relationships" in counts,
+        f"the counts line reads {counts!r}",
     )
     ui.check("both grids came back empty", ui.grid_row_count("pr-el-grid") == 0)
     ui.check("the relationship grid came back empty", ui.grid_row_count("pr-rel-grid") == 0)
@@ -321,18 +353,22 @@ def test_template_analysis(ui, record):
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=None)  # no work package yet: that is G07's pushback
     ui.must("the change set came back", ui.grid_row_count("pr-el-grid") > 0)
-    badges = _badges(ui)
+    counts = _counts(ui)
     ui.check(
         "one element is adopted as new and four are linked",
-        "1 new" in badges and "4 linked" in badges,
-        f"badges read {badges!r}",
+        "1 new" in counts and "4 linked" in counts,
+        f"the counts line reads {counts!r}",
     )
     ui.check(
         "all five relationships were carried through",
-        "5 relationships" in badges,
-        f"badges read {badges!r}",
+        "5 relationships" in counts,
+        f"the counts line reads {counts!r}",
     )
-    ui.check("the badge line says which reader read it", "read by stub" in badges, f"{badges!r}")
+    ui.check(
+        "the counts line says which reader read it",
+        "read by stub" in _head(ui),
+        f"the counts line reads {_head(ui)!r}",
+    )
     ui.check("the elements grid holds the template's five rows", ui.grid_row_count("pr-el-grid") == 5)
     ui.check(
         "the relationships grid holds the template's five rows",
@@ -412,8 +448,8 @@ def test_apply_refuses_while_blocked(ui, record):
     )
     ui.check(
         "the counts panel says the work package is not named",
-        "Work package: not named" in _badges(ui),
-        f"badges read {_badges(ui)!r}",
+        "Work package: not named" in _head(ui),
+        f"the counts line reads {_head(ui)!r}",
     )
     ui.check("Apply to branch is offered to an admin", not ui.disabled("pr-apply"))
     ui.click("pr-apply")
@@ -443,22 +479,22 @@ def test_work_package_clears_the_pushback(ui, record):
     _paste(ui, TEMPLATE)
     ui.click("pr-analyse")
     ui.page.wait_for_selector("#pr-pushback", timeout=30_000)
-    badges = _badges(ui)
+    head = _head(ui)
     ui.check(
         "a work package that does not exist is reported as one that will be created",
-        f"Work package: {NEW_WP} (will be created)" in badges,
-        f"badges read {badges!r}",
+        f"Work package: {NEW_WP} (will be created)" in head,
+        f"the counts line reads {head!r}",
     )
     ui.check("naming it clears the pushback", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
     ui.shot("A work package named but not yet in the model: the panel says it will be created")
 
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
-    badges = _badges(ui)
+    head = _head(ui)
     ui.check(
         "the model's own work package is recognised as existing",
-        f"Work package: {WP_ID} (existing)" in badges or f"Work package: {WP_LABEL} (existing)" in badges,
-        f"badges read {badges!r}",
+        f"Work package: {WP_ID} (existing)" in head or f"Work package: {WP_LABEL} (existing)" in head,
+        f"the counts line reads {head!r}",
     )
     ui.check("the change set is no longer blocked", not _blocked(ui), f"{_pushback(ui)!r}")
     ui.check(
@@ -480,7 +516,7 @@ def test_work_package_clears_the_pushback(ui, record):
         "its row number in the pushback."
     ),
 )
-def test_add_element_row(ui, record):
+def test_add_element_row(ui, record, finding):
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
     before = ui.grid_row_count("pr-el-grid")
@@ -532,6 +568,25 @@ def test_add_element_row(ui, record):
         f"pushback reads {text!r}",
     )
     ui.shot("Re-check rows: the hand-added row is held to the same standard as the ones that were read")
+    # The issues column is the one that says why a row is blocked, and it is the last of ten.
+    overflow = _overflow(ui, "pr-el-grid", "e5", "issues")
+    if overflow > 1:
+        finding.append(
+            Finding(
+                finding_id="G-1",
+                where="src/ea/ui/pages/propose.py · element_columns (PR_EL_GRID)",
+                severity="usability",
+                summary="The issues column of the elements grid is off the right edge on a wide screen",
+                detail=(
+                    "Ten columns are declared for the change set, so on a 1600 px window the last of "
+                    f"them — issues, the column that says why a row cannot be applied — starts "
+                    f"{overflow:.0f} px past the right edge of the grid and can only be read by "
+                    "scrolling it sideways. The pushback block above repeats the same text, so nothing "
+                    "is lost, but the architect who is correcting a row in the grid cannot see what is "
+                    "wrong with it while editing."
+                ),
+            )
+        )
 
 
 @pytest.mark.scenario(
@@ -654,12 +709,13 @@ def test_apply_to_a_new_branch(ui, record):
         f"hrefs: {[a.get_attribute('href') for a in ui.page.locator('#pr-apply-feedback a').all()]}",
     )
     ui.shot("Applied: the page reports what it created, what it linked, and links to the branch")
-    labels = _options(ui, "branch-select")
+    labels = _open_select(ui, "branch-select")
     ui.check(
         "the header offers the new branch without a reload",
         any(x.startswith(BRANCH) for x in labels),
         f"header options: {labels}",
     )
+    _close_select(ui)
 
 
 @pytest.mark.scenario(
@@ -674,7 +730,7 @@ def test_apply_to_a_new_branch(ui, record):
 )
 def test_branch_is_offered_afterwards(ui, record):
     _open(ui)
-    labels = _options(ui, "pr-branch")
+    labels = _open_select(ui, "pr-branch")
     mine = [x for x in labels if x.startswith(BRANCH)]
     ui.must("the branch the proposal created is offered", bool(mine), f"options: {labels}")
     count = re.search(r"\((\d+)\)", mine[0])
@@ -683,10 +739,47 @@ def test_branch_is_offered_afterwards(ui, record):
         count is not None and int(count.group(1)) > 0,
         f"option reads {mine[0]!r}",
     )
-    ui.select("pr-branch", BRANCH)
+    _pick(ui, BRANCH)
     ui.check(
         "choosing an existing branch does not ask for a new name",
         not ui.visible("pr-branch-new"),
     )
     ui.check("the model itself is not offered as a destination", "main" not in labels, f"options: {labels}")
     ui.shot("The branch the proposal created, offered as the destination for the next proposal")
+
+
+@pytest.mark.scenario(
+    scenario_id="G13",
+    group="G",
+    title="Applying the same proposal again to a branch of the same name is refused",
+    feature="Propose · apply · negative path",
+    expected=(
+        "g-proposal already exists, so a second Apply that asks for a new branch of that name is "
+        "refused with a message naming the branch, and nothing is written."
+    ),
+)
+def test_applying_twice_is_refused(ui, record):
+    _open(ui)
+    ui.select("pr-branch", "New branch")
+    ui.fill("pr-branch-new", BRANCH)
+    _analyse(ui, TEMPLATE, work_package=WP_LABEL)
+    ui.must("the change set is ready to apply", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.click("pr-apply")
+    feedback = ui.text("pr-apply-feedback")
+    ui.must("Apply answered", feedback != "")
+    ui.check(
+        "the second attempt is refused",
+        feedback.startswith("Not applied"),
+        f"feedback reads {feedback!r}",
+    )
+    ui.check(
+        "the refusal names the branch that is in the way",
+        BRANCH in feedback and "already exists" in feedback,
+        f"feedback reads {feedback!r}",
+    )
+    ui.check(
+        "nothing is reported as written a second time",
+        "created as proposed" not in feedback,
+        f"feedback reads {feedback!r}",
+    )
+    ui.shot("A second apply to a branch name that is taken: refused, and the refusal names the branch")

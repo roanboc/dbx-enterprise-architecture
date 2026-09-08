@@ -7,6 +7,7 @@ DOWNLOAD = "download"
 NAV_VERSION = "nav-version"
 APP_SHELL = "app-shell"
 NAV_BURGER = "nav-burger"
+NAV_BURGER_CLICK = "nav-burger-click"  # the wrapper that takes the click; Burger reports none
 NAVBAR_OPEN = "navbar-open"
 MD_TEXT = "md-text"
 MD_PREVIEW = "md-preview"

@@ -38,6 +38,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger(__name__)
 
 APP_TITLE = "EA Repository"
+NAV_TARGETS = [href for _, links in layout.NAV_SECTIONS for _, href, _ in links]
+NAV_LINK_IDS = [f"nav-{href.strip('/') or 'home'}" for href in NAV_TARGETS]
 PAGES = {"browse", "metamodel", "impact", "import", "ask", "branches", "target", "propose", "health"}
 
 
@@ -110,18 +112,28 @@ def create_app() -> dash.Dash:
         Output(ids.NAVBAR_OPEN, "data"),
         Output(ids.NAV_BURGER, "opened"),
         Output(ids.APP_SHELL, "navbar"),
-        Input(ids.NAV_BURGER, "n_clicks"),
+        Input(ids.NAV_BURGER_CLICK, "n_clicks"),
         Input(ids.URL, "pathname"),
         State(ids.NAVBAR_OPEN, "data"),
         prevent_initial_call=True,
     )
     def toggle_mobile_nav(_clicks, _pathname, opened):
-        next_open = not bool(opened) if ctx.triggered_id == ids.NAV_BURGER else False
+        next_open = not bool(opened) if ctx.triggered_id == ids.NAV_BURGER_CLICK else False
         return (
             next_open,
             next_open,
             {"width": 220, "breakpoint": "sm", "collapsed": {"mobile": not next_open}},
         )
+
+    @app.callback(
+        [Output(link, "active") for link in NAV_LINK_IDS],
+        Input(ids.URL, "pathname"),
+    )
+    def mark_current_page(pathname):
+        """Say which page the reader is on. An element belongs to Browse, which opened it."""
+        page, _ = parse_path(pathname)
+        here = "/browse" if page == "element" else ("/" if page == "home" else f"/{page}")
+        return [href == here for href in NAV_TARGETS]
 
     @app.callback(
         Output(ids.PAGE, "children"),

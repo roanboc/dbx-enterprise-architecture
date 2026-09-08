@@ -157,11 +157,19 @@ def shell(
                             [
                                 html.Div(
                                     [
-                                        dmc.Burger(
-                                            id=ids.NAV_BURGER,
-                                            opened=False,
-                                            hiddenFrom="sm",
-                                            size="sm",
+                                        # The burger is a Mantine control and reports no clicks
+                                        # of its own, so the click is taken by a wrapper. The
+                                        # wrapper generates no box, so the header is unchanged.
+                                        html.Div(
+                                            dmc.Burger(
+                                                id=ids.NAV_BURGER,
+                                                opened=False,
+                                                hiddenFrom="sm",
+                                                size="sm",
+                                            ),
+                                            id=ids.NAV_BURGER_CLICK,
+                                            n_clicks=0,
+                                            style={"display": "contents"},
                                         ),
                                         html.Div(
                                             icon("tabler:topology-star-3", 20), className="ea-brand-mark"
