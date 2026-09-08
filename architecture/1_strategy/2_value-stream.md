@@ -18,6 +18,12 @@ flowchart LR
   n4(["⚇ «Business Actor» a person or team that acts [ACT#]"]):::business
   n5["⚙ «Business Process» work with a trigger and an output [BPROC#]"]:::business
 
+  n2 -->|influences| n1
+  n1 -->|realized by| n0
+  n3 -->|realized by| n0
+  n4 -->|participates in| n0
+  n0 -->|realized by| n5
+
   classDef strategy fill:#f5deaa,stroke:#c8a24a,color:#333
   classDef motivation fill:#e6d6f5,stroke:#8e63c8,color:#333
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333

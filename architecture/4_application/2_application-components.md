@@ -15,6 +15,9 @@ flowchart LR
   n1[/"⎔ «Artifact» a file the build produces or reads [ART#]"/]:::technology
   n2["⬒ «Node» where it runs [NODE#]"]:::technology
 
+  n0 -->|holds| n1
+  n0 -->|runs on, pending| n2
+
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
 ```

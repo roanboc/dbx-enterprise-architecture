@@ -15,6 +15,8 @@ flowchart LR
   n0[/"⎔ «Artifact» a file the build produces or reads [ART#]"/]:::technology
   n1["▦ «Data Object» what is stored [DOBJ#]"]:::application
 
+  n0 -->|loaded into| n1
+
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```

@@ -15,6 +15,9 @@ flowchart LR
   n1(["⬮ «Application Service» what the software offers [ASVC#]"]):::application
   n2["⊞ «Application Component» a piece of software [ACMP#]"]:::application
 
+  n0 --> n1
+  n1 -->|realized by| n2
+
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```

@@ -15,6 +15,9 @@ flowchart LR
   n1["⚙ «Business Process» work with a trigger and an output [BPROC#]"]:::business
   n2(["⬮ «Application Service» what the software offers [ASVC#]"]):::application
 
+  n0 -->|realized by| n1
+  n1 --> n2
+
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```

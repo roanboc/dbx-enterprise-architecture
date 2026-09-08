@@ -24,6 +24,12 @@ flowchart LR
   n4[/"⚑ «Principle» what every change is tested against [P#]"/]:::motivation
   n5[["◉ «Outcome» how we would know [OUT#]"]]:::motivation
 
+  n0 -->|concerned with| n1
+  n1 --> n3
+  n2 --> n3
+  n3 -->|realized by| n5
+  n3 -->|realized by| n4
+
   classDef motivation fill:#e6d6f5,stroke:#8e63c8,color:#333
 ```
 
