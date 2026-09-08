@@ -75,6 +75,18 @@ def _panel(ui, value: str):
     return ui.page.locator(f"#el-tabs-panel-{value}")
 
 
+def _header_badges(ui) -> list[str]:
+    """The badges above the tabs, in the words the model uses (the screen puts them in capitals)."""
+    return ui.page.evaluate(
+        """() => {
+            const tabs = document.getElementById('el-tabs');
+            return Array.from(document.querySelectorAll('#page .mantine-Badge-root'))
+                .filter(b => tabs && (tabs.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING))
+                .map(b => (b.textContent || '').trim());
+        }"""
+    )
+
+
 def _version(ui) -> int:
     """The `v3` the header prints beside the identifier."""
     loc = ui.page.get_by_text(re.compile(r"^v\d+$")).first
@@ -188,11 +200,12 @@ def _await_svg(ui, container: str) -> None:
 def test_header(ui, record):
     _open(ui, EL)
     ui.must("the element page rendered", ui.visible("el-tabs"))
-    body = ui.body().lower()
-    ui.check("the name is the page title", "curriculum" in body)
-    ui.check("the type is badged", "logical data component" in body)
-    ui.check("the status is badged", "approved" in body)
-    ui.check("the current state is badged", "live" in body)
+    title = ui.page.locator("#page h2").first.inner_text().strip()
+    ui.check("the name is the page title", title == "Curriculum", title)
+    badges = _header_badges(ui)
+    ui.check("the type is badged", "Logical Data Component" in badges, str(badges))
+    ui.check("the status is badged", "approved" in badges, str(badges))
+    ui.check("the current state is badged", "Live" in badges, str(badges))
     ui.check(
         "the identifier is shown as code",
         ui.page.locator(f"#page code:has-text('{EL}')").count() > 0,
@@ -611,10 +624,36 @@ def test_pair_constrains_the_relationship_types(ui, record):
     feature="Element · Relationships · qualifiers",
     expected="On a Position the qualifier select is disabled until the stewardship relationship is chosen, and then offers the four roles the pack declares.",
 )
-def test_qualifier_enables_with_its_type(ui, record):
+def test_qualifier_enables_with_its_type(ui, record, finding):
     _open(ui, POS)
     _tab(ui, "Relationships")
     ui.check("the qualifier starts disabled", ui.disabled("el-rel-qualifier"), "el-rel-qualifier")
+    unlabelled = [
+        control
+        for control in ("el-rel-other", "el-rel-type", "el-rel-qualifier")
+        if not ui.page.evaluate(
+            "id => { const e = document.getElementById(id); if (!e) { return true; }"
+            " const w = e.closest('.mantine-InputWrapper-root');"
+            " return !!(w && w.querySelector('label')) || !!e.getAttribute('aria-label'); }",
+            control,
+        )
+    ]
+    if unlabelled:
+        finding.append(
+            Finding(
+                finding_id="C-3",
+                where="src/ea/ui/pages/element.py · the Add a relationship form",
+                severity="usability",
+                summary="The add-a-relationship controls carry placeholders instead of labels, and the disabled qualifier gives no reason",
+                detail=(
+                    f"{', '.join(unlabelled)} have no label and no accessible name: each says what it is "
+                    "only in its placeholder, which the chosen value then replaces, so a reader coming "
+                    "back to a half-filled form cannot tell which field is which. The qualifier is also "
+                    "rendered disabled with nothing saying it stays dead until a relationship type that "
+                    "declares qualifiers is chosen."
+                ),
+            )
+        )
     _pick_other(ui, "Unit Outlines", "IA-UNIT-OUTLINES")
     ui.check("choosing the other end alone does not enable it", ui.disabled("el-rel-qualifier"))
     types = _options(ui, "el-rel-type")

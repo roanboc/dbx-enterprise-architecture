@@ -98,6 +98,11 @@ def _wp_options(ui) -> list[str]:
 # --------------------------------------------------------------------------- the page body
 
 
+def _brief(text: str, limit: int = 140) -> str:
+    """A block of screen text as one readable line, for the detail beside a check."""
+    return " · ".join(line.strip() for line in text.splitlines() if line.strip())[:limit]
+
+
 def _card(ui, heading: str):
     return ui.page.locator("#tg-body .ea-card").filter(has_text=heading).first
 
@@ -227,10 +232,11 @@ def _finding(finding_id: str, where: str, severity: str, summary: str, detail: s
 def test_default_view(ui, record):
     ui.goto("/target")
     ui.check("the page is titled Target state", "Target state" in ui.text("#page h2"), ui.text("#page h2"))
+    subtitle = re.search(r"What is true of each artefact today[^\n]*", ui.body())
     ui.check(
-        "it says what a current and a target state are",
-        "current state" in ui.body() and "target state" in ui.body(),
-        ui.body()[:200].replace("\n", " · "),
+        "it says what a current and a target state are, and where they are edited",
+        bool(subtitle) and "Edit the states on an element's page." in subtitle.group(0),
+        subtitle.group(0) if subtitle else "no subtitle",
     )
     ui.must("the work package selector is offered", ui.visible("tg-wp"))
     ui.check("it opens on every work package", _wp(ui) == ALL_WPS, _wp(ui))
@@ -240,7 +246,7 @@ def test_default_view(ui, record):
     ui.check("and the two tables under them", _section_count(ui, "Elements") >= 0)
 
     elements, relationships, changes = _scope_line(ui)
-    ui.must("the scope is stated in one sentence", elements > 0, f"read {_counts_row(ui).inner_text()!r}")
+    ui.must("the scope is stated in one sentence", elements > 0, _brief(_counts_row(ui).inner_text()))
     ui.check(
         "the whole model is in scope when no work package is chosen",
         elements >= 47 and relationships >= 99,
@@ -268,9 +274,7 @@ def test_default_view(ui, record):
     # Last, because opening the selector empties its search box and the shot above wants the page
     # as a reader first meets it.
     options = _wp_options(ui)
-    ui.check(
-        "the selector offers every work package by name and id", any(WP in o for o in options), str(options)
-    )
+    ui.check("the selector offers the work package by name and id", WP_OPTION in options, str(options))
     ui.check("and an entry for all of them together", ALL_WPS in options, str(options))
 
 
@@ -310,9 +314,9 @@ def test_choosing_a_work_package(ui, record, finding):
         str(sorted(set(with_kept) - set(WP_SCOPE) - WP_KEPT)),
     )
     ui.check(
-        "the view is now titled for the work package it is about",
-        WP_NAME in ui.text(VIEW_SVG) or WP in ui.text(VIEW_SVG),
-        ui.text(VIEW_SVG)[:160].replace("\n", " · "),
+        "the work package itself is drawn in the view",
+        f"[{WP}]" in ui.text(VIEW_SVG),
+        _brief(ui.text(VIEW_SVG)),
     )
     ui.shot("The work package chosen: the switch off, and everything the package touches listed")
 
@@ -524,16 +528,16 @@ def test_marked_view(ui, record):
     svg = ui.page.locator(f"{VIEW_SVG} svg")
     ui.must("the view was drawn", svg.count() > 0)
     drawn = ui.text(VIEW_SVG)
-    ui.check("the work package itself is drawn", f"[{WP}]" in drawn, drawn[:200])
+    ui.check("the work package itself is drawn", f"[{WP}]" in drawn, _brief(drawn))
     for element_id in ("PAC-CAW", "PTC-FORMS", "PAC-CMS"):
         ui.check(f"every shape carries its identifier ({element_id})", f"[{element_id}]" in drawn)
     ui.check(
         "the shapes are stacked in labelled layers",
-        sum(word in drawn for word in ("Application", "Technology", "Business")) >= 2,
-        drawn[:200].replace("\n", " · "),
+        sum(word in drawn for word in ("Application", "Technology", "Implementation")) >= 2,
+        _brief(drawn),
     )
     for state, glyph in (("new", "+"), ("change", "Δ"), ("decommission", "×")):
-        ui.check(f"what is {state} is marked with {glyph}", glyph in drawn, drawn[:200])
+        ui.check(f"what is {state} is marked with {glyph}", glyph in drawn, _brief(drawn))
 
     legend = _legend(ui)
     ui.must("a legend says what the markers mean", legend.startswith("Markers:"), legend or "no legend")
@@ -544,10 +548,11 @@ def test_marked_view(ui, record):
         "merge" not in legend.lower() and "undecided" not in legend.lower(),
         legend,
     )
+    note = _card(ui, "Architecture view, marked").inner_text()
     ui.check(
         "the toolbar says how the states are drawn",
-        "dashed green" in _card(ui, "Architecture view, marked").inner_text(),
-        _card(ui, "Architecture view, marked").inner_text()[-200:].replace("\n", " · "),
+        "New shapes are dashed green, changed amber, decommissioned red" in note,
+        _brief(note[-200:]),
     )
     ui.shot("The marked architecture view for the work package, with the legend above it")
     ui.shot(
@@ -570,8 +575,8 @@ def test_the_two_tables(ui, record):
     card = _tables_card(ui)
     ui.must(
         "both sections are headed with their counts",
-        _section_count(ui, "Relationships") >= 0,
-        card.inner_text()[:120],
+        _section_count(ui, "Elements") >= 0 and _section_count(ui, "Relationships") >= 0,
+        _brief(card.inner_text()),
     )
 
     el_heads = [h.strip().lower() for h in _table(ui, 0).locator("thead th").all_inner_texts()]
@@ -582,7 +587,19 @@ def test_the_two_tables(ui, record):
     )
     el_rows = _rows(_table(ui, 0))
     ui.check(
-        "the elements table lists the count in its heading", len(el_rows) == _section_count(ui, "Elements")
+        "the elements table lists the count in its heading",
+        len(el_rows) == _section_count(ui, "Elements"),
+        f"{len(el_rows)} rows, heading says {_section_count(ui, 'Elements')}",
+    )
+    wrong = [
+        name
+        for name, (current, target) in WP_SCOPE.items()
+        if not ((row := _row_for(el_rows, name)) and current in row[2].lower() and target in row[3].lower())
+    ]
+    ui.check(
+        "every element that changes carries the two states the model holds for it",
+        not wrong,
+        str(wrong),
     )
     forms = _row_for(el_rows, "Legacy Forms Server")
     ui.must("the decommissioned server is listed", bool(forms), str(_names(el_rows)))
@@ -709,13 +726,17 @@ def test_downloads(ui, record):
 )
 def test_unknown_work_package(ui, record, finding):
     ui.goto("/target?wp=NOPE")
-    ui.must("the page still renders", ui.visible("tg-body"), ui.body()[:200])
+    ui.must("the page still renders", ui.visible("tg-body"), _brief(ui.body()))
     ui.check("the selector falls back to every work package", _wp(ui) == ALL_WPS, _wp(ui))
-    ui.check("with 'Only what changes' on, as if nothing had been asked for", _only_changes(ui))
+    ui.check(
+        "with 'Only what changes' on, as if nothing had been asked for",
+        _only_changes(ui),
+        f"checked={_only_changes(ui)}",
+    )
     ui.check(
         "nothing on the page reads as a failure",
         not re.search(r"traceback|error|exception", ui.body(), re.I),
-        ui.body()[:200].replace("\n", " · "),
+        _brief(ui.body()),
     )
     ui.check("the matrix is drawn all the same", bool(_matrix(ui)[1]))
     ui.check("and so is the view", _card(ui, "Architecture view, marked").count() > 0)
