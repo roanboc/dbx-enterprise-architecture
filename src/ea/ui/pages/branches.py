@@ -56,7 +56,7 @@ GRID_COLUMNS = [
     {
         "field": "conflict",
         "width": 100,
-        "valueFormatter": {"function": "params.value ? 'conflict' : ''"},
+        "cellDataType": "text",
         "cellClassRules": {"ea-conflict": "params.value"},
     },
     {

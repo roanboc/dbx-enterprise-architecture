@@ -108,7 +108,9 @@ class BranchService:
                     "fields": ", ".join(it.fields_changed) if it.change == "changed" else "",
                     "base_version": it.base_version,
                     "main_version": it.main_version,
-                    "conflict": it.conflict,
+                    # The word, not a boolean: a grid draws a boolean as a checkbox, and a
+                    # checkbox in this row reads as one more thing to tick.
+                    "conflict": "conflict" if it.conflict else "",
                     "resolution": "branch" if it.conflict else "",
                     "include": True,
                 }

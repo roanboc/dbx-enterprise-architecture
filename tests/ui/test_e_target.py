@@ -255,22 +255,17 @@ def _state_of(cell: str) -> str:
 def _order(rows: list[list[str]], column: int) -> list[int]:
     """Where each row's target state sits in the vocabulary, read down the table."""
     return [
-        TARGET_ORDER.index(state)
-        for row in rows
-        if row and (state := _state_of(row[column])) in TARGET_ORDER
+        TARGET_ORDER.index(state) for row in rows if row and (state := _state_of(row[column])) in TARGET_ORDER
     ]
 
 
-def _ids_by_row(table) -> dict[str, str]:
-    """Each row's element identifier, keyed by what its first cell reads, from the link it carries."""
-    out: dict[str, str] = {}
+def _row_ids(table) -> list[str]:
+    """The element each row is about, in the order they are listed, from the link the row carries."""
     body = table.locator("tbody tr")
+    out: list[str] = []
     for i in range(body.count()):
-        row = body.nth(i)
-        name = row.locator("td").first.inner_text().strip()
-        link = row.locator("a[href^='/element/']").first
-        if name and link.count():
-            out[name] = (link.get_attribute("href") or "").rsplit("/", 1)[-1]
+        link = body.nth(i).locator("a[href^='/element/']").first
+        out.append((link.get_attribute("href") or "").rsplit("/", 1)[-1] if link.count() else "")
     return out
 
 
@@ -862,3 +857,554 @@ def test_unknown_work_package(ui, record, finding):
             ),
         )
     )
+
+
+@pytest.mark.scenario(
+    scenario_id="E09",
+    group="E",
+    title="The address can carry the work package, and the page arrives set to it",
+    feature="Target state · a work package in the address",
+    expected="Opening /target?wp=WP-CMS-UPGRADE selects the work package in the picker and starts "
+    "with 'Only what changes' already off, and the matrix and the relationships table count that "
+    "work package alone rather than the whole model.",
+)
+def test_a_work_package_in_the_address(ui, record, finding):
+    ui.goto("/target")
+    whole_elements, whole_relationships, _ = _scope_line(ui)
+    every_wp = _rows(_table(ui, 1))
+    ui.must(
+        "the model's changing relationships are listed to compare against", bool(every_wp), str(every_wp[:1])
+    )
+    ui.check(
+        "among them the one the work package itself makes",
+        bool(_row_for(every_wp, WP_NAME)),
+        str(_names(every_wp)),
+    )
+
+    ui.goto(f"/target?wp={WP}")
+    ui.check("the address chose the work package in the picker", WP_NAME in _wp(ui), _wp(ui))
+    ui.check(
+        "and 'Only what changes' arrives off, as choosing it by hand would leave it",
+        not _only_changes(ui),
+        f"checked={_only_changes(ui)}",
+    )
+    elements, relationships, changes = _scope_line(ui)
+    ui.check(
+        "the scope is the work package, not the model",
+        0 < elements < whole_elements and 0 < relationships < whole_relationships,
+        f"{elements} of {whole_elements} elements, {relationships} of {whole_relationships} relationships",
+    )
+    heads, matrix = _matrix(ui)
+    ui.must("the matrix is drawn for the work package", bool(matrix), str(heads))
+    cells = [c for row in matrix.values() for c in row.values()]
+    ui.check(
+        "its cells count the work package and nothing else",
+        sum(int(c) for c in cells if c.isdigit()) == elements,
+        f"{sum(int(c) for c in cells if c.isdigit())} in the matrix, {elements} in scope",
+    )
+    ui.check(
+        "what the work package keeps is counted as kept",
+        sum(_cell(row, "keep") for row in matrix.values()) >= len(WP_KEPT),
+        str({k: v.get("keep") for k, v in matrix.items()}),
+    )
+    ui.check(
+        "and no cell of it is left undecided",
+        all(_cell(row, "undecided") == 0 for row in matrix.values()),
+        str({k: v.get("undecided") for k, v in matrix.items()}),
+    )
+    clipped = _clipped_row_labels(ui)
+    ui.check(
+        "every row label of the matrix can be read in full",
+        not clipped,
+        "clipped: " + "; ".join(clipped) if clipped else "",
+    )
+
+    scoped = _rows(_table(ui, 1))
+    ui.check(
+        "the relationships table holds what the work package's scope holds",
+        len(scoped) == relationships == _section_count(ui, "Relationships"),
+        f"{len(scoped)} rows, {relationships} in scope, heading says {_section_count(ui, 'Relationships')}",
+    )
+    ui.check(
+        "the one that names no work package has dropped out",
+        not _row_for(scoped, WP_NAME),
+        str(_names(scoped)),
+    )
+    ui.check(
+        "the relationship that breaks when the server goes is still here",
+        bool(_row_for(scoped, "Legacy Forms Server")),
+        str(_names(scoped)),
+    )
+    listed = set(_names(_rows(_table(ui, 0))))
+    ui.check(
+        "and a relationship the work package changes is listed even where its own ends are not",
+        bool(_row_for(scoped, "Manager, Curriculum Systems")) and "Manager, Curriculum Systems" not in listed,
+        f"listed elements {sorted(listed)}",
+    )
+    ui.shot("The work package taken from the address: both controls set, and both tables scoped to it")
+
+    rel_heads = [h.lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
+    if not any("work package" in h for h in rel_heads):
+        finding.append(
+            _finding(
+                finding_id="E-5",
+                where="src/ea/ui/pages/target.py · _body(), the relationships table",
+                severity="usability",
+                summary="The relationships table never says which work package carries the change",
+                detail=(
+                    "The elements table gives each row its work package, and links from it to the "
+                    "page scoped to that package; the relationships table beside it has no such "
+                    "column. With every work package in scope the two kinds of row sit together — "
+                    "five that name WP-CMS-UPGRADE and one that names no work package at all — and "
+                    "nothing on screen tells them apart or leads to the package that owns one."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="E10",
+    group="E",
+    title="Going back to every work package widens the scope and turns the switch on again",
+    feature="Target state · work package",
+    expected="Choosing 'All work packages' after a work package restores the whole model and turns "
+    "'Only what changes' back on by itself, and the address that scoped the page still scopes it "
+    "when it is opened again.",
+)
+def test_back_to_every_work_package(ui, record, finding):
+    ui.goto(f"/target?wp={WP}")
+    scoped_elements, scoped_relationships, _ = _scope_line(ui)
+    ui.must("the page opened on the work package", WP_NAME in _wp(ui), _wp(ui))
+
+    _choose_wp(ui, ALL_WPS)
+    ui.check("the picker goes back to every work package", _wp(ui) == ALL_WPS, _wp(ui))
+    ui.check(
+        "and 'Only what changes' comes back on by itself",
+        _only_changes(ui),
+        f"checked={_only_changes(ui)}",
+    )
+    elements, relationships, changes = _scope_line(ui)
+    ui.check(
+        "the scope widens back to the whole model",
+        elements > scoped_elements and relationships > scoped_relationships,
+        f"{elements} elements and {relationships} relationships, from {scoped_elements} and {scoped_relationships}",
+    )
+    listed = _names(_rows(_table(ui, 0)))
+    ui.check(
+        "the list is what changes again, not what a package touches",
+        _section_count(ui, "Elements") == changes == len(listed),
+        f"{len(listed)} listed, {changes} change",
+    )
+    ui.check(
+        "so what the work package merely keeps is out of it",
+        not (WP_KEPT & set(listed)),
+        str(sorted(WP_KEPT & set(listed))),
+    )
+    ui.check(
+        "and what it changes is still there, under the whole model",
+        set(WP_SCOPE) <= set(listed),
+        str(sorted(set(WP_SCOPE) - set(listed))),
+    )
+    ui.shot("Back to every work package: the scope widens and the switch turns itself on again")
+
+    left_behind = ui.page.url
+    ui.goto(left_behind)
+    ui.check(
+        "the address that scoped the page scopes it again when it is opened",
+        WP_NAME in _wp(ui) if f"wp={WP}" in left_behind else _wp(ui) == ALL_WPS,
+        f"{left_behind} → {_wp(ui)}",
+    )
+    if f"wp={WP}" in left_behind:
+        finding.append(
+            _finding(
+                finding_id="E-6",
+                where="src/ea/ui/pages/target.py · render() and refresh(), the ?wp= parameter",
+                severity="usability",
+                summary="The address is read on arrival but never follows the picker afterwards",
+                detail=(
+                    "render() takes the work package from ?wp=, and the elements table hands out "
+                    "/target?wp=… links, so the address is how a scope is shared. The picker never "
+                    "writes it back: after moving from the work package to 'All work packages' the "
+                    "address still reads /target?wp=WP-CMS-UPGRADE, so copying the link, or "
+                    "reloading, silently returns to the scope the reader has just left. Browse and "
+                    "Impact leave their filters out of the address in the same way, so the fix is "
+                    "one the whole application shares."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="E11",
+    group="E",
+    title="Turning 'Only what changes' off lists the whole model, undecided and all",
+    feature="Target state · only what changes",
+    expected="With every work package in scope, turning the switch off lists every element and "
+    "every relationship the scope holds — the undecided ones included — grouped by target state in "
+    "the vocabulary's order, and leaves the badge row, the matrix and the scope sentence untouched.",
+)
+def test_the_switch_off_on_the_whole_model(ui, record):
+    ui.goto("/target")
+    elements, relationships, changes = _scope_line(ui)
+    badges, matrix = _badges(ui), _matrix(ui)[1]
+    changing = _section_count(ui, "Elements")
+    ui.must("the page opened on what changes", changing == changes, f"{changing} listed, {changes} change")
+
+    ui.toggle("tg-only-changes", False)
+    ui.check("the switch stays where it was put", not _only_changes(ui), f"checked={_only_changes(ui)}")
+    ui.check("and the work package picker is left alone", _wp(ui) == ALL_WPS, _wp(ui))
+    rows = _rows(_table(ui, 0))
+    ui.check(
+        "every element in scope is now listed, not only what changes",
+        len(rows) == elements > changing,
+        f"{len(rows)} rows, {elements} in scope, {changing} of them changing",
+    )
+    ui.check(
+        "the heading counts what is under it",
+        _section_count(ui, "Elements") == len(rows),
+        f"{_section_count(ui, 'Elements')} in the heading, {len(rows)} rows",
+    )
+    ui.check(
+        "what the model has not decided on is listed too",
+        sum(1 for r in rows if _state_of(r[3]) == "undecided") >= 1,
+        str(sorted({_state_of(r[3]) for r in rows if r})),
+    )
+    ui.check(
+        "and so is what is merely kept",
+        WP_KEPT <= set(_names(rows)),
+        str(sorted(WP_KEPT - set(_names(rows)))),
+    )
+    rel_rows = _rows(_table(ui, 1))
+    ui.check(
+        "every relationship in scope is listed as well",
+        len(rel_rows) == relationships,
+        f"{len(rel_rows)} rows, {relationships} in scope",
+    )
+    ui.check(
+        "with its own heading counting them",
+        _section_count(ui, "Relationships") == len(rel_rows),
+        f"{_section_count(ui, 'Relationships')} in the heading, {len(rel_rows)} rows",
+    )
+    element_order = _order(rows, 3)
+    ui.check(
+        "the elements are grouped by target state, in the order the vocabulary reads",
+        element_order == sorted(element_order),
+        str([TARGET_ORDER[i] for i in element_order][:12]),
+    )
+    relationship_order = _order(rel_rows, 4)
+    ui.check(
+        "and the relationships the same way",
+        relationship_order == sorted(relationship_order),
+        str([TARGET_ORDER[i] for i in relationship_order][:12]),
+    )
+    ui.check(
+        "the matrix counts the scope rather than the list, so the switch leaves it as it was",
+        _matrix(ui)[1] == matrix,
+        str(_matrix(ui)[1]),
+    )
+    ui.check("the badge row too", _badges(ui) == badges, f"{_badges(ui)} against {badges}")
+    ui.check(
+        "and the sentence beneath it says exactly what it said before",
+        _scope_line(ui) == (elements, relationships, changes),
+        str(_scope_line(ui)),
+    )
+    ui.shot("Every work package with the switch off: the whole model, undecided artefacts and all")
+
+    ui.toggle("tg-only-changes", True)
+    ui.check(
+        "turning it back on narrows the list to what changes again",
+        _section_count(ui, "Elements") == changes,
+        f"{_section_count(ui, 'Elements')} listed, {changes} change",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="E12",
+    group="E",
+    title="The view draws what changes and what is kept, and nothing the model has left undecided",
+    feature="Target state · the marked view",
+    expected="With every work package in scope the diagram holds one shape per element that changes "
+    "or is kept — the same elements the table names when the switch is off — and none of the "
+    "undecided ones, and the switch changes the list under it rather than the picture.",
+)
+def test_what_the_view_draws(ui, record):
+    ui.goto("/target")
+    ui.wait_mermaid()
+    badges = _badges(ui)
+    elements, _, changes = _scope_line(ui)
+    drawn = _drawn_ids(ui)
+    ui.must("the view drew something", bool(drawn), str(sorted(drawn))[:140])
+    expected = changes + badges.get("keep", 0)
+    ui.check(
+        "it draws what changes and what is kept, and stops there",
+        len(drawn) == min(expected, MAX_NODES),
+        f"{len(drawn)} shapes, {changes} change and {badges.get('keep', 0)} are kept",
+    )
+    ui.check(
+        "so the picture is smaller than the model it is cut from",
+        len(drawn) < elements,
+        f"{len(drawn)} of {elements} elements",
+    )
+
+    ui.toggle("tg-only-changes", False)
+    ui.wait_mermaid()
+    ui.check(
+        "the switch changes the list under the view, not the view itself",
+        _drawn_ids(ui) == drawn,
+        str(sorted(_drawn_ids(ui) ^ drawn)),
+    )
+    rows = _rows(_table(ui, 0))
+    named = [(i, _state_of(r[3])) for i, r in zip(_row_ids(_table(ui, 0)), rows, strict=False) if i and r]
+    undecided = {i for i, state in named if state == "undecided"}
+    wanted = {i for i, state in named if state and state != "undecided"}
+    ui.must(
+        "every row of the table names the element it is about",
+        len(named) == len(rows),
+        f"{len(named)} rows carried an identifier, of {len(rows)}",
+    )
+    ui.check(
+        "nothing the model has not decided on is drawn",
+        not (drawn & undecided),
+        str(sorted(drawn & undecided)),
+    )
+    ui.check(
+        "and everything that changes or is kept is",
+        drawn == wanted if len(wanted) <= MAX_NODES else drawn <= wanted,
+        str(sorted(drawn ^ wanted)),
+    )
+    ui.check(
+        "what is kept is drawn beside what changes, so the reader sees what stays",
+        "PAC-SRS" in drawn,
+        str(sorted(drawn)),
+    )
+    ui.shot("The whole model's view against the table that names every element behind it")
+
+
+@pytest.mark.scenario(
+    scenario_id="E13",
+    group="E",
+    title="The view marks the relationships as well as the shapes",
+    feature="Target state · the marked view",
+    expected="On a work package the generated diagram marks the relationships it changes as well as "
+    "the elements: the decommissioned one is drawn red and the new ones green, the work package "
+    "itself is the focus of its own view, and the browser paints those colours.",
+)
+def test_the_view_marks_relationships(ui, record):
+    ui.goto(f"/target?wp={WP}")
+    ui.wait_mermaid()
+    source = _source(ui)
+    ui.must("the page keeps the diagram it generated", source.startswith("flowchart"), source[:60])
+    ui.check(
+        "the decommissioned server's shape is marked as decommissioned",
+        "class n_PTC_FORMS st_decommission" in source,
+        _brief(source[-400:]),
+    )
+    for state in ("new", "change", "decommission"):
+        ui.check(
+            f"a style is defined for what is {state}",
+            f"classDef st_{state} " in source,
+            _brief(source[-400:]),
+        )
+    ui.check(
+        "and the work package is the focus of its own view",
+        "style n_WP_CMS_UPGRADE stroke-width" in source,
+        _brief(source[-400:]),
+    )
+    links = re.findall(r"linkStyle \d+ stroke:(#[0-9a-fA-F]{6})", source)
+    ui.check("the relationships are marked too, not only the shapes", bool(links), str(links))
+    ui.check(
+        "the one that goes with the server is drawn in the decommission colour",
+        DECOMMISSION_HEX in links,
+        str(links),
+    )
+    ui.check("and the new ones in the colour for new", NEW_HEX in links, str(links))
+    strokes = _edge_strokes(ui)
+    ui.must("the browser drew the edges", bool(strokes), str(sorted(strokes)))
+    ui.check(
+        "and it paints them in those same colours",
+        {NEW_RGB, DECOMMISSION_RGB} <= strokes,
+        str(sorted(strokes)),
+    )
+    ui.shot(
+        "The work package's view: the relationships marked as well as the shapes",
+        selector=VIEW_CARD,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="E14",
+    group="E",
+    title="The downloads follow the picker, and the whole model has a draw.io of its own",
+    feature="Target state · downloads",
+    expected="A work package chosen in the picker rather than the address still names the files, and "
+    "Download draw.io with every work package in scope returns target-state-all.drawio holding "
+    "exactly the shapes the page draws, each with both its states.",
+)
+def test_downloads_follow_the_picker(ui, record):
+    ui.goto("/target")
+    ui.wait_mermaid()
+    _choose_wp(ui, WP)
+    ui.wait_mermaid()
+    ui.must(
+        "the work package was chosen without the address ever naming it",
+        WP_NAME in _wp(ui) and "wp=" not in ui.page.url,
+        f"{_wp(ui)} at {ui.page.url}",
+    )
+    md = ui.download("tg-view-md", ".md")
+    ui.check(
+        "the file is named for what the picker holds, not for what the address says",
+        md.name == f"target-state-{WP}.md",
+        md.name,
+    )
+    ui.check(
+        "and it is the work package's own view",
+        f"## Target state of {WP_NAME}" in md.read_text(encoding="utf-8"),
+        md.read_text(encoding="utf-8")[:80],
+    )
+    ui.shot("A work package chosen in the picker alone, and the file it produced named for it")
+
+    ui.goto("/target")
+    ui.wait_mermaid()
+    drawn = _drawn_ids(ui)
+    drawio = ui.download("tg-view-drawio", ".drawio")
+    ui.check(
+        "the whole model's diagram is named for all of them",
+        drawio.name == "target-state-all.drawio",
+        drawio.name,
+    )
+    diagram = drawio.read_text(encoding="utf-8")
+    ui.check(
+        "it is a draw.io file",
+        diagram.lstrip().startswith("<?xml") and "<mxfile" in diagram,
+        diagram[:60],
+    )
+    exported = set(re.findall(r'ea_id="([^"]+)"', diagram))
+    ui.check(
+        "it holds exactly the shapes the page draws",
+        exported == drawn,
+        str(sorted(exported ^ drawn)),
+    )
+    ui.check(
+        "every shape carries both of its states",
+        diagram.count("ea_target_state=") == diagram.count("ea_id=") == len(exported),
+        f"{diagram.count('ea_id=')} shapes, {diagram.count('ea_target_state=')} with a target state",
+    )
+    ui.check(
+        "what is kept is exported beside what changes, though the table beside it lists neither",
+        'ea_id="PAC-SRS"' in diagram and 'ea_target_state="keep"' in diagram,
+        next((line for line in diagram.splitlines() if "PAC-SRS" in line), "no shape")[:200],
+    )
+    ui.shot("The whole model's target state taken away as draw.io")
+
+
+@pytest.mark.scenario(
+    scenario_id="E15",
+    group="E",
+    title="The work package picker searches, and offers work packages only",
+    feature="Target state · work package",
+    expected="Typing in the picker narrows it to the work packages that match, an ordinary element "
+    "of the model is never offered, and a search that matches nothing says so.",
+)
+def test_the_picker_searches(ui, record, finding):
+    ui.goto("/target")
+    offered = _wp_options(ui)
+    ui.must("the picker offers something to choose", bool(offered), str(offered))
+    ui.check(
+        "every entry is a work package, named with its identifier",
+        all(o == ALL_WPS or o.endswith("]") for o in offered),
+        str(offered),
+    )
+    ui.check(
+        "an ordinary element of the model is not among them",
+        not any("[PAC-" in o or "[PTC-" in o or "[DE-" in o for o in offered),
+        str(offered),
+    )
+
+    matching = _search_options(ui, "Upgrade")
+    ui.check(
+        "typing part of a name narrows the list to it",
+        WP_OPTION in matching and ALL_WPS not in matching,
+        str(matching),
+    )
+    by_id = _search_options(ui, WP)
+    ui.check("and the identifier finds it just as well", WP_OPTION in by_id, str(by_id))
+    ui.shot("The picker searched by name: the work packages that match, and nothing else")
+
+    missing = _search_options(ui, "PAC-CMS")
+    ui.check(
+        "an element that is not a work package cannot be searched into the picker",
+        not missing,
+        str(missing),
+    )
+    said = _dropdown_text(ui)
+    ui.check(
+        "and a search that matches nothing says so rather than showing an empty box",
+        bool(said),
+        f"the dropdown reads {said!r}",
+    )
+    ui.shot("A search that matches nothing: the picker answers with an empty box")
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    if not said:
+        finding.append(
+            _finding(
+                finding_id="E-7",
+                where="src/ea/ui/pages/target.py · render(), the work package Select",
+                severity="consistency",
+                summary="The work package picker says nothing when a search matches nothing",
+                detail=(
+                    "The picker is searchable but carries no nothingFoundMessage, so typing "
+                    "'PAC-CMS' — an element that exists but is not a work package — leaves an empty "
+                    "dropdown and no word about why. The same control on Impact "
+                    "(src/ea/ui/pages/impact.py) and on an element's relationship form answers "
+                    "'Type to search' in the same situation, and both carry a placeholder saying "
+                    "what may be typed; this one has neither."
+                ),
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="E16",
+    group="E",
+    title="The page leads on to the branches, and its work package link scopes it",
+    feature="Target state · where it leads",
+    expected="The Branches button beside the title opens the branches page, and the work package "
+    "link in the elements table reloads Target state scoped to that work package.",
+)
+def test_where_the_page_leads(ui, record):
+    ui.goto("/target")
+    branches = ui.page.locator("#page a[href='/branches']").first
+    ui.must("the page offers the branches beside its title", branches.count() > 0, ui.text("#page h1"))
+    ui.check(
+        "the button says what it opens",
+        "Branches" in branches.inner_text(),
+        branches.inner_text().strip(),
+    )
+    branches.click()
+    ui.settle()
+    ui.check("it opens the branches page", ui.page.url.endswith("/branches"), ui.page.url)
+    ui.check(
+        "and the branches page is what arrived",
+        ui.text("#page h1") == "Branches",
+        ui.text("#page h1"),
+    )
+    ui.shot("The Branches button beside the title opens the page that carries the work")
+
+    ui.goto("/target")
+    link = _table(ui, 0).locator(f"a[href='/target?wp={WP}']").first
+    ui.must("the elements table links to the work package that will do the work", link.count() > 0)
+    link.click()
+    ui.settle()
+    ui.check("following it scopes the page to that work package", WP_NAME in _wp(ui), _wp(ui))
+    ui.check(
+        "with 'Only what changes' off, as the address asks",
+        not _only_changes(ui),
+        f"checked={_only_changes(ui)}",
+    )
+    ui.check(
+        "and what the work package keeps listed with what it changes",
+        WP_KEPT <= set(_names(_rows(_table(ui, 0)))),
+        str(sorted(WP_KEPT - set(_names(_rows(_table(ui, 0)))))),
+    )
+    ui.shot("The work package link from the table, followed to the page scoped to it")
