@@ -137,9 +137,9 @@ def _ensure_branch(ui) -> None:
 
 
 def _on_branch(ui) -> None:
+    """On the group's own branch, whichever branch the reset fixture left behind."""
     _ensure_branch(ui)
-    if BRANCH_NAME not in ui.text("branch-select"):
-        ui.branch(BRANCH_NAME)
+    ui.branch(BRANCH_NAME)
 
 
 def _el_tab(ui, label: str) -> None:
