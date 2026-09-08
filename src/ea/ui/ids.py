@@ -75,6 +75,7 @@ MM_LAYOUT = "mm-layout"
 MM_NOTATION_DOMAINS_GRID = "mm-notation-domains-grid"
 MM_NOTATION_TYPES_GRID = "mm-notation-types-grid"
 MM_NOTATION_PREVIEW = "mm-notation-preview"
+MM_NOTATION_NOTE = "mm-notation-note"  # why the preview has stopped following the grids
 
 # impact
 IMP_ELEMENT = "imp-element"

@@ -18,6 +18,7 @@ from ea.models import (
     NotFoundError,
     ValidationError,
 )
+from ea.services.roles import a_role
 from ea.services.target import CURRENT_STYLE, TARGET_STYLE, state_label
 from ea.ui import graph as gp
 from ea.ui import ids
@@ -357,7 +358,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                         dmc.Text(
                             "Switch to a branch in the header to edit."
                             if ctx.can("edit_content") and not can_write
-                            else f"A {ctx.role_label()} may not edit."
+                            else f"{a_role(ctx.role_label())} may not edit."
                             if not can_write
                             else "",
                             size="xs",

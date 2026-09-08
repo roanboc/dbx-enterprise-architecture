@@ -90,7 +90,7 @@ def render(ctx: AppContext) -> html.Div:
                                     ),
                                     id={"type": "ask-example", "i": i},
                                     n_clicks=0,
-                                    style={"display": "contents"},
+                                    className="ea-chip-wrap",
                                 )
                                 for i, q in enumerate(EXAMPLES)
                             ],

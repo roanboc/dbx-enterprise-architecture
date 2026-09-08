@@ -89,11 +89,16 @@ def allowed(action: str, role: str | None = None) -> bool:
     return role in ACTIONS[action]
 
 
+def a_role(label: str) -> str:
+    """`a Reader`, `an Architect`: a refusal is a sentence, and reads like one."""
+    return f"{'an' if label[:1].upper() in 'AEIOU' else 'a'} {label}"
+
+
 def require(action: str, role: str | None = None, what: str = "") -> None:
     """Raise Forbidden, naming the role and the action, when the role may not do this."""
     role = role or current_role()
     if not allowed(action, role):
-        raise Forbidden(f"a {LABELS.get(role, role)} may not {what or action.replace('_', ' ')}")
+        raise Forbidden(f"{a_role(LABELS.get(role, role))} may not {what or action.replace('_', ' ')}")
 
 
 def parse_role_groups(text: str) -> dict[str, set[str]]:

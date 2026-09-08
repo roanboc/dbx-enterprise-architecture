@@ -21,6 +21,8 @@ screen was perfect.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from tests.ui.evidence import Finding
 
@@ -828,3 +830,904 @@ def test_metamodel_audit(ui, record, finding):
 )
 def test_health_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Health", "/health", "src/ea/ui/pages/health.py")
+
+
+# ------------------------------------------------- the states an address does not reach
+
+# A screen has more states than it has addresses. A tab moved, a dialog opened, a refusal
+# returned or a role changed puts controls, headings and colours on the screen that the
+# eleven audits above never see, and the checklist applies to those exactly as it does to
+# the screen they came from. What follows runs the same probes on the screen as it stands,
+# lodging under the same keys, so a fault a state reveals joins the row the screens wrote
+# rather than opening a second one for the same cause.
+
+# The wording used when a state is the first to lodge a cause, matching what the audit
+# above lodges it under so the report reads the same whichever found it first.
+LODGE_SUMMARY = {
+    "heading-skip": (
+        "Section headings skip levels: a card headed with order=5 follows the h2 page "
+        "title directly, so the outline jumps h2 → h5 and the structure is lost"
+    ),
+    "unlabelled-controls": (
+        "Controls carry no visible label and no accessible name — icon-only action buttons "
+        "whose only wording is a tooltip, which names nothing until it is hovered, and "
+        "inputs that rely on a placeholder, which is not a label and goes the moment "
+        "anything is typed into it"
+    ),
+    "disabled-without-reason": (
+        "A disabled control says nothing about why it is disabled: no title, no "
+        "description and nothing beside it a reader could use to learn what would "
+        "enable it"
+    ),
+    "narrow-overflow": (
+        "At 480 px the page scrolls sideways: the content is wider than the viewport, "
+        "so part of every row is off-screen and the reader has to pan the whole page "
+        "to read one line of it"
+    ),
+}
+
+# Checkpoint 9, which the eleven screen audits leave to the screenshots: the keyboard has
+# to reach a control and the control has to show that it has it. A ring is an outline or a
+# box-shadow the focused element draws; Mantine draws one on :focus-visible, which is what
+# a Tab press produces.
+FOCUS_JS = (
+    """
+() => {
+"""
+    + VISIBLE
+    + """
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const cs = getComputedStyle(el);
+  const r = el.getBoundingClientRect();
+  const outlined = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth || '0') > 0;
+  const shadowed = !!cs.boxShadow && cs.boxShadow !== 'none';
+  return {
+    sel: where(el),
+    name: (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '')
+      .trim().replace(/\\s+/g, ' ').slice(0, 34),
+    ring: outlined || shadowed,
+    how: outlined ? 'outline ' + cs.outlineWidth : (shadowed ? 'box-shadow' : 'nothing'),
+    visible: vis(el),
+    onScreen: r.bottom > -2 && r.top < innerHeight + 2 && r.right > -2 && r.left < innerWidth + 2,
+    inPage: !!el.closest('#page'),
+  };
+}
+"""
+)
+
+
+def audit_current(ui, finding, name: str, state: str, headings: bool = True) -> None:
+    """Run the checkpoints a state can change, on the screen as it stands now.
+
+    `audit_screen` reads a screen as an address renders it, and the two checkpoints that
+    belong to the address rather than to the state — the navigation marking the page, and
+    the narrow viewport — are not repeated here. `headings` is off for a dialog, whose
+    title is not part of the page's own outline.
+    """
+    where = f"{name} · {state}"
+
+    if headings:
+        heads = ui.page.evaluate(HEADINGS_JS)
+        skips: list[str] = []
+        previous = None
+        for h in heads:
+            if previous is not None and h["level"] > previous + 1:
+                skips.append(f"h{previous} → h{h['level']} at {h['text']!r}")
+            previous = h["level"]
+        if skips:
+            _lodge(
+                finding,
+                "heading-skip",
+                where,
+                "accessibility",
+                LODGE_SUMMARY["heading-skip"],
+                [f"{where}: {s}" for s in skips],
+            )
+        ui.check(
+            f"checkpoint 2 · heading hierarchy · {state}",
+            True,
+            _brief(skips) if skips else f"clean — {len(heads)} headings, no level skipped",
+        )
+
+    unlabelled = ui.page.evaluate(LABELS_JS)
+    described = [
+        u["sel"] + (f" (placeholder {u['placeholder']!r})" if u["placeholder"] else "") for u in unlabelled
+    ]
+    if described:
+        _lodge(
+            finding,
+            "unlabelled-controls",
+            where,
+            "accessibility",
+            LODGE_SUMMARY["unlabelled-controls"],
+            described,
+        )
+    ui.check(
+        f"checkpoint 3 · labelling · {state}",
+        True,
+        f"{len(described)} controls have no accessible name: {_brief(described)}"
+        if described
+        else "clean — every control on screen has a name",
+    )
+
+    disabled = ui.page.evaluate(DISABLED_JS)
+    silent = [f"{d['sel']} {d['label']!r}" for d in disabled if not d["reason"] and not d["near"]]
+    implied = [d for d in disabled if not d["reason"] and d["near"]]
+    if silent:
+        _lodge(
+            finding,
+            "disabled-without-reason",
+            where,
+            "usability",
+            LODGE_SUMMARY["disabled-without-reason"],
+            [f"{where}: {s}" for s in silent],
+        )
+    if silent:
+        verdict = f"{len(silent)} of {len(disabled)} give no reason at all: {_brief(silent)}"
+    elif disabled:
+        verdict = f"clean — {len(disabled)} disabled, {len(implied)} explained by the text beside them"
+    else:
+        verdict = "nothing in this state is disabled"
+    ui.check(f"checkpoint 4 · disabled with a reason · {state}", True, verdict)
+
+    poor = ui.page.evaluate(CONTRAST_JS)
+    combos: dict[tuple[str, str], dict] = {}
+    for p in poor:
+        seen = combos.get((p["fg"], p["bg"]))
+        if seen is None or p["ratio"] < seen["ratio"]:
+            combos[(p["fg"], p["bg"])] = p
+    for (fg, bg), v in combos.items():
+        bucket = _contrast_bucket(fg, bg)
+        _lodge(
+            finding,
+            f"contrast-{bucket}",
+            where,
+            "accessibility",
+            CONTRAST_BUCKETS[bucket],
+            [f"{fg} on {bg} at {v['ratio']}:1 ({v['size']}px, e.g. {v['text']!r} on {where})"],
+        )
+    ui.check(
+        f"checkpoint 8 · contrast · {state}",
+        True,
+        (
+            f"{len(poor)} text nodes in {len(combos)} colour pairs below the floor: "
+            + _brief([f"{v['fg']} on {v['bg']} at {v['ratio']}:1 — {v['text']!r}" for v in combos.values()])
+        )
+        if combos
+        else "clean — every text node meets its floor",
+    )
+    _clipped_badges(ui, finding, where, "1600 px")
+
+
+def narrow_pass(ui, finding, name: str, caption: str) -> None:
+    """Checkpoint 10 on a state: what a reader at 480 px is given, and a photograph of it."""
+    ui.narrow()
+    try:
+        ui.settle()
+        flow = ui.page.evaluate(OVERFLOW_JS)
+        detail = f"scrollWidth {flow['scroll']} vs clientWidth {flow['client']}"
+        if flow["scroll"] > flow["client"] + 2:
+            widest = _brief([o["sel"] for o in flow["over"]])
+            _lodge(
+                finding,
+                "narrow-overflow",
+                name,
+                "usability",
+                LODGE_SUMMARY["narrow-overflow"],
+                [f"{name}: {detail} — {widest}"],
+            )
+            detail += f" — {widest}"
+        else:
+            detail = f"clean — {detail}"
+        ui.check("checkpoint 10 · nothing is clipped at 480 px", True, detail)
+        _clipped_badges(ui, finding, name, "480 px")
+        ui.shot(caption)
+    finally:
+        ui.wide()
+        ui.settle()
+
+
+def _open_tab(ui, root: str, label: str) -> bool:
+    """Click a tab by the name it wears, and say whether its own panel came forward."""
+    tab = ui.page.locator(f"{root} [role='tab']").filter(has_text=re.compile(re.escape(label)))
+    if not tab.count():
+        return False
+    tab.first.click()
+    ui.settle()
+    return tab.first.get_attribute("aria-selected") == "true"
+
+
+def _panel_text(ui, root: str) -> str:
+    """What the tab panel now on show actually holds."""
+    panels = ui.page.locator(f"{root} [role='tabpanel']")
+    for i in range(panels.count()):
+        panel = panels.nth(i)
+        if panel.is_visible():
+            return (panel.inner_text() or "").strip()
+    return ""
+
+
+def _element_id(ui) -> str:
+    """The identifier of the element the group audits, from the same first row of Browse."""
+    return _element_path(ui).rsplit("/", 1)[-1]
+
+
+_WORK_PACKAGE: list[str] = []  # one work package, resolved once from the model itself
+
+
+def _work_package(ui) -> str:
+    """A work package the model really carries, read off Target state's own links."""
+    if _WORK_PACKAGE:
+        return _WORK_PACKAGE[0]
+    ui.goto("/target")
+    hrefs = ui.page.locator('#tg-body a[href^="/target?wp="]').evaluate_all(
+        "links => links.map(a => a.getAttribute('href'))"
+    )
+    ids_seen = [h.split("wp=", 1)[1] for h in hrefs if h and "wp=" in h]
+    _WORK_PACKAGE.append(ids_seen[0] if ids_seen else "WP-CMS-UPGRADE")
+    return _WORK_PACKAGE[0]
+
+
+def _ask_box(ui):
+    """The question box: Mantine may put the id on the field or on the wrapper around it."""
+    field = ui.page.locator("textarea#ask-input")
+    return field.first if field.count() else ui.page.locator("#ask-input textarea").first
+
+
+def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[dict]:
+    """Tab through a screen and report where the keyboard went and whether it showed."""
+    stops: list[dict] = []
+    for i in range(presses):
+        ui.page.keyboard.press("Tab")
+        ui.page.wait_for_timeout(30)
+        stop = ui.page.evaluate(FOCUS_JS)
+        if stop:
+            stops.append(stop)
+        if caption and i == shot_at:
+            ui.shot(caption)
+    return stops
+
+
+@pytest.mark.scenario(
+    scenario_id="P12",
+    group="P",
+    title="Browse as a Health figure opens it, against the usability checklist",
+    feature="Screen audit · Browse from an address",
+    expected="The address behind a Health figure renders Browse narrowed to the rows that figure counts, "
+    "says in words which rows it is showing and offers the way back to the whole list, and the automated "
+    "checkpoints are applied to it in that state.",
+)
+def test_browse_from_health_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Browse filtered from Health",
+        "/browse?missing=description",
+        "src/ea/ui/pages/browse.py · _filter_note",
+    )
+    note = ui.text("browse-filter-note")
+    ui.check(
+        "checkpoint 5 · the filter note says which rows the address asked for",
+        "without a description" in note.lower(),
+        note or "nothing is said about the filter",
+    )
+    ui.check(
+        "and offers the way back to the whole list",
+        "Show all elements" in note,
+        note or "nothing is said about the filter",
+    )
+    filtered = ui.grid_row_count("browse-grid")
+    ui.goto("/browse")
+    everything = ui.grid_row_count("browse-grid")
+    ui.check(
+        "the address really narrowed the grid rather than only saying so",
+        filtered < everything,
+        f"{filtered} rows filtered against {everything} unfiltered",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P13",
+    group="P",
+    title="Browse with a search that matches nothing, against the usability checklist",
+    feature="Screen audit · Browse with nothing to show",
+    expected="A search nothing matches leaves Browse with an empty grid; the count says 0 of 0, the words "
+    "that matched nothing are still in the box, and what the screen offers a reader in that state is read "
+    "against checkpoint 5 and lodged when it is only the grid's stock overlay.",
+)
+def test_browse_with_nothing_to_show_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Browse with nothing to show",
+        "/browse?q=zzzqqqmatchesnothing",
+        "src/ea/ui/pages/browse.py",
+    )
+    count = ui.text("browse-count")
+    ui.check("the count says the search matched nothing", count.startswith("0 of 0"), count or "(no count)")
+    typed = ui.page.locator("#browse-text").first.input_value() or ""
+    ui.check(
+        "the words that matched nothing are still in the box, so the reader can edit them",
+        "zzzqqqmatchesnothing" in typed,
+        f"the box holds {typed!r}",
+    )
+    overlay = ui.page.locator("#browse-grid .ag-overlay-no-rows-center")
+    said = overlay.first.inner_text().strip() if overlay.count() else ""
+    stock = not said or said.lower().startswith("no rows to show")
+    if stock:
+        _lodge(
+            finding,
+            "empty-result-says-nothing",
+            "Browse with nothing to show",
+            "usability",
+            "A search that matches nothing is answered by the grid's own stock overlay and nothing "
+            "else: the screen does not say what was searched for, that the type and status filters "
+            "above are still narrowing the list, or what to try instead",
+            [f"the grid says {said or '(nothing at all)'}; the only other word is the count {count!r}"],
+        )
+    ui.check(
+        "checkpoint 5 · the empty result says what it is",
+        True,
+        f"the grid says {said or '(nothing at all)'}; the count reads {count!r}",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P14",
+    group="P",
+    title="Browse as a Reader against the usability checklist",
+    feature="Screen audit · a role that may not write",
+    expected="A Reader is shown the same screen with its two writing buttons off; the page says in words "
+    "why, the checkpoints are applied to the refusal, and the header's new-branch button — whose only "
+    "wording is a tooltip a disabled control never opens — is read against checkpoint 6.",
+    role="reader",
+)
+def test_browse_as_a_reader_audit(ui, record, finding):
+    ui.goto("/browse")
+    ui.persona("Reader")
+    audit_screen(ui, record, finding, "Browse as a Reader", "/browse", "src/ea/ui/pages/browse.py")
+    ui.check(
+        "the header says which role the screen is being read as", "Reader" in ui.role_badge(), ui.role_badge()
+    )
+    body = ui.body()
+    ui.check(
+        "checkpoint 6 · the page says in words what a Reader may not do here",
+        "You are a Reader on this page" in body,
+        body[:160].replace("\n", " · "),
+    )
+    ui.check("Bulk edit is off for a Reader", ui.disabled("bulk-open"))
+    ui.check("New element is off for a Reader", ui.disabled("new-open"))
+    ui.check("and so is the header's new-branch button", ui.disabled("branch-new-open"))
+    ui.page.locator("#branch-new-open").first.hover(force=True)
+    ui.page.wait_for_timeout(500)
+    tooltip = ui.page.locator(".mantine-Tooltip-tooltip")
+    shown = bool(tooltip.count()) and tooltip.first.is_visible()
+    if not shown:
+        _lodge(
+            finding,
+            "refusal-only-in-a-tooltip",
+            "The header's new-branch button, as a Reader",
+            "usability",
+            "The reason a role may not create a branch is written only in a tooltip on the disabled "
+            "button, and a disabled control takes no pointer events, so hovering it opens nothing: "
+            "the refusal 'Your role may not create branches' cannot be read at all",
+            ["src/ea/ui/layout.py wraps the disabled ActionIcon in dmc.Tooltip; hovering shows nothing"],
+        )
+    ui.check(
+        "checkpoint 6 · the header's refusal can be read",
+        True,
+        "the tooltip opens on hover" if shown else "hovering the disabled button opens no tooltip at all",
+    )
+    ui.shot("Browse as a Reader: the writing controls are off and the page says why")
+
+
+@pytest.mark.scenario(
+    scenario_id="P15",
+    group="P",
+    title="An element that is not there, against the usability checklist",
+    feature="Screen audit · Element not found",
+    expected="An identifier nothing carries renders a Not found screen that names the identifier, says "
+    "why that can happen and offers two ways on, and the automated checkpoints are applied to it.",
+)
+def test_missing_element_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "An element that is not there",
+        "/element/P-NO-SUCH-ELEMENT",
+        "src/ea/ui/pages/element.py · render()",
+    )
+    body = ui.body()
+    ui.check(
+        "checkpoint 6 · the refusal names the identifier that was not found",
+        "P-NO-SUCH-ELEMENT" in body,
+        body[:200].replace("\n", " · "),
+    )
+    ui.check("and says why an identifier can go missing", "renamed or removed" in body, body[:240])
+    ui.check(
+        "and offers a way on rather than a dead end",
+        ui.page.locator('#page a[href="/browse"]').count() > 0
+        and ui.page.locator('#page a[href="/"]').count() > 0,
+        f"{ui.page.locator('#page a').count()} links on the screen",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P16",
+    group="P",
+    title="The Element tabs behind Overview, against the usability checklist",
+    feature="Screen audit · Element tabs",
+    expected="Edit, Relationships, Graph and History each open their own panel, and the checkpoints that a "
+    "state can change — headings, labelling, disabled-with-a-reason, contrast and badge fit — are applied "
+    "to each of them, because a hidden panel's controls are invisible to the screen audit.",
+)
+def test_element_tabs_audit(ui, record, finding):
+    ui.goto(_element_path(ui))
+    for label in ("Edit", "Relationships", "Graph", "History"):
+        opened = _open_tab(ui, "#el-tabs", label)
+        ui.check(f"the {label} tab opens its own panel", opened, f"aria-selected is {opened}")
+        if label == "Graph":
+            try:
+                ui.wait_graph()
+            except Exception:  # noqa: BLE001 — a graph that never paints is the audit's finding
+                pass
+        text = _panel_text(ui, "#el-tabs")
+        ui.check(f"the {label} panel has something in it", len(text) > 20, f"{len(text)} characters")
+        audit_current(ui, finding, "Element", f"the {label} tab")
+        ui.shot(f"The Element screen's {label} tab, which no address of its own reaches")
+
+
+@pytest.mark.scenario(
+    scenario_id="P17",
+    group="P",
+    title="The Metamodel tabs behind Element types, against the usability checklist",
+    feature="Screen audit · Metamodel tabs",
+    expected="Relationship types, Attributes, Notation and Reviewers each open their own panel, and the "
+    "checkpoints that a state can change are applied to each — four grids and a notation preview that the "
+    "screen audit never sees, because the panels behind the first tab are hidden.",
+)
+def test_metamodel_tabs_audit(ui, record, finding):
+    ui.goto("/metamodel")
+    for label in ("Relationship types", "Attributes", "Notation", "Reviewers"):
+        opened = _open_tab(ui, "#page", label)
+        ui.check(f"the {label} tab opens its own panel", opened, f"aria-selected is {opened}")
+        text = _panel_text(ui, "#page")
+        ui.check(f"the {label} panel has something in it", len(text) > 20, f"{len(text)} characters")
+        audit_current(ui, finding, "Metamodel", f"the {label} tab")
+        ui.shot(f"The Metamodel screen's {label} tab, which no address of its own reaches")
+
+
+@pytest.mark.scenario(
+    scenario_id="P18",
+    group="P",
+    title="Impact with a result on it, against the usability checklist",
+    feature="Screen audit · Impact answered",
+    expected="An address naming an element runs the trace and renders the summary, the completeness "
+    "caveat, the two tables, the graph and the generated view with its downloads enabled — the state the "
+    "screen audit of the empty Impact page cannot reach — and the checkpoints are applied to all of it.",
+)
+def test_impact_with_a_result_audit(ui, record, finding):
+    element_id = _element_id(ui)
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Impact with a result",
+        f"/impact?element={element_id}",
+        "src/ea/ui/pages/impact.py · _result",
+    )
+    body = ui.body()
+    ui.check(
+        "the address ran the trace it names rather than only filling the picker",
+        "depend on it within" in body,
+        body[:200].replace("\n", " · "),
+    )
+    ui.check("the answer says how complete it is", "Completeness:" in body, "no completeness caveat")
+    ui.check(
+        "the view can be exported once there is one",
+        not ui.disabled("imp-view-md") and not ui.disabled("imp-view-drawio"),
+        f"Markdown disabled={ui.disabled('imp-view-md')}, draw.io disabled={ui.disabled('imp-view-drawio')}",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P19",
+    group="P",
+    title="Impact addressed with an element that is not there, against the usability checklist",
+    feature="Screen audit · Impact refusing an address",
+    expected="An address naming an element nothing carries is refused rather than answered with an empty "
+    "page, the picker is left empty, and the refusal is read against checkpoint 6 — whether it names what "
+    "was refused and what to do instead.",
+)
+def test_impact_unknown_element_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Impact refusing an address",
+        "/impact?element=P-NO-SUCH-ELEMENT",
+        "src/ea/ui/pages/impact.py · render()",
+    )
+    result = ui.text("imp-result")
+    ui.check(
+        "the address is refused rather than answered with an empty page",
+        "Unknown element" in result,
+        result[:160] or "(nothing at all)",
+    )
+    chosen = ui.page.locator("#imp-element").first.input_value() or ""
+    ui.check(
+        "the picker is left empty, because there is nothing to select",
+        chosen.strip() == "",
+        f"the picker holds {chosen!r}",
+    )
+    if "P-NO-SUCH-ELEMENT" not in result:
+        _lodge(
+            finding,
+            "refusal-names-nothing",
+            "Impact refusing an address",
+            "usability",
+            "A refusal does not name what was refused or what to do instead: the screen says only "
+            "'Unknown element.', with neither the identifier the address carried nor a way on — the "
+            "Not found screen for an element does both",
+            [f"the whole refusal reads {result[:80]!r} for /impact?element=P-NO-SUCH-ELEMENT"],
+        )
+    ui.check("checkpoint 6 · the refusal names what was refused", True, f"the refusal reads {result[:80]!r}")
+
+
+@pytest.mark.scenario(
+    scenario_id="P20",
+    group="P",
+    title="The answer document against the usability checklist",
+    feature="Screen audit · Ask answered",
+    expected="A question put to the stub provider returns the document — a generated view, the answer, the "
+    "elements table and the trace — and the checkpoints are applied to the longest screen the application "
+    "renders, at both widths.",
+)
+def test_ask_answered_audit(ui, record, finding):
+    ui.goto("/ask")
+    ui.click("ask-button")
+    ui.page.wait_for_selector("#ask-answer .ea-document", timeout=30_000)
+    ui.settle()
+    try:
+        ui.wait_mermaid()
+    except Exception:  # noqa: BLE001 — an answer that drew no view is still a screen to audit
+        pass
+    answer = ui.text("ask-answer")
+    ui.must("the question was answered as a document", len(answer) > 200, f"{len(answer)} characters")
+    ui.check("the document says how it was answered", "How this was answered" in answer, answer[:160])
+    audit_current(ui, finding, "Ask", "answered")
+    ui.shot("The answer document as a reader sees it on a wide screen")
+    narrow_pass(ui, finding, "Ask answered", "The answer document at 480 px")
+
+
+@pytest.mark.scenario(
+    scenario_id="P21",
+    group="P",
+    title="Ask with the question cleared, against the usability checklist",
+    feature="Screen audit · Ask refusing an empty question",
+    expected="Clearing the box turns Ask off and puts the reason beside it, which is checkpoint 4 met on a "
+    "control that is genuinely disabled, and the checkpoints are applied to the screen in that state.",
+)
+def test_ask_empty_question_audit(ui, record, finding):
+    ui.goto("/ask")
+    box = _ask_box(ui)
+    box.click()
+    box.fill("")
+    ui.settle()
+    ui.check("Ask cannot be pressed on an empty box", ui.disabled("ask-button"), "the button is still live")
+    hint = ui.text("ask-hint")
+    ui.check(
+        "checkpoint 4 · and the reason stands beside it",
+        "Type a question" in hint,
+        hint or "nothing is said beside the button",
+    )
+    audit_current(ui, finding, "Ask", "the question cleared")
+    ui.shot("Ask with the question cleared: the button is off and the reason is beside it")
+
+
+@pytest.mark.scenario(
+    scenario_id="P22",
+    group="P",
+    title="Import asked to validate nothing, against the usability checklist",
+    feature="Screen audit · Import refusing",
+    expected="Pressing Validate with no file uploaded is refused in words that say what to do, and the "
+    "checkpoints are applied to the screen carrying that refusal.",
+)
+def test_import_refusal_audit(ui, record, finding):
+    ui.goto("/import")
+    ui.click("im-validate")
+    report = ui.text("im-report")
+    ui.check(
+        "checkpoint 6 · validating nothing is refused in words that say what to do",
+        "Upload at least one CSV file first." in report,
+        report[:160] or "(nothing at all)",
+    )
+    audit_current(ui, finding, "Import", "asked to validate with no file")
+    ui.shot("Import refusing to validate with nothing uploaded")
+
+
+@pytest.mark.scenario(
+    scenario_id="P23",
+    group="P",
+    title="Branches with a status nothing matches, against the usability checklist",
+    feature="Screen audit · Branches empty state",
+    expected="A status filter that matches no branch says so and says what to do about it, and the "
+    "checkpoints are applied to the screen in that state.",
+)
+def test_branches_empty_status_audit(ui, record, finding):
+    ui.goto("/branches")
+    empty_status, listed = "", ""
+    for label in ("Abandoned", "Merged", "Approved", "In review", "Open"):
+        ui.segmented("br-status", label)
+        listed = ui.text("br-list")
+        if listed.lower().startswith("no "):
+            empty_status = label
+            break
+    ui.check(
+        "a status with no branches under it can be reached",
+        bool(empty_status),
+        f"every status had branches; the last read {listed[:80]!r}",
+    )
+    if empty_status:
+        ui.check(
+            f"checkpoint 5 · {empty_status} says there is nothing under it",
+            listed.lower().startswith("no "),
+            listed[:120],
+        )
+        ui.check(
+            "and says what to do next rather than leaving a blank",
+            "Pick another status" in listed or "Create one" in listed,
+            listed[:120],
+        )
+        audit_current(ui, finding, "Branches", f"the {empty_status} filter, which matches nothing")
+        ui.shot(f"Branches filtered to {empty_status}, with nothing under it")
+
+
+@pytest.mark.scenario(
+    scenario_id="P24",
+    group="P",
+    title="Branches addressed with a branch that is not there, against the usability checklist",
+    feature="Screen audit · Branches refusing an address",
+    expected="An address naming a branch that does not exist is refused by name, the list above it still "
+    "renders, and the automated checkpoints are applied to that screen.",
+)
+def test_branches_unknown_branch_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Branches refusing an address",
+        "/branches?branch=p-no-such-branch",
+        "src/ea/ui/pages/branches.py · _detail",
+    )
+    detail = ui.text("br-detail")
+    ui.check(
+        "checkpoint 6 · the refusal names the branch that was asked for",
+        "p-no-such-branch" in detail,
+        detail[:160] or "(nothing at all)",
+    )
+    ui.check(
+        "and the list of branches is still there to choose from",
+        len(ui.text("br-list")) > 10,
+        ui.text("br-list")[:100],
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P25",
+    group="P",
+    title="Target state scoped to a work package, against the usability checklist",
+    feature="Screen audit · Target state scoped",
+    expected="The address behind a work-package link scopes the whole screen to that work package, turns "
+    "off the only-what-changes switch because a work package shows everything it touches, and the "
+    "checkpoints are applied to the matrix, the marked view and the two tables in that state.",
+)
+def test_target_scoped_audit(ui, record, finding):
+    work_package = _work_package(ui)
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Target state scoped to a work package",
+        f"/target?wp={work_package}",
+        "src/ea/ui/pages/target.py · _body",
+    )
+    shown = ui.page.locator("#tg-wp").first.input_value() or ""
+    ui.check(
+        "the picker holds the work package the address named",
+        work_package in shown,
+        f"the picker holds {shown!r} for wp={work_package}",
+    )
+    checked = ui.page.locator("#tg-only-changes").first.is_checked()
+    ui.check(
+        "and the only-what-changes switch is off, so the scope shows everything it touches",
+        not checked,
+        f"the switch is {'on' if checked else 'off'}",
+    )
+    ui.check("the elements in the scope are listed", "Elements (" in ui.text("tg-body"), "no elements table")
+
+
+@pytest.mark.scenario(
+    scenario_id="P26",
+    group="P",
+    title="Target state addressed with a work package that is not there",
+    feature="Screen audit · Target state ignoring an address",
+    expected="An address naming a work package the model does not carry falls back to every work package. "
+    "The screen loads, and whether it says so is read against checkpoint 6 — Impact refuses the same "
+    "mistake by name.",
+)
+def test_target_unknown_work_package_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "Target state ignoring an address",
+        "/target?wp=P-NO-SUCH-WORK-PACKAGE",
+        "src/ea/ui/pages/target.py · render()",
+    )
+    shown = (ui.page.locator("#tg-wp").first.input_value() or "").strip()
+    ui.check(
+        "the scope falls back to every work package rather than failing",
+        shown == "All work packages",
+        f"the picker holds {shown!r}",
+    )
+    said = "P-NO-SUCH-WORK-PACKAGE" in ui.body()
+    if not said:
+        _lodge(
+            finding,
+            "address-ignored-in-silence",
+            "Target state ignoring an address",
+            "usability",
+            "A work package an address names that the model does not carry is dropped in silence: the "
+            "screen shows every work package as though that had been asked for, and a reader who "
+            "followed a stale link reads the whole model believing it is one initiative",
+            ["/target?wp=P-NO-SUCH-WORK-PACKAGE renders the unscoped page with no word about the address"],
+        )
+    ui.check(
+        "checkpoint 6 · an address naming nothing says so",
+        True,
+        "the screen names the work package it could not find"
+        if said
+        else "the address is dropped without a word, unlike Impact, which refuses one by name",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P27",
+    group="P",
+    title="An address that is not a page, against the usability checklist",
+    feature="Screen audit · the fallback to Home",
+    expected="An address nobody recognises renders Home under a warning that names the address, the "
+    "navigation marks Home because that is what was rendered, and the checkpoints are applied to it.",
+)
+def test_unknown_address_audit(ui, record, finding):
+    audit_screen(
+        ui,
+        record,
+        finding,
+        "An address that is not a page",
+        "/p-no-such-page",
+        "src/ea/ui/app.py · route()",
+    )
+    body = ui.body()
+    ui.check(
+        "checkpoint 6 · the warning names the address that was not found",
+        "/p-no-such-page" in body,
+        body[:200].replace("\n", " · "),
+    )
+    ui.check("and says where the reader has landed instead", "This is the home page" in body, body[:200])
+    ui.check("Home itself is rendered under the warning", "Elements by type" in body, body[:240])
+    ui.check("the navigation marks Home, which is what was rendered", _marked(ui, "nav-home"))
+
+
+@pytest.mark.scenario(
+    scenario_id="P28",
+    group="P",
+    title="The three dialogs against the usability checklist",
+    feature="Screen audit · dialogs",
+    expected="New element, Bulk edit with nothing ticked and the header's New branch each open, say what "
+    "they are for, and have their controls read against labelling, disabled-with-a-reason and contrast — "
+    "controls no screen audit reaches, because a closed dialog renders nothing.",
+)
+def test_dialogs_audit(ui, record, finding):
+    ui.goto("/browse")
+    ui.click("new-open")
+    ui.must("the New element dialog opened", ui.visible("new-modal-body"))
+    titled = ui.text(".mantine-Modal-content")
+    ui.check("it says what it is for", titled.startswith("New element"), titled[:60])
+    audit_current(ui, finding, "Browse", "the New element dialog", headings=False)
+    ui.shot("The New element dialog, whose controls no screen audit reaches")
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    ui.check("Escape closes it", not ui.page.locator("#new-modal-body").count())
+
+    ui.click("bulk-open")
+    ui.must("the Bulk edit dialog opened", ui.visible("bulk-modal-body"))
+    feedback = ui.text("bulk-feedback")
+    ui.check(
+        "checkpoint 5 · with nothing ticked it says why there is nothing to change",
+        "Nothing is ticked" in feedback,
+        feedback[:120] or "(nothing at all)",
+    )
+    audit_current(ui, finding, "Browse", "the Bulk edit dialog with nothing ticked", headings=False)
+    ui.shot("The Bulk edit dialog opened with nothing ticked, saying so")
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+
+    ui.click("branch-new-open")
+    ui.must("the New branch dialog opened", ui.visible("branch-new-modal-body"))
+    ui.check(
+        "it says what a branch is before asking for a name",
+        "A branch starts from main" in ui.text("branch-new-modal-body"),
+        ui.text("branch-new-modal-body")[:120],
+    )
+    audit_current(ui, finding, "The header", "the New branch dialog", headings=False)
+    ui.shot("The header's New branch dialog")
+    ui.page.keyboard.press("Escape")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    ui.check("Escape closes that one too", not ui.page.locator("#branch-new-modal-body").count())
+
+
+@pytest.mark.scenario(
+    scenario_id="P29",
+    group="P",
+    title="Checkpoint 9 · tabbing reaches the controls and shows where it is",
+    feature="Screen audit · focus",
+    expected="On Home, Browse and Ask the keyboard moves through the screen, reaches the page's own "
+    "controls and not only the header, and every control it lands on draws something — an outline or a "
+    "ring — to say it has the keyboard; a control that draws nothing is lodged.",
+)
+def test_focus_audit(ui, record, finding):
+    for name, path in (("Home", "/"), ("Browse", "/browse"), ("Ask", "/ask")):
+        ui.goto(path)
+        stops = _focus_walk(ui, 20, f"{name}: where the keyboard is after four Tab presses")
+        ui.must(f"tabbing moves the keyboard through {name}", len(stops) >= 3, f"{len(stops)} stops")
+        ringless = [f"{s['sel']} {s['name']!r}" for s in stops if s["visible"] and not s["ring"]]
+        unseen = [s["sel"] for s in stops if not s["visible"]]
+        in_page = [s for s in stops if s["inPage"]]
+        if ringless:
+            _lodge(
+                finding,
+                "focus-not-visible",
+                name,
+                "accessibility",
+                "A control takes the keyboard without showing that it has it: tabbing to it changes "
+                "nothing on the screen, so a reader working without a mouse cannot tell where they are "
+                "or what pressing Enter would do",
+                [f"{name}: {r}" for r in ringless],
+            )
+        if not in_page:
+            _lodge(
+                finding,
+                "focus-never-reaches-the-page",
+                name,
+                "accessibility",
+                "Twenty Tab presses from the top of the screen never reach the page's own controls: "
+                "everything the keyboard finds is header and navigation, so the screen cannot be "
+                "worked without a mouse",
+                [f"{name}: {len(stops)} stops, none of them inside the page"],
+            )
+        if unseen:
+            _lodge(
+                finding,
+                "focus-on-something-invisible",
+                name,
+                "accessibility",
+                "The keyboard lands on a control that is not visible, so the focus disappears while "
+                "tabbing and the reader cannot see what would take their next keystroke",
+                [f"{name}: {_brief(unseen)}"],
+            )
+        ui.check(
+            f"checkpoint 9 · focus · {name}",
+            True,
+            f"{len(stops)} tab stops, {len(in_page)} of them inside the page; "
+            + (f"{len(ringless)} draw nothing: {_brief(ringless)}" if ringless else "every one draws a ring")
+            + (f"; {len(unseen)} are invisible" if unseen else ""),
+        )

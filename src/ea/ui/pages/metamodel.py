@@ -13,6 +13,7 @@ from dash import Input, Output, State, dcc, html, no_update
 from ea.metamodel import Registry, load_pack, pack_to_dict
 from ea.metamodel.loader import pack_from_dict
 from ea.models import ANY, Forbidden
+from ea.services.roles import a_role
 from ea.ui import graph as gp
 from ea.ui import ids
 from ea.ui.components import alert, icon, mermaid_block, page_title
@@ -473,6 +474,7 @@ def render(ctx: AppContext) -> html.Div:
                                 **dict(grid_kw, style={"height": "40vh", "width": "100%"}),
                             ),
                             dmc.Title("Preview", order=2, className="ea-section-title", mt="md"),
+                            html.Div(id=ids.MM_NOTATION_NOTE),
                             mermaid_block(ids.MM_NOTATION_PREVIEW, notation_preview(reg)),
                         ],
                         value="notation",
@@ -816,7 +818,11 @@ def register(app: dash.Dash) -> None:
             return no_update, no_update, no_update
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
-            return alert(f"A {ctx.role_label()} may not edit the metamodel.", "red"), no_update, no_update
+            return (
+                alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),
+                no_update,
+                no_update,
+            )
         try:
             d = _pack_from_grids(
                 ctx.registry,
@@ -867,6 +873,12 @@ def register(app: dash.Dash) -> None:
         if not n:
             return (no_update,) * 9
         ctx = get_context()
+        if not ctx.can("edit_metamodel"):
+            # Reload writes the pack into the store: it is an edit, and the button being
+            # visible is not permission to make one.
+            return (alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),) + (
+                no_update,
+            ) * 8
         try:
             pack = load_pack(ctx.settings.pack_path)
             ctx.backend.save_pack(pack)
@@ -887,6 +899,7 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children"),
+        Output(ids.MM_NOTATION_NOTE, "children"),
         Input(ids.MM_NOTATION_DOMAINS_GRID, "cellValueChanged"),
         Input(ids.MM_NOTATION_TYPES_GRID, "cellValueChanged"),
         State(ids.MM_NOTATION_DOMAINS_GRID, "virtualRowData"),
@@ -927,6 +940,12 @@ def register(app: dash.Dash) -> None:
                 _all_rows(tn_virtual, tn_rows, "id"),
             )
             reg = Registry(pack_from_dict(d))
-        except (ValueError, KeyError):
-            return no_update
-        return notation_preview(reg)
+        except (ValueError, KeyError) as exc:
+            # Freezing in silence looks like an edit that did not take. Say which grid is
+            # holding the preview back, so the reader knows what to fix.
+            return no_update, alert(
+                f"The preview cannot be drawn from the grids as they stand: {exc}. "
+                "It will follow again once that is fixed.",
+                "yellow",
+            )
+        return notation_preview(reg), None

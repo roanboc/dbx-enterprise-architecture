@@ -272,3 +272,16 @@ body { background: #e9ecef; }
     overflow-x: auto;
   }
 }
+
+/* An example question is a chip a reader clicks. The badge is what they see; the wrapper is
+   what reports the click, so the affordance belongs to both. */
+.ea-chip-wrap,
+.ea-chip {
+  cursor: pointer;
+}
+.ea-chip-wrap {
+  display: inline-flex;
+}
+.ea-chip-wrap:hover .ea-chip {
+  background: var(--mantine-color-gray-1);
+}
