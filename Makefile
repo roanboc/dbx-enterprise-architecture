@@ -1,4 +1,4 @@
-.PHONY: install seed run test lint format check validate clean
+.PHONY: install seed run test gui gui-install lint format check validate clean
 
 install:            ## create .venv and install runtime + dev dependencies with uv
 	uv sync
@@ -12,6 +12,13 @@ run:                ## start the app locally on DuckDB (Dash debug server)
 
 test:               ## run the test suite
 	uv run pytest
+
+gui-install:        ## add the browser driver and its browser
+	uv sync --group gui
+	uv run --group gui playwright install chromium
+
+gui:                ## the browser-driven round: drives the app, writes .testrun/<stamp>/
+	uv run --group gui pytest tests/ui -m gui
 
 lint:               ## ruff
 	uv run ruff check src tests app.py

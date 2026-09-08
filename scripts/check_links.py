@@ -251,7 +251,12 @@ def check_html(html_file: Path) -> list[str]:
 # for a rendered site. `.docs` is where the pre-reset tooling staged the same
 # things, kept so a stale local copy never fails a fresh checkout's checks.
 EXCLUDED_DIRS = {".git", ".claude", ".agents", ".gemini", ".codex", ".copilot",
-                 ".aip", ".docs", ".archreator", ".model"}
+                 ".aip", ".docs", ".archreator", ".model",
+                 # Installed dependencies and tool caches. What a package ships is
+                 # not the project's to answer for, and a validator that walks a
+                 # virtual environment reports somebody else's broken links.
+                 ".venv", "venv", "node_modules", ".pytest_cache", ".ruff_cache",
+                 ".mypy_cache", ".tox"}
 
 
 def _excluded(path: Path) -> bool:
