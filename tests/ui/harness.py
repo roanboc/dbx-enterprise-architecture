@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,10 +64,38 @@ class Ui:
             full_page = False  # a portalled dropdown lands in the wrong place when stitched
         if selector:
             self.page.locator(selector).first.screenshot(path=str(path))
+        elif full_page:
+            with self._unpinned():
+                self.page.screenshot(path=str(path), full_page=True)
         else:
-            self.page.screenshot(path=str(path), full_page=full_page)
+            self.page.screenshot(path=str(path), full_page=False)
         self.scenario.shots.append(Shot(path=path, caption=caption))
         return path
+
+    @contextmanager
+    def _unpinned(self):
+        """Hold the header and the navigation still while a whole page is photographed.
+
+        Both are pinned to the viewport. A full-page capture paints the page in strips and
+        pins them wherever the viewport happened to be, so on a long page they come out
+        stamped across the middle of the image. Anchored to the document instead, each
+        appears once, where a reader would expect it.
+        """
+        self.page.evaluate("() => window.scrollTo(0, 0)")
+        self.page.wait_for_timeout(120)
+        tag = self.page.add_style_tag(
+            content=(
+                ".mantine-AppShell-header,.mantine-AppShell-navbar"
+                "{position:absolute !important;top:0 !important;}"
+                ".mantine-AppShell-navbar{top:var(--app-shell-header-offset,0) !important;}"
+            )
+        )
+        self.page.wait_for_timeout(120)
+        try:
+            yield
+        finally:
+            tag.evaluate("node => node.remove()")
+            self.page.wait_for_timeout(60)
 
     # ------------------------------------------------------------------- waiting
     def _started(self, request) -> None:  # noqa: ANN001 — playwright event payload

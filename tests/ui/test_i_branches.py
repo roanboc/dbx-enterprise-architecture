@@ -148,9 +148,18 @@ def _set_take(ui, key: str, value: str) -> None:
             picker.first.click()
             ui.page.wait_for_timeout(350)
     ui.must(f"the take cell of {key} offers a choice", options.count() > 0)
-    ui.page.locator(f".ag-list-item:visible:text-is({json.dumps(value)})").first.click()
+    options.filter(has_text=re.compile(rf"^\s*{re.escape(value)}\s*$")).first.click()
     ui.page.wait_for_timeout(250)
     ui.settle()
+
+
+def _conflict_cell(ui, key: str):
+    return ui.page.locator(f"#{GRID} .ag-row[row-id='{key}'] .ag-cell[col-id='conflict']").first
+
+
+def _flagged(ui, key: str) -> bool:
+    """Whether the grid styles the row as a conflict (the class the column's rules apply)."""
+    return "ea-conflict" in (_conflict_cell(ui, key).get_attribute("class") or "")
 
 
 def _accordion_item(ui, entity_id: str):
@@ -217,7 +226,7 @@ def test_create_from_the_header(ui, record):
     ui.check("the header badge left main for the new branch", "branch" in badge.lower(), badge)
     ui.check(
         "the header badge counts the changes on the branch (none yet)",
-        "0 change" in badge,
+        "0 change" in badge.lower(),
         badge,
     )
     ui.check("the new branch is offered in the selector", any(MERGE_BRANCH in o for o in _branch_options(ui)))
@@ -326,7 +335,7 @@ def test_detail_head_and_switch(ui, record):
     _branches(ui, MERGE_ID)
     detail = ui.text("br-detail")
     for wanted in ("0 added", "0 changed", "0 deleted", "0 conflicts"):
-        ui.check(f"the head counts '{wanted}'", wanted in detail, detail[:200])
+        ui.check(f"the head counts '{wanted}'", wanted in detail.lower(), detail[:200])
     ui.check(
         "an empty branch says what would appear in its merge log",
         "edits, imports and applied proposals made on it will appear here" in detail,
@@ -403,8 +412,8 @@ def test_edit_on_a_branch_leaves_main_alone(ui, record):
 def test_merge_log_and_diff(ui, record):
     _branches(ui, MERGE_ID)
     detail = ui.text("br-detail")
-    ui.check("the head now counts two changed rows", "2 changed" in detail, detail[:200])
-    ui.check("and no conflicts", "0 conflicts" in detail, detail[:200])
+    ui.check("the head now counts two changed rows", "2 changed" in detail.lower(), detail[:200])
+    ui.check("and no conflicts", "0 conflicts" in detail.lower(), detail[:200])
     keys = ui.grid_row_ids(GRID)
     ui.must("the merge log holds one row per edited element", len(keys) == 2, f"{keys}")
     ui.check(
@@ -425,7 +434,7 @@ def test_merge_log_and_diff(ui, record):
         "name" in _row(ui, key, "fields"),
         _row(ui, key, "fields"),
     )
-    ui.check("the row is not in conflict", _row(ui, key, "conflict") == "", _row(ui, key, "conflict"))
+    ui.check("the row is not in conflict", not _flagged(ui, key), _conflict_cell(ui, key).inner_html()[:120])
     ui.check(
         "a row that is not in conflict offers nothing to take",
         _row(ui, key, "resolution") == "",
@@ -514,7 +523,7 @@ def test_merge_a_subset(ui, record):
         "main moved since the branch took its copy."
     ),
 )
-def test_conflict_is_flagged(ui, record):
+def test_conflict_is_flagged(ui, record, finding):
     _branches(ui)
     _new_branch(
         ui,
@@ -536,13 +545,17 @@ def test_conflict_is_flagged(ui, record):
     ui.shot("Main has moved the same two definitions the branch is holding")
     _branches(ui, CONFLICT_ID)
     detail = ui.text("br-detail")
-    ui.check("the head counts both rows as conflicts", "2 conflicts" in detail, detail[:200])
+    ui.check("the head counts both rows as conflicts", "2 conflicts" in detail.lower(), detail[:200])
     for element_id in (D1, D2):
         key = f"element:{element_id}"
+        ui.check(f"{element_id} is styled as a conflict in the merge log", _flagged(ui, key))
+        # The column declares `valueFormatter: params.value ? 'conflict' : ''`, so the cell is
+        # meant to read "conflict". The grid infers a boolean column instead and renders a tick,
+        # which in a grid whose first column is a real tick box says the opposite of what is meant.
         ui.check(
-            f"{element_id} is marked conflict in the merge log",
+            f"{element_id} says 'conflict' in the merge log, as its column declares",
             _row(ui, key, "conflict") == "conflict",
-            _row(ui, key, "conflict"),
+            f"the cell renders {_conflict_cell(ui, key).inner_html()[:160]!r}",
         )
         base, main_v = _row(ui, key, "base_version"), _row(ui, key, "main_version")
         ui.check(
@@ -569,6 +582,26 @@ def test_conflict_is_flagged(ui, record):
     ui.shot("The accordion says main moved since the branch took its copy, and shows both rows")
     ui.branch("main")
     _branches(ui)
+    finding.append(
+        Finding(
+            finding_id="I-2",
+            where="src/ea/ui/pages/branches.py · GRID_COLUMNS, the conflict column (BR_GRID)",
+            severity="defect",
+            summary="The merge log's conflict column renders a tick, not the word 'conflict' it declares",
+            detail=(
+                "The column carries `valueFormatter: params.value ? 'conflict' : ''`, but the grid "
+                "reads the boolean value as a boolean column and draws its own checkbox, so the "
+                "formatter never runs and the cell holds no text at all. Two things follow. The word "
+                "the page's own help text uses ('A conflict means main changed the same row since the "
+                "branch started') never appears in the grid, so nothing joins the help to the column; "
+                "and the mark it draws instead is a ticked box in a grid whose first column is a real "
+                "ticked box for 'merge this row', which reads as agreement rather than as a warning. "
+                "The red cell background is the only thing carrying the meaning, so a reader who does "
+                "not see colour is told nothing. The count badge above ('2 CONFLICTS') and the "
+                "accordion below both word it correctly; only the grid does not."
+            ),
+        )
+    )
 
 
 @pytest.mark.scenario(
@@ -839,7 +872,7 @@ def test_the_author_may_not_approve(ui, record):
     role="reviewer",
     branch=REVIEW_ID,
 )
-def test_send_back_needs_a_comment(ui, record):
+def test_send_back_needs_a_comment(ui, record, finding):
     ui.persona("Reviewer")
     _branches(ui, REVIEW_ID)
     ui.must(
@@ -866,6 +899,32 @@ def test_send_back_needs_a_comment(ui, record):
     )
     ui.check("the branch is still in review", "in review" in detail[:300].lower(), detail[:300])
     ui.shot("Sending a branch back without saying why is refused")
+    # The review panel declares its own feedback slot and nothing ever writes to it, so the
+    # refusal is printed under the merge log instead — measured here, reported as a finding.
+    empty_slot = ui.text("rv-feedback") == ""
+    button = ui.page.locator("#rv-send-back").first.bounding_box()
+    message = ui.page.locator("#br-feedback").first.bounding_box()
+    gap = (message["y"] - button["y"] - button["height"]) if (button and message) else 0
+    ui.check("the refusal reached the screen", "a send-back needs a comment" in detail)
+    finding.append(
+        Finding(
+            finding_id="I-3",
+            where="src/ea/ui/pages/branches.py · _review_panel (RV_FEEDBACK) and the review callback",
+            severity="usability",
+            summary="Every review outcome is printed under the merge log, not beside the button that caused it",
+            detail=(
+                "The review panel renders `html.Div(id=ids.RV_FEEDBACK)` for its own messages, but the "
+                "callback behind Request review, Approve and Send back writes into the branch detail, "
+                "whose message lands in the merge log's feedback slot; nothing ever writes to "
+                f"RV_FEEDBACK, which stays empty ({empty_slot}). The refusal of a send-back without a "
+                f"comment therefore appears about {gap:.0f} px below the Send back button that raised "
+                "it, under a grid the reviewer was not looking at, while the comment field that must "
+                "be filled in stays where it was, unmarked. Checkpoint 6 of the usability list asks "
+                "that a refusal name what was refused and what to do instead where the reader is "
+                "looking."
+            ),
+        )
+    )
 
 
 @pytest.mark.scenario(

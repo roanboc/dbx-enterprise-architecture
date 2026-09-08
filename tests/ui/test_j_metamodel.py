@@ -8,10 +8,11 @@ types, attributes, notation, and who reviews what. "Save changes" rebuilds a who
 from the grids, validates it, and only then stores it; "Reload from file" throws the
 stored pack away and reads the shipped file back.
 
-That last pair is what makes this group safe to run inside a shared round. Only two
-scenarios write anything the rest of the round can see — J06 saves an owner onto one
-element type, and J12 assigns and then unassigns a reviewer — and J14 reloads the pack
-from `packs/higher_education/metamodel.yaml`, so every later group reads the shipped
+That last pair is what makes this group safe to run inside a shared round. Three
+scenarios write something the rest of the round could see — J06 saves an owner onto one
+element type, J12 assigns and then unassigns a reviewer, and J15 saves a pack the grid's
+own filter has cut down — and both J14 and J15 end by reloading
+`packs/higher_education/metamodel.yaml`, so every later group reads the shipped
 metamodel. Everything else is typed into a grid and then discarded by navigating away,
 which is exactly what a person does when they change their mind before saving.
 
@@ -22,6 +23,7 @@ the graph and the grids actually hold, not with numbers written into this file.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 import yaml
@@ -145,6 +147,27 @@ def _cell(ui, grid_id: str, row_id: str, col: str) -> str:
 def _set(ui, grid_id: str, row_id: str, col: str, value: str) -> None:
     _reveal_cell(ui, grid_id, row_id, col)
     ui.grid_set_of(grid_id, row_id, col, value)
+
+
+def _grid_home(ui, grid_id: str) -> None:
+    """Put a grid this module scrolled back where a reader left it, so a screenshot reads."""
+    ui.page.evaluate(
+        "gid => { ['.ag-body-horizontal-scroll-viewport', '.ag-center-cols-viewport', '.ag-body-viewport']"
+        ".forEach(t => { const v = document.querySelector('#' + gid + ' ' + t);"
+        " if (v) { v.scrollLeft = 0; v.scrollTop = 0; } }); }",
+        grid_id,
+    )
+    ui.page.wait_for_timeout(300)
+
+
+def _filter(ui, grid_id: str, col: str, text: str) -> None:
+    """Type into a column's filter, the way a person narrows a long grid to find one row."""
+    ui.page.locator(f"#{grid_id} .ag-header-cell[col-id='{col}'] .ag-header-cell-filter-button").first.click()
+    ui.page.wait_for_timeout(400)
+    ui.page.locator(".ag-filter-body input, .ag-filter .ag-input-field-input").first.fill(text)
+    ui.page.wait_for_timeout(800)
+    ui.page.keyboard.press("Escape")
+    ui.settle()
 
 
 def _tick_state(ui, grid_id: str, row_id: str, col: str) -> bool | None:
@@ -491,6 +514,7 @@ def test_element_types_grid(ui, record):
         "the page says how to retire a type",
         "set active to false rather than deleting it" in ui.body(),
     )
+    _grid_home(ui, "mm-types-grid")
     ui.shot("The element types grid, with the sub-type's supertype and an inactive type both in it")
 
 
@@ -519,6 +543,7 @@ def test_edit_a_type_and_save(ui, record):
     feedback = _save(ui)
     ui.must("the save was accepted", feedback.startswith("Metamodel saved:"), feedback)
     ui.check("the save says what it stored", "relationship types" in feedback, feedback)
+    _grid_home(ui, "mm-types-grid")
     ui.shot("Saving the metamodel reports the pack it stored")
     _open(ui)
     _tab(ui, "Element types")
@@ -547,6 +572,7 @@ def test_edit_a_type_and_save(ui, record):
         detail,
     )
     ui.check("the save kept the examples", "HR_Employee" in detail, detail)
+    _grid_home(ui, "mm-types-grid")
     ui.shot("After the save the detail pane reads the new owner back, with the type otherwise intact")
 
 
@@ -652,6 +678,7 @@ def test_relationship_types_grid(ui, record):
         "comma-separated" in ui.text("#mm-rels-grid .ag-header"),
         ui.text("#mm-rels-grid .ag-header"),
     )
+    _grid_home(ui, "mm-rels-grid")
     ui.shot("The relationship types grid, with the qualified steward relationship shown")
     ui.click("mm-add-rel")
     ui.page.wait_for_timeout(400)
@@ -753,6 +780,7 @@ def test_an_invalid_metamodel_is_refused(ui, record):
     ui.check("the refusal names the type it could not place", TYPE in feedback, feedback)
     ui.check("the refusal names what it could not find", "j_no_such_type" in feedback, feedback)
     ui.check("the refusal says what was wrong with it", "supertype" in feedback, feedback)
+    _grid_home(ui, "mm-types-grid")
     ui.shot("Saving a type whose supertype does not exist is refused, and says which supertype")
     _open(ui)
     _tab(ui, "Element types")
@@ -766,6 +794,7 @@ def test_an_invalid_metamodel_is_refused(ui, record):
         "the pack the graph draws is the one from before the refusal",
         _has_node(ui, TYPE),
     )
+    _grid_home(ui, "mm-types-grid")
     ui.shot("The refused supertype was never stored: the grid is as it was")
 
 
@@ -1031,6 +1060,7 @@ def test_reload_from_file(ui, record):
         _cell(ui, "mm-types-grid", TYPE, "type_owner") == SHIPPED_OWNER,
         _cell(ui, "mm-types-grid", TYPE, "type_owner"),
     )
+    _grid_home(ui, "mm-types-grid")
     ui.shot("Reload from file has replaced the stored pack with the one the file holds")
     _open(ui)
     _tab(ui, "Element types")
@@ -1052,23 +1082,78 @@ def test_reload_from_file(ui, record):
 
 
 @pytest.mark.scenario(
-    scenario_id="J99",
+    scenario_id="J15",
     group="J",
-    title="temporary exploration",
-    feature="scratch",
-    expected="scratch",
+    title="A column filter must not decide what Save changes writes",
+    feature="Metamodel · Save changes · grid filters",
+    expected=(
+        "Narrowing a grid with a column filter to find one row and then saving keeps every row the "
+        "filter hid; the pack that is stored is the whole pack, not the part that was on screen."
+    ),
 )
-def test_explore(ui, record):
+def test_a_filter_does_not_decide_what_is_saved(ui, record, finding):
     _open(ui)
-    _tab(ui, "Element types")
-    html = ui.page.evaluate(
-        "() => { const h = document.querySelector('#mm-types-grid .ag-header-cell[col-id=\"id\"]');"
-        " return h ? h.outerHTML : 'no header cell'; }"
+    _tab(ui, "Relationship types")
+    before = _row_total(ui, "mm-rels-grid")
+    ui.must("the relationship types grid was counted", before > 1, f"{before} rows")
+    _grid_home(ui, "mm-rels-grid")
+    _filter(ui, "mm-rels-grid", "id", REL)
+    shown = _row_total(ui, "mm-rels-grid")
+    ui.must("the filter narrowed the grid to the one row", shown == 1, f"{shown} rows shown")
+    ui.shot("The relationship types grid filtered to the one row a reader was looking for")
+    feedback = _save(ui)
+    ui.check("the save was accepted", feedback.startswith("Metamodel saved:"), feedback[:300])
+    saved = re.search(r"(\d+) types, (\d+) relationship types", feedback)
+    ui.must("the save said what it stored", saved is not None, feedback[:300])
+    stored = int(saved.group(2))
+    # The defect: the callback reads `virtualRowData`, which is what the grid is *showing*
+    # after filtering, so everything the filter hid is written out of the pack. The pack
+    # that comes back is still valid, so nothing warns anybody.
+    ui.check(
+        "saving keeps the relationship types the filter hid",
+        stored == before,
+        f"{before} relationship types before the filter, {stored} stored after saving with it on",
     )
-    print("HEADER>>>", html[:2000])
-    icons = ui.page.evaluate(
-        "() => Array.from(document.querySelectorAll('#mm-types-grid .ag-header-cell[col-id=\"id\"] span'))"
-        ".map(s => s.className).join(' || ')"
+    ui.shot("What the save reports it stored, with the filter still on the grid")
+    if stored != before:
+        finding.append(
+            Finding(
+                finding_id="J2",
+                where="src/ea/ui/pages/metamodel.py · the `save` callback (`mm-save`), and every grid on the page",
+                severity="defect",
+                summary="A column filter silently decides what Save changes keeps: the rows it hides are deleted from the pack.",
+                detail=(
+                    "Every column of every grid on the page is filterable, and the save callback takes "
+                    "`virtualRowData` first — the rows the grid is showing after filtering — falling back "
+                    "to `rowData` only when that is empty. Filtering the relationship types grid to one "
+                    f"row and pressing Save changes stored a pack with {stored} relationship type(s) "
+                    f"instead of {before}, with a green 'Metamodel saved' message and no warning. The "
+                    "same filter on the Attributes grid drops every attribute it hides; on the Element "
+                    "types grid the loss is caught, but only by accident — the relationship types then "
+                    "point at types that no longer exist, and the refusal is a single unreadable line "
+                    "with one clause per broken relationship end. Nothing on the page contradicts the "
+                    "green message either: the heading is rendered once, so it still read '54 "
+                    "relationship types' over a pack that now held one. Reload from file is the only "
+                    "way back, and only because the pack is also held in a file."
+                ),
+            )
+        )
+    _open(ui)
+    ui.click("mm-reload")
+    ui.page.wait_for_timeout(600)
+    ui.settle()
+    ui.must(
+        "the pack was reloaded from the file",
+        ui.text("mm-feedback").startswith("Reloaded"),
+        ui.text("mm-feedback"),
     )
-    print("ICONS>>>", icons)
-    ui.check("scratch", True)
+    _open(ui)
+    _tab(ui, "Relationship types")
+    after = _row_total(ui, "mm-rels-grid")
+    ui.check(
+        "reloading from the file puts the whole pack back",
+        after == before,
+        f"{before} relationship types before, {after} after the reload",
+    )
+    _grid_home(ui, "mm-rels-grid")
+    ui.shot("Reload from file has put every relationship type back, whatever the save did")
