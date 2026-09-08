@@ -12,7 +12,8 @@ The order is deliberate, because each scenario is the next one's fixture:
 | - | ------ | --------------- |
 | I01–I07 | `i-merge-log` | created from the header, two elements edited on it, one row merged and one left behind |
 | I08–I11 | `i-conflict` | created from the page button, two rows that `main` moved under, resolved one each way, then closed |
-| I12–I16 | `i-review` | authored by the Architect, frozen by a review, refused to its author, decided by the Reviewer |
+| I12–I17 | `i-review` | authored by the Architect, frozen by a review, refused to its author, decided by the Reviewer, then merged |
+| I18 | — | what the header selector offers once two of the three are closed |
 
 Nothing here asserts a total another group could move: the branches are named with an `i-`
 prefix, the elements they touch (two Measures, two Business Definitions and a Data Product)
