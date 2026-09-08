@@ -110,7 +110,7 @@ def _freshness(ctx: AppContext) -> html.Div:
     )
     return html.Div(
         [
-            dmc.Text(f"Freshness · as of {fresh['as_of']}", className="ea-section-title"),
+            dmc.Title(f"Freshness · as of {fresh['as_of']}", order=2, className="ea-section-title"),
             dmc.Text(
                 "Per source system: when it was first loaded, when any of its rows last moved, how many rows have not "
                 "been updated for 30, 90 and 180 days, and how many were never touched since the import. A number opens the rows.",
@@ -128,7 +128,7 @@ def _freshness(ctx: AppContext) -> html.Div:
                 ),
                 minWidth=560,
             ),
-            dmc.Text("Change activity, last 12 weeks", className="ea-section-title", mt="md"),
+            dmc.Title("Change activity, last 12 weeks", order=2, className="ea-section-title", mt="md"),
             dmc.Text(
                 "Change-log entries per week on this branch, every kind of write counted.",
                 size="xs",
@@ -175,7 +175,7 @@ def _completeness(ctx: AppContext) -> html.Div:
     empty_rels = ctx.health.relationship_coverage()
     return html.Div(
         [
-            dmc.Text(f"Completeness · {comp['elements']} elements", className="ea-section-title"),
+            dmc.Title(f"Completeness · {comp['elements']} elements", order=2, className="ea-section-title"),
             dmc.Group(
                 [
                     dmc.Badge(
@@ -205,8 +205,9 @@ def _completeness(ctx: AppContext) -> html.Div:
                 ),
                 minWidth=560,
             ),
-            dmc.Text(
+            dmc.Title(
                 f"Relationship types with no instance ({len(empty_rels)})",
+                order=2,
                 className="ea-section-title",
                 mt="md",
             ),

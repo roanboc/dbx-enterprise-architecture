@@ -161,7 +161,7 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                 [
                     dmc.Paper(
                         [
-                            dmc.Text("Current state by target state", className="ea-section-title"),
+                            dmc.Title("Current state by target state", order=2, className="ea-section-title"),
                             dmc.Text(
                                 "How many elements sit in each cell: what is true today against what is intended.",
                                 size="xs",
@@ -176,7 +176,7 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                     ),
                     dmc.Paper(
                         [
-                            dmc.Text("Architecture view, marked", className="ea-section-title"),
+                            dmc.Title("Architecture view, marked", order=2, className="ea-section-title"),
                             dmc.Text(
                                 legend or "Nothing changes in this scope.", size="xs", c="dimmed", mb="xs"
                             ),
@@ -198,11 +198,13 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
             ),
             dmc.Paper(
                 [
-                    dmc.Text(f"Elements ({len(el_rows)})", className="ea-section-title"),
+                    dmc.Title(f"Elements ({len(el_rows)})", order=2, className="ea-section-title"),
                     simple_table(["element", "type", "current", "target", "work package", "note"], el_rows)
                     if el_rows
                     else dmc.Text("No elements in this scope.", c="dimmed", size="sm"),
-                    dmc.Text(f"Relationships ({len(rel_rows)})", className="ea-section-title", mt="md"),
+                    dmc.Title(
+                        f"Relationships ({len(rel_rows)})", order=2, className="ea-section-title", mt="md"
+                    ),
                     simple_table(["from", "relationship", "to", "current", "target", "note"], rel_rows)
                     if rel_rows
                     else dmc.Text(

@@ -112,7 +112,7 @@ def render(ctx: AppContext) -> html.Div:
 def _section(title: str, body, subtitle: str | None = None):
     return html.Div(
         [
-            dmc.Text(title, className="ea-section-title"),
+            dmc.Title(title, order=2, className="ea-section-title"),
             dmc.Text(subtitle, size="xs", c="dimmed", mb=6) if subtitle else None,
             body,
         ],
@@ -269,8 +269,10 @@ def register(app: dash.Dash) -> None:
             )
         trace = dmc.Paper(
             [
-                dmc.Text(
-                    f"Tool trace · {len(items)} calls · provider {res.provider}", className="ea-section-title"
+                dmc.Title(
+                    f"Tool trace · {len(items)} calls · provider {res.provider}",
+                    order=2,
+                    className="ea-section-title",
                 ),
                 dmc.Accordion(items, variant="separated")
                 if items

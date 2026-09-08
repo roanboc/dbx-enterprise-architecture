@@ -135,6 +135,12 @@ BRANCH_CSV = (
     f"({MARKER} {BRANCH_MARKER}).\n"
 )
 
+# One error apiece, one more than the report's table will list.
+OVERFLOW_ROWS = 501
+OVERFLOW_CSV = "id,type,name\n" + "".join(
+    f"H-OVER-{i:04d},not_a_real_type,H Over {i}\n" for i in range(OVERFLOW_ROWS)
+)
+
 NOTHING_LOADED = "Nothing was loaded."
 NOT_READ = "Not read — a row does not match the header the file declares"
 
@@ -980,7 +986,7 @@ def test_mapping_reads_the_tools_own_words(ui, record):
 )
 def test_links_inline_and_by_file(ui, record, finding):
     _open(ui)
-    _upload(ui, _write(ui, "h-linked-elements.csv", INLINE_LINKS_CSV))
+    _upload(ui, _write(ui, "h-inline-elements.csv", INLINE_LINKS_CSV))
     ui.click("im-validate")
     inline = _report(ui)
     ui.check("the two URLs in the one cell are read as two links", "links 0/2" in inline, inline[:300])
@@ -1105,3 +1111,50 @@ def test_load_onto_a_branch_stays_there(ui, record):
     ui.check("and main is untouched until the branch is merged", on_main == 0, f"{on_main} rows")
     ui.check("the count says so too", ui.text("browse-count").startswith("0 of"), ui.text("browse-count"))
     ui.shot("The same search on main finds nothing: the load stayed on the branch")
+
+
+# --------------------------------------------------------------------- a report too long to show
+
+
+@pytest.mark.scenario(
+    scenario_id="H23",
+    group="H",
+    title="A file with more issues than the table shows still counts them all",
+    feature="Import · a report at length",
+    expected=(
+        "Validating a file whose every row is defective counts all 501 errors in the summary and the "
+        "heading, and lists the first 500 of them."
+    ),
+)
+def test_more_issues_than_the_table_shows(ui, record, finding):
+    _open(ui)
+    _upload(ui, _write(ui, "h-overflow-elements.csv", OVERFLOW_CSV))
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("nothing was written while the file was checked", DRY in text, text[:200])
+    ui.check(
+        "every row was read and every row skipped", "elements 0/501 loaded (501 skipped)" in text, text[:300]
+    )
+    ui.check("the summary counts them all", "501 errors" in text, text[:300])
+    ui.check("and so does the heading above the list", "Issues (501)" in text, text[:300])
+    shown = ui.page.locator("#im-report table tbody tr").count()
+    ui.check(
+        "the list itself stops at the five hundred it is capped to", shown == 500, f"{shown} rows listed"
+    )
+    ui.shot("A file with 501 defects: all counted, the first five hundred listed", full_page=False)
+    if shown < 501 and "501" in text and "not shown" not in text.lower():
+        finding.append(
+            Finding(
+                finding_id="H6",
+                where="src/ea/ui/pages/import_page.py · the issue table (`im-report`)",
+                severity="usability",
+                summary="The issue list is cut at 500 rows without saying so.",
+                detail=(
+                    "`issues_table(report.issues[:500])` shows the first five hundred issues under a "
+                    "heading that counts all of them, so a reader who scrolls to the end of a longer "
+                    "report has no way to tell that it stops early rather than finishing. The cap is "
+                    "sound — the page would be unreadable otherwise — but the last row should say how "
+                    "many were not shown, or the command line named as the way to see the rest."
+                ),
+            )
+        )

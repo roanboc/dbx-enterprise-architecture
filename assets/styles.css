@@ -68,9 +68,11 @@
 .ea-card { box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
 .ea-document { border-top: 3px solid #4c6ef5; }
 .ea-section { margin-top: 1.1rem; }
+/* A card's heading: a real heading, so the page has an outline, wearing the small
+   uppercase label this application heads its cards with. */
 .ea-section-title {
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-  color: #5c6b7a; margin-bottom: 0.4rem;
+  color: #495057; margin-bottom: 0.4rem; line-height: 1.4;
 }
 .ea-doc { font-size: 0.95rem; line-height: 1.55; color: #1f2933; }
 .ea-doc h1 { font-size: 1.5rem; margin: 0.2rem 0 0.6rem; }

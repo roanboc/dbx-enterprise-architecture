@@ -241,7 +241,7 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
                 [
                     dmc.Stack(
                         [
-                            dmc.Text("Review", className="ea-section-title"),
+                            dmc.Title("Review", order=2, className="ea-section-title"),
                             dmc.Text(headline, size="xs", c="dimmed"),
                         ],
                         gap=2,
@@ -431,7 +431,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
                         [
                             dmc.Stack(
                                 [
-                                    dmc.Text("Merge log", className="ea-section-title"),
+                                    dmc.Title("Merge log", order=2, className="ea-section-title"),
                                     dmc.Text(
                                         "Every row is one element or relationship this branch would write to main. Tick what goes "
                                         "to main now; what is not ticked remains on the branch. A conflict means main changed the "
@@ -472,7 +472,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
             ),
             dmc.Paper(
                 [
-                    dmc.Text("What each row changes", className="ea-section-title"),
+                    dmc.Title("What each row changes", order=2, className="ea-section-title"),
                     dmc.Text(
                         "Main's row on the left, the branch's row on the right; only the fields that differ.",
                         size="xs",

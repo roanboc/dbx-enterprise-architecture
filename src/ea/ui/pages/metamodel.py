@@ -453,7 +453,7 @@ def render(ctx: AppContext) -> html.Div:
                                 c="dimmed",
                                 my="xs",
                             ),
-                            dmc.Text("Domains", className="ea-section-title"),
+                            dmc.Title("Domains", order=2, className="ea-section-title"),
                             dag.AgGrid(
                                 id=ids.MM_NOTATION_DOMAINS_GRID,
                                 columnDefs=DOMAIN_NOTATION_COLS,
@@ -461,7 +461,9 @@ def render(ctx: AppContext) -> html.Div:
                                 getRowId="params.data.id",
                                 **dict(grid_kw, style={"height": "24vh", "width": "100%"}),
                             ),
-                            dmc.Text("Element types (overrides)", className="ea-section-title", mt="md"),
+                            dmc.Title(
+                                "Element types (overrides)", order=2, className="ea-section-title", mt="md"
+                            ),
                             dag.AgGrid(
                                 id=ids.MM_NOTATION_TYPES_GRID,
                                 columnDefs=TYPE_NOTATION_COLS,
@@ -469,7 +471,7 @@ def render(ctx: AppContext) -> html.Div:
                                 getRowId="params.data.id",
                                 **dict(grid_kw, style={"height": "40vh", "width": "100%"}),
                             ),
-                            dmc.Text("Preview", className="ea-section-title", mt="md"),
+                            dmc.Title("Preview", order=2, className="ea-section-title", mt="md"),
                             mermaid_block(ids.MM_NOTATION_PREVIEW, notation_preview(reg)),
                         ],
                         value="notation",

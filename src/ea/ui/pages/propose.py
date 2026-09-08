@@ -262,7 +262,7 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 ),
                 id=ids.PR_PUSHBACK,
             ),
-            dmc.Text("Elements", className="ea-section-title"),
+            dmc.Title("Elements", order=2, className="ea-section-title"),
             dmc.Text(
                 "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
                 size="xs",
@@ -285,7 +285,7 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 leftSection=icon("tabler:plus", 12),
                 mt=4,
             ),
-            dmc.Text("Relationships", className="ea-section-title", mt="md"),
+            dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
             dmc.Text(
                 "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
                 size="xs",
