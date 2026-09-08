@@ -638,7 +638,7 @@ def test_m11_view_formats(cli, record, tmp_path):
         record,
         "--out reports the file and what it holds",
         str(out_file) in said and "elements" in said and "relationships" in said,
-        said.strip(),
+        trim(said),
     )
     check(
         record,
@@ -652,7 +652,7 @@ def test_m11_view_formats(cli, record, tmp_path):
         text.count(APPLICATION) >= 1 and "mxCell" in text,
         f"{len(text)} bytes, {text.count('<mxCell')} cells",
     )
-    check(record, "--out printed the summary instead of the diagram", "mxfile" not in said, said.strip())
+    check(record, "--out printed the summary instead of the diagram", "mxfile" not in said, trim(said))
 
 
 @pytest.mark.scenario(
@@ -997,7 +997,7 @@ def test_m19_set_status(cli, record):
     version_before = int(before.splitlines()[0].split("version=")[1].split()[0])
     rc, out, ev = run(cli, "set", WRITE_ELEMENT, "--status", "draft")
     must(record, "the edit was applied", rc == 0 and "updated 1" in out, ev)
-    check(record, "it reports what it refused as well as what it changed", "refused 0" in out, out.strip())
+    check(record, "it reports what it refused as well as what it changed", "refused 0" in out, trim(out))
     _, after, after_ev = run(cli, "get", WRITE_ELEMENT, limit=60)
     head = after.splitlines()[0]
     check(record, "the status is the one that was set", "status=draft" in head, head)
@@ -1143,8 +1143,8 @@ def test_m23_validate(cli, record, finding):
     _, before, _ = run(cli, "stats", limit=60)
     rc, out, ev = run(cli, "validate", "data/sample", "--source", "m-validate", limit=160)
     must(record, "the sample model validates", rc == 0, ev)
-    check(record, "it reports no errors and no warnings", "0 errors, 0 warnings" in out, out.strip())
-    check(record, "it counted the rows it read", "elements 0/47" in out or "/47" in out, out.strip())
+    check(record, "it reports no errors and no warnings", "0 errors, 0 warnings" in out, trim(out))
+    check(record, "it counted the rows it read", "elements 0/47" in out or "/47" in out, trim(out))
     _, after, after_ev = run(cli, "stats", limit=60)
     check(record, "nothing was loaded", before.splitlines()[0] == after.splitlines()[0], after_ev)
     check(
@@ -1186,12 +1186,12 @@ def test_m24_import_clean(cli, record, tmp_path):
 
     rc, out, ev = run(cli, "import", str(directory), "--source", "m-round", limit=160)
     must(record, "the import succeeded", rc == 0, ev)
-    check(record, "it reports no errors", "0 errors, 0 warnings" in out, out.strip())
+    check(record, "it reports no errors", "0 errors, 0 warnings" in out, trim(out))
     check(
         record,
         "it says what it loaded",
         "elements 1/1 loaded" in out and "relationships 1/1 loaded" in out,
-        out.strip(),
+        trim(out),
     )
 
     _, after, after_ev = run(cli, "stats", limit=60)
@@ -1290,7 +1290,7 @@ def test_m26_pack_round_trip(cli, record, tmp_path):
         record,
         "it says which pack it wrote and where",
         "higher_education" in said and str(out_file) in said,
-        said.strip(),
+        trim(said),
     )
     check(
         record,
@@ -1312,7 +1312,7 @@ def test_m26_pack_round_trip(cli, record, tmp_path):
         record,
         "the pack and its version are named on the way in",
         "higher_education" in loaded and "version" in loaded,
-        loaded.strip(),
+        trim(loaded),
     )
     _, summary_out, summary_ev = run(cli, "summary", limit=80)
     check(
@@ -1336,12 +1336,12 @@ def test_m27_init(cli, record, tmp_path):
     fresh = tmp_path / "m-fresh.duckdb"
     rc, out, ev = run(cli, "init", "--db", str(fresh), limit=140)
     must(record, "the database was created", rc == 0 and fresh.exists(), ev)
-    check(record, "it says which file it created", str(fresh) in out, out.strip())
+    check(record, "it says which file it created", str(fresh) in out, trim(out))
     check(
         record,
         "it says which pack it loaded and how big it is",
         "higher_education" in out and "element types" in out and "relationship types" in out,
-        out.strip(),
+        trim(out),
     )
     check(record, "the file is not empty", fresh.stat().st_size > 0, f"{fresh.stat().st_size} bytes")
 
@@ -1373,7 +1373,7 @@ def test_m28_reviewers(cli, record):
         record,
         "an empty assignment list says so and says what it means",
         "no reviewers assigned" in before or "data_entity" in before,
-        before.strip() or "(nothing printed)",
+        trim(before) or "(nothing printed)",
     )
 
     rc_set, said, set_ev = run(
@@ -1384,7 +1384,7 @@ def test_m28_reviewers(cli, record):
         record,
         "it echoes the type and who reviews it",
         "data_entity" in said and REVIEWER_GROUP in said,
-        said.strip(),
+        trim(said),
     )
 
     _, after, after_ev = run(cli, "reviewers", "list", limit=140)
@@ -1420,8 +1420,8 @@ def test_m29_branch_create(cli, record):
         limit=140,
     )
     must(record, "the branch was created", rc == 0, ev)
-    check(record, "the id was derived from the name", f"'{OVERLAY}'" in out, out.strip())
-    check(record, "it says how to work on the branch", f"--branch {OVERLAY}" in out, out.strip())
+    check(record, "the id was derived from the name", f"'{OVERLAY}'" in out, trim(out))
+    check(record, "it says how to work on the branch", f"--branch {OVERLAY}" in out, trim(out))
 
     _, listed, list_ev = run(cli, "branch", "list", limit=160)
     row = next((ln for ln in listed.splitlines() if ln.startswith(OVERLAY)), "")
@@ -1534,7 +1534,7 @@ def test_m31_branch_diff(cli, record):
 def test_m32_branch_review(cli, record):
     rc, out, ev = run(cli, "--as", "architect", "branch", "review", OVERLAY, "--actor", AUTHOR, limit=160)
     must(record, "the review was requested", rc == 0, ev)
-    check(record, "the branch is said to be in review", f"'{OVERLAY}' is in review" in out, out.strip())
+    check(record, "the branch is said to be in review", f"'{OVERLAY}' is in review" in out, trim(out))
     check(
         record,
         "the element type the branch touches is named",
@@ -1601,13 +1601,13 @@ def test_m33_branch_approve(cli, record):
         limit=140,
     )
     must(record, "a reviewer in the assigned group may approve", rc_ok == 0, ok_ev)
-    check(record, "the types approved are named", "approved data_entity" in out, out.strip())
-    check(record, "what is still pending is reported", "pending none" in out, out.strip())
+    check(record, "the types approved are named", "approved data_entity" in out, trim(out))
+    check(record, "what is still pending is reported", "pending none" in out, trim(out))
     check(
         record,
         "the branch is approved once every touched type is",
         f"'{OVERLAY}' is approved" in out,
-        out.strip(),
+        trim(out),
     )
 
     _, listed, list_ev = run(cli, "branch", "list", limit=140)
@@ -1697,9 +1697,9 @@ def test_m35_branch_merge_partial(cli, record):
 
     rc, out, ev = run(cli, "branch", "merge", PARTIAL, "--include", f"element:{ENTITY}", limit=140)
     must(record, "the partial merge ran", rc == 0, ev)
-    check(record, "it says how many items it applied", "merged 1 item(s)" in out, out.strip())
-    check(record, "it says what remains on the branch", "1 remaining" in out, out.strip())
-    check(record, "the branch is left open because something remains", "still open" in out, out.strip())
+    check(record, "it says how many items it applied", "merged 1 item(s)" in out, trim(out))
+    check(record, "it says what remains on the branch", "1 remaining" in out, trim(out))
+    check(record, "the branch is left open because something remains", "still open" in out, trim(out))
 
     _, merged, merged_ev = run(cli, "get", ENTITY, limit=80)
     check(
@@ -1770,9 +1770,9 @@ def test_m36_branch_merge(cli, record, finding):
         record,
         "it says how many items it applied and that nothing remains",
         "merged 1 item(s)" in out and "0 remaining" in out,
-        out.strip(),
+        trim(out),
     )
-    check(record, "the branch is closed", "branch closed" in out, out.strip())
+    check(record, "the branch is closed", "branch closed" in out, trim(out))
 
     _, main_after, after_ev = run(cli, "get", BRANCH_ELEMENT, limit=100)
     check(

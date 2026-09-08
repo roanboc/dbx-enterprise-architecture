@@ -111,7 +111,15 @@ def test_every_command_line_command_is_exercised(suite: str) -> None:
         for c in group.typer_instance.registered_commands:  # type: ignore[union-attr]
             names.add(f"{group.name} {c.name or (c.callback.__name__ if c.callback else '')}")
     names = {n for n in names if n and not n.endswith("-cmd")}
-    missing = sorted(n for n in names if f'"{n}"' not in suite and f"'{n}'" not in suite)
+
+    def is_run(name: str) -> bool:
+        # A command reaches the runner as its own argument, so `branch list` is written
+        # `"branch", "list"` rather than as one string.
+        parts = [re.escape(part) for part in name.split()]
+        pattern = r"[\"']\s*,\s*[\"']".join(parts)
+        return bool(re.search(rf"[\"']{pattern}[\"']", suite))
+
+    missing = sorted(n for n in names if not is_run(n))
     assert not missing, f"no scenario runs: {missing}"
 
 

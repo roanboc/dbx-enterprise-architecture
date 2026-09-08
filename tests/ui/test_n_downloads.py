@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -50,6 +51,7 @@ WP = "WP-CMS-UPGRADE"  # the sample's one work package: three changed, two new, 
 WP_NAME = "Curriculum Management System Upgrade"
 FORMS = "PTC-FORMS"  # Legacy Forms Server — the decommissioned element in that work package
 OFFERING = "DE-SRS-COURSE-OFFERING"  # the element the stub's impact answer is about
+GHOST = "FX-GHOST-ENTITY"  # shaped like an identifier, carried by nothing: an answer with no diagram
 PACK = "higher_education"
 
 ASK_QUESTION = "What is the impact of changing SRS_Course_Offering?"
@@ -62,6 +64,11 @@ MERMAID_FENCE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
 
 def _f(finding_id: str, where: str, severity: str, summary: str, detail: str) -> Finding:
     return Finding(finding_id=finding_id, where=where, severity=severity, summary=summary, detail=detail)
+
+
+def _pm(**parts: str) -> str:
+    """The CSS selector for a pattern-matching component, whose DOM id is the JSON Dash writes."""
+    return "[id='" + json.dumps(parts, sort_keys=True, separators=(",", ":")) + "']"
 
 
 # ------------------------------------------------------------------ getting to a producer
@@ -98,8 +105,8 @@ def _ask(ui, question: str = ASK_QUESTION) -> None:
     ui.settle()
 
 
-def _try_download(ui, selector: str) -> Path | None:
-    """A download that may not come: returns None instead of failing the scenario."""
+def _try_download(ui, selector: str) -> tuple[Path | None, str]:
+    """A download that may not come: the file and why, rather than an exception."""
     try:
         with ui.page.expect_download(timeout=15_000) as info:
             ui.page.locator(ui._sel(selector)).first.click()
@@ -107,10 +114,10 @@ def _try_download(ui, selector: str) -> Path | None:
         path = ui.run_dir / "downloads" / dl.suggested_filename
         dl.save_as(str(path))
         ui.settle()
-        return path
-    except Exception:  # noqa: BLE001 — no file is the finding, not a crash
+        return path, dl.suggested_filename
+    except Exception as exc:  # noqa: BLE001 — no file is the finding, not a crash
         ui.settle()
-        return None
+        return None, f"{type(exc).__name__}: {str(exc).splitlines()[0][:160]}"
 
 
 # ---------------------------------------------------------------------- reading the files
@@ -754,13 +761,9 @@ def test_the_same_download_twice(ui, record, finding):
     _open_element_view(ui)
     first = ui.download("el-view-md", ".md")
     ui.check("the first press produced the file", first.exists() and first.stat().st_size > 0, first.name)
-    second = _try_download(ui, "el-view-md")
+    second, why = _try_download(ui, "el-view-md")
     got_second = second is not None
-    ui.check(
-        "and pressing the same button again produces it again",
-        got_second,
-        "the second press produced no file within 15 s" if not got_second else second.name,
-    )
+    ui.check("and pressing the same button again produces it again", got_second, why)
     if got_second:
         ui.check(
             "the second file is the same document",
@@ -780,10 +783,135 @@ def test_the_same_download_twice(ui, record, finding):
             )
         )
     # A different button on the same page must still work after that, whatever happened above.
-    other = _try_download(ui, "el-view-drawio")
-    ui.check(
-        "a different file from the same page still comes through",
-        other is not None,
-        "the draw.io export produced no file" if other is None else other.name,
-    )
+    other, why = _try_download(ui, "el-view-drawio")
+    ui.check("a different file from the same page still comes through", other is not None, why)
     ui.shot("The element view after being downloaded twice from the same button")
+
+
+@pytest.mark.scenario(
+    scenario_id="N13",
+    group="N",
+    title="A download offered before there is anything to export says so",
+    feature="Downloads · nothing to export",
+    expected="The Impact page offers both downloads before an element is chosen. Pressing one should "
+    "either produce a file or say why none came — a control that is enabled, silently does nothing "
+    "and leaves no message cannot be told from one that is broken or slow.",
+)
+def test_a_download_with_nothing_to_produce(ui, record, finding):
+    ui.goto("/impact")
+    ui.must("the Impact page offers the view's downloads", ui.visible("imp-view-md"))
+    drawn = ui.page.locator(f"{_pm(id='imp-view', type='mermaid-svg')} svg").count()
+    ui.check(
+        "with no element chosen there is no view to export",
+        drawn == 0,
+        f"{drawn} diagrams were drawn without an element",
+    )
+    before = ui.body()
+    produced, why = _try_download(ui, "imp-view-md")
+    said = ui.body() != before or ui.page.locator(".mantine-Notification-root").count() > 0
+    disabled = ui.disabled("imp-view-md")
+    ui.check(
+        "pressing Download Markdown then produces a file, or is refused with a reason",
+        produced is not None or disabled or said,
+        f"a file arrived: {produced.name}"
+        if produced is not None
+        else f"the button is enabled, the page said nothing, and no file came ({why})",
+    )
+    ui.shot("The Impact page before an element is chosen, offering two downloads of an empty view")
+    if produced is None and not said and not disabled:
+        finding.append(
+            _f(
+                "N-impact-empty-download",
+                "src/ea/ui/pages/impact.py · view_toolbar(IMP_VIEW_MD, IMP_VIEW_DRAWIO) and download_view",
+                "usability",
+                "The Impact page offers Download Markdown and Download draw.io before an element is "
+                "chosen; pressing either does nothing and says nothing.",
+                "download_view returns no_update when no element is selected, so the press is swallowed. "
+                "The reader cannot tell a slow export from a broken one. Either disable the two buttons "
+                "until an element is chosen — saying why they are disabled — or answer the press.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="N14",
+    group="N",
+    title="An answer that drew no diagram can still be taken away as Markdown",
+    feature="Downloads · Ask · a document with no view",
+    expected="An answer that grounds no element draws no diagram. Its Markdown — the answer, the "
+    "identifiers it could not ground and the trace — is still a document, so Download Markdown must "
+    "still produce it; a missing diagram may cost the reader the draw.io file, never the document.",
+)
+def test_an_answer_without_a_diagram(ui, record, finding):
+    console: list[str] = []
+
+    def listen(message) -> None:
+        console.append(message.text)
+
+    md: Path | None = None
+    ui.page.on("console", listen)
+    try:
+        _ask(ui, f"What is the impact of changing {GHOST}?")
+        drew = ui.page.locator("#ask-answer .ea-mermaid svg").count()
+        ui.must("the answer grounded nothing and so drew no diagram", drew == 0, f"{drew} diagrams")
+        answer = ui.body()
+        ui.check(
+            "the document is still a document: it says what it could not find",
+            GHOST in answer,
+            f"the answer reads {answer[answer.find('ANSWER') : answer.find('ANSWER') + 90]!r}"
+            if "ANSWER" in answer
+            else "the answer does not name the identifier it could not ground",
+        )
+        ui.check(
+            "and it still offers both downloads", ui.visible("ask-doc-md") and ui.visible("ask-doc-drawio")
+        )
+        ui.shot("An answer with no diagram, still offering Download Markdown and Download draw.io")
+
+        md, why_md = _try_download(ui, "ask-doc-md")
+        ui.check("Download Markdown produces the document", md is not None, why_md)
+        drawio, why_drawio = _try_download(ui, "ask-doc-drawio")
+        refused = ui.disabled("ask-doc-drawio")
+        ui.check(
+            "and the diagram is either produced or refused with a reason",
+            drawio is not None or refused,
+            f"a file arrived: {drawio.name}"
+            if drawio is not None
+            else f"the button is enabled and nothing came ({why_drawio})",
+        )
+        complaint = next(
+            (m for m in console if "not been found in the layout" in m or "nonexistent" in m.lower()), ""
+        )
+        ui.check(
+            "and the browser is not left complaining about a component that is missing",
+            not complaint,
+            complaint[:220] or "nothing was logged",
+        )
+    finally:
+        ui.page.remove_listener("console", listen)
+
+    # The same button, on an answer that does draw a diagram: proof the button itself is sound.
+    _ask(ui)
+    again, why_again = _try_download(ui, "ask-doc-md")
+    ui.check(
+        "the same button produces the file for an answer that does carry a diagram",
+        again is not None,
+        why_again,
+    )
+    ui.shot("The same Download Markdown button on an answer that does carry a diagram")
+    ui.click("ask-reset")  # leave the conversation where the group found it
+    if md is None and again is not None:
+        finding.append(
+            _f(
+                "N-ask-download-dies-with-the-diagram",
+                "src/ea/ui/pages/ask.py · download_doc, whose State names {'type': 'mermaid-pos', "
+                "'id': 'ask-view-0'}",
+                "defect",
+                "When an answer draws no diagram, neither of the document's downloads works — the "
+                "Markdown of the whole document is lost with it, and no message is shown.",
+                "download_doc takes the position store of the first view as State. A document that "
+                "grounded no element renders no view, so that component is not in the layout and the "
+                "callback never runs: the press reaches no server call at all. The same button works "
+                "on an answer that does carry a diagram. Reading the positions from a store that always "
+                "exists — or through a wildcard — would keep the Markdown reachable.",
+            )
+        )
