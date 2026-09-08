@@ -11,13 +11,17 @@ lives in [`src/ea/`](./src/ea).
 
 **Strategy and information architecture are validated before any other layer,
 and the Requester approves at an explicit gate before development.** A change
-in requirements is never coded directly: align it through the numbered EA
-layers (`architecture/1_strategy` → `3_information` → `4_application`), stop at
-**Understanding** for the Requester's approval, record it in a scope document
-(`architecture/scope/`), then implement. At Depth 1 that is the only gate an
-ordinary change meets; **Direction** belongs to discovery and to the roadmap.
-Pure bug fixes that change no documented behaviour skip the alignment and the
-gate, but still keep the docs true.
+to what the model claims — an element added, removed or re-related, a rule it
+states contradicted — is never coded directly: align it through the numbered
+EA layers (`architecture/1_strategy` → `3_information` → `4_application`),
+stop at **Understanding** for the Requester's approval, record it in a scope
+document (`architecture/scope/`), then implement. At Depth 1 that is the only
+gate an ordinary change meets; **Direction** belongs to discovery and to the
+roadmap. A change inside an element the model already names — a screen, a
+filter, an import format for a service that exists, a defect — is coded
+directly and documents nothing; one that only keeps a row true edits the row
+in the same commit. `model.py --project . names <path>` says which element
+names a file, or that none does.
 
 **Ask only what blocks the work now.** A question reaches the Requester when
 the answer changes what gets built now and nothing in the model settles it.
@@ -49,18 +53,22 @@ happened, not a census of what did not.
 This repository enables the [archreator](https://github.com/roanboc/archreator)
 plugin (`.claude/settings.json`: marketplace `archreator`, plugin
 `archreator@archreator`), so every session, local or remote, holds the same
-rulebook. **Load the skill before the step, not after:**
+rulebook. Three skills surface on their own — `align-change-through-layers`
+when a requirement arrives, `architecture-document-style` and `document-style`
+when a document is edited; every other skill is invoked by name, and a skill
+that hands off to one reads it from disk. **Invoke the skill before the step,
+not after:**
 
-| Step | Skill to load |
-| ---- | ------------- |
-| Writing or editing anything under `architecture/` | `architecture-document-style` (every element document opens with its legend, **each section opens with its own diagram and its own tables follow it** — never every diagram stacked at the top; a node reads `<glyph> <name> [<ID>]` and carries no stereotype outside the legend; identifiers, status glyphs, relationship tables) |
-| Opening an initiative from a requirement | `align-change-through-layers`, then `write-scope-document` |
-| Touching the roadmap in `6_transition/` | `plan-the-transition` |
-| Recording a call smaller than an initiative | `record-decision` |
-| Describing a pull request | `write-pr-description` |
+| Step | Skill |
+| ---- | ----- |
+| Writing or editing anything under `architecture/` | `architecture-document-style`, on its own (every element document opens with its legend, **each section opens with its own diagram and its own tables follow it** — never every diagram stacked at the top; a node reads `<glyph> <name> [<ID>]` and carries no stereotype outside the legend; identifiers, status glyphs, relationship tables) |
+| Opening an initiative from a requirement | `align-change-through-layers`, on its own, then `/archreator:write-scope-document` |
+| Touching the roadmap in `6_transition/` | `/archreator:plan-the-transition` |
+| Recording a call smaller than an initiative | `/archreator:record-decision` |
+| Describing a pull request | `/archreator:write-pr-description` |
 
 The two validators under `scripts/` are copies of the plugin's scaffold
-scripts (`plugins/archreator/scaffold/scripts/`, plugin version 0.3.0) so that
+scripts (`plugins/archreator/scaffold/scripts/`, plugin version 0.4.0) so that
 CI, which has no plugin, runs the same checks. Keep them identical to the
 plugin's; a change to a validator goes upstream first. Without the plugin
 (a session where it failed to load), read the skill from the plugin's

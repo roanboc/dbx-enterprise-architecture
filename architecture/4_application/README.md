@@ -15,6 +15,9 @@ flowchart LR
   n0["⊞ «Application Component» a piece of software [ACMP#]"]:::application
   n1["⊸ «Application Interface» where it is reached [ASVC#]"]:::application
 
+  n0 --> n1
+  n1 -->|realized by| n0
+
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
 

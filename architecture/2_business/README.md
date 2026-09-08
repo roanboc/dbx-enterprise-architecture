@@ -16,6 +16,8 @@ flowchart LR
   n0["⚉ «Business Role» what they are allowed to be [ROLE#]"]:::business
   n1(["⬭ «Business Service» what the business offers [BSVC#]"]):::business
 
+  n0 --> n1
+
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
 ```
 

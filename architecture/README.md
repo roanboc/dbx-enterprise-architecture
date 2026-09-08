@@ -33,6 +33,12 @@ flowchart LR
   n4["⊞ «Application Component» a piece of software [ACMP#]"]:::application
   n5["⬒ «Node» where it runs [NODE#]"]:::technology
 
+  n0 -->|realized by| n1
+  n2 --> n1
+  n1 --> n3
+  n4 -->|persists| n3
+  n5 -->|runs| n4
+
   classDef strategy fill:#f5deaa,stroke:#c8a24a,color:#333
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333

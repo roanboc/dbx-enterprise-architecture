@@ -362,6 +362,34 @@ def check_project(project: Path, known: dict | None = None) -> tuple[list[str], 
                     f"the fence"
                 )
 
+    # A legend shows the types and how they connect
+    # (`references/archimate-on-mermaid.md` § Every element document opens
+    # with "How to read this document"). Two or more types drawn with no edge,
+    # above diagrams that draw one, is a key to the notation and not to the
+    # layer. Read from the fences alone - the marker, the node openers and
+    # the arrows - so it holds in any language.
+    legend_re = re.compile(r"^\s*%%\s*legend\b", re.M)
+    node_re = re.compile(r'^\s*[A-Za-z0-9_]+\s*[\[\(\{>/]+\s*"', re.M)
+    edge_re = re.compile(r"-->|---|-\.->|==>")
+    for doc in sorted(defining):
+        try:
+            text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fences = _mermaid_fences(text)
+        drawn = sum(len(edge_re.findall(body)) for _, body in fences if not legend_re.search(body))
+        for line_no, body in fences:
+            if not legend_re.search(body):
+                continue
+            types = len(node_re.findall(body))
+            if types >= 2 and drawn and not edge_re.search(body):
+                errors.append(
+                    f"{doc}:{line_no}: the legend shows {types} types and no connection "
+                    f"between them, while the document's diagrams draw {drawn}. A legend "
+                    f"shows the types and how they typically connect - one edge per pair "
+                    f"of types the diagrams below connect"
+                )
+
     for said, md_file in parsed.restatements:
         canonical = parsed.names.get(said.element)
         if not canonical or not said.written:

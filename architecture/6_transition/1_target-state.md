@@ -15,6 +15,8 @@ flowchart LR
   n0[["≡ «Plateau» a state the architecture reaches [PLAT#]"]]:::implementation
   n1(("⊘ «Gap» what stands between two plateaus [GAP#]")):::implementation
 
+  n1 --> n0
+
   classDef implementation fill:#ffd6d6,stroke:#d99b9b,color:#333
 ```
 

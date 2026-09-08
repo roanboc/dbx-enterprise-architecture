@@ -16,6 +16,12 @@ flowchart LR
   n2["⊞ «Application Component» a piece of software [ACMP#]"]:::application
   n3[/"⎔ «Artifact» a file the build produces or reads [ART#]"/]:::technology
 
+  n0 -->|provides| n1
+  n2 -->|uses| n1
+  n2 -->|hosted on, pending| n0
+  n0 -->|holds| n3
+  n3 -->|deployed as| n0
+
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```

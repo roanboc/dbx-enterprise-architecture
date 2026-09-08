@@ -17,6 +17,10 @@ flowchart LR
   n1(["⬯ «Technology Service» what the runtime offers [TSVC#]"]):::technology
   n2[/"⎔ «Artifact» a file the build produces or reads [ART#]"/]:::technology
 
+  n0 --> n1
+  n1 --> n2
+  n0 -->|reads| n2
+
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
 ```
 
