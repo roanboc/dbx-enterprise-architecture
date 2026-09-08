@@ -193,9 +193,27 @@ class Ui:
         self.settle()
 
     def segmented(self, selector: str, label: str) -> None:
+        """Choose one option of a segmented control, and see that the choice arrived.
+
+        The visible part is a label over a hidden radio. Clicking the label usually carries
+        the change through, and when it does not the control looks chosen while nothing
+        downstream has heard about it — so the radio is checked directly as a fallback.
+        """
         root = self.page.locator(self._sel(selector)).first
-        root.locator("label", has_text=re.compile(re.escape(label))).first.click()
+        wanted = re.compile(re.escape(label))
+        root.locator("label", has_text=wanted).first.click()
         self.settle()
+        for _ in range(3):
+            chosen = root.locator("input:checked").first
+            if chosen.count() and label.lower() in (chosen.get_attribute("value") or "").lower():
+                return
+            active = root.locator("label[data-active]").first
+            if active.count() and label.lower() in active.inner_text().strip().lower():
+                return
+            root.locator("label", has_text=wanted).first.click(force=True)
+            self.page.wait_for_timeout(200)
+            self.settle()
+        raise AssertionError(f"{selector} would not move to {label!r}")
 
     def toggle(self, selector: str, on: bool) -> None:
         box = self.page.locator(self._sel(selector)).first

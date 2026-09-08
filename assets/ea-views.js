@@ -275,9 +275,17 @@
         const svg = el.querySelector('svg');
         if (!svg) { return {}; }
         svg.style.maxWidth = 'none';
-        const positions = enableDrag(svg, onChange);
+        // Once the reader has moved a shape the drawing is theirs, and nothing measures
+        // it again: the re-measure below exists only for a view that was drawn where it
+        // could not be seen.
+        let arranged = false;
+        const positions = enableDrag(svg, function (p) {
+          arranged = true;
+          if (onChange) { onChange(p); }
+        });
         setupViewport(el, svg, function () {
-          if (onChange) { onChange(positionsOf(nodeInfo(svg))); }
+          if (arranged || !onChange) { return; }
+          onChange(positionsOf(nodeInfo(svg)));
         });
         return positions;
       }).catch(function (err) {
