@@ -66,10 +66,12 @@ def _scenarios() -> list[dict]:
                 name = ast.unparse(deco.func)
                 if not name.endswith("mark.scenario"):
                     continue
+                # A value that is not a plain string — an f-string naming the identifier
+                # the scenario created, say — is still a value. Keep the source of it.
                 kwargs = {
-                    kw.arg: ast.literal_eval(kw.value)
+                    kw.arg: (kw.value.value if isinstance(kw.value, ast.Constant) else ast.unparse(kw.value))
                     for kw in deco.keywords
-                    if kw.arg and isinstance(kw.value, ast.Constant)
+                    if kw.arg
                 }
                 kwargs["module"] = path.name
                 kwargs["test"] = node.name

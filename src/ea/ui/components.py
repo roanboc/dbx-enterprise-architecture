@@ -356,7 +356,13 @@ def error_alert(exc: Exception) -> dmc.Alert:
 
 def page_title(title: str, subtitle: str | None = None, right: Any = None) -> dmc.Group:
     left = dmc.Stack(
-        [dmc.Title(title, order=2), dmc.Text(subtitle, c="dimmed", size="sm") if subtitle else None], gap=2
+        [
+            # The one h1 on the page: a document that starts at h2 gives assistive
+            # technology no title to announce.
+            dmc.Title(title, order=1, size="h2"),
+            dmc.Text(subtitle, c="dimmed", size="sm") if subtitle else None,
+        ],
+        gap=2,
     )
     return dmc.Group(
         [left, right] if right is not None else [left], justify="space-between", align="flex-start", mb="md"

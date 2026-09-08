@@ -279,7 +279,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
                 [
                     dmc.Group(
                         [
-                            dmc.Title(b.name, order=3),
+                            dmc.Title(b.name, order=2, size="h3"),
                             dmc.Badge(
                                 b.status.replace("_", " "),
                                 color=STATUS_COLOURS.get(b.status, "gray"),

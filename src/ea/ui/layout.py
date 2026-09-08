@@ -176,7 +176,7 @@ def shell(
                                         ),
                                         dmc.Stack(
                                             [
-                                                dmc.Title(title, order=4, style={"lineHeight": 1.1}),
+                                                dmc.Text(title, fw=650, fz="h4", style={"lineHeight": 1.1}),
                                                 dmc.Text(
                                                     "model first · agent ready · DuckDB now, Databricks next",
                                                     size="xs",

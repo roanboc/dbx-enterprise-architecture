@@ -113,11 +113,11 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     out_rows, in_rows = rows(d["outgoing"], False), rows(d["incoming"], True)
     return html.Div(
         [
-            dmc.Title("Outgoing", order=5, mt="sm"),
+            dmc.Title("Outgoing", order=2, size="h5", mt="sm"),
             simple_table(["relationship", "to", "type", "origin", ""], out_rows)
             if out_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
-            dmc.Title("Incoming", order=5, mt="md"),
+            dmc.Title("Incoming", order=2, size="h5", mt="md"),
             simple_table(["relationship", "from", "type", "origin", ""], in_rows)
             if in_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
@@ -139,7 +139,7 @@ def _state_card(ctx: AppContext, e) -> dmc.Paper:
     wp = ctx.backend.get_element(e.target_work_package) if e.target_work_package else None
     return dmc.Paper(
         [
-            dmc.Title("State", order=5, mb="xs"),
+            dmc.Title("State", order=2, size="h5", mb="xs"),
             kv_table(
                 [
                     ("Current state", current_badge(e.current_state)),
@@ -169,7 +169,9 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     try:
         d = ctx.repo.element_detail(element_id)
     except NotFoundError:
-        return html.Div([dmc.Title("Not found", order=2), dmc.Text(f"No element with id {element_id}.")])
+        return html.Div(
+            [dmc.Title("Not found", order=1, size="h2"), dmc.Text(f"No element with id {element_id}.")]
+        )
     e, t = d["element"], d["type"]
     can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
     attrs = ctx.registry.attributes_for(e.type_id)
@@ -183,7 +185,9 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 [
                     dmc.Group(
                         [
-                            dmc.Title(e.name, order=2),
+                            # The element is what this page is about, so its name is the
+                            # document title. Everything below it is a section.
+                            dmc.Title(e.name, order=1, size="h2"),
                             type_badge(ctx.registry, e.type_id),
                             status_badge(e.status),
                             current_badge(e.current_state),
@@ -221,7 +225,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
         [
             dmc.Paper(
                 [
-                    dmc.Title("Description", order=5, mb="xs"),
+                    dmc.Title("Description", order=2, size="h5", mb="xs"),
                     markdown(e.description_md, f"el-desc-{e.element_id}"),
                 ],
                 p="md",
@@ -229,11 +233,11 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             ),
             dmc.Paper(
                 [
-                    dmc.Title("Attributes", order=5, mb="xs"),
+                    dmc.Title("Attributes", order=2, size="h5", mb="xs"),
                     kv_table(shown_attrs + extra_attrs)
                     if (shown_attrs or extra_attrs)
                     else dmc.Text("No attributes set.", c="dimmed", size="sm"),
-                    dmc.Title("Links", order=5, mt="md", mb="xs"),
+                    dmc.Title("Links", order=2, size="h5", mt="md", mb="xs"),
                     dmc.Stack(
                         [
                             dmc.Anchor(ln.label or ln.url, href=ln.url, target="_blank", size="sm")
@@ -243,7 +247,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     )
                     if e.links
                     else dmc.Text("No links.", c="dimmed", size="sm"),
-                    dmc.Title("Type", order=5, mt="md", mb="xs"),
+                    dmc.Title("Type", order=2, size="h5", mt="md", mb="xs"),
                     dmc.Text(t.description if t else "", size="sm", c="dimmed"),
                 ],
                 p="md",
@@ -273,7 +277,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     autosize=True,
                     minRows=2,
                 ),
-                dmc.Title("State", order=5),
+                dmc.Title("State", order=2, size="h5"),
                 dmc.SimpleGrid(
                     [
                         dmc.Select(
@@ -308,7 +312,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     ],
                     cols={"base": 1, "md": 4},
                 ),
-                dmc.Title("Type attributes", order=5) if own else None,
+                dmc.Title("Type attributes", order=2, size="h5") if own else None,
                 dmc.SimpleGrid([_attr_input(a, e.attrs.get(a.name)) for a in own], cols={"base": 1, "md": 3})
                 if own
                 else None,
@@ -360,7 +364,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             dmc.Paper(
                 dmc.Stack(
                     [
-                        dmc.Title("Add a relationship", order=5),
+                        dmc.Title("Add a relationship", order=2, size="h5"),
                         dmc.Group(
                             [
                                 dmc.SegmentedControl(

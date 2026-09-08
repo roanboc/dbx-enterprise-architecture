@@ -73,7 +73,7 @@ def render(ctx: AppContext) -> html.Div:
                 [
                     dmc.Paper(
                         [
-                            dmc.Title("Elements by type", order={"base": 4}),
+                            dmc.Title("Elements by type", order=2, size="h4"),
                             simple_table(["type", "domain", "count", ""], type_rows)
                             if type_rows
                             else dmc.Text(
@@ -86,7 +86,7 @@ def render(ctx: AppContext) -> html.Div:
                     ),
                     dmc.Paper(
                         [
-                            dmc.Title("Most used relationships", order={"base": 4}),
+                            dmc.Title("Most used relationships", order=2, size="h4"),
                             simple_table(
                                 ["relationship", "from", "to", "count"],
                                 [

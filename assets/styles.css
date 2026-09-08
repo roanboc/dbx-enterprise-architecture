@@ -185,3 +185,85 @@ body { background: #e9ecef; }
 .ea-state-matrix th .mantine-Badge-label {
   overflow: visible;
 }
+
+/* ---------------------------------------------------------------- readable colour
+   The stock palette puts several of its colours below the contrast floor at the size
+   this application uses them: a badge label, a dimmed caption, a link. The two the
+   round measured worst were a yellow badge at 1.66:1 and grey captions at 2.6:1,
+   against a floor of 4.5:1 for text this size.
+
+   Three families of variable carry it. `dimmed` is every caption and hint; the
+   `-light-color` variables are the text of a light badge, alert or button; the
+   `-filled` variables are the background a filled badge or button puts white on.
+   Darkening them here fixes every place at once, and nothing in the application has
+   to know which shade it asked for. The declarations are marked important because
+   the component library injects its own values at runtime, after this file is linked,
+   so an override of equal weight would lose. */
+:root {
+  /* Captions and hints: grey 6 on a pale card is 2.6:1. Grey 7 clears the floor
+     everywhere it is used. */
+  --mantine-color-dimmed: #495057 !important;
+
+  /* A link on white was 4.32:1. */
+  --mantine-color-anchor: #3b5bdb !important;
+
+  /* The text of a light or outline badge, alert or button, on its own pale tint. A
+     badge sits on a card, so the tint is laid over grey rather than white and needs
+     more headroom than the tint alone suggests. The outline variant takes its text
+     from the raw palette shade rather than from -light-color, so it is named too. */
+  --mantine-color-indigo-light-color: #2b3f9e !important;
+  --mantine-color-indigo-outline: #2b3f9e !important;
+  --mantine-color-blue-light-color: #14507f !important;
+  --mantine-color-blue-outline: #14507f !important;
+  --mantine-color-cyan-light-color: #085c6b !important;
+  --mantine-color-cyan-outline: #085c6b !important;
+  --mantine-color-teal-light-color: #05614a !important;
+  --mantine-color-teal-outline: #05614a !important;
+  --mantine-color-green-light-color: #1b5e2a !important;
+  --mantine-color-green-outline: #1b5e2a !important;
+  --mantine-color-lime-light-color: #3f5d0c !important;
+  --mantine-color-lime-outline: #3f5d0c !important;
+  --mantine-color-yellow-light-color: #6b4700 !important;
+  --mantine-color-yellow-outline: #6b4700 !important;
+  --mantine-color-orange-light-color: #8a3800 !important;
+  --mantine-color-orange-outline: #8a3800 !important;
+  --mantine-color-red-light-color: #8f1f1f !important;
+  --mantine-color-red-outline: #8f1f1f !important;
+  --mantine-color-pink-light-color: #8a1840 !important;
+  --mantine-color-pink-outline: #8a1840 !important;
+  --mantine-color-grape-light-color: #6a1f7a !important;
+  --mantine-color-grape-outline: #6a1f7a !important;
+  --mantine-color-violet-light-color: #4a2fa8 !important;
+  --mantine-color-violet-outline: #4a2fa8 !important;
+  --mantine-color-gray-light-color: #3f464d !important;
+  --mantine-color-gray-outline: #3f464d !important;
+
+  /* What a filled badge or button puts white text on. */
+  --mantine-color-indigo-filled: #3b5bdb !important;
+  --mantine-color-indigo-filled-hover: #364fc7 !important;
+  --mantine-color-blue-filled: #1971c2 !important;
+  --mantine-color-blue-filled-hover: #1864ab !important;
+  --mantine-color-cyan-filled: #0c8599 !important;
+  --mantine-color-teal-filled: #087f5b !important;
+  --mantine-color-green-filled: #237032 !important;
+  --mantine-color-yellow-filled: #7a5200 !important;
+  --mantine-color-orange-filled: #b34700 !important;
+  --mantine-color-red-filled: #c92a2a !important;
+  --mantine-color-pink-filled: #a61e4d !important;
+  --mantine-color-violet-filled: #5f3dc4 !important;
+  --mantine-color-gray-filled: #495057 !important;
+
+  --mantine-primary-color-filled: #3b5bdb !important;
+  --mantine-primary-color-filled-hover: #364fc7 !important;
+  --mantine-primary-color-light-color: #364fc7 !important;
+}
+
+/* A badge is a name — a state, a type, a status, a role — and its label is the whole
+   point of it. The stock badge clamps to its container and ellipsises, so in a narrow
+   column "× DECOMMISSION" read as "× DECOMMI…". Let it take the width its name needs. */
+.mantine-Badge-root {
+  max-width: none;
+}
+.mantine-Badge-label {
+  overflow: visible;
+}

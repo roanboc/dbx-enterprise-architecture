@@ -175,7 +175,7 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
             [
                 dmc.Stack(
                     [
-                        dmc.Title(doc.title, order=2),
+                        dmc.Title(doc.title, order=2, size="h2"),
                         dmc.Text(f"Answered {doc.created_at} · {who}", size="xs", c="dimmed"),
                     ],
                     gap=2,

@@ -270,7 +270,7 @@ def _detail(reg: Registry, node_id: str | None):
         [
             dmc.Group(
                 [
-                    dmc.Title(t.name, order=4),
+                    dmc.Title(t.name, order=2, size="h4"),
                     dmc.Badge(t.domain, color="gray", variant="light", size="xs"),
                     dmc.Badge(t.provenance, variant="outline", size="xs"),
                     dmc.Badge("inactive", color="red", size="xs") if not t.active else None,

@@ -1,13 +1,17 @@
 """Group N — Downloads: every file the application can produce, read as a file.
 
 Eleven files leave this application, and every one of them leaves through the same
-component: a single `dcc.Download` in the shell (`ui/layout.py`), which nine callbacks
-across seven pages write to. So the group has two jobs. The first is to prove each
-producer separately — the element view, the impact view and the target-state view, each
-as Markdown and as draw.io; the answer document, the same two ways; the metamodel pack as
-YAML; the import template as a zip; and the Proposal Template as Markdown. The second is
-to prove that the one shared component survives being used eleven times in a session and
-twice in a row on the same button.
+component: a single `dcc.Download` in the shell (`ui/layout.py`), which seven callbacks
+on seven pages write to. So the group has three jobs. The first is to prove each producer
+separately — the element view, the impact view and the target-state view, each as Markdown
+and as draw.io; the answer document, the same two ways; the metamodel pack as YAML; the
+import template as a zip; and the Proposal Template as Markdown. The second is to prove
+that the one shared component survives being used eleven times in a session and twice in a
+row on the same button. The third is what a download button does when there is nothing to
+produce, which is where the group's two failures are: a press that is swallowed in silence
+tells the reader nothing, and on the Ask page a document that drew no diagram cannot be
+downloaded at all, because the callback states a component that only exists with the
+diagram.
 
 What separates a check here from the same download seen in another group is that nothing
 is asserted by looking at the screen. A Markdown view is read as Markdown — a closed

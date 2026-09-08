@@ -195,7 +195,7 @@ def _run(store, source, mapping_key, dry_run: bool):
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified
             else None,
-            dmc.Title(f"Issues ({len(report.issues)})", order=5, my="sm"),
+            dmc.Title(f"Issues ({len(report.issues)})", order=2, size="h5", my="sm"),
             issues_table(report.issues[:500]),
         ]
     )

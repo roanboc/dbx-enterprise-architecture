@@ -81,7 +81,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             ),
             dmc.Paper(
                 [
-                    dmc.Title("Architecture view", order=5, mb="xs"),
+                    dmc.Title("Architecture view", order=2, size="h5", mb="xs"),
                     dmc.Text(
                         "The impact as an architecture diagram, generated from the model: layers top to bottom, every shape an element.",
                         size="sm",
@@ -123,7 +123,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
             [
                 dmc.Group(
                     [
-                        dmc.Title(e["name"], order=3),
+                        dmc.Title(e["name"], order=2, size="h3"),
                         type_badge(ctx.registry, e["type_id"]),
                         dmc.Anchor("open", href=f"/element/{e['element_id']}", size="sm"),
                     ],
@@ -155,7 +155,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
         [
             dmc.Paper(
                 [
-                    dmc.Title("Depends on this (upstream)", order=5, mb="xs"),
+                    dmc.Title("Depends on this (upstream)", order=2, size="h5", mb="xs"),
                     simple_table(["hops", "element", "type", "via"], _rows(ctx, res["upstream"]))
                     if res["upstream"]
                     else dmc.Text("Nothing.", c="dimmed", size="sm"),
@@ -165,7 +165,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
             ),
             dmc.Paper(
                 [
-                    dmc.Title("This depends on (downstream)", order=5, mb="xs"),
+                    dmc.Title("This depends on (downstream)", order=2, size="h5", mb="xs"),
                     simple_table(["hops", "element", "type", "via"], _rows(ctx, res["downstream"]))
                     if res["downstream"]
                     else dmc.Text("Nothing.", c="dimmed", size="sm"),
