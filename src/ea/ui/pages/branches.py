@@ -137,8 +137,12 @@ def _may_abandon(ctx: AppContext, b) -> bool:
     return ctx.can("abandon_branch") and (ctx.role() == "admin" or b.created_by == ctx.actor)
 
 
-def _review_panel(ctx: AppContext, b, has_rows: bool):
-    """Where the branch stands in its review, who must approve what, and the controls the role has."""
+def _review_panel(ctx: AppContext, b, has_rows: bool, message: Any = None):
+    """Where the branch stands in its review, who must approve what, and the controls the role has.
+
+    `message` is the outcome of the last review decision, and it is rendered here rather than
+    under the merge log: a refusal belongs beside the button that raised it.
+    """
     reqs = ctx.reviews.requirements(b.branch_id) if b.status not in ("merged", "abandoned") else []
     reviews = ctx.reviews.reviews(b.branch_id)
     me = ctx.current_user()
@@ -253,7 +257,7 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
             ),
             simple_table(["type touched", "reviewers", "decision"], req_rows) if req_rows else None,
             dmc.Stack(history, gap=2, mt="xs") if history else None,
-            html.Div(id=ids.RV_FEEDBACK, style={"marginTop": "0.4rem"}),
+            html.Div(message, id=ids.RV_FEEDBACK, style={"marginTop": "0.4rem"}),
             hidden,
         ],
         p="md",
@@ -263,8 +267,13 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
     )
 
 
-def _detail(ctx: AppContext, branch_id: str, message: Any = None):
-    """The branch's head, counts and merge log; `message` is the outcome of the last merge or abandon."""
+def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message: Any = None):
+    """The branch's head, counts and merge log.
+
+    `message` is the outcome of the last merge or abandon, printed under the log it acted on;
+    `review_message` is the outcome of the last review decision, printed in the review panel
+    beside the button that made it.
+    """
     try:
         cs: ChangeSet = ctx.branches.diff(branch_id)
     except NotFoundError:
@@ -423,7 +432,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
         [
             head,
             count_badges,
-            html.Div(_review_panel(ctx, b, bool(rows)), id=ids.RV_PANEL),
+            html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
             dmc.Paper(
                 [
                     dmc.Group(
@@ -721,7 +730,7 @@ def register(app: dash.Dash) -> None:
         except (ConflictError, NotFoundError, Forbidden) as exc:
             msg = alert(str(exc), "red")
         return (
-            _detail(ctx, branch_id, msg),
+            _detail(ctx, branch_id, review_message=msg),
             _branch_table(ctx, status or None, branch_id),
             ctx.branch_options(),
         )

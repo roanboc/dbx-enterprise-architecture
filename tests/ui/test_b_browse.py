@@ -810,10 +810,15 @@ def test_unknown_facet(ui, record, finding):
     note = ui.text("browse-filter-note")
     ui.check("a note still says the grid is filtered", "from the Health page" in note, note or "(no note)")
     ui.check(
+        "and says the filter in the address is not one this page knows",
+        "is not a filter this page knows" in note,
+        note or "(no note)",
+    )
+    ui.check(
         "and the way back to the whole model is offered", ui.page.locator("#browse-filter-note a").count() > 0
     )
     ui.shot("A facet the model does not know: an empty grid, and the link back to every element")
-    if "zzz-no-such-facet" in note:
+    if "is not a filter this page knows" not in note:
         finding.append(
             _finding(
                 finding_id="B-1",
@@ -1177,13 +1182,14 @@ def test_a_tick_does_not_outlive_its_row(ui, record):
 @pytest.mark.scenario(
     scenario_id="B29",
     group="B",
-    title="Closing the Reader's banner changes nothing about what a Reader may do",
+    title="The Reader's banner cannot be closed, because it is the only reason the page gives",
     feature="Browse · permissions",
-    expected="The banner that says a Reader changes nothing can be closed, and both editing buttons "
-    "stay disabled once it is gone.",
+    expected="The banner that says a Reader changes nothing carries no close button — closing it would "
+    "leave New element and Bulk edit greyed out and unexplained — and both buttons are disabled with it "
+    "on the page.",
     role="reader",
 )
-def test_reader_banner_is_dismissible(ui, record, finding):
+def test_reader_banner_is_not_dismissible(ui, record, finding):
     ui.goto("/browse")
     ui.persona("Reader")
     ui.goto("/browse")
@@ -1198,6 +1204,11 @@ def test_reader_banner_is_dismissible(ui, record, finding):
     )
     close = banner.locator("button")
     dismissible = close.count() > 0
+    ui.check(
+        "the only reason the page gives cannot be taken off it",
+        not dismissible,
+        f"{close.count()} close button(s) on the banner",
+    )
     if dismissible:
         close.first.click()
         ui.page.wait_for_timeout(300)
@@ -1207,10 +1218,10 @@ def test_reader_banner_is_dismissible(ui, record, finding):
             "You are a Reader on this page" not in ui.body(),
             _brief(ui.body()),
         )
-    ui.check("New element is still disabled with the banner gone", ui.disabled("new-open"))
-    ui.check("Bulk edit is still disabled with the banner gone", ui.disabled("bulk-open"))
+    ui.check("New element is disabled with the reason beside it", ui.disabled("new-open"))
+    ui.check("Bulk edit is disabled with the reason beside it", ui.disabled("bulk-open"))
     ui.check("and a Reader can still read the model", _counts(ui)[1] > 0, ui.text("browse-count"))
-    ui.shot("Browse as a Reader with the banner closed: both buttons still disabled")
+    ui.shot("Browse as a Reader: the reason stays on the page beside the two refused buttons")
     if dismissible:
         finding.append(
             _finding(
@@ -1229,7 +1240,13 @@ def test_reader_banner_is_dismissible(ui, record, finding):
                 ),
             )
         )
-    if ui.page.locator(f"#{GRID} .ag-row[row-index='0'] .ag-cell[col-id='sel'] input").count():
+    ticks = ui.page.locator(f"#{GRID} .ag-row[row-index='0'] .ag-cell[col-id='sel'] input").count()
+    ui.check(
+        "and no tick column is offered to a role that cannot act on a tick",
+        ticks == 0,
+        f"{ticks} tick(s) in the first row",
+    )
+    if ticks:
         finding.append(
             _finding(
                 finding_id="B-3",

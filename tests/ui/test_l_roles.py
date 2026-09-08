@@ -352,7 +352,11 @@ def test_browse_as_reviewer(ui, record, finding):
     ui.check("a Reviewer may not add an element", _blocked(ui, "new-open"))
     ui.check("a Reviewer may not bulk-edit", _blocked(ui, "bulk-open"))
     page = _page(ui)
-    ui.check("the page states the refusal", READER_BANNER in page or MAIN_BANNER in page, _alerts(ui))
+    ui.check(
+        "the page states the refusal, in the reviewer's own name",
+        "You are a Reviewer on this page" in page or MAIN_BANNER in page,
+        _alerts(ui),
+    )
     ui.check("the grid still lists elements", ui.grid_row_count("browse-grid") > 0)
     if READER_BANNER in page:
         finding.append(

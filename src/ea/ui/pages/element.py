@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import dash
@@ -43,11 +44,21 @@ from ea.views import view_from_neighbourhood
 from ea.views.drawio import to_drawio
 from ea.views.mermaid import to_markdown, to_mermaid
 
+QUALIFIER_HINT = "Only some relationship types declare qualifiers; the list fills when one does."
+
 STATUS_OPTIONS = ["draft", "approved", "retired"]
 CURRENT_OPTIONS = [{"value": s, "label": state_label(s, CURRENT_STYLE)} for s in CURRENT_STATES]
 TARGET_OPTIONS = [
     {"value": s, "label": f"{TARGET_STYLE[s]['glyph']} {TARGET_STYLE[s]['label']}"} for s in TARGET_STATES
 ]
+
+
+def _is_date(text: str) -> bool:
+    try:
+        date.fromisoformat(text[:10])
+    except ValueError:
+        return False
+    return True
 
 
 def _attr_input(a, value: Any):
@@ -75,6 +86,26 @@ def _attr_input(a, value: Any):
         return dmc.NumberInput(id=aid, label=label, value=value, allowDecimal=a.type == "number")
     if a.type == "text":
         return dmc.Textarea(id=aid, label=label, value=value or "", autosize=True, minRows=2)
+    if a.type == "date":
+        # A date typed into a plain box has no picker and nothing to fail against. A value
+        # already in the row that is not a date keeps its plain box, so an import's odd
+        # value is never silently emptied by the control that shows it.
+        if not value or _is_date(str(value)):
+            return dmc.DateInput(
+                id=aid,
+                label=label,
+                value=str(value) or None if value else None,
+                valueFormat="YYYY-MM-DD",
+                placeholder="YYYY-MM-DD",
+                clearable=True,
+                description=a.description or "as YYYY-MM-DD",
+            )
+        return dmc.TextInput(
+            id=aid,
+            label=label,
+            value=str(value),
+            description="expected YYYY-MM-DD; this row holds something else",
+        )
     return dmc.TextInput(
         id=aid, label=label, value="" if value is None else str(value), description=a.description or None
     )
@@ -199,11 +230,17 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             ]
         )
     e, t = d["element"], d["type"]
-    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
+    frozen = ctx.frozen_reason()
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main")) and not frozen
     attrs = ctx.registry.attributes_for(e.type_id)
     own = [a for a in attrs if a.type_id == e.type_id or (a.type_id and a.type_id != e.type_id)]
     common = [a for a in attrs if a.type_id is None]
-    shown_attrs = [(a.label, e.attrs.get(a.name)) for a in attrs if e.attrs.get(a.name) not in (None, "")]
+    # The Edit tab marks a restricted attribute; a reader who only reads has to be told too.
+    shown_attrs = [
+        (a.label + (" (restricted)" if a.sensitivity else ""), e.attrs.get(a.name))
+        for a in attrs
+        if e.attrs.get(a.name) not in (None, "")
+    ]
     extra_attrs = [(k, v) for k, v in e.attrs.items() if k not in {a.name for a in attrs}]
     header = dmc.Group(
         [
@@ -363,11 +400,15 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 dmc.Group(
                     [
                         dmc.Text(
-                            "Switch to a branch in the header to edit."
-                            if ctx.can("edit_content") and not can_write
-                            else f"{a_role(ctx.role_label())} may not edit."
-                            if not can_write
-                            else "",
+                            frozen
+                            or (
+                                "Switch to a branch in the header to edit."
+                                if ctx.can("edit_content") and not can_write
+                                else f"{a_role(ctx.role_label())} may not edit."
+                                if not can_write
+                                else ""
+                            ),
+                            id=ids.EL_SAVE_WHY,
                             size="xs",
                             c="dimmed",
                         ),
@@ -403,6 +444,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_OTHER,
+                                    label="The other element",
                                     placeholder="Search the other element…",
                                     searchable=True,
                                     data=[
@@ -418,6 +460,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_TYPE,
+                                    label="Relationship",
                                     placeholder="Relationship",
                                     data=[
                                         {
@@ -431,11 +474,14 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_QUALIFIER,
+                                    label="Qualifier",
                                     placeholder="Qualifier",
                                     data=[],
                                     w=180,
                                     clearable=True,
                                     disabled=True,
+                                    # A control that is off owes the reader the reason.
+                                    description=QUALIFIER_HINT,
                                 ),
                                 dmc.Button(
                                     "Add",
@@ -675,8 +721,10 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.EL_REL_TYPE, "data"),
+        Output(ids.EL_REL_TYPE, "description"),
         Output(ids.EL_REL_QUALIFIER, "data"),
         Output(ids.EL_REL_QUALIFIER, "disabled"),
+        Output(ids.EL_REL_QUALIFIER, "description"),
         Input(ids.EL_REL_OTHER, "value"),
         Input(ids.EL_REL_DIRECTION, "value"),
         Input(ids.EL_REL_TYPE, "value"),
@@ -687,11 +735,11 @@ def register(app: dash.Dash) -> None:
         ctx = get_context()
         me = ctx.backend.get_element(element_id)
         if not me:
-            return [], [], True
+            return [], "", [], True, QUALIFIER_HINT
         if other_id:
             other = ctx.backend.get_element(other_id)
             if not other:
-                return [], [], True
+                return [], "", [], True, QUALIFIER_HINT
             src_t, dst_t = (me.type_id, other.type_id) if direction == "out" else (other.type_id, me.type_id)
             allowed = ctx.registry.allowed_rel_types(src_t, dst_t)
         else:
@@ -707,7 +755,26 @@ def register(app: dash.Dash) -> None:
         ]
         rt = ctx.registry.rel_types.get(chosen or "")
         quals = list(rt.qualifiers) if rt and rt.qualifiers else []
-        return data, quals, not quals
+        # The Select drops a value that is no longer among its options, so a choice made
+        # before the other end was known disappears. Say which pair decided it.
+        offered = [d["value"] for d in data]
+        note = ""
+        if chosen and chosen not in offered:
+            names = ", ".join(
+                f"'{ctx.registry.rel_types[v].name}'" for v in offered if v in ctx.registry.rel_types
+            )
+            note = (
+                f"This pair allows only {names}, so the relationship you had chosen was cleared."
+                if names
+                else "This pair allows no relationship in that direction, so the one you had chosen was cleared."
+            )
+        return (
+            data,
+            note,
+            quals,
+            not quals,
+            "" if quals else QUALIFIER_HINT,
+        )
 
     @app.callback(
         Output(ids.EL_REL_FEEDBACK, "children"),

@@ -41,6 +41,7 @@ EL_DESC = "el-desc"
 EL_LINKS = "el-links"
 EL_SAVE = "el-save"
 EL_SAVE_FEEDBACK = "el-save-feedback"
+EL_SAVE_WHY = "el-save-why"  # why Save is off, said before anything is typed
 EL_ATTR = "el-attr"  # pattern-matching: {"type": EL_ATTR, "name": <attr>}
 EL_REL_DIRECTION = "el-rel-direction"
 EL_REL_OTHER = "el-rel-other"

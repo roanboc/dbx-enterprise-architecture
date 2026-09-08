@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from urllib.parse import parse_qs
 
 import dash
@@ -15,19 +16,20 @@ from ea.ui import ids
 from ea.ui.components import alert, icon, markdown_editor, modal_title, page_title
 from ea.ui.context import AppContext, get_context
 
+SELECT_COLUMN = {
+    "field": "sel",
+    "headerName": "",
+    "checkboxSelection": True,
+    "headerCheckboxSelection": True,
+    "width": 46,
+    "pinned": "left",
+    "sortable": False,
+    "filter": False,
+    "resizable": False,
+    "valueFormatter": {"function": "''"},
+}
+
 COLUMNS = [
-    {
-        "field": "sel",
-        "headerName": "",
-        "checkboxSelection": True,
-        "headerCheckboxSelection": True,
-        "width": 46,
-        "pinned": "left",
-        "sortable": False,
-        "filter": False,
-        "resizable": False,
-        "valueFormatter": {"function": "''"},
-    },
     {"field": "element_id", "headerName": "id", "width": 190},
     {"field": "name", "flex": 2, "minWidth": 200},
     {"field": "type", "flex": 1, "minWidth": 150},
@@ -44,6 +46,57 @@ COLUMNS = [
         "cellClassRules": {"ea-snippet": "params.value"},
     },
 ]
+
+
+GRID_OPTIONS = {
+    "rowSelection": "multiple",
+    "suppressRowClickSelection": True,
+    "animateRows": False,
+    "pagination": True,
+    "paginationPageSize": 50,
+    "tooltipShowDelay": 300,
+}
+
+
+def _and(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+
+def _no_rows(ctx: AppContext, type_id, text, status, health_filter) -> str:
+    """What the grid says when nothing matched.
+
+    The stock overlay reads 'No Rows To Show', which is true of a search that missed, of a
+    filter left on from an earlier one and of an empty repository alike. This one says what
+    was asked for, what is still narrowing the list, and the way back.
+    """
+    narrowing = []
+    if text:
+        narrowing.append(f"the words <b>{escape(text)}</b>")
+    if type_id:
+        t = ctx.registry.get_type(type_id)
+        narrowing.append(f"the type <b>{escape(t.name if t else type_id)}</b>")
+    if status:
+        narrowing.append(f"status <b>{escape(status)}</b>")
+    if health_filter and health_filter.get("facet"):
+        narrowing.append(f"the Health filter <b>{escape(str(health_filter['facet']))}</b>")
+    body = (
+        f"Nothing matches {_and(narrowing)}."
+        "<br>Every word has to match, and the controls above narrow the list together."
+        if narrowing
+        else "There is nothing here yet. Import a directory of CSV files, or add an element with New element."
+    )
+    return (
+        '<div class="ag-overlay-no-rows-center ea-no-rows">'
+        f"{body}"
+        '<br><a href="/browse">Show all elements</a></div>'
+    )
+
+
+def _columns(can_write: bool) -> list[dict]:
+    """The tick column is offered only to a role that can do something with a tick: a
+    Reader who ticks a row — or the header box, and the whole model — has nothing to apply."""
+    return ([SELECT_COLUMN] if can_write else []) + COLUMNS
+
 
 FACET_LABELS = {
     "description": "without a description",
@@ -87,11 +140,30 @@ def _days(q: dict, default: int = 90) -> int:
         return default
 
 
+def _unknown_type(ctx: AppContext, q: dict) -> str:
+    """The element type an address names that this metamodel does not hold, if any."""
+    type_id = (q.get("type") or [""])[0]
+    return "" if not type_id or ctx.registry.get_type(type_id) else type_id
+
+
 def _filter_note(ctx: AppContext, q: dict) -> str:
     facet = (q.get("missing") or q.get("facet") or [""])[0]
+    unknown_type = _unknown_type(ctx, q)
     if not facet:
-        return ""
-    label = FACET_LABELS.get(facet, facet)
+        # An address that narrows the grid to nothing has to say so, or an empty grid reads
+        # as a model with nothing in it.
+        return (
+            f"The address asks for the element type '{unknown_type}', which this metamodel "
+            "does not hold, so nothing is shown."
+            if unknown_type
+            else ""
+        )
+    label = FACET_LABELS.get(facet)
+    if label is None:
+        return (
+            f"'{facet}' is not a filter this page knows, so nothing is shown. The link came "
+            "from the Health page and may name a filter that has since been renamed."
+        )
     where = ""
     if q.get("source"):
         where = f" from source {q['source'][0]}"
@@ -108,7 +180,9 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
     health_filter = (
         {"facet": facet, "source": (q.get("source") or [""])[0], "days": _days(q)} if facet else None
     )
-    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
+    frozen = ctx.frozen_reason()
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main")) and not frozen
+    address_note = _filter_note(ctx, q)
     return html.Div(
         [
             page_title(
@@ -135,12 +209,18 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 ),
             ),
             alert(
-                "You are a Reader on this page: browse and open, but nothing here changes the model."
+                frozen
+                if frozen
+                else f"You are a {ctx.role_label()} on this page: browse and open, but nothing here "
+                "changes the model."
                 if not ctx.can("edit_content")
                 else "You are on main: switch to a branch in the header to edit or bulk-edit."
                 if not can_write
                 else "",
                 "blue",
+                # It is the only thing on the screen saying why New element and Bulk edit are
+                # greyed out, so closing it would leave the refusal unexplained.
+                dismissible=False,
             )
             if not can_write
             else None,
@@ -180,7 +260,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 dmc.Alert(
                     dmc.Group(
                         [
-                            dmc.Text(_filter_note(ctx, q), size="sm"),
+                            dmc.Text(address_note, size="sm"),
                             dmc.Anchor("Show all elements", href="/browse", size="sm", fw=600),
                         ],
                         gap="sm",
@@ -192,25 +272,18 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     # controls above. Closing it would leave a partial list looking whole.
                     withCloseButton=False,
                 )
-                if health_filter
+                if address_note
                 else None,
                 id=ids.BROWSE_FILTER_NOTE,
             ),
             dcc.Store(id=ids.BROWSE_SELECTED, data=health_filter),
             dag.AgGrid(
                 id=ids.BROWSE_GRID,
-                columnDefs=COLUMNS,
+                columnDefs=_columns(can_write),
                 rowData=[],
                 getRowId="params.data.element_id",
                 defaultColDef={"sortable": True, "filter": True, "resizable": True},
-                dashGridOptions={
-                    "rowSelection": "multiple",
-                    "suppressRowClickSelection": True,
-                    "animateRows": False,
-                    "pagination": True,
-                    "paginationPageSize": 50,
-                    "tooltipShowDelay": 300,
-                },
+                dashGridOptions=GRID_OPTIONS,
                 className="ag-theme-alpine",
                 style={"height": "68vh", "width": "100%"},
             ),
@@ -314,6 +387,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.BROWSE_GRID, "rowData"),
         Output(ids.BROWSE_COUNT, "children"),
+        Output(ids.BROWSE_GRID, "dashGridOptions"),
         Input(ids.BROWSE_TYPE, "value"),
         Input(ids.BROWSE_TEXT, "value"),
         Input(ids.BROWSE_STATUS, "value"),
@@ -322,7 +396,13 @@ def register(app: dash.Dash) -> None:
     def load_rows(type_id, text, status, health_filter):
         ctx = get_context()
         rows, total = _load(ctx, type_id, text, status, health_filter)
-        return rows, f"{len(rows)} of {total}"
+        # The overlay is only ever read when the grid is empty, so it is written only then.
+        empty = (
+            {**GRID_OPTIONS, "overlayNoRowsTemplate": _no_rows(ctx, type_id, text, status, health_filter)}
+            if not rows
+            else no_update
+        )
+        return rows, f"{len(rows)} of {total}", empty
 
     @app.callback(
         Output(ids.URL, "pathname", allow_duplicate=True),

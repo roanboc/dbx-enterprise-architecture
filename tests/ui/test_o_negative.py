@@ -1093,7 +1093,7 @@ def test_empty_csv_is_refused(ui, record):
         "Validation only — nothing written." in checked,
         _brief(checked),
     )
-    ui.check("and counted as the nothing it is", "elements 0/0 loaded" in checked, _brief(checked))
+    ui.check("and counted as the nothing it is", "checked elements 0" in checked, _brief(checked))
     ui.check("with nothing to report as an issue", "Issues (0)" in checked, _brief(checked))
     ui.shot("A file holding its header and no rows: read, and counted as empty")
 

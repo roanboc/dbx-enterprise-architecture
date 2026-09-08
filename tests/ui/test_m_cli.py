@@ -249,11 +249,21 @@ def test_m03_find(cli, record, finding):
 
     # Every word must match: two words that never co-occur should return nothing.
     _, none_out, none_ev = run(cli, "find", "course lakehouse")
+    none_lines = [ln for ln in none_out.splitlines() if ln.strip()]
     check(
-        record, "every word must match, so an impossible pair returns nothing", not none_out.strip(), none_ev
+        record,
+        "every word must match, so an impossible pair lists nothing",
+        not [ln for ln in none_lines if not ln.startswith("no elements")],
+        none_ev,
     )
-    # `branch list` and `reviewers list` both say so when they have nothing; `find` says
-    # nothing at all, so a reader cannot tell a miss from a crash.
+    # `branch list` and `reviewers list` both say so when they have nothing; `find` used to
+    # say nothing at all, so a reader could not tell a miss from a crash.
+    check(
+        record,
+        "and it says so rather than answering with an empty screen",
+        any(ln.startswith("no elements") and "'course lakehouse'" in ln for ln in none_lines),
+        trim(none_out, 120) or "(nothing at all)",
+    )
     if not none_out.strip():
         lodge(
             finding,
@@ -1149,7 +1159,13 @@ def test_m23_validate(cli, record, finding):
     rc, out, ev = run(cli, "validate", "data/sample", "--source", "m-validate", limit=160)
     must(record, "the sample model validates", rc == 0, ev)
     check(record, "it reports no errors and no warnings", "0 errors, 0 warnings" in out, trim(out))
-    check(record, "it counted the rows it read", "elements 0/47" in out or "/47" in out, trim(out))
+    check(record, "it counted the rows it read", "checked elements 47" in out, trim(out))
+    check(
+        record,
+        "and reports them as checked, not as a load that fell short",
+        "loaded" not in out,
+        trim(out),
+    )
     _, after, after_ev = run(cli, "stats", limit=60)
     check(record, "nothing was loaded", before.splitlines()[0] == after.splitlines()[0], after_ev)
     check(
@@ -1158,7 +1174,7 @@ def test_m23_validate(cli, record, finding):
         "m-validate" not in after,
         after_ev,
     )
-    if "loaded" in out:
+    if "loaded" in out:  # pragma: no cover — the wording is now a check's own
         lodge(
             finding,
             "M-4",
@@ -2234,10 +2250,14 @@ def test_m44_set_lifecycle(cli, record, finding):
         f"version {version_before} → {version_after}",
     )
 
-    rc_none, none_out, none_ev = run(cli, "set", WRITE_ELEMENT, limit=120)
-    check(record, "a set with no field to set exits cleanly", rc_none == 0, none_ev)
+    rc_none, none_out, none_ev = run(cli, "set", WRITE_ELEMENT, expect=1, limit=120)
+    check(record, "a set with no field to set is refused rather than run", rc_none == 1, none_ev)
+    said = refusal(none_out).replace("\n", " ")
     check(
-        record, "it neither updates nor refuses anything", "updated 0, refused 0" in none_out, trim(none_out)
+        record,
+        "and the refusal names the fields it could have been given",
+        "nothing to set" in said and "--status" in said and "--attr" in said,
+        trim(said, 160),
     )
     _, still, still_ev = run(cli, "get", WRITE_ELEMENT, limit=80)
     check(
@@ -2312,25 +2332,34 @@ def test_m45_unknown_direction(cli, record, finding):
 )
 def test_m46_unknown_format(cli, record, finding):
     _, mermaid, mermaid_ev = run(cli, "view", ASSET, limit=90)
-    rc, svg, ev = run(cli, "view", ASSET, "--fmt", "svg", expect=None, limit=90)
-    check(record, "the command still produced a diagram", rc == 0 and svg.strip().startswith("flowchart"), ev)
     check(
         record,
-        "what it produced is the Mermaid default, character for character",
-        svg == mermaid,
-        "identical to `--fmt mermaid`" if svg == mermaid else mermaid_ev,
+        "the default format still draws the diagram",
+        mermaid.strip().startswith("flowchart"),
+        mermaid_ev,
+    )
+    rc, svg, ev = run(cli, "view", ASSET, "--fmt", "svg", expect=1, limit=90)
+    check(record, "a format the command does not offer is refused", rc == 1, ev)
+    said = refusal(svg).replace("\n", " ")
+    check(
+        record,
+        "and the refusal names the formats there are",
+        "mermaid" in said and "md" in said and "drawio" in said,
+        trim(said, 140),
     )
 
-    _, table, table_ev = run(cli, "health", limit=90)
-    rc_h, other, other_ev = run(cli, "health", "--fmt", "json", expect=None, limit=90)
-    check(record, "health does the same with a format it does not offer", rc_h == 0, other_ev)
+    rc_h, other, other_ev = run(cli, "health", "--fmt", "json", expect=1, limit=90)
+    check(record, "health refuses one it does not offer too", rc_h == 1, other_ev)
     check(
         record,
-        "it prints the table, not a Markdown table and not JSON",
-        "| --- |" not in other and other.splitlines()[1:] == table.splitlines()[1:],
-        table_ev,
+        "naming its own two",
+        "'table'" in refusal(other) and "'md'" in refusal(other),
+        trim(refusal(other).replace("\n", " "), 140),
     )
-    if svg == mermaid:
+    rc_t, target_out, target_ev = run(cli, "target", "--fmt", "csv", expect=1, limit=90)
+    check(record, "and so does target", rc_t == 1, target_ev)
+    svg = mermaid  # the finding below asks whether the default was printed instead
+    if rc == 0 and svg == mermaid:
         lodge(
             finding,
             "M-11",
@@ -2465,7 +2494,7 @@ def test_m49_import_mapping(cli, record, tmp_path):
 
     rc_dry, dry, dry_ev = run(cli, "validate", str(directory), "--mapping", MAPPING, limit=160)
     must(record, "the dry run through the mapping ran", rc_dry == 0, dry_ev)
-    check(record, "the files named for the tool were found", "elements 0/1" in dry, trim(dry))
+    check(record, "the files named for the tool were found", "checked elements 1" in dry, trim(dry))
     check(record, "the source system comes from the mapping", "source=ea-tool" in dry, trim(dry))
     check(record, "the vendor's columns validate against the pack", "0 errors, 0 warnings" in dry, trim(dry))
 
@@ -2582,7 +2611,12 @@ def test_m51_import_dry_run_and_actor(cli, record, tmp_path):
     must(record, "the dry run ran", rc == 0, ev)
     check(record, "it reports the source it was given", "source=m-dry" in dry, trim(dry))
     check(record, "it validates the whole sample", "0 errors, 0 warnings" in dry, trim(dry))
-    check(record, "and it loaded none of it", "elements 0/47" in dry, trim(dry))
+    check(
+        record,
+        "and it says it checked them rather than loading them",
+        "checked elements 47" in dry and "loaded" not in dry,
+        trim(dry),
+    )
     _, after, after_ev = run(cli, "stats", limit=60)
     check(record, "the model is untouched by it", before.splitlines()[0] == after.splitlines()[0], after_ev)
     _, freshness, fresh_ev = run(cli, "health", limit=200)
@@ -3452,12 +3486,13 @@ def test_m64_branch_list_status(cli, record, finding):
         f"{counted} rows across the four filters, {len(rows)} in the whole listing",
     )
 
-    rc_bad, bad, bad_ev = run(cli, "branch", "list", "--status", "wibble", expect=None, limit=140)
+    rc_bad, bad, bad_ev = run(cli, "branch", "list", "--status", "wibble", expect=1, limit=140)
+    check(record, "a status that is not one of the five is refused", rc_bad == 1, bad_ev)
     check(
         record,
-        "a status that is not one of the four matches nothing",
-        not [ln for ln in bad.splitlines() if ln.strip() and ln.strip() != "no branches"],
-        bad_ev,
+        "and the refusal names the statuses there are, rather than reading as an empty repository",
+        "'open'" in refusal(bad) and "'merged'" in refusal(bad) and "no branches" not in bad,
+        trim(refusal(bad).replace("\n", " "), 150),
     )
     if "no branches" in bad:
         lodge(

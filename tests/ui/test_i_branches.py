@@ -583,26 +583,6 @@ def test_conflict_is_flagged(ui, record, finding):
     ui.shot("The accordion says main moved since the branch took its copy, and shows both rows")
     ui.branch("main")
     _branches(ui)
-    finding.append(
-        Finding(
-            finding_id="I-2",
-            where="src/ea/ui/pages/branches.py · GRID_COLUMNS, the conflict column (BR_GRID)",
-            severity="defect",
-            summary="The merge log's conflict column renders a tick, not the word 'conflict' it declares",
-            detail=(
-                "The column carries `valueFormatter: params.value ? 'conflict' : ''`, but the grid "
-                "reads the boolean value as a boolean column and draws its own checkbox, so the "
-                "formatter never runs and the cell holds no text at all. Two things follow. The word "
-                "the page's own help text uses ('A conflict means main changed the same row since the "
-                "branch started') never appears in the grid, so nothing joins the help to the column; "
-                "and the mark it draws instead is a ticked box in a grid whose first column is a real "
-                "ticked box for 'merge this row', which reads as agreement rather than as a warning. "
-                "The red cell background is the only thing carrying the meaning, so a reader who does "
-                "not see colour is told nothing. The count badge above ('2 CONFLICTS') and the "
-                "accordion below both word it correctly; only the grid does not."
-            ),
-        )
-    )
 
 
 @pytest.mark.scenario(
@@ -787,11 +767,11 @@ def test_request_a_review(ui, record):
 @pytest.mark.scenario(
     scenario_id="I13",
     group="I",
-    title="A write to a frozen branch is refused with the reason",
+    title="A write to a frozen branch is refused before it is typed, with the reason",
     feature="Branches · review · freeze",
     expected=(
-        "Saving an element while on a branch that is in review is refused with 'frozen until the "
-        "review is decided', and the element still carries what it carried before."
+        "On a branch that is in review the element page offers no Save and says why beside it — "
+        "'frozen until the review is decided' — and the element still carries what it carried before."
     ),
     role="architect",
     branch=REVIEW_ID,
@@ -803,18 +783,24 @@ def test_the_freeze_refuses_a_write(ui, record):
     before = _element_name(ui, P1)
     ui.goto(f"/element/{P1}")
     _tab(ui, "Edit")
-    # The Save button stays enabled on a frozen branch: the refusal only arrives after the typing.
+    # Nothing is offered that cannot be used: the freeze is said before the reader types.
     ui.check(
-        "Save is offered even though the branch is frozen",
-        not ui.disabled("el-save"),
-        "enabled — see the finding for group I",
+        "Save is not offered on a branch that is frozen",
+        ui.disabled("el-save"),
+        "enabled" if not ui.disabled("el-save") else "disabled",
     )
+    why = ui.text("el-save-why")
+    ui.check("and the reason is beside it", "frozen until the review is decided" in why, why[:200])
+    ui.check("naming the branch that is frozen", REVIEW_ID in why, why[:200])
+    ui.shot("A branch in review: Save is off, with the freeze said beside it")
     ui.fill("el-name", f"{before} (refused)")
     ui.click("el-save")
     feedback = ui.text("el-save-feedback")
-    ui.check("the save is refused", "frozen until the review is decided" in feedback, feedback[:200])
-    ui.check("and the refusal names the branch", REVIEW_ID in feedback, feedback[:200])
-    ui.shot("A write to a branch in review is refused, and says why")
+    ui.check(
+        "and pressing it changes nothing, because there is nothing to press",
+        "Saved version" not in feedback,
+        feedback[:200] or "(no feedback at all)",
+    )
     ui.check(
         "the element still carries what it carried before the refusal",
         _element_name(ui, P1) == before,
@@ -900,32 +886,23 @@ def test_send_back_needs_a_comment(ui, record, finding):
     )
     ui.check("the branch is still in review", "in review" in detail[:300].lower(), detail[:300])
     ui.shot("Sending a branch back without saying why is refused")
-    # The review panel declares its own feedback slot and nothing ever writes to it, so the
-    # refusal is printed under the merge log instead — measured here, reported as a finding.
-    empty_slot = ui.text("rv-feedback") == ""
-    button = ui.page.locator("#rv-send-back").first.bounding_box()
-    message = ui.page.locator("#br-feedback").first.bounding_box()
-    gap = (message["y"] - button["y"] - button["height"]) if (button and message) else 0
-    ui.check("the refusal reached the screen", "a send-back needs a comment" in detail)
-    finding.append(
-        Finding(
-            finding_id="I-3",
-            where="src/ea/ui/pages/branches.py · _review_panel (RV_FEEDBACK) and the review callback",
-            severity="usability",
-            summary="Every review outcome is printed under the merge log, not beside the button that caused it",
-            detail=(
-                "The review panel renders `html.Div(id=ids.RV_FEEDBACK)` for its own messages, but the "
-                "callback behind Request review, Approve and Send back writes into the branch detail, "
-                "whose message lands in the merge log's feedback slot; nothing ever writes to "
-                f"RV_FEEDBACK, which stays empty ({empty_slot}). The refusal of a send-back without a "
-                f"comment therefore appears about {gap:.0f} px below the Send back button that raised "
-                "it, under a grid the reviewer was not looking at, while the comment field that must "
-                "be filled in stays where it was, unmarked. Checkpoint 6 of the usability list asks "
-                "that a refusal name what was refused and what to do instead where the reader is "
-                "looking."
-            ),
-        )
+    # A refusal belongs beside the button that raised it, not under a grid the reviewer was
+    # not looking at: the review panel has its own slot and the outcome is written there.
+    slot = ui.text("rv-feedback")
+    ui.check(
+        "the refusal is in the review panel, beside the button that raised it",
+        "a send-back needs a comment" in slot,
+        slot or "(the review panel's own slot is empty)",
     )
+    button = ui.page.locator("#rv-send-back").first.bounding_box()
+    message = ui.page.locator("#rv-feedback").first.bounding_box()
+    gap = (message["y"] - button["y"] - button["height"]) if (button and message) else 0
+    ui.check(
+        "and within sight of it",
+        0 <= gap < 200,
+        f"{gap:.0f} px below the Send back button",
+    )
+    ui.check("the refusal reached the screen", "a send-back needs a comment" in detail)
 
 
 @pytest.mark.scenario(
@@ -1043,24 +1020,6 @@ def test_the_selector_labels_state(ui, record, finding):
         f"{options}",
     )
     ui.shot("The header selector: main, and every branch still open, labelled with its size")
-    finding.append(
-        Finding(
-            finding_id="I-1",
-            where="src/ea/ui/pages/element.py · render (EL_SAVE) and services/repository.py · check_write",
-            severity="usability",
-            summary="Save stays enabled on a branch frozen by a review, and only refuses after the edit",
-            detail=(
-                "The element page decides whether to enable Save from the role and the branch alone "
-                "(`can_write = ctx.can('edit_content') and (ctx.on_branch() or ctx.can('edit_main'))`), "
-                "so on a branch that is in review the button is offered and the caption beside it is "
-                "empty. The freeze is enforced one layer down, in `check_write`, so the architect types "
-                "the change, presses Save and only then reads 'frozen until the review is decided' — "
-                "checkpoint 4 of the usability list asks that nothing be offered that cannot be used, or "
-                "that the reason be said up front. The Branches page does this correctly: its Merge "
-                "button is disabled with the reason printed beneath it."
-            ),
-        )
-    )
 
 
 # ======================================================= what else a branch can hold and be
@@ -1796,12 +1755,15 @@ def test_a_branch_that_is_not_there(ui, record, finding):
     merged = ui.text("br-list")
     # What matters is that the list was re-read for the status that was asked for. Naming a
     # branch that should drop out is brittle: this group merges branches of its own, and a
-    # merged one belongs in the merged list.
-    filtered = "OPEN" not in merged.upper()
+    # merged one belongs in the merged list. Read the status column rather than the table's
+    # text: every row carries an `Open` button, so the text says 'open' whatever is listed.
+    cells = ui.page.locator("#br-list tbody tr td:nth-child(2)")
+    statuses = [t.strip().lower() for t in cells.all_inner_texts()] if cells.count() else []
+    filtered = all(s == "merged" for s in statuses) if statuses else "No merged branches" in merged
     ui.check(
         "and the list is re-read for that status, with nothing open left in it",
         filtered,
-        f"the list still reads {merged[:200]!r}",
+        f"the status column reads {statuses}" if statuses else f"the list reads {merged[:120]!r}",
     )
     ui.shot("The status control after asking for Merged on a branch the page could not draw")
     _branches(ui)

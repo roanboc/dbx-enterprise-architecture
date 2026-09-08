@@ -356,6 +356,7 @@ class ImportReport:
     elements_skipped: int = 0
     relationships_skipped: int = 0
     issues: list[Issue] = field(default_factory=list)
+    dry_run: bool = False
 
     @property
     def errors(self) -> list[Issue]:
@@ -370,6 +371,15 @@ class ImportReport:
         return not self.errors
 
     def summary(self) -> str:
+        if self.dry_run:
+            # A run that was never going to write anything must not report itself in the
+            # language of one that failed to: '0/47 loaded' reads as a shortfall.
+            return (
+                f"source={self.source_system} checked elements {self.elements_read}"
+                f" ({self.elements_skipped} would be skipped), relationships {self.relationships_read}"
+                f" ({self.relationships_skipped} would be skipped), links {self.links_read};"
+                f" {len(self.errors)} errors, {len(self.warnings)} warnings"
+            )
         return (
             f"source={self.source_system} elements {self.elements_loaded}/{self.elements_read} loaded"
             f" ({self.elements_skipped} skipped), relationships {self.relationships_loaded}/{self.relationships_read}"

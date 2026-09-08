@@ -393,8 +393,8 @@ def test_validate_writes_nothing(ui, record):
     ui.click("im-validate")
     text = _report(ui)
     ui.check("the report says plainly that nothing was written", DRY in text, text[:160])
-    ui.check("it read both elements and loaded neither", "elements 0/2 loaded" in text, text[:260])
-    ui.check("and read the relationship without loading it", "relationships 0/1 loaded" in text, text[:260])
+    ui.check("it read both elements and loaded neither", "checked elements 2" in text, text[:260])
+    ui.check("and read the relationship without loading it", "relationships 1 (" in text, text[:260])
     ui.check("the files are clean", "0 errors" in text and "No issues." in text, text[:260])
     ui.check("it names the source system the rows would carry", SOURCE in text, text[:160])
     ui.shot("Validate only: what the files hold, checked against the metamodel, and nothing written")
@@ -463,8 +463,8 @@ def test_broken_files_report_issues(ui, record):
     text = _report(ui)
     ui.check("nothing was written while the files were checked", DRY in text, text[:160])
     ui.check("all three defects are counted as errors", "3 errors" in text, text[:260])
-    ui.check("both element rows were skipped", "elements 0/2 loaded (2 skipped)" in text, text[:260])
-    ui.check("and so was the edge", "relationships 0/1 loaded (1 skipped)" in text, text[:260])
+    ui.check("both element rows were skipped", "checked elements 2 (2 would be skipped)" in text, text[:260])
+    ui.check("and so was the edge", "relationships 1 (1 would be skipped)" in text, text[:260])
     ui.check("the report heads the list with how many issues there are", "Issues (3)" in text, text[:260])
     headers = ui.page.locator("#im-report table thead").first
     head = headers.inner_text().lower().replace("\n", " ") if headers.count() else ""
@@ -542,7 +542,7 @@ def test_mapping_classifies_and_renames(ui, record):
     ui.click("im-validate")
     mapped = _report(ui)
     ui.check("the mapping's patterns classify the export", DRY in mapped, mapped[:200])
-    ui.check("and its one row is read", "elements 0/1 loaded" in mapped, mapped[:260])
+    ui.check("and its one row is read", "checked elements 1" in mapped, mapped[:260])
     ui.check("its renamed headers resolve to a type in the pack", "0 errors" in mapped, mapped[:260])
     ui.check(
         "the file that still matches nothing is named rather than silently dropped",
@@ -609,7 +609,7 @@ def test_spreadsheet_shaped_csv(ui, record, finding):
     ui.click("im-validate")
     text = _report(ui)
     ui.check("the byte-order mark did not break the first column", "missing_id" not in text, text[:300])
-    ui.check("both records were read", "elements 0/2 loaded" in text, text[:300])
+    ui.check("both records were read", "checked elements 2" in text, text[:300])
     ui.check("with nothing to report", "0 errors" in text and "No issues." in text, text[:300])
     listed = _file_row(ui, "h-spreadsheet-elements.csv")
     # The file list counts physical lines (`len(text.splitlines()) - 1`), not CSV records, so a
@@ -714,11 +714,11 @@ def test_ragged_file_beside_a_sound_one(ui, record, finding):
     _upload(ui, _write(ui, "h-elements.csv", ELEMENTS_CSV))
     ui.click("im-validate")
     clean, clean_bg = _report(ui), _report_background(ui)
-    ui.must("the sound file on its own reports its two rows", "elements 0/2 loaded" in clean, clean[:200])
+    ui.must("the sound file on its own reports its two rows", "checked elements 2" in clean, clean[:200])
     _upload(ui, _write(ui, "h-ragged-elements.csv", RAGGED_CSV))
     ui.click("im-validate")
     text, bg = _report(ui), _report_background(ui)
-    ui.check("the sound file is still read", "elements 0/2 loaded" in text, text[:300])
+    ui.check("the sound file is still read", "checked elements 2" in text, text[:300])
     ui.check(
         "the ragged one is named as unread beside it",
         NOT_READ in text and "h-ragged-elements.csv" in text,
@@ -815,7 +815,7 @@ def test_relationship_type_refused_names_what_is_allowed(ui, record):
     _upload(ui, _write(ui, "h-badrel-relationships.csv", BAD_REL_CSV))
     ui.click("im-validate")
     text = _report(ui)
-    ui.check("no element file was needed", "elements 0/0 loaded" in text, text[:300])
+    ui.check("no element file was needed", "checked elements 0" in text, text[:300])
     ui.check(
         "and the endpoints were found in the model rather than called dangling",
         "dangling_relationship" not in text,
@@ -833,7 +833,7 @@ def test_relationship_type_refused_names_what_is_allowed(ui, record):
         "allowed: encapsulates" in text,
         text[:400],
     )
-    ui.check("the edge is counted as skipped", "relationships 0/1 loaded (1 skipped)" in text, text[:300])
+    ui.check("the edge is counted as skipped", "relationships 1 (1 would be skipped)" in text, text[:300])
     ui.check("and counted as an error", "1 errors" in text, text[:300])
     ui.shot("A relationship the metamodel refuses, answered with the one it allows")
 
@@ -856,7 +856,9 @@ def test_warnings_do_not_skip_the_row(ui, record):
     ui.check("nothing about the file is an error", "0 errors" in text, text[:300])
     ui.check("all four warnings are counted", "4 warnings" in text, text[:300])
     ui.check("and listed", "Issues (4)" in text, text[:300])
-    ui.check("no row was skipped for a warning", "elements 0/2 loaded (0 skipped)" in text, text[:300])
+    ui.check(
+        "no row was skipped for a warning", "checked elements 2 (0 would be skipped)" in text, text[:300]
+    )
     for code in ("unknown_status", "unknown_current_state", "unknown_target_state", "duplicate_id"):
         ui.check(f"the {code} warning is named by its code", code in text, text[:800])
     ui.check("the unknown status says what was used instead", "using 'approved'" in text, text[:800])
@@ -912,7 +914,7 @@ def test_source_system_falls_back(ui, record):
         "source=import" in plain,
         plain[:200],
     )
-    ui.check("reading the file the contract matches", "elements 0/2 loaded" in plain, plain[:300])
+    ui.check("reading the file the contract matches", "checked elements 2" in plain, plain[:300])
     ui.check("and naming the one it does not", "h-objects.csv" in plain, plain[:300])
     ui.select("im-mapping", "EA tool export")
     ui.click("im-validate")
@@ -922,7 +924,7 @@ def test_source_system_falls_back(ui, record):
         "source=ea-tool" in mapped,
         mapped[:200],
     )
-    ui.check("and both files are now read", "elements 0/3 loaded" in mapped, mapped[:300])
+    ui.check("and both files are now read", "checked elements 3" in mapped, mapped[:300])
     ui.check("with nothing left ignored", "Ignored" not in mapped, mapped[:300])
     ui.check(
         "the source box is still empty, so nothing was filled in behind the reader",
@@ -1133,7 +1135,9 @@ def test_more_issues_than_the_table_shows(ui, record, finding):
     text = _report(ui)
     ui.check("nothing was written while the file was checked", DRY in text, text[:200])
     ui.check(
-        "every row was read and every row skipped", "elements 0/501 loaded (501 skipped)" in text, text[:300]
+        "every row was read and every row skipped",
+        "checked elements 501 (501 would be skipped)" in text,
+        text[:300],
     )
     ui.check("the summary counts them all", "501 errors" in text, text[:300])
     ui.check("and so does the heading above the list", "Issues (501)" in text, text[:300])

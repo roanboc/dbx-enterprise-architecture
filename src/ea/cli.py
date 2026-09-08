@@ -10,7 +10,7 @@ import typer
 
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
-from ea.models import ConflictError, Forbidden, NotFoundError, ValidationError
+from ea.models import BRANCH_STATUSES, ConflictError, Forbidden, NotFoundError, ValidationError
 from ea.services.roles import set_role
 
 app = typer.Typer(
@@ -66,6 +66,19 @@ def _require_branch_exists(branch: str | None) -> None:
         backend.close()
 
 
+def _one_of(value: str, allowed: tuple[str, ...], flag: str = "--fmt") -> str:
+    """A value the command does not offer is refused: silently answering in the default
+    format hands back a file the reader did not ask for and never says so."""
+    if value not in allowed:
+        names = (
+            f"{', '.join(repr(a) for a in allowed[:-1])} or {allowed[-1]!r}"
+            if len(allowed) > 1
+            else repr(allowed[0])
+        )
+        _refuse(f"{flag} is {names}, not {value!r}")
+    return value
+
+
 def _refuse(message: str) -> None:
     """Say what is wrong and stop, the way a failed import stops: a message and exit 1."""
     typer.echo(message, err=True)
@@ -109,9 +122,20 @@ def init(
         settings.db_path = str(db)
     if pack:
         settings.pack_path = str(pack)
-    _, backend, registry, *_ = _ctx(settings)
-    p = load_pack(settings.pack_path)
-    backend.save_pack(p)
+    fresh = not Path(settings.db_path).exists()
+    backend = None
+    try:
+        _, backend, registry, *_ = _ctx(settings)
+        p = load_pack(settings.pack_path)
+        backend.save_pack(p)
+    except Exception:
+        # The store is created before the pack is read, so a pack that cannot be loaded would
+        # otherwise leave a database behind that looks like a repository and holds nothing.
+        if fresh:
+            if backend is not None:
+                backend.close()
+            Path(settings.db_path).unlink(missing_ok=True)
+        raise
     typer.echo(
         f"database {settings.db_path}: pack '{p.id}' loaded ({len(p.element_types)} element types, {len(p.relationship_types)} relationship types)"
     )
@@ -211,10 +235,15 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
     if type_id and t is None:
         # Ignoring it would answer the unrestricted search and look like a narrow one.
         _refuse(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
-    for h in SearchService(backend, registry).search(text, t.id if t else None, limit=limit):
+    hits = SearchService(backend, registry).search(text, t.id if t else None, limit=limit)
+    for h in hits:
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
         typer.echo(f"{e.element_id:24s} {e.type_id:32s} {e.name}{where}")
+    if not hits:
+        # Silence reads as a command that did nothing; `branch list` and `reviewers list`
+        # both say when they have nothing to show.
+        typer.echo(f"no elements{f' of type {t.name}' if t else ''} match {text!r}")
 
 
 @app.command("set")
@@ -243,6 +272,11 @@ def set_cmd(
     if attr:
         name, _, value = attr.partition("=")
         attribute = (name.strip(), value)
+    if not attribute and not any(v is not None for v in fields.values()):
+        _refuse(
+            "nothing to set: give at least one of --status, --lifecycle, --current-state, "
+            "--target-state, --work-package, --note or --attr"
+        )
     out = repo.bulk_update(element_ids, actor, fields, attribute)
     typer.echo(f"updated {len(out['updated'])}, refused {len(out['refused'])}")
     for r in out["refused"]:
@@ -255,6 +289,7 @@ def health(fmt: str = typer.Option("table", help="table or md")):
     from ea.services import HealthService
 
     _, backend, registry, *_ = _ctx()
+    _one_of(fmt, ("table", "md"))
     svc = HealthService(backend, registry)
     fresh, comp = svc.freshness(), svc.completeness()
     sep = "| " if fmt == "md" else ""
@@ -315,7 +350,9 @@ def neighbours(element_id: str, depth: int = 1, direction: str = "both"):
         _refuse(f"--direction is 'in', 'out' or 'both', not {direction!r}")
     _, _, _, _, graph = _ctx()
     sub = graph.neighbours(element_id, depth, direction)
-    for n in sub["nodes"]:
+    # `trace` and `impact` print their rows in depth order; the rings read as rings only
+    # when this one does too.
+    for n in sorted(sub["nodes"], key=lambda n: (n["depth"], n["name"])):
         typer.echo(f"{n['depth']}  {n['element_id']:24s} {n['type_name']:32s} {n['name']}")
 
 
@@ -374,7 +411,9 @@ def view(
         v = view_from_impact(registry, graph, graph.impact(element_id, max(depth, 1) if depth != 1 else 3))
     else:
         v = view_from_neighbourhood(registry, graph, element_id, depth)
-    text = {"mermaid": to_mermaid, "md": to_markdown, "drawio": to_drawio}.get(fmt, to_mermaid)(v)
+    text = {"mermaid": to_mermaid, "md": to_markdown, "drawio": to_drawio}[
+        _one_of(fmt, ("mermaid", "md", "drawio"))
+    ](v)
     if out:
         Path(out).write_text(text, encoding="utf-8")
         typer.echo(f"{out}: {len(v.nodes)} elements, {len(v.edges)} relationships")
@@ -395,6 +434,7 @@ def target(
     from ea.views import view_from_ids
     from ea.views.mermaid import to_markdown
 
+    _one_of(fmt, ("table", "md"))
     _, backend, registry, _, graph = _ctx()
     svc = TargetStateService(backend, registry)
     if work_package and backend.get_element(work_package) is None:
@@ -429,6 +469,10 @@ def target(
 @branch_app.command("list")
 def branch_list(status: str = typer.Option(None, help="open, merged or abandoned")):
     """The branches of the model and how many rows each carries."""
+    if status:
+        # 'no branches' is what the command says when the model really holds none, so a
+        # status it does not know must not borrow that answer.
+        _one_of(status, tuple(BRANCH_STATUSES), "--status")
     _, _, svc = _branches()
     rows = svc.list(status)
     if not rows:
@@ -492,6 +536,15 @@ def branch_merge(
     typer.echo(
         f"merged {len(res.applied)} item(s), dropped {len(res.dropped)}, {res.remaining} remaining; branch {'closed' if res.closed else 'still open'}"
     )
+    if res.remaining and not res.closed:
+        # A merge held back by a conflict otherwise reads exactly like one with nothing to do.
+        stuck = [r["key"] for r in svc.item_rows(svc.diff(branch_id)) if r["conflict"]]
+        if stuck:
+            typer.echo(
+                f"  {len(stuck)} unresolved conflict(s) held it back: {', '.join(stuck[:5])}"
+                + (" …" if len(stuck) > 5 else "")
+            )
+            typer.echo("  resolve each with --resolve <key>=branch or --resolve <key>=main, then merge again")
 
 
 @branch_app.command("review")
@@ -602,13 +655,20 @@ def run() -> None:
     """The entry point.
 
     What the repository refuses is something a person did — an identifier nothing matches,
-    a branch nobody created, a role that may not — and it reaches them as a sentence and a
-    failed exit, not as a class name and a stack trace. Everything else still raises.
+    a branch nobody created, a role that may not, a file that is not there — and it reaches
+    them as a sentence and a failed exit, not as a class name and a stack trace. Everything
+    else still raises.
     """
     try:
         app()
-    except (NotFoundError, ValidationError, Forbidden, ConflictError, ValueError) as exc:
-        message = "; ".join(str(i) for i in exc.issues) if isinstance(exc, ValidationError) else str(exc)
+    except (NotFoundError, ValidationError, Forbidden, ConflictError, ValueError, OSError) as exc:
+        message = (
+            "; ".join(str(i) for i in exc.issues)
+            if isinstance(exc, ValidationError)
+            else f"{exc.filename}: {exc.strerror.lower()}"
+            if isinstance(exc, OSError) and exc.filename
+            else str(exc)
+        )
         typer.echo(message, err=True)
         raise SystemExit(1) from None
 

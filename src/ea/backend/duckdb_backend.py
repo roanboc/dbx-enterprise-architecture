@@ -564,7 +564,10 @@ class DuckDBBackend(DatabaseBackend):
         expected = expected_version if expected_version is not None else element.version
         if current.version != expected:
             raise ConflictError(
-                f"element {element.element_id} changed by {current.updated_by} at {current.updated_at} (version {current.version}, you had {expected})"
+                # To the minute: the row's raw timestamp carries microseconds, which say
+                # nothing to the person being refused.
+                f"element {element.element_id} changed by {current.updated_by} at "
+                f"{str(current.updated_at)[:16]} (version {current.version}, you had {expected})"
             )
         element.version = current.version + 1
         element.created_at, element.created_by = current.created_at, current.created_by
@@ -914,7 +917,8 @@ class DuckDBBackend(DatabaseBackend):
         expected = expected_version if expected_version is not None else rel.version
         if current.version != expected:
             raise ConflictError(
-                f"relationship {rel.relationship_id} changed by {current.updated_by} at {current.updated_at}"
+                f"relationship {rel.relationship_id} changed by {current.updated_by} at "
+                f"{str(current.updated_at)[:16]}"
             )
         rel.version = current.version + 1
         rel.created_at, rel.created_by = current.created_at, current.created_by

@@ -26,12 +26,15 @@ metamodel against the counts the page prints, the clipboard against the file the
 writes — and against who asked for it: downloading is a read, so a Reader is handed the same
 document an Admin is while the write control beside it stays refused.
 
-That leaves the group two failures of its own. An answer that drew no diagram disables
-Download draw.io and then says nothing: the reason is computed, used to grey the button out
-and dropped, where the Impact page shows its own (N24). And a view first drawn on a tab the
-page did not open on is measured while it is hidden, so every shape in its draw.io file is
-the same default box; Reset layout, pressed with the tab in front of the reader, re-measures
-the view and the very next file is right (N25).
+The group found three more of its own, all since fixed. An answer that drew no diagram
+disabled Download draw.io and then said nothing: the reason was computed, used to grey the
+button out and dropped, where the Impact page shows its own (N24). A view first drawn on a
+tab the page did not open on was measured while it was hidden, so every shape in its
+draw.io file was the same default box (N25). And a shape moved by hand carried its place
+into the file but not its size: the drag reported the geometry it had guessed while the
+view was hidden, so the other shapes shrank to the default box the moment one was moved
+(N22). A view is now measured again the first time it has a size, into the very nodes the
+drag holds.
 
 What separates a check here from the same download seen in another group is that nothing
 is asserted by looking at the screen. A Markdown view is read as Markdown — a closed

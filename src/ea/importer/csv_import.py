@@ -439,7 +439,7 @@ def import_frames(
 ) -> ImportReport:
     mapping = mapping or Mapping()
     source_system = source_system or mapping.source_system or "import"
-    report = ImportReport(source_system=source_system)
+    report = ImportReport(source_system=source_system, dry_run=dry_run)
     elements, inline_links = build_elements(
         registry, frames.get("elements", []), mapping, source_system, report
     )

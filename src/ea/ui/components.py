@@ -359,8 +359,10 @@ def issues_table(issues: list[Issue]) -> Any:
     return simple_table(["level", "code", "message", "file", "row", "entity"], rows)
 
 
-def alert(message: str, color: str = "blue") -> dmc.Alert:
-    return dmc.Alert(message, color=color, variant="light", withCloseButton=True)
+def alert(message: str, color: str = "blue", dismissible: bool = True) -> dmc.Alert:
+    """A message the reader can close — unless it is the only thing on the screen saying
+    why a control is refused, in which case closing it would leave the refusal unexplained."""
+    return dmc.Alert(message, color=color, variant="light", withCloseButton=dismissible)
 
 
 def error_alert(exc: Exception) -> dmc.Alert:

@@ -133,8 +133,8 @@
 
   function enableDrag(svg, onChange) {
     const nodes = nodeInfo(svg);
-    const edges = edgeInfo(svg, nodes);
-    const clusters = clusterInfo(svg, nodes);
+    let edges = edgeInfo(svg, nodes);
+    let clusters = clusterInfo(svg, nodes);
     let dragging = null, start = null, origin = null;
     function toSvg(evt) {
       const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
@@ -171,7 +171,24 @@
       n.el.addEventListener('pointerup', end);
       n.el.addEventListener('pointercancel', end);
     });
-    return positionsOf(nodes);
+    return {
+      positions: positionsOf(nodes),
+      // A view drawn where it could not be seen cannot be measured: `getBBox` throws on a
+      // hidden shape, so every node falls back to the same default box. Read the geometry
+      // again into the very nodes the drag already holds — a second, separate reading would
+      // leave the drag reporting the sizes it first guessed.
+      remeasure: function () {
+        const fresh = nodeInfo(svg);
+        Object.keys(nodes).forEach(function (k) {
+          const f = fresh[k];
+          if (!f) { return; }
+          nodes[k].cx = f.cx; nodes[k].cy = f.cy; nodes[k].w = f.w; nodes[k].h = f.h;
+        });
+        edges = edgeInfo(svg, nodes);
+        clusters = clusterInfo(svg, nodes);
+        return positionsOf(nodes);
+      },
+    };
   }
 
   // ---------------------------------------------------------------- pan and zoom
@@ -279,15 +296,15 @@
         // it again: the re-measure below exists only for a view that was drawn where it
         // could not be seen.
         let arranged = false;
-        const positions = enableDrag(svg, function (p) {
+        const drag = enableDrag(svg, function (p) {
           arranged = true;
           if (onChange) { onChange(p); }
         });
         setupViewport(el, svg, function () {
           if (arranged || !onChange) { return; }
-          onChange(positionsOf(nodeInfo(svg)));
+          onChange(drag.remeasure());
         });
-        return positions;
+        return drag.positions;
       }).catch(function (err) {
         el.innerHTML = '<pre style="color:#c92a2a;font-size:12px;white-space:pre-wrap">' + String(err) + '</pre>';
         return null;
