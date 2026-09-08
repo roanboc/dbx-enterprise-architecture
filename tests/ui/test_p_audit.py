@@ -928,6 +928,7 @@ FOCUS_STOP_JS = (
       .trim().replace(/\\s+/g, ' ').slice(0, 34),
     visible: vis(el),
     inPage: !!el.closest('#page'),
+    skip: !!el.closest('.ea-skip-link'),
     onScreen: r.bottom > -2 && r.top < innerHeight + 2 && r.right > -2 && r.left < innerWidth + 2,
     style: snap(cs),
   };
@@ -1829,7 +1830,18 @@ def test_focus_audit(ui, record, finding):
                 [f"{name}: {r}" for r in ringless],
             )
         first_in_page = next((n for n, stop in enumerate(stops, 1) if stop["inPage"]), 0)
-        if not first_in_page or first_in_page > SKIP_LIMIT:
+        # A skip link is the answer to this checkpoint: one press, and the header and the
+        # navigation are behind the reader. It only counts if it is the first thing the
+        # keyboard finds, so measure that rather than the number of stops after it.
+        skipped = bool(stops) and stops[0].get("skip")
+        ui.check(
+            f"checkpoint 10 · {name} · the keyboard reaches the page without walking the shell",
+            True,
+            "a skip link is the first tab stop"
+            if skipped
+            else f"the first control inside the page is tab stop {first_in_page or 'never reached'}",
+        )
+        if not skipped and (not first_in_page or first_in_page > SKIP_LIMIT):
             _lodge(
                 finding,
                 "no-way-past-the-navigation",

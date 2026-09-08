@@ -132,6 +132,7 @@ ASK_DOC_STORE = "ask-doc-store"
 # Branches (initiative 4)
 BRANCH_SELECT = "branch-select"  # header: the branch the reader is on
 BRANCH_BADGE = "branch-badge"
+BRANCH_NEW_WHY = "branch-new-why"  # the same reason, named by aria-describedby
 BRANCH_NEW_TIP = "branch-new-tip"  # the label beside the New branch button, kept with the role
 BRANCH_NEW_OPEN = "branch-new-open"
 BRANCH_NEW_MODAL = "branch-new-modal"

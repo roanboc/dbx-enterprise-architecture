@@ -162,6 +162,9 @@ def shell(
             dcc.Download(id=ids.DOWNLOAD),
             dmc.NotificationContainer(id=ids.NOTIFY, position="top-right"),
             new_branch_modal(work_packages or []),
+            # The first thing the keyboard reaches, so a reader working without a mouse is
+            # not walked through the header and the ten navigation links on every screen.
+            html.A("Skip to the page", href="#page", className="ea-skip-link"),
             dmc.AppShell(
                 [
                     dmc.AppShellHeader(
@@ -215,16 +218,31 @@ def shell(
                                             comboboxProps={"withinPortal": True},
                                         ),
                                         dmc.Tooltip(
-                                            dmc.ActionIcon(
-                                                icon("tabler:plus", 16),
-                                                id=ids.BRANCH_NEW_OPEN,
-                                                **{"aria-label": "New branch"},
-                                                variant="light",
-                                                size="lg",
-                                                disabled=not can_create_branch,
+                                            html.Span(
+                                                dmc.ActionIcon(
+                                                    icon("tabler:plus", 16),
+                                                    id=ids.BRANCH_NEW_OPEN,
+                                                    **{
+                                                        "aria-label": "New branch",
+                                                        "aria-describedby": ids.BRANCH_NEW_WHY,
+                                                    },
+                                                    variant="light",
+                                                    size="lg",
+                                                    disabled=not can_create_branch,
+                                                ),
+                                                # A disabled control takes no pointer events, so
+                                                # the wrapper carries the native tooltip and the
+                                                # reason is readable either way.
+                                                title=new_branch_tip(can_create_branch),
+                                                style={"display": "inline-flex"},
                                             ),
                                             id=ids.BRANCH_NEW_TIP,
                                             label=new_branch_tip(can_create_branch),
+                                        ),
+                                        html.Span(
+                                            new_branch_tip(can_create_branch),
+                                            id=ids.BRANCH_NEW_WHY,
+                                            className="ea-visually-hidden",
                                         ),
                                         html.Div(role_badge(role, display_name), id=ids.ROLE_BADGE),
                                         persona_switcher(persona) if persona else None,

@@ -54,6 +54,29 @@ def parse_path(pathname: str | None) -> tuple[str, str | None]:
     return "home", None
 
 
+def address_note(pathname: str | None) -> str:
+    """What the router could not place in the address, or empty when it read all of it.
+
+    Falling back is the right answer; doing it in silence is not. An address the router
+    cannot place at all, one that names a page and then says more, and a half-written
+    element address are all mistypes, and the reader is told which they made.
+    """
+    parts = [unquote(p) for p in (pathname or "/").split("/") if p]
+    if not parts:
+        return ""
+    if parts[0] == "element":
+        if len(parts) == 1:
+            return f"There is no page at {pathname}: an element address carries its identifier, as /element/<id>."
+        if len(parts) > 2:
+            return f"There is no page at {pathname}: everything after the element identifier was ignored."
+        return ""
+    if parts[0] in PAGES:
+        if len(parts) > 1:
+            return f"There is no page at {pathname}: /{parts[0]} takes no address under it, so the rest was ignored."
+        return ""
+    return f"There is no page at {pathname}. This is the home page."
+
+
 def session_branch() -> str:
     """The branch kept in the reader's session; main when none or when the branch is gone."""
     try:
@@ -146,36 +169,29 @@ def create_app() -> dash.Dash:
         page, arg = parse_path(pathname)
         try:
             if page == "element":
-                return element.render(ctx, arg or "")
-            if page == "browse":
-                return browse.render(ctx, search)
-            if page == "metamodel":
-                return metamodel.render(ctx)
-            if page == "impact":
-                return impact.render(ctx, search)
-            if page == "import":
-                return import_page.render(ctx)
-            if page == "ask":
-                return ask.render(ctx)
-            if page == "branches":
-                return branches.render(ctx, search)
-            if page == "target":
-                return target.render(ctx, search)
-            if page == "propose":
-                return propose.render(ctx)
-            if page == "health":
-                return health.render(ctx)
-            if (pathname or "/").rstrip("/") not in ("", None):
-                # Falling back to Home is the right answer; doing it in silence is not.
-                # A reader who mistyped, or followed a stale link, is told which it was.
-                return dmc.Stack(
-                    [
-                        alert(f"There is no page at {pathname}. This is the home page.", "yellow"),
-                        home.render(ctx),
-                    ],
-                    gap="sm",
-                )
-            return home.render(ctx)
+                body = element.render(ctx, arg or "")
+            elif page == "browse":
+                body = browse.render(ctx, search)
+            elif page == "metamodel":
+                body = metamodel.render(ctx)
+            elif page == "impact":
+                body = impact.render(ctx, search)
+            elif page == "import":
+                body = import_page.render(ctx)
+            elif page == "ask":
+                body = ask.render(ctx)
+            elif page == "branches":
+                body = branches.render(ctx, search)
+            elif page == "target":
+                body = target.render(ctx, search)
+            elif page == "propose":
+                body = propose.render(ctx)
+            elif page == "health":
+                body = health.render(ctx)
+            else:
+                body = home.render(ctx)
+            note = address_note(pathname)
+            return dmc.Stack([alert(note, "yellow"), body], gap="sm") if note else body
         except Exception as exc:  # noqa: BLE001 — a page error must not blank the shell
             log.exception("page %s failed", page)
             return dmc.Alert(f"{type(exc).__name__}: {exc}", color="red", title="This page failed to render")
@@ -215,6 +231,7 @@ def create_app() -> dash.Dash:
             Output(ids.ROLE_BADGE, "children"),
             Output(ids.BRANCH_NEW_OPEN, "disabled"),
             Output(ids.BRANCH_NEW_TIP, "label"),
+            Output(ids.BRANCH_NEW_WHY, "children"),
             Input(ids.PERSONA_SELECT, "value"),
             State(ids.NAV_VERSION, "data"),
             prevent_initial_call=True,
@@ -231,6 +248,7 @@ def create_app() -> dash.Dash:
                 int(version or 0) + 1 if changed else no_update,
                 layout.role_badge(user.role, user.display_name),
                 not can_create,
+                layout.new_branch_tip(can_create),
                 layout.new_branch_tip(can_create),
             )
 

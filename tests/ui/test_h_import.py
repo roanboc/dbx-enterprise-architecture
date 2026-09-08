@@ -1138,7 +1138,12 @@ def test_more_issues_than_the_table_shows(ui, record, finding):
         "the list itself stops at the five hundred it is capped to", shown == 500, f"{shown} rows listed"
     )
     ui.shot("A file with 501 defects: all counted, the first five hundred listed", full_page=False)
-    if shown < 501 and "501" in text and "not shown" not in text.lower():
+    ui.check(
+        "and says it is holding the rest back rather than letting the list end early",
+        "Showing the first 500 of 501" in text,
+        text[-300:],
+    )
+    if shown < 501 and "Showing the first" not in text:
         finding.append(
             Finding(
                 finding_id="H6",

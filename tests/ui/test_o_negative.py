@@ -289,7 +289,12 @@ def test_unknown_route(ui, record, finding):
     )
     ui.check("and not on an error", "This page failed to render" not in _page(ui), _brief(_page(ui)))
 
-    said_so = re.search(r"not found|unknown|does not exist|no such", _page(ui), re.I)
+    said_so = re.search(r"no page at|not found|unknown|does not exist|no such", _page(ui), re.I)
+    ui.check(
+        "and the fallback says the address was not one the router knows",
+        bool(said_so),
+        _brief(_page(ui)),
+    )
     if not said_so:
         finding.append(
             _finding(
@@ -920,7 +925,12 @@ def test_unknown_route_names_the_address(ui, record, finding):
     )
     ui.check("and not an error", "This page failed to render" not in _page(ui), _brief(_page(ui)))
     swallowed = not any("no page at" in a.lower() for a in _page_alerts(ui))
-    ui.shot("An address under a page that exists, with a segment the router ignored")
+    ui.check(
+        "and the segment the router ignored is named, as an unknown address is",
+        not swallowed,
+        f"the alerts read {_page_alerts(ui) or 'nothing'}",
+    )
+    ui.shot("An address under a page that exists, with the segment the router ignored named")
     if swallowed:
         finding.append(
             _finding(
