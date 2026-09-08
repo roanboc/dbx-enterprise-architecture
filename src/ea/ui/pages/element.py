@@ -78,6 +78,12 @@ def _attr_input(a, value: Any):
     )
 
 
+def _rel_tab_label(ctx: AppContext, element_id: str) -> str:
+    """What the Relationships tab says, so the label and the tables are written together."""
+    d = ctx.repo.element_detail(element_id)
+    return f"Relationships ({len(d['outgoing']) + len(d['incoming'])})"
+
+
 def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     d = ctx.repo.element_detail(element_id)
 
@@ -474,7 +480,10 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                             dmc.TabsTab("Overview", value="overview", leftSection=icon("tabler:eye")),
                             dmc.TabsTab("Edit", value="edit", leftSection=icon("tabler:pencil")),
                             dmc.TabsTab(
-                                f"Relationships ({len(d['outgoing']) + len(d['incoming'])})",
+                                html.Span(
+                                    f"Relationships ({len(d['outgoing']) + len(d['incoming'])})",
+                                    id=ids.EL_REL_COUNT,
+                                ),
                                 value="rels",
                                 leftSection=icon("tabler:arrows-exchange"),
                             ),
@@ -649,6 +658,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.EL_REL_FEEDBACK, "children"),
         Output(ids.EL_REL_TABLES, "children"),
+        Output(ids.EL_REL_COUNT, "children"),
         Input(ids.EL_REL_ADD, "n_clicks"),
         Input({"type": ids.EL_REL_DELETE, "id": ALL}, "n_clicks"),
         State(ids.EL_ID, "data"),
@@ -663,26 +673,34 @@ def register(app: dash.Dash) -> None:
         trig = dash_ctx.triggered_id
         if isinstance(trig, dict) and trig.get("type") == ids.EL_REL_DELETE:
             if not any(n_del):
-                return no_update, no_update
+                return no_update, no_update, no_update
             try:
                 ctx.repo.remove_relationship(trig["id"], ctx.actor)
             except Forbidden as exc:
-                return alert(str(exc), "red"), no_update
+                return alert(str(exc), "red"), no_update, no_update
             ctx.graph.invalidate()
-            return alert("Relationship removed.", "green"), _rel_tables(ctx, element_id)
+            return (
+                alert("Relationship removed.", "green"),
+                _rel_tables(ctx, element_id),
+                _rel_tab_label(ctx, element_id),
+            )
         if not n_add:
-            return no_update, no_update
+            return no_update, no_update, no_update
         if not other_id or not rel_type_id:
-            return alert("Choose the other element and a relationship.", "yellow"), no_update
+            return alert("Choose the other element and a relationship.", "yellow"), no_update, no_update
         src, dst = (element_id, other_id) if direction == "out" else (other_id, element_id)
         try:
             ctx.repo.add_relationship(rel_type_id, src, dst, ctx.actor, qualifier or "")
         except ValidationError as exc:
-            return alert("; ".join(str(i) for i in exc.issues), "red"), no_update
+            return alert("; ".join(str(i) for i in exc.issues), "red"), no_update, no_update
         except Forbidden as exc:
-            return alert(str(exc), "red"), no_update
+            return alert(str(exc), "red"), no_update, no_update
         ctx.graph.invalidate()
-        return alert("Relationship added.", "green"), _rel_tables(ctx, element_id)
+        return (
+            alert("Relationship added.", "green"),
+            _rel_tables(ctx, element_id),
+            _rel_tab_label(ctx, element_id),
+        )
 
     @app.callback(
         Output(gp.store_id("el"), "data"),

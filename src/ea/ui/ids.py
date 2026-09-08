@@ -49,6 +49,7 @@ EL_REL_QUALIFIER = "el-rel-qualifier"
 EL_REL_ADD = "el-rel-add"
 EL_REL_FEEDBACK = "el-rel-feedback"
 EL_REL_TABLES = "el-rel-tables"
+EL_REL_COUNT = "el-rel-count"  # the count in the tab label, kept true as relationships change
 EL_REL_DELETE = "el-rel-delete"  # pattern-matching: {"type": EL_REL_DELETE, "id": <relationship_id>}
 EL_GRAPH = "el-graph"
 EL_GRAPH_DEPTH = "el-graph-depth"

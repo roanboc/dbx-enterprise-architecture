@@ -155,7 +155,24 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 mb="xs",
             ),
             html.Div(
-                alert(_filter_note(ctx, q), "yellow") if health_filter else None, id=ids.BROWSE_FILTER_NOTE
+                dmc.Alert(
+                    dmc.Group(
+                        [
+                            dmc.Text(_filter_note(ctx, q), size="sm"),
+                            dmc.Anchor("Show all elements", href="/browse", size="sm", fw=600),
+                        ],
+                        gap="sm",
+                    ),
+                    color="yellow",
+                    variant="light",
+                    # Not dismissible: it is the only thing on the page saying the grid is
+                    # filtered, and the filter came from an address rather than from the
+                    # controls above. Closing it would leave a partial list looking whole.
+                    withCloseButton=False,
+                )
+                if health_filter
+                else None,
+                id=ids.BROWSE_FILTER_NOTE,
             ),
             dcc.Store(id=ids.BROWSE_SELECTED, data=health_filter),
             dag.AgGrid(

@@ -60,6 +60,14 @@ BROKEN_ELEMENTS_CSV = (
     "H-BROKEN-TWO,data_entity,,A row with no name at all.\n"
 )
 BROKEN_RELATIONSHIPS_CSV = "src_id,rel_type,dst_id\nH-BROKEN-ONE,encapsulates,H-BROKEN-MISSING\n"
+# What a spreadsheet writes: a byte-order mark, CRLF endings, and a quoted description
+# that wraps onto a second line.
+SPREADSHEET_CSV = (
+    "id,type,name,description\r\n"
+    'H-DE-ENROLMENT,data_entity,H Enrolment,"A description that wraps\r\n'
+    'onto a second line, and holds a comma."\r\n'
+    "H-DE-OFFER,data_entity,H Offer,A second row to count.\r\n"
+)
 # Neither the default patterns nor the tool-export ones match this file name.
 NOTES_CSV = "note\nNothing here follows the contract.\n"
 # The headers an EA tool export writes: only the tool-export mapping can read them, and
@@ -514,3 +522,47 @@ def test_reimport_updates(ui, record):
         ui.grid_cell_of("browse-grid", LDC, "name"),
     )
     ui.shot("After a re-import from the same source the rows are updated, not duplicated")
+
+
+@pytest.mark.scenario(
+    scenario_id="H12",
+    group="H",
+    title="A spreadsheet-shaped CSV — byte-order mark, CRLF, a quoted field over two lines — is read whole",
+    feature="Import · a file straight out of a spreadsheet",
+    expected=(
+        "The importer reads the two records such a file holds, with no issue, and the file list agrees "
+        "with the importer about how many rows were read."
+    ),
+)
+def test_spreadsheet_shaped_csv(ui, record, finding):
+    _open(ui)
+    path = ui.run_dir / "uploads" / "h-spreadsheet-elements.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(("﻿" + SPREADSHEET_CSV).encode("utf-8"))
+    _upload(ui, path)
+    ui.click("im-validate")
+    text = _report(ui)
+    ui.check("the byte-order mark did not break the first column", "missing_id" not in text, text[:300])
+    ui.check("both records were read", "elements 0/2 loaded" in text, text[:300])
+    ui.check("with nothing to report", "0 errors" in text and "No issues." in text, text[:300])
+    listed = _file_row(ui, "h-spreadsheet-elements.csv")
+    # The file list counts physical lines (`len(text.splitlines()) - 1`), not CSV records, so a
+    # description that wraps onto a second line is counted as a row of its own. The importer reads
+    # the file correctly; only the count shown to the reader is wrong.
+    ui.check("the file list agrees with what the importer read", "2 rows" in listed, listed)
+    ui.shot("A spreadsheet-shaped CSV: two records read, and what the file list says it saw")
+    if "3 rows" in listed:
+        finding.append(
+            Finding(
+                finding_id="H3",
+                where="src/ea/ui/pages/import_page.py · the file list (`im-files`)",
+                severity="defect",
+                summary="The row count counts lines, not CSV records, so a quoted field that wraps is counted as a row.",
+                detail=(
+                    'The upload callback labels each file f"{len(t.splitlines()) - 1} rows". A CSV whose '
+                    "description spans two lines — ordinary for a Markdown description written in a "
+                    "spreadsheet — is listed with one row more than the importer reads, so the count the "
+                    "reader checks before pressing Load disagrees with the count the report gives after it."
+                ),
+            )
+        )

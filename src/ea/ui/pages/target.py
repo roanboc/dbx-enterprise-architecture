@@ -85,7 +85,13 @@ def _matrix(summary: dict) -> dmc.Table:
                 ]
             )
         )
-    return dmc.Table([head, dmc.TableTbody(body)], withTableBorder=True, verticalSpacing="xs", fz="sm")
+    return dmc.Table(
+        [head, dmc.TableTbody(body)],
+        withTableBorder=True,
+        verticalSpacing="xs",
+        fz="sm",
+        className="ea-state-matrix",
+    )
 
 
 def _body(ctx: AppContext, work_package: str | None, only_changes: bool):

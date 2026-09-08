@@ -43,6 +43,11 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             if not any(o["value"] == preset for o in data):
                 data = [_option(ctx, e), *data]
             result, elements, mermaid = _result(ctx, preset, 3)
+        else:
+            # An address naming an element that is not here is refused the same way the
+            # Run button refuses one, rather than rendering an empty page that explains
+            # nothing. The selector is left empty, because there is nothing to select.
+            preset, result = None, alert("Unknown element.", "red")
     return html.Div(
         [
             page_title(

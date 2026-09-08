@@ -171,3 +171,17 @@ body { background: #e9ecef; }
 .ag-theme-alpine .ea-editable { background: #fff4e6; cursor: pointer; }
 .ag-theme-alpine .ea-link { color: #1c7ed6; font-weight: 600; }
 .ag-theme-alpine .ea-snippet { color: #495057; font-style: italic; }
+
+/* The current-by-target matrix heads every column with a state badge. A badge clamps its
+   label by default, which in a narrow column cut every state name short — "× DECOMMISSION"
+   read as "× DECOMMI…". A heading is a name, not a chip, so here it is shown in full and the
+   column takes the width it needs. */
+.ea-state-matrix th {
+  white-space: nowrap;
+}
+.ea-state-matrix th .mantine-Badge-root {
+  max-width: none;
+}
+.ea-state-matrix th .mantine-Badge-label {
+  overflow: visible;
+}

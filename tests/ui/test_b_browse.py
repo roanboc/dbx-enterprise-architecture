@@ -570,31 +570,36 @@ def test_health_facet_links(ui, record):
 @pytest.mark.scenario(
     scenario_id="B18",
     group="B",
-    title="Dismissing the Health filter note must not hide that the grid is still filtered",
+    title="The note saying the grid is filtered cannot be dismissed, and offers the way out",
     feature="Browse · Health filters",
-    expected="Closing the yellow note either clears the filter or leaves something on the page saying the grid is filtered.",
+    expected="A grid filtered from the Health page keeps the note that says so — there is no way to "
+    "close it and leave a slice of the model looking like the whole of it — and the note carries a "
+    "link back to every element.",
 )
-def test_dismissing_the_filter_note(ui, record):
-    # The note is the only thing that says the grid holds a slice of the model, and
-    # `alert()` in src/ea/ui/components.py always gives it a close button. Closing it
-    # leaves the reader looking at 7 rows of a 48-element model with nothing saying so —
-    # and the count, which browse.py `_load` recomputes as `total = len(rows)` under a
-    # facet, reads "7 of 7" rather than "7 of 48", so it reinforces the illusion.
+def test_the_filter_note_cannot_be_dismissed(ui, record):
+    # The note is the only thing on the page that says the grid holds a slice: the type, text
+    # and status controls are all unset, because the filter arrived in the address. It used to
+    # carry a close button, so a reader could dismiss it and be left looking at seven rows of a
+    # forty-seven element model with nothing saying so.
     ui.goto("/browse")
     _, whole_model = _counts(ui)
     ui.goto("/browse?missing=description")
     _, filtered = _counts(ui)
     ui.must("the facet filtered the grid", 0 < filtered < whole_model, f"{filtered} of {whole_model}")
     ui.must("the note explains the filter", "from the Health page" in ui.text("browse-filter-note"))
-    ui.page.locator("#browse-filter-note button").first.click()
-    ui.settle()
-    ui.check("the note can be dismissed", ui.text("browse-filter-note") == "", ui.text("browse-filter-note"))
-    _, after = _counts(ui)
-    body = ui.body()
-    still_says_so = "from the Health page" in body or "without a description" in body
     ui.check(
-        "dismissing the note either clears the filter or still says the grid is filtered",
-        after == whole_model or still_says_so,
-        f"the grid still holds {after} of {whole_model} elements and nothing on the page says so",
+        "the note has no close button",
+        ui.page.locator("#browse-filter-note button").count() == 0,
+        f"{ui.page.locator('#browse-filter-note button').count()} button(s) in the note",
     )
-    ui.shot("The filter note dismissed: the grid is still filtered and nothing says so")
+    ui.shot("A grid filtered from Health keeps the note that says so")
+
+    back = ui.page.locator("#browse-filter-note a")
+    ui.must("the note offers a way back to the whole model", back.count() > 0)
+    back.first.click()
+    ui.page.wait_for_url("**/browse")
+    ui.settle()
+    _, after = _counts(ui)
+    ui.check("taking it shows every element again", after == whole_model, f"{after} of {whole_model}")
+    ui.check("and the note is gone with the filter", ui.text("browse-filter-note") == "")
+    ui.shot("Following the note's link restores the whole model")
