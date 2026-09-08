@@ -877,7 +877,7 @@ def test_notation_grids_and_preview(ui, record, finding):
     swatches = ui.text("mm-notation-swatches")
     ui.check(
         "and the chips that carry the domain colours follow the edit",
-        DOMAIN_COLOUR in swatches,
+        DOMAIN_COLOUR in swatches.lower(),
         swatches[:200] or "(no chips)",
     )
     ui.shot("A domain colour change leaves the preview unchanged, because a view is filled by layer")

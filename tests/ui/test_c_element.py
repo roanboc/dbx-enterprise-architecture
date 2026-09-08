@@ -208,6 +208,21 @@ def _choose(ui, selector: str, label: str) -> None:
     ui.settle()
 
 
+def _description(ui, control_id: str) -> str:
+    """What a control says under itself.
+
+    A Mantine `description` is rendered inside the control's wrapper, so it is read
+    from there rather than from the page, which would find any sentence at all.
+    """
+    return ui.page.evaluate(
+        "id => { const e = document.getElementById(id);"
+        " const w = e && e.closest('.mantine-InputWrapper-root');"
+        " const d = w && w.querySelector('[class*=\"Input-description\"]');"
+        " return d ? d.innerText.trim() : ''; }",
+        control_id,
+    )
+
+
 def _value(ui, selector: str) -> str:
     loc = ui.page.locator(_css(selector)).first
     return loc.input_value().strip() if loc.count() else ""
@@ -473,9 +488,21 @@ def test_typed_attribute_inputs(ui, record, finding):
         str(options),
     )
     ui.shot("The Edit tab: the integer attribute as a number input, the enumerated one as a select")
-    # A date attribute has no branch of its own in `_attr_input`, so it falls through to a text box.
+    # A date attribute is edited in a date control: a picker, and a format to fail against.
+    # It carries no `type`, so it is read by what the component library marks it with.
     date_attr = ui.page.locator(_attr("standard_creation_date")).first
-    if date_attr.count() and not date_attr.get_attribute("type"):
+    dated = bool(date_attr.count()) and (
+        date_attr.get_attribute("data-dates-input") == "true"
+        or "DateInput" in (date_attr.get_attribute("class") or "")
+    )
+    ui.check(
+        "the date attribute is a date control, and says the format it wants",
+        dated and (date_attr.get_attribute("placeholder") or "") == "YYYY-MM-DD",
+        f"class={date_attr.get_attribute('class')!r}, placeholder={date_attr.get_attribute('placeholder')!r}"
+        if date_attr.count()
+        else "this element carries no date attribute",
+    )
+    if date_attr.count() and not dated:
         finding.append(
             Finding(
                 finding_id="C-1",
@@ -1388,8 +1415,14 @@ def test_a_forbidden_pair_cannot_be_written(ui, record, finding):
     )
     ui.check("nothing was written", _rel_rows(ui) == rows, f"{rows} then {_rel_rows(ui)} rows")
     ui.check("the tab count did not move", _rel_tab_count(ui) == label, f"{label} then {_rel_tab_count(ui)}")
+    said = _description(ui, "el-rel-type")
+    ui.check(
+        "and the box says which pair decided it, rather than emptying in silence",
+        "encapsulates" in said.lower(),
+        said or "(nothing beside the box)",
+    )
     ui.shot("The relationship box after an other element that cannot take the relationship chosen first")
-    if not left:
+    if not left and not said.strip():
         finding.append(
             Finding(
                 finding_id="C-5",

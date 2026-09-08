@@ -37,6 +37,16 @@ SOURCE, ELEMENTS, RELATIONSHIPS, FIRST_LOADED, LAST_UPDATED = 0, 1, 2, 3, 4
 STALE_30, STALE_90, STALE_180, NEVER_UPDATED = 5, 6, 7, 8
 STALE_COLUMNS = ((STALE_30, 30), (STALE_90, 90), (STALE_180, 180))
 FACET_COLUMNS = ("Description", "Link", "Relationship", "Required attributes", "Target decided")
+# What the totals above the table say of each column: a sentence about the rows it counts,
+# in the words Browse uses for those rows, rather than the heading pressed into service as
+# a noun — '5 target decided missing' said the opposite of what it counted.
+FACET_TOTALS = {
+    "Description": "without a description",
+    "Link": "without a link",
+    "Relationship": "without a relationship",
+    "Required attributes": "with a required attribute empty",
+    "Target decided": "with an undecided target state",
+}
 # What Browse writes in its yellow note for each facet a Health figure can send it.
 FACET_NOTES = {
     "description": "without a description",
@@ -458,7 +468,7 @@ def test_completeness_table(ui, record):
         totals[name] += _number(facet["label"])
     body = ui.text("health-body").lower()
     for name in FACET_COLUMNS:
-        match = re.search(rf"(\d+)\s+{re.escape(name.lower())}\s+missing", body)
+        match = re.search(rf"(\d+)\s+{re.escape(FACET_TOTALS[name])}", body)
         ui.check(f"a badge totals the {name} column", match is not None, name)
         if match:
             ui.check(
@@ -1433,7 +1443,8 @@ def test_bar_colours(ui, record, finding):
     badges = [
         b.strip()
         for b in ui.page.locator('#health-body [class*="Badge-root"]').all_inner_texts()
-        if re.search(r"^\d+ (without|with) ", b.strip())
+        # Drawn in capitals, so read in the case they are measured in.
+        if re.search(r"^\d+ (without|with) ", b.strip(), re.I)
     ]
     awkward = [
         b for b in badges if re.search(r"\b(link|target decided|required attributes) missing\b", b.lower())
