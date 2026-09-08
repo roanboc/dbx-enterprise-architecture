@@ -75,6 +75,7 @@ def persona_switcher(persona: str) -> dmc.Select:
     """The debug switcher of mock authentication: the four user roles a click away, Admin by default."""
     return dmc.Select(
         id=ids.PERSONA_SELECT,
+        **{"aria-label": "Act as another role (local only)"},
         data=[
             {"value": r, "label": f"{LABELS[r]} \u2014 {DESCRIPTIONS[r][:48]}\u2026"}
             for r in LABELS
@@ -193,6 +194,7 @@ def shell(
                                         html.Div(branch_badge(current, changes), id=ids.BRANCH_BADGE),
                                         dmc.Select(
                                             id=ids.BRANCH_SELECT,
+                                            **{"aria-label": "The branch you are working on"},
                                             data=branch_options,
                                             value=current,
                                             w=240,
@@ -205,6 +207,7 @@ def shell(
                                             dmc.ActionIcon(
                                                 icon("tabler:plus", 16),
                                                 id=ids.BRANCH_NEW_OPEN,
+                                                **{"aria-label": "New branch"},
                                                 variant="light",
                                                 size="lg",
                                                 disabled=not can_create_branch,

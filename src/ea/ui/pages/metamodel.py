@@ -368,6 +368,7 @@ def render(ctx: AppContext) -> html.Div:
                                 extra_controls=[
                                     dmc.Select(
                                         id=ids.MM_DOMAIN_FILTER,
+                                        **{"aria-label": "Domain"},
                                         data=[{"value": "", "label": "All domains"}]
                                         + [{"value": d.id, "label": d.name} for d in reg.pack.domains],
                                         value="",

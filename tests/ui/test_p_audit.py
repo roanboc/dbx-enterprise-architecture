@@ -312,10 +312,11 @@ EMPTY_CARDS_JS = """
 }
 """
 
-# A badge label is a name, not a paragraph. It fails in two ways, and the range measures
-# both: clamped, the name is cut to an ellipsis; unclamped, the same name is painted
-# outside its own pill and over whatever sits beside it. Either way the reader does not
-# get a badge that reads as one word.
+# A badge label is a name, not a paragraph, and it fails in two ways. Clamped, the name
+# is cut to an ellipsis. Unclamped inside a pill that still clips, the same name is cut
+# at both ends with no ellipsis at all, which is worse. The measurement that catches both
+# is the text's own box against the pill's: a range over the label reports where the
+# glyphs actually are, whatever the overflow rules did to the element around them.
 CLIPPED_BADGES_JS = """
 () => {
   const out = [];
@@ -323,14 +324,15 @@ CLIPPED_BADGES_JS = """
   document.querySelectorAll('#page .mantine-Badge-root').forEach(b => {
     if (b.getClientRects().length === 0) return;
     const label = b.querySelector('.mantine-Badge-label') || b;
-    const host = label.getBoundingClientRect();
+    const pill = b.getBoundingClientRect();
     range.selectNodeContents(label);
     const text = range.getBoundingClientRect();
-    const clamped = label.scrollWidth > label.clientWidth + 1;
-    const spills = text.width > host.width + 2;
+    if (text.width === 0) return;
+    const clamped = label.scrollWidth > label.clientWidth + 1 || b.scrollWidth > b.clientWidth + 1;
+    const spills = text.left < pill.left - 1 || text.right > pill.right + 1;
     if (!clamped && !spills) return;
     const name = (b.innerText || '').trim().slice(0, 26);
-    const how = clamped ? 'cut to an ellipsis' : 'painted outside its pill';
+    const how = clamped && !spills ? 'cut to an ellipsis' : 'cut off at the edge of its pill';
     const entry = name + ' (' + how + ')';
     if (name && !out.includes(entry)) out.push(entry);
   });
@@ -422,7 +424,7 @@ def _contrast_bucket(fg: str, bg: str) -> str:
 
 
 def _clipped_badges(ui, finding, name: str, width: str) -> None:
-    """A badge whose label is cut to an ellipsis has stopped saying what it is."""
+    """A badge whose label does not fit inside it has stopped saying what it is."""
     clipped = ui.page.evaluate(CLIPPED_BADGES_JS)
     if clipped:
         _lodge(
@@ -431,8 +433,8 @@ def _clipped_badges(ui, finding, name: str, width: str) -> None:
             name,
             "usability",
             "A badge does not fit its own label: the name of a state, a type, a status or a "
-            "role is either cut to an ellipsis or painted outside the pill and over what is "
-            "beside it, when the name is the whole point of the badge",
+            "role is cut to an ellipsis, or cut off at both edges of the pill with no "
+            "ellipsis to say so, when that name is the whole point of the badge",
             [f"{name} at {width}: {_brief(clipped)}"],
         )
 

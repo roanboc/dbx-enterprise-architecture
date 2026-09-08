@@ -129,6 +129,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Select(
                         id=ids.BROWSE_TYPE,
+                        **{"aria-label": "Element type"},
                         data=_type_options(ctx),
                         value=preset_type,
                         w=300,
@@ -137,6 +138,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     ),
                     dmc.TextInput(
                         id=ids.BROWSE_TEXT,
+                        **{"aria-label": "Search the model"},
                         placeholder="Search words…",
                         leftSection=icon("tabler:search"),
                         debounce=400,
@@ -145,6 +147,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     ),
                     dmc.Select(
                         id=ids.BROWSE_STATUS,
+                        **{"aria-label": "Status"},
                         data=[{"value": "", "label": "Any status"}, "draft", "approved", "retired"],
                         value="",
                         w=140,

@@ -85,12 +85,15 @@ def _matrix(summary: dict) -> dmc.Table:
                 ]
             )
         )
-    return dmc.Table(
-        [head, dmc.TableTbody(body)],
-        withTableBorder=True,
-        verticalSpacing="xs",
-        fz="sm",
-        className="ea-state-matrix",
+    return dmc.TableScrollContainer(
+        dmc.Table(
+            [head, dmc.TableTbody(body)],
+            withTableBorder=True,
+            verticalSpacing="xs",
+            fz="sm",
+            className="ea-state-matrix",
+        ),
+        minWidth=560,
     )
 
 
@@ -234,6 +237,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Select(
                         id=ids.TG_WP,
+                        **{"aria-label": "Work package"},
                         data=[{"value": "", "label": "All work packages"}] + wps,
                         value=preset,
                         w=420,

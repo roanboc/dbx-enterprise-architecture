@@ -55,6 +55,7 @@ def render(ctx: AppContext) -> html.Div:
                     [
                         dmc.Textarea(
                             id=ids.ASK_INPUT,
+                            **{"aria-label": "Your question"},
                             placeholder="Ask about elements, ownership, dependencies, impact…",
                             autosize=True,
                             minRows=2,
@@ -127,13 +128,16 @@ def _elements_table(ctx: AppContext, doc: AnswerDocument):
                 ]
             )
         )
-    return dmc.Table(
-        [head, dmc.TableTbody(rows)],
-        striped=True,
-        highlightOnHover=True,
-        withTableBorder=False,
-        verticalSpacing="xs",
-        className="ea-table",
+    return dmc.TableScrollContainer(
+        dmc.Table(
+            [head, dmc.TableTbody(rows)],
+            striped=True,
+            highlightOnHover=True,
+            withTableBorder=False,
+            verticalSpacing="xs",
+            className="ea-table",
+        ),
+        minWidth=560,
     )
 
 

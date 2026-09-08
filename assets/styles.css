@@ -172,19 +172,6 @@ body { background: #e9ecef; }
 .ag-theme-alpine .ea-link { color: #1c7ed6; font-weight: 600; }
 .ag-theme-alpine .ea-snippet { color: #495057; font-style: italic; }
 
-/* The current-by-target matrix heads every column with a state badge. A badge clamps its
-   label by default, which in a narrow column cut every state name short — "× DECOMMISSION"
-   read as "× DECOMMI…". A heading is a name, not a chip, so here it is shown in full and the
-   column takes the width it needs. */
-.ea-state-matrix th {
-  white-space: nowrap;
-}
-.ea-state-matrix th .mantine-Badge-root {
-  max-width: none;
-}
-.ea-state-matrix th .mantine-Badge-label {
-  overflow: visible;
-}
 
 /* ---------------------------------------------------------------- readable colour
    The stock palette puts several of its colours below the contrast floor at the size
@@ -262,8 +249,24 @@ body { background: #e9ecef; }
    point of it. The stock badge clamps to its container and ellipsises, so in a narrow
    column "× DECOMMISSION" read as "× DECOMMI…". Let it take the width its name needs. */
 .mantine-Badge-root {
-  max-width: none;
+  /* Never wider than the space there is — a badge that forces the page sideways is worse
+     than a badge that takes two lines — and never taller than one line unless it has to. */
+  max-width: 100%;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: unset;
 }
 .mantine-Badge-label {
   overflow: visible;
+  white-space: normal;
+}
+
+/* At a phone width a wide block scrolls inside itself. Letting it push the page instead
+   means every row of every table is half off-screen and the reader pans the whole
+   document to read one line. */
+@media (max-width: 47.99em) {
+  .ea-graph-frame,
+  .ea-mermaid-frame {
+    overflow-x: auto;
+  }
 }

@@ -115,12 +115,15 @@ def _freshness(ctx: AppContext) -> html.Div:
                 c="dimmed",
                 mb="xs",
             ),
-            dmc.Table(
-                [head, dmc.TableTbody(body)],
-                withTableBorder=True,
-                striped=True,
-                verticalSpacing="xs",
-                fz="sm",
+            dmc.TableScrollContainer(
+                dmc.Table(
+                    [head, dmc.TableTbody(body)],
+                    withTableBorder=True,
+                    striped=True,
+                    verticalSpacing="xs",
+                    fz="sm",
+                ),
+                minWidth=560,
             ),
             dmc.Text("Change activity, last 12 weeks", className="ea-section-title", mt="md"),
             dmc.Text(
@@ -189,12 +192,15 @@ def _completeness(ctx: AppContext) -> html.Div:
                 c="dimmed",
                 mb="xs",
             ),
-            dmc.Table(
-                [head, dmc.TableTbody(body)],
-                withTableBorder=True,
-                striped=True,
-                verticalSpacing="xs",
-                fz="sm",
+            dmc.TableScrollContainer(
+                dmc.Table(
+                    [head, dmc.TableTbody(body)],
+                    withTableBorder=True,
+                    striped=True,
+                    verticalSpacing="xs",
+                    fz="sm",
+                ),
+                minWidth=560,
             ),
             dmc.Text(
                 f"Relationship types with no instance ({len(empty_rels)})",

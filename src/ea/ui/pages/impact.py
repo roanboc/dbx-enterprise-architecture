@@ -58,6 +58,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Select(
                         id=ids.IMP_ELEMENT,
+                        **{"aria-label": "The element to trace"},
                         placeholder="Search an element…",
                         searchable=True,
                         data=data,
@@ -65,7 +66,15 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         w=460,
                         nothingFoundMessage="Type to search",
                     ),
-                    dmc.NumberInput(id=ids.IMP_DEPTH, label=None, value=3, min=1, max=6, w=90),
+                    dmc.NumberInput(
+                        id=ids.IMP_DEPTH,
+                        **{"aria-label": "How many hops to follow"},
+                        label=None,
+                        value=3,
+                        min=1,
+                        max=6,
+                        w=90,
+                    ),
                     dmc.Button("Run", id=ids.IMP_RUN, leftSection=icon("tabler:radar")),
                 ],
                 align="flex-end",

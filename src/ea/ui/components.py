@@ -189,6 +189,9 @@ def markdown_editor(
                             id={"type": ids.MD_TEXT, "id": editor_id},
                             value=value,
                             placeholder=placeholder,
+                            # A placeholder is a hint, and it goes the moment anything is
+                            # typed. The name has to outlast it.
+                            **{"aria-label": label or "Markdown"},
                             resize="vertical",
                             styles={"input": {"minHeight": f"{min_rows * 24}px"}},
                         ),
@@ -231,6 +234,7 @@ def modal_title(title: str, modal_key: str) -> dmc.Group:
                     size="sm",
                     className="ea-modal-full",
                     id=f"{modal_key}-full",
+                    **{"aria-label": "Full screen"},
                 ),
                 label="Full screen (Escape leaves it)",
             ),
@@ -308,24 +312,33 @@ def _fmt(v: Any) -> str:
     return "" if v is None else str(v)
 
 
-def simple_table(headers: list[str], rows: list[list[Any]], striped: bool = True) -> dmc.Table:
-    return dmc.Table(
-        [
-            dmc.TableThead(dmc.TableTr([dmc.TableTh(h) for h in headers])),
-            dmc.TableTbody(
-                [
-                    dmc.TableTr(
-                        [dmc.TableTd(c if not isinstance(c, (str, int, float)) else _fmt(c)) for c in r]
-                    )
-                    for r in rows
-                ]
-            ),
-        ],
-        striped=striped,
-        highlightOnHover=True,
-        withTableBorder=True,
-        verticalSpacing="xs",
-        fz="sm",
+def simple_table(headers: list[str], rows: list[list[Any]], striped: bool = True) -> Any:
+    """A table that scrolls inside its own card rather than pushing the page sideways.
+
+    A model table is naturally wide — an identifier, a name, a type, two states. On a
+    phone that width has to go somewhere, and the reader would rather pan one table than
+    the whole document.
+    """
+    return dmc.TableScrollContainer(
+        dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr([dmc.TableTh(h) for h in headers])),
+                dmc.TableTbody(
+                    [
+                        dmc.TableTr(
+                            [dmc.TableTd(c if not isinstance(c, (str, int, float)) else _fmt(c)) for c in r]
+                        )
+                        for r in rows
+                    ]
+                ),
+            ],
+            striped=striped,
+            highlightOnHover=True,
+            withTableBorder=True,
+            verticalSpacing="xs",
+            fz="sm",
+        ),
+        minWidth=560,
     )
 
 
@@ -441,6 +454,9 @@ def _view_control(kind: str, block_id: str, icon_name: str, label: str) -> dmc.T
             id={"type": kind, "id": block_id},
             variant="default",
             size="sm",
+            # The tooltip describes the control once it is hovered; the name is what a
+            # reader who cannot hover, or cannot see the icon, is given instead.
+            **{"aria-label": label},
         ),
         label=label,
     )
