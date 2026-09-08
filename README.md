@@ -232,6 +232,22 @@ make lint
 make test
 ```
 
+### The application test round
+
+```bash
+make gui-install   # once: the browser driver and its browser
+make gui           # drives every screen and every command, writes .testrun/<stamp>/report.md
+```
+
+A round opens the application in a browser on a database of its own, works every
+screen and every command-line command, reads each screen against a fixed
+usability checklist, and writes one document with the screenshots that evidence
+it — so a reviewer reads the report instead of clicking through eleven screens.
+The scenarios are committed under [`tests/ui/`](./tests/ui/README.md); a run is
+not, and lands in a gitignored folder beside its own screenshots. `make check`
+is unaffected: the round is marked and deselected, and the driver is a
+non-default dependency group.
+
 The archreator plugin is enabled for this repository (`.claude/settings.json`);
 a coding agent that opens it gets the method's skills, and `AGENTS.md` says
 which skill to load at which step. The two validators under `scripts/` are the

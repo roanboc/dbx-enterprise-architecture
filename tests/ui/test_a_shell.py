@@ -316,3 +316,26 @@ def test_new_branch_modal(ui, record):
         ui.page.locator("#branch-select").first.input_value(),
     )
     ui.check("the branch badge still says main", ui.branch_badge() == "main", ui.branch_badge())
+
+
+def test_zz_debug(ui):
+    out = []
+    ui.goto("/")
+    out.append("PAGE-HTML-TAIL: " + repr(ui.page.locator("#page").inner_html()[-1500:]))
+    out.append("GRIDS: " + str(ui.page.locator("#page .mantine-SimpleGrid-root").count()))
+    errors = []
+    ui.page.on("console", lambda m: errors.append(m.type + ":" + m.text[:200]))
+    ui.goto("/")
+    out.append("CONSOLE: " + repr(errors[:10]))
+    ui.narrow()
+    out.append("BURGER-BEFORE: " + repr(ui.page.locator("#nav-burger").first.get_attribute("data-opened")))
+    ui.click("nav-burger")
+    out.append("BURGER-AFTER: " + repr(ui.page.locator("#nav-burger").first.get_attribute("data-opened")))
+    out.append("BURGER-ARIA: " + repr(ui.page.locator("#nav-burger").first.evaluate("e => e.outerHTML.slice(0,300)")))
+    out.append("NAVBAR-AFTER: " + repr(ui.page.evaluate("() => {const n=document.querySelector('.mantine-AppShell-navbar'); const s=getComputedStyle(n); return [n.getBoundingClientRect().x, s.transform, n.getAttribute('data-hidden'), document.querySelector('.mantine-AppShell-root')?.style.cssText.slice(0,400)];}")))
+    ui.page.wait_for_timeout(1500)
+    out.append("NAVBAR-LATER: " + repr(ui.page.evaluate("() => document.querySelector('.mantine-AppShell-navbar').getBoundingClientRect().x")))
+    out.append("CONSOLE2: " + repr(errors[:14]))
+    ui.wide()
+    ui.goto("/")
+    print("\n".join(out))
