@@ -4,6 +4,8 @@ A round drives the running application in a browser and on the command line, pro
 every feature the repository claims, reads every screen against a fixed usability
 checklist, and writes one document with the screenshots that evidence it.
 
+**417 scenarios in sixteen groups**, and around forty minutes end to end.
+
 ```bash
 make gui-install   # once: the browser driver and its browser
 make seed          # once: data/ea.duckdb, if you have not already
@@ -37,24 +39,24 @@ suite CI runs stays what it was.
 
 ## Groups
 
-| | Group | Covers |
-| - | ----- | ------ |
-| A | Shell and navigation | The header, the four navigation groups, routing, the narrow viewport |
-| B | Browse | Filters, ranked search, the grid, the New element modal, bulk edit |
-| C | Element | Five tabs, editing, relationships, the graph, the generated view, history |
-| D | Impact | Closure both ways, completeness, the graph and the view |
-| E | Target state | Work packages, the current-by-target matrix, the marked view |
-| F | Ask | The answer document, its views, the trace, grounding |
-| G | Propose | Sources, analysis, pushback, the editable merge log, applying |
-| H | Import | Validation, loading, the issue report, the template |
-| I | Branches | Overlay, merge log, conflicts, review and the freeze |
-| J | Metamodel | The type graph, the editable grids, notation, reviewers, export |
-| K | Health | Freshness, completeness, and the links behind every figure |
-| L | Roles and permissions | Four personas against every gated control |
-| M | Command line | Every command, and the flags that change who and where |
-| N | Downloads | Every file the application can produce |
-| O | Negative paths | What is supposed to fail, failing well |
-| P | Screen audit | Every screen against the usability checklist |
+| | Group | Covers | Scenarios |
+| - | ----- | ------ | --------- |
+| A | Shell and navigation | The header, the four navigation groups, routing, the narrow viewport | 19 |
+| B | Browse | Filters, ranked search, the grid, the New element modal, bulk edit | 29 |
+| C | Element | Five tabs, editing, relationships, the graph, the generated view, history | 35 |
+| D | Impact | Closure both ways, completeness, the graph and the view | 19 |
+| E | Target state | Work packages, the current-by-target matrix, the marked view | 16 |
+| F | Ask | The answer document, its views, the trace, grounding | 20 |
+| G | Propose | Sources, analysis, pushback, the editable merge log, applying | 21 |
+| H | Import | Validation, loading, the issue report, the template | 23 |
+| I | Branches | Overlay, merge log, conflicts, review and the freeze | 26 |
+| J | Metamodel | The type graph, the editable grids, notation, reviewers, export | 23 |
+| K | Health | Freshness, completeness, and the links behind every figure | 18 |
+| L | Roles and permissions | Four personas against every gated control | 32 |
+| M | Command line | Every command, and the flags that change who and where | 64 |
+| N | Downloads | Every file the application can produce | 25 |
+| O | Negative paths | What is supposed to fail, failing well | 18 |
+| P | Screen audit | Every screen against the usability checklist | 29 |
 
 ## The usability checklist
 
