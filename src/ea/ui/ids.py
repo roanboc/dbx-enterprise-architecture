@@ -193,6 +193,7 @@ PR_PROVIDER = "pr-provider"
 PR_RESULT_STORE = "pr-result-store"
 
 # Search, bulk edit (initiative 6)
+BROWSE_EMPTY = "browse-empty"  # what the screen says when the grid has nothing in it
 BROWSE_SELECTED = "browse-selected"
 BULK_OPEN = "bulk-open"
 BULK_MODAL = "bulk-modal"

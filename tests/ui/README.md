@@ -73,7 +73,7 @@ regression in polish is as visible as a regression in behaviour.
 | 6 | **Error states** — a refusal names what was refused and what to do instead | asserted |
 | 7 | **Loading** — an action that takes time shows that it is taking time | asserted |
 | 8 | **Contrast** — text meets the contrast floor against its background | asserted |
-| 9 | **Focus** — tabbing reaches every control, and the focused one is visible | asserted |
+| 9 | **Focus** — tabbing reaches every control, the focused one is visible, and the header and navigation can be skipped in one press | asserted |
 | 10 | **Narrow viewport** — the page is usable at 480 px with nothing clipped | asserted |
 | 11 | **Alignment and rhythm** — tiles, cards and columns line up | read from the screenshot |
 | 12 | **Terminology** — the same thing has the same name everywhere | read from the screenshot |

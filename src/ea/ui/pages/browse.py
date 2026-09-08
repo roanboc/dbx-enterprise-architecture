@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 from urllib.parse import parse_qs
 
 import dash
@@ -62,33 +61,46 @@ def _and(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
 
 
-def _no_rows(ctx: AppContext, type_id, text, status, health_filter) -> str:
-    """What the grid says when nothing matched.
+def _no_rows(ctx: AppContext, type_id, text, status, health_filter):
+    """What the screen says when nothing matched, or None when something did.
 
-    The stock overlay reads 'No Rows To Show', which is true of a search that missed, of a
-    filter left on from an earlier one and of an empty repository alike. This one says what
-    was asked for, what is still narrowing the list, and the way back.
+    The grid's own overlay reads 'No Rows To Show', which is true of a search that missed,
+    of a filter left on from an earlier one and of a repository with nothing in it alike.
+    This says what was asked for, what is still narrowing the list, and the way back.
     """
     narrowing = []
     if text:
-        narrowing.append(f"the words <b>{escape(text)}</b>")
+        narrowing.append(f"the words '{text}'")
     if type_id:
         t = ctx.registry.get_type(type_id)
-        narrowing.append(f"the type <b>{escape(t.name if t else type_id)}</b>")
+        narrowing.append(f"the type {t.name if t else type_id}")
     if status:
-        narrowing.append(f"status <b>{escape(status)}</b>")
+        narrowing.append(f"status {status}")
     if health_filter and health_filter.get("facet"):
-        narrowing.append(f"the Health filter <b>{escape(str(health_filter['facet']))}</b>")
-    body = (
-        f"Nothing matches {_and(narrowing)}."
-        "<br>Every word has to match, and the controls above narrow the list together."
-        if narrowing
-        else "There is nothing here yet. Import a directory of CSV files, or add an element with New element."
-    )
-    return (
-        '<div class="ag-overlay-no-rows-center ea-no-rows">'
-        f"{body}"
-        '<br><a href="/browse">Show all elements</a></div>'
+        narrowing.append(f"the Health filter {health_filter['facet']}")
+    if not narrowing:
+        return dmc.Alert(
+            "There is nothing here yet. Import a directory of CSV files, or add one with New element.",
+            color="gray",
+            variant="light",
+            withCloseButton=False,
+        )
+    body = f"Nothing matches {_and(narrowing)}."
+    if text:
+        body += " Every word has to match, and the controls above narrow the list together."
+    elif len(narrowing) > 1:
+        body += " The controls above narrow the list together."
+    return dmc.Alert(
+        dmc.Group(
+            [
+                dmc.Text(body, size="sm"),
+                dmc.Anchor("Show all elements", href="/browse", size="sm", fw=600),
+            ],
+            gap="sm",
+        ),
+        color="gray",
+        variant="light",
+        withCloseButton=False,
     )
 
 
@@ -279,6 +291,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 id=ids.BROWSE_FILTER_NOTE,
             ),
             dcc.Store(id=ids.BROWSE_SELECTED, data=health_filter),
+            html.Div(id=ids.BROWSE_EMPTY),
             dag.AgGrid(
                 id=ids.BROWSE_GRID,
                 columnDefs=_columns(can_write),
@@ -389,7 +402,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.BROWSE_GRID, "rowData"),
         Output(ids.BROWSE_COUNT, "children"),
-        Output(ids.BROWSE_GRID, "dashGridOptions"),
+        Output(ids.BROWSE_EMPTY, "children"),
         Input(ids.BROWSE_TYPE, "value"),
         Input(ids.BROWSE_TEXT, "value"),
         Input(ids.BROWSE_STATUS, "value"),
@@ -398,12 +411,7 @@ def register(app: dash.Dash) -> None:
     def load_rows(type_id, text, status, health_filter):
         ctx = get_context()
         rows, total = _load(ctx, type_id, text, status, health_filter)
-        # The overlay is only ever read when the grid is empty, so it is written only then.
-        empty = (
-            {**GRID_OPTIONS, "overlayNoRowsTemplate": _no_rows(ctx, type_id, text, status, health_filter)}
-            if not rows
-            else no_update
-        )
+        empty = None if rows else _no_rows(ctx, type_id, text, status, health_filter)
         return rows, f"{len(rows)} of {total}", empty
 
     @app.callback(

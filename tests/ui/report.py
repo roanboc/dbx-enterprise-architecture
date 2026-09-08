@@ -123,13 +123,20 @@ def write_report(
             "A finding is here whether or not a scenario failed for it."
         )
         L.append("")
+        ordered = sorted(findings, key=lambda f: f.finding_id)
         L += _table(
             ["", "Where", "Kind", "What is wrong", "Status"],
-            [
-                [f.finding_id, f.where, f.severity, f.summary, f.status]
-                for f in sorted(findings, key=lambda f: f.finding_id)
-            ],
+            [[f.finding_id, f.where, f.severity, f.summary, f.status] for f in ordered],
         )
+        # The table says what is wrong; the detail says what was measured and what would fix
+        # it, which is what a reader needs to act on one.
+        for f in ordered:
+            if not f.detail:
+                continue
+            L.append(f"**{f.finding_id} — {f.summary}**")
+            L.append("")
+            L.append(f.detail)
+            L.append("")
 
     for key, name in GROUPS.items():
         grp = [s for s in scenarios if s.group == key]

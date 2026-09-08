@@ -361,8 +361,18 @@ def issues_table(issues: list[Issue]) -> Any:
 
 def alert(message: str, color: str = "blue", dismissible: bool = True) -> dmc.Alert:
     """A message the reader can close — unless it is the only thing on the screen saying
-    why a control is refused, in which case closing it would leave the refusal unexplained."""
-    return dmc.Alert(message, color=color, variant="light", withCloseButton=dismissible)
+    why a control is refused, in which case closing it would leave the refusal unexplained.
+
+    The close button is named: an icon-only control with no wording is nothing at all to a
+    reader who is not looking at it.
+    """
+    return dmc.Alert(
+        message,
+        color=color,
+        variant="light",
+        withCloseButton=dismissible,
+        closeButtonLabel="Close this message",
+    )
 
 
 def error_alert(exc: Exception) -> dmc.Alert:

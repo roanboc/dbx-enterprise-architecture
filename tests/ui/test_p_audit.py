@@ -1231,7 +1231,15 @@ def test_browse_with_nothing_to_show_audit(ui, record, finding):
     )
     overlay = ui.page.locator("#browse-grid .ag-overlay-no-rows-center")
     said = overlay.first.inner_text().strip() if overlay.count() else ""
-    stock = not said or said.lower().startswith("no rows to show")
+    # The grid's own overlay is the same two words whatever emptied the grid, so what
+    # matters is whether the screen says more than that.
+    note = ui.text("browse-empty").strip()
+    stock = not note and (not said or said.lower().startswith("no rows to show"))
+    ui.check(
+        "the screen says what was searched for and what is still narrowing the list",
+        "zzzqqqmatchesnothing" in note and "Show all elements" in note,
+        note or f"the grid says {said or '(nothing at all)'} and the screen says nothing else",
+    )
     if stock:
         _lodge(
             finding,
@@ -1246,7 +1254,7 @@ def test_browse_with_nothing_to_show_audit(ui, record, finding):
     ui.check(
         "checkpoint 5 · the empty result says what it is",
         True,
-        f"the grid says {said or '(nothing at all)'}; the count reads {count!r}",
+        f"the screen says {note or '(nothing beyond the grid)'}; the count reads {count!r}",
     )
 
 
@@ -1835,7 +1843,7 @@ def test_focus_audit(ui, record, finding):
         # keyboard finds, so measure that rather than the number of stops after it.
         skipped = bool(stops) and stops[0].get("skip")
         ui.check(
-            f"checkpoint 10 · {name} · the keyboard reaches the page without walking the shell",
+            f"checkpoint 9 · {name} · the keyboard reaches the page without walking the shell",
             True,
             "a skip link is the first tab stop"
             if skipped
