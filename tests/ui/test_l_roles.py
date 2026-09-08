@@ -1055,9 +1055,9 @@ def test_reader_on_a_branch(ui, record):
     title="Every relationship row offers a Reader a bin the server then refuses",
     feature="Element · Relationships · role gating",
     expected=(
-        "On the Relationships tab a Reader's Add is disabled, but the bin on every row is live: "
-        "pressing one is refused, the refusal names the role, and the relationship is still there "
-        "when the page is read again."
+        "On the Relationships tab a Reader's Add is disabled and so is the bin on every row — the "
+        "page hides or disables what the role may not use — and pressing the bin all the same is "
+        "refused by the server, naming the role, with the relationship still there afterwards."
     ),
     role="reader",
 )
@@ -1071,9 +1071,9 @@ def test_relationship_bin_as_reader(ui, record, finding):
     ui.check("a Reader may not add a relationship", _blocked(ui, "el-rel-add"))
     live = bins.first.is_enabled()
     ui.check(
-        "the bin beside that disabled Add is offered all the same",
-        live,
-        f"{bins.count()} bins, the first one enabled: {live}",
+        "the bin is refused to the same role, the way Add beside it is",
+        not live,
+        f"{bins.count()} bins, the first of them enabled: {live}",
     )
     ui.shot("The Relationships tab as a Reader: Add is refused and every row's bin is not")
     bins.first.click()

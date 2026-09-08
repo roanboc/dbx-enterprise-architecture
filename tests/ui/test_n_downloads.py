@@ -13,6 +13,26 @@ tells the reader nothing, and on the Ask page a document that drew no diagram ca
 downloaded at all, because the callback states a component that only exists with the
 diagram.
 
+Both of those failures are fixed, and the two scenarios that found them now pass: the
+Impact page disables both buttons and puts the reason beside them, and the Ask page reads
+the positions of every view through a wildcard, so a document that drew no diagram still
+comes down as Markdown. Two more jobs stand behind them. The fourth is the control that
+decides what a file holds — the element page's depth slider and the impact page's depth box
+are State on their download callbacks, the work-package selector names the target-state
+file, and the layout the browser reports is what the draw.io export is written from, shape
+for shape, including one the reader has moved by hand. The fifth is holding a file against
+the page it came from — the impact file against the tables of the answer it exports, the
+metamodel against the counts the page prints, the clipboard against the file the button
+writes — and against who asked for it: downloading is a read, so a Reader is handed the same
+document an Admin is while the write control beside it stays refused.
+
+That leaves the group two failures of its own. An answer that drew no diagram disables
+Download draw.io and then says nothing: the reason is computed, used to grey the button out
+and dropped, where the Impact page shows its own (N24). And a view first drawn on a tab the
+page did not open on is measured while it is hidden, so every shape in its draw.io file is
+the same default box; Reset layout, pressed with the tab in front of the reader, re-measures
+the view and the very next file is right (N25).
+
 What separates a check here from the same download seen in another group is that nothing
 is asserted by looking at the screen. A Markdown view is read as Markdown — a closed
 mermaid fence and an element table whose rows carry backticked identifiers. A draw.io file
@@ -917,5 +937,821 @@ def test_an_answer_without_a_diagram(ui, record, finding):
                 "callback never runs: the press reaches no server call at all. The same button works "
                 "on an answer that does carry a diagram. Reading the positions from a store that always "
                 "exists — or through a wildcard — would keep the Markdown reachable.",
+            )
+        )
+
+
+# =========================================== the controls that decide what the file holds
+
+
+def _depth_thumb(ui):
+    """The element page's depth slider, which the download reads as State."""
+    return ui.page.locator("#el-graph-depth [role='slider']").first
+
+
+def _impact_depth_box(ui):
+    """A Mantine NumberInput carries its id on the wrapper or on the field; take whichever is there."""
+    return ui.page.locator("#imp-depth input, input#imp-depth").first
+
+
+def _set_impact_depth(ui, depth: int) -> None:
+    box = _impact_depth_box(ui)
+    box.click()
+    box.fill(str(depth))
+    ui.page.wait_for_timeout(200)
+    ui.settle()
+
+
+def _screen_nodes(ui, block_id: str) -> dict[str, dict[str, float]]:
+    """Every shape the browser drew in one generated view: its identifier, centre and size.
+
+    Read out of the rendered SVG the way the page's own script reads it — the label ends in
+    `[ID]`, the group carries a translate — so a file can be held against the picture a
+    reader is looking at rather than against another copy of the same server-side call.
+    """
+    rows = ui.page.evaluate(
+        r"""(sel) => Array.from(document.querySelectorAll(sel + ' g.node')).map(g => {
+            const m = /\[([^\[\]]+)\]\s*$/.exec((g.textContent || '').trim());
+            const t = /translate\(([-\d.]+),\s*([-\d.]+)\)/.exec(g.getAttribute('transform') || '');
+            let bb;
+            try { bb = g.getBBox(); } catch (e) { bb = {width: 0, height: 0}; }
+            return {
+                id: m ? m[1] : '', x: t ? parseFloat(t[1]) : null, y: t ? parseFloat(t[2]) : null,
+                w: bb.width, h: bb.height,
+            };
+        }).filter(n => n.id && n.x !== null)""",
+        _pm(id=block_id, type="mermaid-svg"),
+    )
+    return {r["id"]: r for r in rows}
+
+
+def _file_boxes(root: ET.Element) -> dict[str, dict[str, float]]:
+    """Where the exported file puts each shape: the geometry of every element's own cell."""
+    out: dict[str, dict[str, float]] = {}
+    for shape in _shapes(root):
+        cell = shape.find("mxCell")
+        geometry = cell.find("mxGeometry") if cell is not None else None
+        if geometry is None:
+            continue
+        out[shape.get("ea_id", "")] = {
+            "x": float(geometry.get("x") or 0),
+            "y": float(geometry.get("y") or 0),
+            "w": float(geometry.get("width") or 0),
+            "h": float(geometry.get("height") or 0),
+            "parent": cell.get("parent") or "",
+        }
+    return out
+
+
+def _linked_ids(ui, selector: str) -> set[str]:
+    """Every element the page names inside `selector`, read from the links it renders."""
+    hrefs = ui.page.locator(f"{selector} a[href^='/element/']").evaluate_all(
+        "els => els.map(a => a.getAttribute('href') || '')"
+    )
+    return {h.rsplit("/", 1)[-1] for h in hrefs if h}
+
+
+def _marked_rows(text: str) -> dict[str, tuple[str, str]]:
+    """The identifier, current state and target state of every row of a marked view's table."""
+    out: dict[str, tuple[str, str]] = {}
+    for line in text.splitlines():
+        m = TABLE_ID.match(line)
+        if not m:
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 5:
+            out[m.group(1)] = (cells[-2], cells[-1])
+    return out
+
+
+@pytest.mark.scenario(
+    scenario_id="N15",
+    group="N",
+    title="The file holds the depth the reader chose, not the depth the page opened at",
+    feature="Downloads · element view · the depth control",
+    expected="The element view's depth slider is State on the download callback. Moved from 1 to 3 it "
+    "must change the file: a title saying depth 3, every element the depth-1 file held and more, and a "
+    "draw.io file of the same widened view.",
+)
+def test_the_depth_control_decides_the_file(ui, record):
+    _open_element_view(ui)
+    near = _text(ui.download("el-view-md", ".md"))
+    near_ids = _table_ids(near)
+    ui.must("the file at depth 1 lists a neighbourhood", len(near_ids) >= 2, f"{len(near_ids)} rows")
+    ui.check(
+        "and says which depth it was taken at", "(depth 1)" in near.splitlines()[0], near.splitlines()[0]
+    )
+
+    thumb = _depth_thumb(ui)
+    thumb.press("ArrowRight")
+    thumb.press("ArrowRight")
+    ui.page.wait_for_timeout(700)
+    ui.settle()
+    ui.must(
+        "the slider is on depth 3",
+        (thumb.get_attribute("aria-valuenow") or "") == "3",
+        f"it reports {thumb.get_attribute('aria-valuenow')!r}",
+    )
+    try:
+        ui.page.wait_for_function(
+            "([sel, n]) => document.querySelectorAll(sel + ' g.node').length > n",
+            arg=[_pm(id="el-view", type="mermaid-svg"), len(near_ids)],
+            timeout=25_000,
+        )
+    except Exception as exc:  # noqa: BLE001 — the redraw is the page's, the file is the finding
+        ui.check("the diagram redrew at the new depth", False, f"{type(exc).__name__}")
+
+    far_path = ui.download("el-view-md", ".md")
+    far = _text(far_path)
+    far_ids = _table_ids(far)
+    ui.check(
+        "the file taken afterwards says it is the wider view",
+        "(depth 3)" in far.splitlines()[0],
+        far.splitlines()[0],
+    )
+    _check_markdown_view(ui, far_path, f"{EL_NAME} and its neighbourhood")
+    missing = [i for i in near_ids if i not in far_ids]
+    ui.check(
+        "the wider view keeps everything the narrower one held",
+        not missing,
+        f"lost at depth 3: {missing[:5]}" if missing else f"all {len(near_ids)} of them",
+    )
+    ui.check(
+        "and reaches further than it",
+        len(far_ids) > len(near_ids),
+        f"{len(near_ids)} elements at depth 1, {len(far_ids)} at depth 3",
+    )
+    drawn = list(_screen_nodes(ui, "el-view"))
+    ui.check(
+        "the file holds exactly what the reader is looking at",
+        sorted(drawn) == sorted(far_ids),
+        f"{len(drawn)} shapes drawn against {len(far_ids)} rows in the file",
+    )
+    drawio = ui.download("el-view-drawio", ".drawio")
+    shape_ids = _shape_ids(_drawio(ui, drawio))
+    ui.check(
+        "and the draw.io file of the same view was taken at the same depth",
+        sorted(set(shape_ids)) == sorted(set(far_ids)),
+        f"{len(set(shape_ids))} shapes against {len(set(far_ids))} rows",
+    )
+    ui.shot("The element view at depth 3, and the two files taken from it")
+
+
+@pytest.mark.scenario(
+    scenario_id="N16",
+    group="N",
+    title="The impact file holds exactly the elements the page's tables name, at the depth that was run",
+    feature="Downloads · impact view · the depth control",
+    expected="The exported impact view is the answer on the page: the same elements as the upstream and "
+    "downstream tables, no more and no fewer. Run again at one hop and the file narrows with the page.",
+)
+def test_the_impact_file_matches_the_page(ui, record):
+    _open_impact(ui)
+    deep_shown = _linked_ids(ui, "#imp-result")
+    ui.must("the page answered with elements", len(deep_shown) >= 2, f"{len(deep_shown)} elements linked")
+    deep = _text(ui.download("imp-view-md", ".md"))
+    deep_ids = set(_table_ids(deep))
+    capped = "not shown" in deep or "capped" in deep
+    ui.check(
+        "the file holds every element the page's tables name",
+        not (deep_shown - deep_ids),
+        f"named but not exported: {sorted(deep_shown - deep_ids)[:5]}"
+        if deep_shown - deep_ids
+        else f"all {len(deep_shown)} of them",
+    )
+    ui.check(
+        "and draws nothing the page did not name",
+        not (deep_ids - deep_shown) or capped,
+        f"exported but not named: {sorted(deep_ids - deep_shown)[:5]}"
+        if deep_ids - deep_shown
+        else f"{len(deep_ids)} rows",
+    )
+
+    _set_impact_depth(ui, 1)
+    ui.click("imp-run")
+    ui.wait_mermaid()
+    shallow_shown = _linked_ids(ui, "#imp-result")
+    shallow_path = ui.download("imp-view-md", ".md")
+    shallow = _text(shallow_path)
+    shallow_ids = set(_table_ids(shallow))
+    ui.check(
+        "run again at one hop, the file is the one-hop answer",
+        shallow_ids == shallow_shown,
+        f"{len(shallow_ids)} rows against {len(shallow_shown)} elements on the page"
+        + (
+            f"; only in the file: {sorted(shallow_ids - shallow_shown)[:5]}"
+            if shallow_ids - shallow_shown
+            else ""
+        ),
+    )
+    ui.check(
+        "which is narrower than the three-hop one",
+        len(shallow_ids) < len(deep_ids),
+        f"{len(shallow_ids)} at one hop against {len(deep_ids)} at three",
+    )
+    ui.check(
+        "and holds nothing the wider run did not",
+        not (shallow_ids - deep_ids),
+        f"only at one hop: {sorted(shallow_ids - deep_ids)[:5]}" if shallow_ids - deep_ids else "nothing new",
+    )
+    ui.check(
+        "the file is still named for the element, not for the depth it was run at",
+        shallow_path.name == f"{IMP}-impact.md",
+        shallow_path.name,
+    )
+    ui.shot("The impact page run at one hop, and the narrower file it exports")
+
+
+@pytest.mark.scenario(
+    scenario_id="N17",
+    group="N",
+    title="With no work package chosen the target state exports the whole model, named for all of it",
+    feature="Downloads · target state · all work packages",
+    expected="On 'All work packages' both downloads are named target-state-all, titled 'Target state of "
+    "the model', and hold what changes or is deliberately kept across the model — never an element "
+    "nobody has decided about — including everything the one work package's own file holds.",
+)
+def test_target_state_of_the_whole_model(ui, record):
+    ui.goto("/target")
+    ui.wait_mermaid()
+    path = ui.download("tg-view-md", ".md")
+    ui.check("the file is named for the whole model", path.name == "target-state-all.md", path.name)
+    text = _check_markdown_view(ui, path, "Target state of the model")
+    rows = _marked_rows(text)
+    ui.must("it carries a table of states", len(rows) >= 2, f"{len(rows)} rows")
+    ui.check(
+        "every row carries both states",
+        all(current and target for current, target in rows.values()),
+        "; ".join(f"{k}: {v[0]}/{v[1]}" for k, v in list(rows.items())[:3]),
+    )
+    undecided = [k for k, (_, target) in rows.items() if target.lower().startswith("undecided")]
+    ui.check(
+        "and nothing nobody has decided about, because that is not a target state",
+        not undecided,
+        f"undecided in the model-wide export: {undecided[:5]}" if undecided else f"{len(rows)} decided rows",
+    )
+    ui.check(
+        "the decommissioned element is one of them",
+        FORMS in rows,
+        f"{FORMS} is in the file, as {rows[FORMS][0]} today and {rows[FORMS][1]} intended"
+        if FORMS in rows
+        else f"the file lists {sorted(rows)[:6]}",
+    )
+    diagram = MERMAID_FENCE.findall(text)[0]
+    marked = next((line for line in diagram.splitlines() if FORMS in line), "")
+    ui.check("marked in the diagram the way the legend says", "×" in marked, marked.strip() or "not drawn")
+
+    drawio = ui.download("tg-view-drawio", ".drawio")
+    ui.check(
+        "the draw.io file is named for the whole model too",
+        drawio.name == "target-state-all.drawio",
+        drawio.name,
+    )
+    root = _drawio(ui, drawio)
+    _check_linking_contract(ui, root, ui.base_url)
+    ui.check(
+        "and holds the same elements as the Markdown",
+        sorted(set(_shape_ids(root))) == sorted(rows),
+        f"{len(set(_shape_ids(root)))} shapes against {len(rows)} rows",
+    )
+    ui.shot("Target state with no work package chosen, exported as the whole model")
+
+    # The one work package's file is a part of the model's, not a different model.
+    ui.select("tg-wp", WP_NAME)
+    ui.wait_mermaid()
+    package = _text(ui.download("tg-view-md", ".md"))
+    ui.check(
+        "choosing a work package renames the file after it",
+        (ui.run_dir / "downloads" / f"target-state-{WP}.md").exists(),
+        f"target-state-{WP}.md",
+    )
+    decided = {
+        k for k, (_, target) in _marked_rows(package).items() if not target.lower().startswith("undecided")
+    }
+    absent = sorted(decided - set(rows))
+    ui.check(
+        "and everything it decides is in the model-wide file as well",
+        not absent,
+        f"only in the work package's file: {absent[:5]}" if absent else f"all {len(decided)} of them",
+    )
+
+
+# ================================================ the other way out, and who may use it
+
+
+@pytest.mark.scenario(
+    scenario_id="N18",
+    group="N",
+    title="Copy Markdown hands over exactly the document Download Markdown writes",
+    feature="Downloads · Ask · copy against file",
+    expected="The answer document offers Copy Markdown beside the two downloads. What lands on the "
+    "clipboard is the same document the file holds, character for character — two ways out of one "
+    "document, not two documents.",
+)
+def test_copy_gives_the_same_document_as_the_file(ui, record):
+    _ask(ui)
+    md = ui.download("ask-doc-md", ".md")
+    written = _text(md)
+    clipboard = ui.page.locator(f"{DOCUMENT} .ea-clipboard")
+    ui.must("the document offers a copy control beside its downloads", clipboard.count() > 0)
+    copied = ""
+    try:
+        ui.page.evaluate("() => navigator.clipboard.writeText('')")
+        clipboard.first.click()
+        ui.page.wait_for_timeout(400)
+        copied = ui.page.evaluate("() => navigator.clipboard.readText()")
+    except Exception as exc:  # noqa: BLE001 — a browser that refuses the clipboard is not the app's fault
+        ui.check("the clipboard could be read back in this browser", True, f"not read: {exc}")
+    if copied:
+        ui.check(
+            "what was copied is the whole document, not a fragment",
+            copied.strip().startswith("# ") and "## Answer" in copied,
+            f"the clipboard holds {len(copied)} characters starting {copied[:60]!r}",
+        )
+        ui.check(
+            "and it is the file, character for character",
+            copied.strip() == written.strip(),
+            f"{len(copied)} characters copied against {len(written)} written"
+            if copied.strip() != written.strip()
+            else f"both are the same {len(written)} characters",
+        )
+        ui.check(
+            "so the elements the document names travel with either one",
+            OFFERING in copied,
+            f"{OFFERING} is in both" if OFFERING in copied else f"{OFFERING} is not in the copied text",
+        )
+    ui.shot("The answer document, whose Copy Markdown and Download Markdown carry the same text")
+    ui.click("ask-reset")  # leave the conversation where the group found it
+
+
+@pytest.mark.scenario(
+    scenario_id="N19",
+    group="N",
+    title="A Reader may take every file away, and gets the same file an Admin gets",
+    feature="Downloads · roles · a Reader",
+    expected="Downloading is a read, and the roles table gives every role it. As a Reader the view, the "
+    "impact, the metamodel, the import template and the proposal template must all still arrive — "
+    "unredacted, the same document an Admin was handed — while the write control beside each is refused.",
+)
+def test_a_reader_may_take_every_file(ui, record):
+    _open_element_view(ui)
+    as_admin = _text(ui.download("el-view-md", ".md"))
+
+    ui.persona("Reader")
+    ui.check("the header says who is reading", "reader" in ui.role_badge().lower(), ui.role_badge())
+
+    _open_element_view(ui)
+    view = ui.download("el-view-md", ".md")
+    ui.check("a Reader is handed the element view", view.name == f"{EL}-view.md", view.name)
+    ui.check(
+        "and it is the document an Admin was handed, not a redacted one",
+        _text(view) == as_admin,
+        f"{len(_text(view))} characters against {len(as_admin)}",
+    )
+    drawio = ui.download("el-view-drawio", ".drawio")
+    _check_linking_contract(ui, _drawio(ui, drawio), ui.base_url)
+
+    _open_impact(ui)
+    impact = ui.download("imp-view-md", ".md")
+    _check_markdown_view(ui, impact, f"Impact of {IMP_NAME}")
+
+    ui.goto("/metamodel")
+    ui.check("a Reader may not save the metamodel", ui.disabled("mm-save"))
+    pack = ui.download("mm-export", ".yaml")
+    ui.check(
+        "but may export it",
+        (yaml.safe_load(_text(pack)) or {}).get("pack", {}).get("id") == PACK,
+        pack.name,
+    )
+    ui.shot("The Metamodel page as a Reader: Save refused, Export YAML given")
+
+    ui.goto("/import")
+    ui.check("a Reader may not load an import", ui.disabled("im-load"))
+    template = ui.download("im-template", ".zip")
+    ui.check(
+        "but may take the template that says how one is shaped",
+        zipfile.is_zipfile(template),
+        template.name,
+    )
+
+    ui.goto("/propose")
+    proposal = ui.download("pr-template", ".md")
+    ui.check(
+        "and may take the proposal template, which is how a Reader asks for a change",
+        _text(proposal).lstrip().startswith("# Proposal:"),
+        _text(proposal).splitlines()[0],
+    )
+    ui.shot("The Propose page as a Reader, handing over the template it starts from")
+    ui.persona("Admin")  # leave the session as the round found it
+
+
+# ======================================= the file against the page it was taken from
+
+
+@pytest.mark.scenario(
+    scenario_id="N20",
+    group="N",
+    title="The exported metamodel is the metamodel the page says it holds",
+    feature="Downloads · metamodel · the file against the page",
+    expected="The Metamodel page says how many active types, inactive types and relationship types it "
+    "holds. The exported pack must hold exactly those, under the pack name shown, and carry the "
+    "notation every generated view is drawn from.",
+)
+def test_the_metamodel_file_agrees_with_the_page(ui, record):
+    ui.goto("/metamodel")
+    subtitle = ui.text("mm-subtitle")
+    counted = re.search(r"(\d+) active types, (\d+) inactive, (\d+) relationship types", subtitle)
+    ui.must("the page says what the metamodel holds", counted is not None, subtitle or "no subtitle")
+    active, inactive, rel_types = (int(g) for g in counted.groups())
+
+    path = ui.download("mm-export", ".yaml")
+    data = yaml.safe_load(_text(path)) or {}
+    types = data.get("element_types") or []
+    dormant = [t for t in types if t.get("active") is False]
+    ui.check(
+        "the pack is named as the page names it",
+        subtitle.startswith(str(data.get("pack", {}).get("name") or " ")),
+        f"the page says {subtitle[:60]!r}, the file says {data.get('pack', {}).get('name')!r}",
+    )
+    ui.check(
+        "it holds every type the page counts",
+        len(types) == active + inactive,
+        f"{len(types)} in the file against {active} active and {inactive} inactive on the page",
+    )
+    ui.check(
+        "with the inactive ones marked inactive rather than dropped",
+        len(dormant) == inactive,
+        f"{len(dormant)} marked inactive in the file against {inactive} on the page",
+    )
+    ui.check(
+        "and every relationship type the page counts",
+        len(data.get("relationship_types") or []) == rel_types,
+        f"{len(data.get('relationship_types') or [])} in the file against {rel_types} on the page",
+    )
+    entity = next((t for t in types if t.get("id") == "data_entity"), None)
+    ui.must("a type the sample model uses is in the file", entity is not None)
+    notation = entity.get("notation") or {}
+    ui.check(
+        "which carries the notation the generated views are drawn from",
+        bool(notation.get("archimate")) and bool(notation.get("shape")) and bool(notation.get("layer")),
+        f"its notation is {notation}",
+    )
+    unnotated = [d.get("id") for d in (data.get("domains") or []) if not (d.get("notation") or {}).get("hex")]
+    ui.check(
+        "and every domain the colour the pages draw it in",
+        not unnotated,
+        f"without a colour: {unnotated}" if unnotated else f"all {len(data.get('domains') or [])} domains",
+    )
+    ui.check(
+        "the attributes every type shares travel with it",
+        len(data.get("common_attributes") or []) > 0,
+        f"{len(data.get('common_attributes') or [])} common attributes",
+    )
+    ui.shot("The Metamodel page and the counts the exported pack has to match")
+
+
+@pytest.mark.scenario(
+    scenario_id="N21",
+    group="N",
+    title="The draw.io file puts every shape where the reader sees it",
+    feature="Downloads · draw.io · the reader's arrangement",
+    expected="The browser reports the layout of a generated view, and the draw.io export is written from "
+    "it: every shape on the page itself rather than in a generated grid, each one the size it is drawn "
+    "and all of them shifted by the one margin, so the file opens as the picture on screen.",
+)
+def test_the_file_reproduces_the_layout_on_screen(ui, record):
+    _open_impact(ui)
+    screen = _screen_nodes(ui, "imp-view")
+    ui.must("the browser drew the view", len(screen) >= 3, f"{len(screen)} shapes on screen")
+    root = _drawio(ui, ui.download("imp-view-drawio", ".drawio"))
+    boxes = _file_boxes(root)
+    ui.must(
+        "the file holds a shape for each one", set(screen) <= set(boxes), f"{len(boxes)} shapes in the file"
+    )
+    parents = {b["parent"] for b in boxes.values()}
+    ui.check(
+        "every shape sits on the page itself, not in a generated grid of lanes",
+        parents == {"1"},
+        f"their parents are {sorted(parents)}",
+    )
+    sized = [
+        f"{eid}: {boxes[eid]['w']:.0f} by {boxes[eid]['h']:.0f} against "
+        f"{screen[eid]['w']:.0f} by {screen[eid]['h']:.0f}"
+        for eid in screen
+        if abs(boxes[eid]["w"] - screen[eid]["w"]) > 2 or abs(boxes[eid]["h"] - screen[eid]["h"]) > 2
+    ]
+    ui.check(
+        "each is the size it is drawn on screen",
+        not sized,
+        "; ".join(sized[:3]) if sized else f"all {len(screen)} of them",
+    )
+    offsets = {
+        eid: (
+            round(screen[eid]["x"] - screen[eid]["w"] / 2 - boxes[eid]["x"], 1),
+            round(screen[eid]["y"] - screen[eid]["h"] / 2 - boxes[eid]["y"], 1),
+        )
+        for eid in screen
+    }
+    xs = [o[0] for o in offsets.values()]
+    ys = [o[1] for o in offsets.values()]
+    spread = f"{max(xs) - min(xs):.1f} across and {max(ys) - min(ys):.1f} down"
+    ui.check(
+        "and all of them are shifted by the one margin, so the file is the arrangement on screen",
+        max(xs) - min(xs) <= 2 and max(ys) - min(ys) <= 2,
+        f"the shift spans {spread}"
+        + (
+            "; " + "; ".join(f"{k} at {v}" for k, v in list(offsets.items())[:3])
+            if max(xs) - min(xs) > 2 or max(ys) - min(ys) > 2
+            else ""
+        ),
+    )
+    lanes = [c for c in root.findall(".//mxCell") if (c.get("id") or "").startswith("lane_")]
+    ui.check(
+        "the layer boxes are drawn behind the shapes rather than around them",
+        all("dashed=1" in (c.get("style") or "") for c in lanes),
+        "; ".join((c.get("id") or "") for c in lanes) or "no layer boxes",
+    )
+    ui.shot("The view on screen, and the draw.io file written from the same layout")
+
+
+@pytest.mark.scenario(
+    scenario_id="N22",
+    group="N",
+    title="A shape the reader moved is where they left it in the file",
+    feature="Downloads · draw.io · a shape moved by hand",
+    expected="The page says Ctrl-drag moves a shape and that nothing is saved; the draw.io export is what "
+    "the move is for. Moving the element's own shape and exporting again must put it where it was left, "
+    "the same distance from its neighbours as on screen.",
+)
+def test_a_shape_the_reader_moved(ui, record):
+    _open_element_view(ui)
+    before_screen = _screen_nodes(ui, "el-view")
+    ui.must("the element's own shape is on the canvas", EL in before_screen, f"{len(before_screen)} shapes")
+    before = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+
+    node = ui.page.locator(f"{_pm(id='el-view', type='mermaid-svg')} g.node").filter(has_text=f"[{EL}]").first
+    box = node.bounding_box()
+    ui.must("the shape can be aimed at", box is not None and box["width"] > 0, str(box))
+    start = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    ui.page.mouse.move(*start)
+    ui.page.keyboard.down("Control")
+    ui.page.mouse.down()
+    for step in range(1, 6):
+        ui.page.mouse.move(start[0] + 44 * step, start[1] - 18 * step)
+        ui.page.wait_for_timeout(40)
+    ui.page.mouse.up()
+    ui.page.keyboard.up("Control")
+    ui.page.wait_for_timeout(500)
+    ui.settle()
+
+    after_screen = _screen_nodes(ui, "el-view")
+    moved_x = after_screen[EL]["x"] - before_screen[EL]["x"]
+    moved_y = after_screen[EL]["y"] - before_screen[EL]["y"]
+    ui.must(
+        "Ctrl-dragging the shape moved it on screen",
+        abs(moved_x) > 20,
+        f"it moved {moved_x:.0f} across and {moved_y:.0f} down, in the diagram's own units",
+    )
+    still = [
+        eid
+        for eid in before_screen
+        if eid != EL and eid in after_screen and abs(after_screen[eid]["x"] - before_screen[eid]["x"]) > 1
+    ]
+    ui.check(
+        "and moved nothing else",
+        not still,
+        f"also moved: {still[:5]}" if still else f"{len(after_screen)} shapes, one of them moved",
+    )
+    ui.shot("The element's own shape dragged clear of its neighbours")
+
+    after = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    ui.must("the file still holds the moved shape", EL in after, f"{len(after)} shapes in the file")
+    neighbour = next(eid for eid in before if eid != EL and eid in after)
+    shifted = (after[EL]["x"] - after[neighbour]["x"]) - (before[EL]["x"] - before[neighbour]["x"])
+    ui.check(
+        "the file exported afterwards carries the move, not the layout before it",
+        abs(shifted - moved_x) <= 3,
+        f"it moved {shifted:.0f} away from {neighbour} in the file against {moved_x:.0f} on screen",
+    )
+    disturbed = [
+        eid
+        for eid in before
+        if eid not in (EL, neighbour)
+        and eid in after
+        and abs((after[eid]["x"] - after[neighbour]["x"]) - (before[eid]["x"] - before[neighbour]["x"])) > 1
+    ]
+    ui.check(
+        "and leaves every other shape where it already was",
+        not disturbed,
+        f"also moved in the file: {disturbed[:5]}"
+        if disturbed
+        else f"the other {len(before) - 1} shapes are unmoved",
+    )
+
+
+# ============================== a download that is refused, and what the reader is told
+
+
+def _choose_impact_element(ui, element_id: str, search: str) -> None:
+    """Pick an element in the Impact selector the way a reader does, so the run callback fires."""
+    box = ui.page.locator("#imp-element input, input#imp-element").first
+    box.click()
+    box.fill("")
+    ui.page.keyboard.type(search, delay=25)
+    ui.page.wait_for_timeout(600)  # the selector asks the server per keystroke
+    ui.settle()
+    ui.page.locator("[role='option']").filter(has_text=f"[{element_id}]").first.click()
+    ui.settle()
+
+
+@pytest.mark.scenario(
+    scenario_id="N23",
+    group="N",
+    title="The two impact downloads are refused with a reason until there is a view, then work",
+    feature="Downloads · impact view · refused, then given",
+    expected="With no element chosen both buttons are disabled and the line beside them says why. "
+    "Choosing an element runs the impact, clears that line, enables both buttons, and each then "
+    "produces the file named for the element.",
+)
+def test_the_impact_downloads_are_refused_then_given(ui, record):
+    ui.goto("/impact")
+    ui.check("Download Markdown is refused before an element is chosen", ui.disabled("imp-view-md"))
+    ui.check("and so is Download draw.io", ui.disabled("imp-view-drawio"))
+    note = ui.text("imp-view-note")
+    ui.check(
+        "the line beside them says why, so a reader is not left guessing",
+        "no view to export" in note.lower() and "choose an element" in note.lower(),
+        note or "there is nothing beside the buttons",
+    )
+    ui.shot("The Impact page with nothing chosen: both downloads refused, and the reason beside them")
+
+    _choose_impact_element(ui, IMP, IMP_NAME)
+    ui.wait_mermaid()
+    ui.check("choosing an element enables Download Markdown", not ui.disabled("imp-view-md"))
+    ui.check("and Download draw.io with it", not ui.disabled("imp-view-drawio"))
+    after = ui.text("imp-view-note")
+    ui.check(
+        "and takes the refusal away, because it no longer applies",
+        not after.strip(),
+        "there is nothing beside the buttons now" if not after.strip() else f"it still reads {after!r}",
+    )
+    md = ui.download("imp-view-md", ".md")
+    ui.check("the button now produces the file", md.name == f"{IMP}-impact.md", md.name)
+    _check_markdown_view(ui, md, f"Impact of {IMP_NAME}")
+    drawio = ui.download("imp-view-drawio", ".drawio")
+    ui.check("and so does the other one", drawio.name == f"{IMP}-impact.drawio", drawio.name)
+    _check_linking_contract(ui, _drawio(ui, drawio), ui.base_url)
+    ui.shot("The same two buttons after an element was chosen, both now producing their file")
+
+
+@pytest.mark.scenario(
+    scenario_id="N24",
+    group="N",
+    title="A download the document refuses says why where the reader is looking",
+    feature="Downloads · Ask · a refusal without a reason",
+    expected="An answer that drew no diagram disables Download draw.io — the code even names the reason, "
+    "'This answer drew no diagram, so there is nothing to export.' The reader has to be given it: on the "
+    "button, described by it, or beside it, the way the Impact page gives its own.",
+)
+def test_a_refused_download_says_why(ui, record, finding):
+    _ask(ui, f"What is the impact of changing {GHOST}?")
+    drew = ui.page.locator("#ask-answer .ea-mermaid svg").count()
+    ui.must("the answer grounded nothing and so drew no diagram", drew == 0, f"{drew} diagrams")
+    refused = ui.disabled("ask-doc-drawio")
+    ui.check(
+        "the document refuses the diagram rather than offering a button that does nothing",
+        refused,
+        "Download draw.io is greyed out"
+        if refused
+        else "Download draw.io is offered on a document with no diagram",
+    )
+    button = ui.page.locator("#ask-doc-drawio").first
+    ui.must("the button is in the document", button.count() > 0)
+    title = (button.get_attribute("title") or "").strip()
+    described = ui.page.evaluate(
+        """() => {
+            const el = document.getElementById('ask-doc-drawio');
+            const ids = (el && el.getAttribute('aria-describedby') || '').split(/\\s+/).filter(Boolean);
+            return ids.map(i => (document.getElementById(i) || {}).innerText || '').join(' ').trim();
+        }"""
+    )
+    beside = button.evaluate(
+        "el => ((el.closest('.mantine-Group-root') || el.parentElement || {}).innerText || '')"
+    )
+    beside = " ".join(beside.replace("Download draw.io", "").replace("Download Markdown", "").split())
+    words = ("diagram", "nothing to export", "no view")
+    told = [
+        where
+        for where, text in (("on the button", title), ("described by it", described), ("beside it", beside))
+        if any(word in text.lower() for word in words)
+    ]
+    ui.check(
+        "the reason the code computed reaches the reader",
+        bool(told),
+        f"the reader is told {', '.join(told)}"
+        if told
+        else f"title={title!r}, aria-describedby={described!r}, beside it {beside!r}",
+    )
+    ui.shot("An answer with no diagram: Download draw.io disabled, with nothing saying why")
+    ui.click("ask-reset")  # leave the conversation where the group found it
+    if not told:
+        finding.append(
+            _f(
+                "N-refusal-without-a-reason",
+                "src/ea/ui/pages/ask.py · document_card's view_toolbar(drawio_reason=…), which passes no "
+                "note, and components.py · view_toolbar, which drops a reason it is not asked to show",
+                "usability",
+                "The Ask document disables Download draw.io and never says why: the reason is computed, "
+                "used to grey the button out, and then thrown away.",
+                "view_toolbar's own contract is that 'a reason disables the button it names and says why', "
+                "and the Impact page keeps it — it passes the same text as `note` and the reader sees "
+                "'Choose an element and press Run: there is no view to export yet.' beside the two greyed "
+                "buttons. The Ask document passes only `drawio_reason`, so the string 'This answer drew no "
+                "diagram, so there is nothing to export.' never reaches the DOM: no note, no title, no "
+                "aria-describedby. A reader who wanted the diagram sees a dead control on a document that "
+                "otherwise worked, and is left to guess whether the export is broken. Rendering the reason "
+                "whenever one is given — as a note beside the buttons, or as the button's title — would "
+                "make the two pages behave alike.",
+            )
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="N25",
+    group="N",
+    title="A view drawn on a tab the page did not open on is exported at the wrong size",
+    feature="Downloads · draw.io · a diagram measured while it was hidden",
+    expected="The element page draws its view on the Graph tab, which is not the tab the page opens on. "
+    "Its draw.io file must still carry each shape at the size it is drawn, the way the Impact page's "
+    "does; redrawing the same view with Reset layout, with the tab open, must not change the file.",
+)
+def test_a_view_drawn_on_a_hidden_tab(ui, record, finding):
+    _open_element_view(ui)
+    screen = _screen_nodes(ui, "el-view")
+    ui.must("the browser drew the view", len(screen) >= 3, f"{len(screen)} shapes on screen")
+    boxes = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    wrong = [
+        f"{eid}: {boxes[eid]['w']:.0f} by {boxes[eid]['h']:.0f} in the file against "
+        f"{screen[eid]['w']:.0f} by {screen[eid]['h']:.0f} on screen"
+        for eid in screen
+        if eid in boxes
+        and (abs(boxes[eid]["w"] - screen[eid]["w"]) > 2 or abs(boxes[eid]["h"] - screen[eid]["h"]) > 2)
+    ]
+    ui.check(
+        "every shape is exported at the size it is drawn",
+        not wrong,
+        "; ".join(wrong[:3]) if wrong else f"all {len(screen)} of them",
+    )
+    stock = sorted({(round(b["w"]), round(b["h"])) for b in boxes.values()})
+    ui.check(
+        "so the file is not a set of identical boxes with the drawing's names in them",
+        len(stock) > 1 or not wrong,
+        f"every shape in the file is {stock[0][0]} by {stock[0][1]}"
+        if len(stock) == 1
+        else f"{len(stock)} sizes: {stock[:4]}",
+    )
+    ui.shot("The element view's Graph tab, whose draw.io file sizes every shape the same")
+
+    # The same view, redrawn by the page's own Reset layout with the tab open in front of the
+    # reader. Nothing about the view changed, so nothing about the file should either.
+    ui.click(_pm(id="el-view", type="mermaid-reset"))
+    ui.page.wait_for_timeout(700)
+    ui.settle()
+    redrawn = _screen_nodes(ui, "el-view")
+    ui.must(
+        "the view is still drawn after Reset layout", len(redrawn) == len(screen), f"{len(redrawn)} shapes"
+    )
+    after = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    still_wrong = [
+        eid
+        for eid in redrawn
+        if eid in after
+        and (abs(after[eid]["w"] - redrawn[eid]["w"]) > 2 or abs(after[eid]["h"] - redrawn[eid]["h"]) > 2)
+    ]
+    ui.check(
+        "and redrawing the same view in front of the reader gives the same file",
+        bool(wrong) == bool(still_wrong),
+        f"{len(wrong)} shapes were the wrong size before Reset layout and {len(still_wrong)} after",
+    )
+    ui.shot("The same view after Reset layout, redrawn while the tab was open")
+    if wrong and not still_wrong:
+        finding.append(
+            _f(
+                "N-size-measured-while-hidden",
+                "src/ea/ui/app.py · the clientside render callback on {'type': 'mermaid-src'}, and "
+                "assets/ea-views.js · positionsOf, whose w and h come from getBBox at render time",
+                "defect",
+                "A view first drawn on a tab that is not showing is exported to draw.io with every shape "
+                "the same default size, so long names spill out of their boxes in the file.",
+                "The element page renders its generated view when the page loads, while the Graph tab is "
+                "still hidden, so getBBox measures nothing and the position store carries w and h of 0. "
+                "to_drawio falls back to 170 by 60 for every shape, and because it places each one from "
+                "its centre minus half that width, the shapes also drift relative to each other by up to "
+                "a couple of dozen units against the picture on screen. Pressing Reset layout with the "
+                "tab open re-measures the same view and the very next download is correct in both "
+                "respects, which is where this scenario's evidence comes from; the Impact page, whose "
+                "view is on screen the moment it renders, exports correctly the first time (N21). "
+                "Measuring when the diagram becomes visible — or falling back to the size Mermaid gives "
+                "the node rather than a constant — would make the first file as good as the second.",
             )
         )

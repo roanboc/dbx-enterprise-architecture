@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import typer
@@ -39,6 +40,29 @@ def main(
 ):
     set_branch(branch or MAIN)
     set_role(role)
+    _require_branch_exists(branch)
+
+
+def _require_branch_exists(branch: str | None) -> None:
+    """A branch named on the command line has to be one that exists.
+
+    Writing to a branch nobody created used to be accepted: the rows went to an overlay no
+    `branch list` mentions and no `branch diff` can read, and reappeared if somebody later
+    created a branch with that name.
+    """
+    if not branch or branch == MAIN:
+        return
+    from ea.backend import backend_from_settings
+
+    backend = backend_from_settings(Settings.from_env())
+    try:
+        if backend.get_branch(branch) is None:
+            raise typer.BadParameter(
+                f"no branch with id {branch!r}; `ea branch list` says which there are, "
+                f"and `ea branch create` makes one"
+            )
+    finally:
+        backend.close()
 
 
 def _ctx(settings: Settings | None = None):
@@ -104,8 +128,30 @@ def export_pack(out: Path, pack_id: str = typer.Option(None, help="pack id (defa
 
     _, backend, registry, *_ = _ctx()
     p = backend.load_pack(pack_id) if pack_id else registry.pack
+    if p is None:
+        # Refused before the destination is opened: a pack that cannot be found must not
+        # cost the reader the file they were writing over.
+        held = ", ".join(sorted(x["pack_id"] for x in backend.list_packs())) or "none"
+        raise typer.BadParameter(f"no pack with id {pack_id!r} in this database; it holds: {held}")
     dump_pack(p, out)
     typer.echo(f"pack '{p.id}' written to {out}")
+
+
+def _readable_directory(directory: Path) -> None:
+    """A directory that cannot be read is refused with the reason, not with a stack trace.
+
+    It exits the way an import that found errors exits, because that is what this is.
+    """
+    reason = ""
+    if not directory.exists():
+        reason = "does not exist"
+    elif not directory.is_dir():
+        reason = "is a file, not a directory of CSV files"
+    elif not os.access(directory, os.R_OK):
+        reason = "cannot be read: check its permissions"
+    if reason:
+        typer.echo(f"{directory} {reason}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command("import")
@@ -119,6 +165,7 @@ def import_cmd(
     """Import elements, relationships and links from CSV files (validated against the metamodel)."""
     from ea.importer import import_directory, load_mapping
 
+    _readable_directory(directory)
     _, backend, registry, *_ = _ctx()
     m = load_mapping(mapping) if mapping else None
     report = import_directory(backend, registry, directory, source, m, actor, dry_run)
@@ -154,6 +201,9 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
 
     _, backend, registry, *_ = _ctx()
     t = registry.resolve_type(type_id) if type_id else None
+    if type_id and t is None:
+        # Ignoring it would answer the unrestricted search and look like a narrow one.
+        raise typer.BadParameter(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
     for h in SearchService(backend, registry).search(text, t.id if t else None, limit=limit):
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
@@ -267,6 +317,8 @@ def trace(
     depth: int = 5,
 ):
     """Transitive reach along relationship direction."""
+    if direction not in ("in", "out"):
+        raise typer.BadParameter(f"--direction is 'in' or 'out', not {direction!r}")
     _, _, _, _, graph = _ctx()
     for r in graph.trace(element_id, direction, depth):
         typer.echo(
@@ -336,6 +388,11 @@ def target(
 
     _, backend, registry, _, graph = _ctx()
     svc = TargetStateService(backend, registry)
+    if work_package and backend.get_element(work_package) is None:
+        # Falling back to the whole model reports every element as though it belonged to a
+        # work package that does not exist.
+        held = ", ".join(w.element_id for w in svc.work_packages()) or "none"
+        raise typer.BadParameter(f"no element with id {work_package!r}; the work packages are: {held}")
     summary = svc.summary(work_package)
     if fmt == "md":
         title = "Target state"
@@ -518,7 +575,11 @@ def reviewers_set(type_id: str, reviewers: str, actor: str = typer.Option("cli")
 def sql(query: str, limit: int = 100):
     """Read-only SQL over the repository tables."""
     _, backend, *_ = _ctx()
-    typer.echo(backend.query(query, limit=limit).to_string(index=False))
+    frame = backend.query(query, limit=limit)
+    if frame.empty:
+        typer.echo(f"no rows ({len(frame.columns)} column(s): {', '.join(map(str, frame.columns))})")
+        return
+    typer.echo(frame.to_string(index=False))
 
 
 @app.command()

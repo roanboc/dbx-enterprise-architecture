@@ -21,6 +21,11 @@ Three things decide the shape of every scenario:
 The branch flow runs as one story across M29 to M37: create, write on the overlay, diff,
 review, approve, send back, merge and abandon — the same sequence group I drives through
 the screens, on the same services.
+
+M41 onward is a second pass over the same nineteen commands, looking for what the first
+one did not touch: the options nobody had run, the branch of a command only an error
+reaches, and the roles nobody had been. It keeps the same state discipline, and its own
+header says what it adds.
 """
 
 from __future__ import annotations
@@ -2196,8 +2201,8 @@ def test_m43_sql_empty_and_broken(cli, record, finding):
     check(
         record,
         "and it is not confused with the read-only guard's own refusal",
-        "read-only" not in bad,
-        "the guard let it through; the database rejected it",
+        "read-only" not in refusal(bad),
+        f"the guard let it through; the database rejected it: {trim(refusal(bad), 100)}",
     )
 
 
@@ -2344,7 +2349,7 @@ def test_m46_unknown_format(cli, record, finding):
     group="M",
     title="target covers the whole model as Markdown, and answers for a work package that does not exist",
     feature="Command line · target",
-    expected="`target --fmt md` with no work package titles the section for the whole model and draws more of it than one work package does; an id that names no work package is refused, as it is when a branch is created for it.",
+    expected="`target --fmt md` with no work package titles the section for the whole model and draws every element the table form says changes; an id that names no work package is refused, as it is when a branch is created for it.",
 )
 def test_m47_target_whole_model(cli, record, finding):
     rc, whole, ev = run(cli, "target", "--fmt", "md", limit=140)
@@ -2361,12 +2366,30 @@ def test_m47_target_whole_model(cli, record, finding):
         "```mermaid" in whole and "Markers:" in whole,
         whole.splitlines()[2].strip(),
     )
+    # The table form of the same command lists every element that changes; the diagram must
+    # hold all of them, whatever work package they sit under.
+    _, table, table_ev = run(cli, "target", limit=140)
+    changing = [ln.split()[0] for ln in table.splitlines() if ln.startswith("  ") and "->" in ln]
+    must(record, "the table form lists the elements that change", bool(changing), table_ev)
+    absent = [eid for eid in changing if f"[{eid}]" not in whole]
+    check(
+        record,
+        "every element the table says changes is drawn in the diagram",
+        not absent,
+        f"{len(changing)} changing elements, all drawn" if not absent else f"missing: {absent}",
+    )
     _, scoped, scoped_ev = run(cli, "target", "-w", WORK_PACKAGE, "--fmt", "md", limit=100)
     check(
         record,
-        "it draws more of the model than one work package does",
-        whole.count(":::") > scoped.count(":::") > 0,
+        "and the unscoped view is no smaller than one work package's",
+        whole.count(":::") >= scoped.count(":::") > 0,
         f"{whole.count(':::')} nodes for the model, {scoped.count(':::')} under {WORK_PACKAGE}",
+    )
+    check(
+        record,
+        "the scoped view is the one that names its work package",
+        "Target state of" in scoped.splitlines()[0] and "Target state of" not in whole.splitlines()[0],
+        scoped.splitlines()[0] if scoped else scoped_ev,
     )
 
     rc_bad, bad, bad_ev = run(cli, "target", "-w", NO_WORK_PACKAGE, expect=None, limit=140)
@@ -3396,4 +3419,55 @@ def test_m63_abandon_a_closed_branch(cli, record, finding):
             "closed branch ('branch … is abandoned'), `abandon_branch` checks nothing but existence, and it "
             "can be repeated indefinitely. Anyone reading the branch log afterwards is told the change was "
             "thrown away.",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="M64",
+    group="M",
+    title="branch list --status keeps only that status, and says there are no branches when the status is not one",
+    feature="Command line · branch list",
+    expected="open, merged and abandoned partition the listing exactly, every row of a filtered listing carries that status, and a status outside the four says what it means rather than 'no branches'.",
+)
+def test_m64_branch_list_status(cli, record, finding):
+    rc, everything, ev = run(cli, "branch", "list", limit=200)
+    rows = [ln for ln in everything.splitlines() if ln.strip()]
+    must(record, "the whole listing was returned", rc == 0 and len(rows) > 2, ev)
+
+    counted = 0
+    for status in ("open", "merged", "abandoned", "in_review"):
+        _, filtered, filtered_ev = run(cli, "branch", "list", "--status", status, limit=200)
+        listed = [ln for ln in filtered.splitlines() if ln.strip() and ln != "no branches"]
+        counted += len(listed)
+        check(
+            record,
+            f"every row of the {status} listing carries that status",
+            all(f" {status} " in ln for ln in listed),
+            f"{len(listed)} rows" if listed else f"none, and it says so: {trim(filtered, 60)}",
+        )
+    check(
+        record,
+        "the four statuses account for every branch and none twice",
+        counted == len(rows),
+        f"{counted} rows across the four filters, {len(rows)} in the whole listing",
+    )
+
+    rc_bad, bad, bad_ev = run(cli, "branch", "list", "--status", "wibble", expect=None, limit=140)
+    check(
+        record,
+        "a status that is not one of the four matches nothing",
+        not [ln for ln in bad.splitlines() if ln.strip() and ln.strip() != "no branches"],
+        bad_ev,
+    )
+    if "no branches" in bad:
+        lodge(
+            finding,
+            "M-20",
+            "src/ea/cli.py · branch list",
+            "usability",
+            "A `--status` value that is not a status is answered with 'no branches', which is what the command says when the model really has none.",
+            f"`ea branch list --status wibble` prints 'no branches' while `ea branch list` prints "
+            f"{len(rows)} of them. The filter is passed to the store unchecked, so a typo reads as an empty "
+            "repository; naming the four statuses, as `--as` names the five roles, would tell the operator "
+            "which of the two happened.",
         )

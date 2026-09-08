@@ -812,3 +812,576 @@ def test_thin_proposal_is_not_half_applied(ui, record):
             f"{ui.grid_row_count(GRID)} rows match {name!r}",
         )
     ui.shot("Browse holds none of the proposal's elements: the refusal wrote nothing at all")
+
+
+# ------------------------------------------------- what the router could not place, in words
+
+UNKNOWN_PATH = "/o-no-such-page"
+SURPLUS_PATH = "/browse/o-surplus-segment"
+
+
+def _page_alerts(ui) -> list[str]:
+    """Every alert the page itself is showing, the header and the navigation excluded."""
+    return [t.strip() for t in ui.page.locator("#page .mantine-Alert-root").all_inner_texts()]
+
+
+def _alert_saying(ui, fragment: str):
+    return ui.page.locator("#page .mantine-Alert-root").filter(has_text=re.compile(re.escape(fragment))).first
+
+
+def _alert_colour(ui, fragment: str) -> str:
+    """The colour Mantine painted an alert, read back from the element rather than assumed."""
+    painted = ui.page.evaluate(
+        """(text) => {
+            const found = Array.from(document.querySelectorAll('#page .mantine-Alert-root'))
+                .find(el => (el.textContent || '').includes(text));
+            if (!found) { return ''; }
+            const style = getComputedStyle(found);
+            return (style.getPropertyValue('--alert-bg') || style.backgroundColor || '').trim();
+        }""",
+        fragment,
+    )
+    for name in ("yellow", "red", "green", "blue"):
+        if name in painted:
+            return name
+    channels = re.search(r"rgba?\((\d+),\s*(\d+),\s*(\d+)", painted)
+    if not channels:
+        return painted or "no colour"
+    r, g, b = (int(channels.group(i)) for i in (1, 2, 3))
+    if r > 200 and g > 140 and b < 120:
+        return f"yellow ({painted})"
+    return painted or "no colour"
+
+
+def _top(ui, selector: str) -> float:
+    box = ui.page.locator(selector).first.bounding_box() or {}
+    return float(box.get("y", -1))
+
+
+@pytest.mark.scenario(
+    scenario_id="O13",
+    group="O",
+    title="The address the router cannot place is named on the page it falls back to",
+    feature="Negative · routing · what the reader is told",
+    expected=(
+        f"{UNKNOWN_PATH} renders Home under a warning that quotes the address, says there is no page "
+        "there and says which page is being shown instead; the front door itself carries no such warning."
+    ),
+)
+def test_unknown_route_names_the_address(ui, record, finding):
+    ui.goto(UNKNOWN_PATH)
+    body = _page(ui)
+    ui.must(
+        "the fallback says something about the address",
+        _alert_saying(ui, "no page").count() > 0,
+        f"the alerts on the page read {_page_alerts(ui) or 'nothing'}",
+    )
+    said = _alert_saying(ui, "no page").inner_text().strip()
+    ui.check("the warning quotes the address that does not exist", UNKNOWN_PATH in said, said)
+    ui.check("and says there is no page at it", "no page at" in said.lower(), said)
+    ui.check("and says which page is being shown instead", "home page" in said.lower(), said)
+    ui.check(
+        "the warning is painted as a warning rather than as an error",
+        "yellow" in _alert_colour(ui, "no page"),
+        _alert_colour(ui, "no page"),
+    )
+    ui.check("Home is rendered under it", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check(
+        "and the warning comes first, so it is read before the page it fell back to",
+        0 <= _top(ui, "#page .mantine-Alert-root") < _top(ui, "#page h1"),
+        f"the alert at y={_top(ui, '#page .mantine-Alert-root')}, the title at y={_top(ui, '#page h1')}",
+    )
+    ui.check("nothing reports a crash", "This page failed to render" not in body, _brief(body))
+    ui.shot("An address the router cannot place: Home, under a warning that quotes the address")
+
+    ui.goto("/element")
+    half = _alert_saying(ui, "no page")
+    ui.check(
+        "a half-written /element is named the same way rather than answered in silence",
+        half.count() > 0 and "/element" in half.inner_text(),
+        (half.inner_text().strip() if half.count() else "") or f"alerts: {_page_alerts(ui) or 'none'}",
+    )
+    ui.shot("An /element address with no identifier is named in the same words")
+
+    ui.goto("/")
+    ui.check(
+        "the front door carries no such warning, so the warning means something",
+        not any("no page at" in a.lower() for a in _page_alerts(ui)),
+        f"the alerts on Home read {_page_alerts(ui) or 'nothing'}",
+    )
+    ui.check("and Home is Home", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.shot("The front door itself: Home, and no warning about the address")
+
+    ui.goto(SURPLUS_PATH)
+    ui.check(
+        "a page that exists, asked for with a segment after it, still renders that page",
+        "Browse" in _heading(ui),
+        _heading(ui),
+    )
+    ui.check("and not an error", "This page failed to render" not in _page(ui), _brief(_page(ui)))
+    swallowed = not any("no page at" in a.lower() for a in _page_alerts(ui))
+    ui.shot("An address under a page that exists, with a segment the router ignored")
+    if swallowed:
+        finding.append(
+            _finding(
+                finding_id="O-6",
+                where="src/ea/ui/app.py · parse_path(), the branch that keeps only the first segment",
+                severity="usability",
+                summary="A surplus segment after a page that exists is dropped without the word an unknown address gets",
+                detail=(
+                    f"parse_path() reads parts[0], so {SURPLUS_PATH} renders Browse and the rest of the "
+                    "address means nothing. An address the router cannot place at all now says so — "
+                    f"'There is no page at {UNKNOWN_PATH}' — but one it can half-place says nothing, so "
+                    "the reader who mistyped a page's own address is the only one left to notice it. The "
+                    "same line, naming the address, would cover both."
+                ),
+            )
+        )
+
+
+# ------------------------------------------------------------------- a relationship with one end
+
+
+@pytest.mark.scenario(
+    scenario_id="O14",
+    group="O",
+    title="Add with no pair chosen is refused, and no relationship is written",
+    feature="Negative · element · Relationships · a missing end",
+    expected=(
+        "Pressing Add with neither end chosen, and again with the other element chosen but no "
+        "relationship, is refused with 'Choose the other element and a relationship.'; the count in the "
+        "tab label does not move and the tables still say None."
+    ),
+)
+def test_relationship_add_without_a_pair(ui, record):
+    element_id = _probe_id(ui)
+    ui.must("this group's element is in the model", bool(element_id), f"id {element_id!r}")
+    ui.goto(f"/element/{element_id}")
+    _tab(ui, "Relationships")
+    ui.must("the Relationships tab is showing its form", ui.visible("el-rel-add"))
+    label_before = ui.text("el-rel-count")
+    tables_before = ui.text("el-rel-tables")
+
+    ui.click("el-rel-add")
+    empty = ui.text("el-rel-feedback")
+    ui.check("Add with nothing chosen is refused", bool(empty), f"the feedback box read {empty!r}")
+    ui.check(
+        "and the refusal names both ends", "Choose the other element and a relationship." in empty, empty
+    )
+    ui.check("the refusal is shown beside the form", ui.visible("el-rel-feedback"), empty)
+    ui.check(
+        "the count in the tab label did not move",
+        ui.text("el-rel-count") == label_before,
+        f"the tab read {label_before!r}, now {ui.text('el-rel-count')!r}",
+    )
+    ui.shot("Add pressed with neither end chosen: refused, naming what is missing")
+
+    ui.click("el-rel-other")
+    ui.page.locator("[role='option']:visible").first.click()
+    ui.settle()
+    chosen = ui.page.locator("#el-rel-other").first.input_value()
+    ui.must("an element was chosen at the other end", bool(chosen.strip()), f"the box reads {chosen!r}")
+    ui.click("el-rel-add")
+    half = ui.text("el-rel-feedback")
+    ui.check(
+        "one end without a relationship is refused the same way",
+        "Choose the other element and a relationship." in half,
+        f"with {chosen!r} chosen the feedback read {half!r}",
+    )
+    ui.check("nothing says a relationship was added", "Relationship added." not in half, half)
+    ui.check(
+        "the count in the tab label still did not move",
+        ui.text("el-rel-count") == label_before,
+        f"the tab read {label_before!r}, now {ui.text('el-rel-count')!r}",
+    )
+    ui.check(
+        "and the tables behind the form are as they were",
+        ui.text("el-rel-tables") == tables_before,
+        _brief(ui.text("el-rel-tables")),
+    )
+    ui.shot("The other element chosen but no relationship: refused with the same sentence")
+
+    ui.goto(f"/element/{element_id}")
+    _tab(ui, "Relationships")
+    ui.check(
+        "and nothing was written: the reloaded page counts what it counted before",
+        ui.text("el-rel-count") == label_before,
+        f"the tab read {label_before!r}, now {ui.text('el-rel-count')!r}",
+    )
+    ui.check(
+        "with the same tables under it",
+        ui.text("el-rel-tables") == tables_before,
+        _brief(ui.text("el-rel-tables")),
+    )
+    ui.shot("The element reloaded: the two refusals wrote nothing")
+
+
+# ------------------------------------------------------------------ a file with nothing in it
+
+EMPTY_CSV = ""  # a file the reader believes holds their export, and which holds nothing
+HEADER_ONLY_CSV = "id,type,name,description\n"  # the header alone: a file that declares no rows
+
+
+def _server_log(ui, needle: str) -> str:
+    """What the server wrote about the last request, when it wrote anything at all."""
+    try:
+        text = (ui.run_dir / "server.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    lines = [line for line in text.splitlines() if needle in line]
+    return lines[-1][:160] if lines else ""
+
+
+@pytest.mark.scenario(
+    scenario_id="O15",
+    group="O",
+    title="A file with nothing in it is refused and named, not answered with silence",
+    feature="Negative · import · an empty file",
+    expected=(
+        "Validating a CSV that holds no bytes at all reports the file by name and says it could not be "
+        "read, the way a file whose rows do not match its header is reported; a file that holds its "
+        "header and no rows loads nothing and says so."
+    ),
+)
+def test_empty_csv_is_refused(ui, record):
+    ui.goto("/import")
+    ui.must("the Import page rendered its upload zone", ui.visible("im-upload"))
+    _upload(ui, _write(ui, "o-empty-elements.csv", EMPTY_CSV))
+    listed = ui.text("im-files")
+    ui.check("the file is listed", "o-empty-elements.csv" in listed, listed)
+    ui.check("and counted as holding no rows before anything is pressed", "0 rows" in listed, listed)
+    ui.fill("im-source", "o-negative-round")
+
+    ui.click("im-validate")
+    report = ui.text("im-report")
+    crashed = _server_log(ui, "EmptyDataError")
+    ui.check(
+        "the check answers at all",
+        bool(report.strip()),
+        f"the report area stayed empty; the server log says: {crashed or '(nothing about it)'}",
+    )
+    ui.check(
+        "and the answer names the file that could not be read",
+        "o-empty-elements.csv" in report,
+        _brief(report) or "(the report area is empty)",
+    )
+    ui.check(
+        "nothing claims the file was read and found clean",
+        "Validation only — nothing written." not in report or "o-empty-elements.csv" in report,
+        _brief(report) or "(the report area is empty)",
+    )
+    ui.shot("Validate on a file that holds no bytes at all")
+
+    ui.click("im-load")
+    loaded = ui.text("im-report")
+    ui.check(
+        "pressing Load on it is answered too",
+        bool(loaded.strip()),
+        f"the report area stayed empty; the server log says: {_server_log(ui, 'EmptyDataError') or '(nothing)'}",
+    )
+    ui.check("and nothing says it was loaded", not loaded.strip().startswith("Loaded."), _brief(loaded))
+    ui.shot("Load on the same empty file: what the reader is told")
+
+    # A file that holds its header and no rows is a different thing: readable, and empty.
+    ui.goto("/import")
+    _upload(ui, _write(ui, "o-header-only-elements.csv", HEADER_ONLY_CSV))
+    ui.fill("im-source", "o-negative-round")
+    ui.click("im-validate")
+    checked = ui.text("im-report")
+    ui.check(
+        "a header with no rows under it is read",
+        "Validation only — nothing written." in checked,
+        _brief(checked),
+    )
+    ui.check("and counted as the nothing it is", "elements 0/0 loaded" in checked, _brief(checked))
+    ui.check("with nothing to report as an issue", "Issues (0)" in checked, _brief(checked))
+    ui.shot("A file holding its header and no rows: read, and counted as empty")
+
+    ui.click("im-load")
+    empty_load = ui.text("im-report")
+    ui.check(
+        "loading it does not announce itself as a load",
+        not empty_load.strip().startswith("Loaded."),
+        _brief(empty_load),
+    )
+    ui.check(
+        "and says in its first words that nothing was written",
+        empty_load.strip().startswith("Nothing was loaded."),
+        _brief(empty_load),
+    )
+    ui.check("counting what it wrote as nothing", "elements 0/0 loaded" in empty_load, _brief(empty_load))
+    ui.shot("Load on a file with no rows: 'Nothing was loaded.', which is what happened")
+
+
+# ---------------------------------------------------------------- a type the pack does not hold
+
+UNKNOWN_TYPE = "o_not_a_real_type"
+
+
+@pytest.mark.scenario(
+    scenario_id="O16",
+    group="O",
+    title="An address filtering on a type the pack does not hold shows nothing, not everything",
+    feature="Negative · browse · a type in the address",
+    expected=(
+        f"/browse?type={UNKNOWN_TYPE} keeps the filter it was given rather than dropping it: the grid "
+        "holds no rows and the count says so; the type box can then be put back to All types and the "
+        "model returns."
+    ),
+)
+def test_browse_type_that_the_pack_does_not_hold(ui, record, finding):
+    ui.goto("/browse")
+    whole = ui.grid_row_count(GRID)
+    ui.must("the model is in the grid to begin with", whole > 0, f"{whole} rows")
+
+    ui.goto(f"/browse?type={UNKNOWN_TYPE}")
+    ui.must("the page rendered its grid all the same", ui.visible(GRID), _brief(_page(ui)))
+    rows = ui.grid_row_count(GRID)
+    count = ui.text("browse-count")
+    ui.check("nothing reports a crash", "This page failed to render" not in _page(ui), _brief(_page(ui)))
+    ui.check(
+        "the address was not quietly dropped: the whole model is not shown as though nothing was asked",
+        rows < whole,
+        f"{rows} rows against {whole} in the unfiltered grid",
+    )
+    ui.check("no row matches a type the pack does not hold", rows == 0, f"{rows} rows")
+    ui.check("and the count says so rather than counting something else", count == "0 of 0", count)
+    ui.shot("An address naming a type the pack does not hold: an empty grid, counted as empty")
+
+    box = ui.page.locator("#browse-type").first.input_value()
+    names_it = UNKNOWN_TYPE in _page(ui) or bool(re.search(r"unknown|no such type", _page(ui), re.I))
+    _pick(ui, "browse-type", "All types")
+    back = ui.grid_row_count(GRID)
+    ui.check(
+        "the reader is not stuck: All types brings the model back",
+        back > 0,
+        f"{back} rows after clearing the filter",
+    )
+    ui.shot("The same page with the type filter put back to All types: the model returns")
+    if not names_it:
+        finding.append(
+            _finding(
+                finding_id="O-7",
+                where="src/ea/ui/pages/browse.py · render(), the ?type= parameter",
+                severity="usability",
+                summary="A type in the address that the pack does not hold empties the grid without a word",
+                detail=(
+                    f"render() passes the ?type= straight into the filter, so /browse?type={UNKNOWN_TYPE} "
+                    f"counts '0 of 0' and shows nothing, while the type box reads {box!r} because the "
+                    "value matches no option. A stale bookmark, or a link to a type since renamed in the "
+                    "pack, therefore reads as a repository with nothing in it. The Impact page refuses an "
+                    "element it does not hold out loud ('Unknown element.'); Browse should say the same "
+                    "about a type rather than answer with an empty model."
+                ),
+            )
+        )
+
+
+# ------------------------------------------------- a branch name the proposal cannot be applied to
+
+TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "templates" / "proposal-template.md"
+WP_LABEL = "Curriculum Management System Upgrade"  # the sample model's one work package
+IMPOSSIBLE_BRANCH = "###"  # a name with nothing in it an identifier can be made of
+
+
+@pytest.mark.scenario(
+    scenario_id="O17",
+    group="O",
+    title="A proposal ready to apply, aimed at a branch that cannot be named, is refused and kept",
+    feature="Negative · propose · an impossible branch name",
+    expected=(
+        "A change set with no pushback, applied to a new branch called '###', is refused with what is "
+        "wrong with the name; the change set is still on screen afterwards and no branch was created."
+    ),
+)
+def test_apply_to_a_branch_that_cannot_be_named(ui, record):
+    ui.goto("/branches")
+    branches_before = ui.page.locator("#br-list tbody tr").count()
+    ui.must("the branch list can be counted", branches_before >= 0, f"{branches_before} rows")
+
+    ui.goto("/propose")
+    ui.must("the Propose page rendered its proposal box", ui.page.locator(PASTE).count() > 0)
+    ui.select("pr-wp", WP_LABEL)
+    box = ui.page.locator(PASTE).first
+    box.click()
+    box.fill(TEMPLATE_PATH.read_text(encoding="utf-8"))
+    ui.settle()
+    ui.click("pr-analyse")
+    ui.page.wait_for_selector("#pr-pushback", timeout=30_000)
+    ui.settle()
+    pushback = ui.text("pr-pushback")
+    ui.must(
+        "the change set is ready to apply, so what is refused next is the branch and nothing else",
+        "Not enough to apply" not in pushback,
+        _brief(pushback, 400),
+    )
+    rows_before = ui.grid_row_count("pr-el-grid")
+    ui.must("the change set holds rows", rows_before > 0, f"{rows_before} element rows")
+
+    _pick(ui, "pr-branch", "New branch")
+    ui.fill("pr-branch-new", IMPOSSIBLE_BRANCH)
+    ui.click("pr-apply")
+    feedback = ui.text("pr-apply-feedback")
+    ui.check("the apply is refused", "Not applied" in feedback, f"the feedback read {feedback!r}")
+    ui.check(
+        "and the refusal says what is wrong with the name that was typed",
+        "name" in feedback.lower() and "main" not in feedback.lower(),
+        feedback,
+    )
+    ui.check(
+        "naming what a branch identifier is made of",
+        bool(re.search(r"letter|number|character", feedback, re.I)),
+        feedback,
+    )
+    ui.check("nothing says it was applied", "Applied to branch" not in ui.text("pr-result"), feedback)
+    ui.shot("A change set aimed at a branch called '###': refused, in the branch's own words")
+
+    ui.check(
+        "the change set survived the refusal, so the reader's work is not lost",
+        ui.grid_row_count("pr-el-grid") == rows_before,
+        f"{ui.grid_row_count('pr-el-grid')} rows now, {rows_before} before",
+    )
+    ui.check(
+        "and the name that was refused is still in the box to be corrected",
+        ui.page.locator("#pr-branch-new").first.input_value() == IMPOSSIBLE_BRANCH,
+        ui.page.locator("#pr-branch-new").first.input_value(),
+    )
+    ui.shot("The change set is still on screen behind the refusal, with the name to be corrected")
+
+    ui.goto("/branches")
+    listed = _page(ui)
+    ui.check(
+        "no branch was created for the proposal",
+        ui.page.locator("#br-list tbody tr").count() == branches_before,
+        f"{ui.page.locator('#br-list tbody tr').count()} branches now, {branches_before} before",
+    )
+    ui.check(
+        "and nothing in the list carries the name that was refused",
+        IMPOSSIBLE_BRANCH not in listed,
+        _brief(listed, 400),
+    )
+    ui.shot("The Branches page after the refusal: the same branches, and none of them nameless")
+
+
+# ------------------------------------------------------------------- a link that is not a link
+
+
+def _links_published(ui) -> list[tuple[str, str]]:
+    """Every link the page offers that leaves the application's own addresses behind."""
+    pairs = ui.page.evaluate(
+        """() => Array.from(document.querySelectorAll('#page a'))
+            .map(a => [(a.textContent || '').trim(), a.getAttribute('href') || ''])"""
+    )
+    return [(text, href) for text, href in pairs if not href.startswith("/")]
+
+
+SCRIPT_LINK = "javascript:alert('o-negative')"
+NOT_A_URL = "o-not-a-url-at-all"
+BAD_LINKS = f"{SCRIPT_LINK} | Looks like a document\n{NOT_A_URL} | A line that is not an address\n"
+
+
+@pytest.mark.scenario(
+    scenario_id="O18",
+    group="O",
+    title="A links box takes anything, and what it takes is published as a link",
+    feature="Negative · element · Edit · the links box",
+    expected=(
+        "Saving a links box holding a javascript: line and a line that is no address at all is refused, "
+        "or at the very least neither line is published as something the reader can click; nothing on "
+        "the page may carry a javascript: address."
+    ),
+)
+def test_links_that_are_not_addresses(ui, record, finding):
+    element_id = _probe_id(ui)
+    ui.must("this group's element is in the model", bool(element_id), f"id {element_id!r}")
+    ui.goto(f"/element/{element_id}")
+    _tab(ui, "Edit")
+    before = ui.page.locator("#el-links").first.input_value()
+    ui.fill("el-links", BAD_LINKS)
+    ui.click("el-save")
+    feedback = ui.text("el-save-feedback")
+    refused = "Saved version" not in feedback
+    ui.check(
+        "the save either refuses the two lines or reports what it wrote",
+        bool(feedback),
+        f"the feedback box read {feedback!r}",
+    )
+    ui.shot("Two lines that are not addresses, handed to the links box and saved")
+
+    ui.goto(f"/element/{element_id}")
+    published = _links_published(ui)
+    scripted = [pair for pair in published if pair[1].strip().lower().startswith("javascript:")]
+    into_the_app = [pair for pair in published if NOT_A_URL in pair[1]]
+    ui.check(
+        "no link the page publishes runs a script instead of going somewhere",
+        not scripted,
+        f"the page publishes {published or 'no link of its own'}",
+    )
+    ui.check(
+        "and the line that is no address at all is not published as a link either",
+        refused or not into_the_app,
+        f"the page publishes {published or 'no link of its own'}",
+    )
+    ui.check(
+        "a refusal, if that is what happened, says which line it is about",
+        (not refused) or SCRIPT_LINK in feedback or "link" in feedback.lower(),
+        feedback,
+    )
+    ui.shot("What the element page publishes after the links box was given two lines that are not addresses")
+
+    _tab(ui, "Edit")
+    kept = ui.page.locator("#el-links").first.input_value()
+    ui.check(
+        "and the model did not keep a line the browser had to neutralise before drawing it",
+        refused or SCRIPT_LINK not in kept,
+        f"the links box reads {kept!r}",
+    )
+    ui.shot("The links the model kept, read back in the box they were typed into")
+
+    if scripted or into_the_app or (not refused and SCRIPT_LINK in kept):
+        finding.append(
+            _finding(
+                finding_id="O-8",
+                where="src/ea/ui/pages/element.py · _parse_links(), and the anchors the Overview draws from it",
+                severity="defect",
+                summary="The links box takes any line as an address, and publishes what it took as a link",
+                detail=(
+                    "_parse_links() splits each line on '|' and keeps whatever is on the left as the url. "
+                    "Nothing between the box and the browser looks at it: update_element does not, "
+                    "set_links does not, and the Overview draws every one of them as dmc.Anchor(href=…) "
+                    f"with target='_blank'. Saving {SCRIPT_LINK!r} and {NOT_A_URL!r} was accepted with "
+                    f"{feedback!r}; the box reads {kept!r} on the way back, so the store kept both lines "
+                    f"verbatim, and the element page published {published} — the scheme survives in the "
+                    "model and only Chromium's own refusal to follow it turned the first into about:blank, "
+                    "which the Markdown and draw.io exports of the same row have no reason to repeat. A "
+                    "line that is no "
+                    "address at all becomes a link into the application itself, which lands the reader on "
+                    "the front page for no reason they can see; a line carrying a scheme the page never "
+                    "meant to offer is stored just as willingly, on a field an import and a proposal can "
+                    "write as easily as a person. The box should take http(s) and mailto, and name the "
+                    "line it refuses, the way every other field on this page refuses what it cannot use."
+                ),
+            )
+        )
+
+    # Whatever the page did with them, the element goes back to the links it had.
+    ui.goto(f"/element/{element_id}")
+    _tab(ui, "Edit")
+    ui.fill("el-links", before)
+    ui.click("el-save")
+    restored = ui.text("el-save-feedback")
+    ui.check(
+        "and the element is put back the way it was found",
+        ("Saved version" in restored) or refused,
+        restored,
+    )
+    ui.goto(f"/element/{element_id}")
+    left = _links_published(ui)
+    ui.check(
+        "with none of the two lines left on it",
+        not [
+            pair for pair in left if NOT_A_URL in pair[1] or pair[1].strip().lower().startswith("javascript:")
+        ],
+        f"the page publishes {left or 'no link of its own'}",
+    )
+    ui.shot("The element with its links put back the way the group found them")
