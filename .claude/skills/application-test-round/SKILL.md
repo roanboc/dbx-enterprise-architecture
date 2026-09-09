@@ -1,6 +1,6 @@
 ---
 name: application-test-round
-description: Run one test round of this repository's application on demand — drive every screen in a browser and every command on the command line, audit each screen against a fixed usability checklist and the axe-core rule engine, and hand the Requester a report, a page of key screenshots and a triaged list of findings. Use when asked to test the app, to review the GUI or the UX, to produce a test report with screenshots, or before a demo or a release. Not a step of every change: a fix is its own scoped piece of work, with a unit test first.
+description: Run one test round of this repository's application on demand — drive every screen in a browser and every command on the command line, audit each screen against a fixed usability checklist and the axe-core rule engine, and hand the Requester a report, a page of key screenshots and a triaged list of findings. Use when asked to test the app, to review the GUI or the UX, to produce a test report with screenshots, or before a demo or a release. Not a step of every change — a fix is its own scoped piece of work, with a unit test first.
 ---
 
 # One application test round
