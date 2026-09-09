@@ -24,6 +24,7 @@ class Settings:
     max_rows: int = 5000
     admin_contact: str = ""
     databricks_warehouse_id: str = ""
+    databricks_http_path: str = ""  # instead of the warehouse id: any SQL endpoint path
     databricks_catalog: str = ""
     databricks_schema: str = "ea"
     role_groups: str = ""  # admin=grp1,grp2;architect=grp3;reviewer=grp4 (decision 0008)
@@ -41,6 +42,7 @@ class Settings:
             max_rows=int(env.get("EA_MAX_ROWS", "5000")),
             admin_contact=env.get("EA_ADMIN_CONTACT", ""),
             databricks_warehouse_id=env.get("DATABRICKS_WAREHOUSE_ID", ""),
+            databricks_http_path=env.get("DATABRICKS_HTTP_PATH", ""),
             databricks_catalog=env.get("EA_CATALOG", ""),
             databricks_schema=env.get("EA_SCHEMA", "ea"),
             role_groups=env.get("EA_ROLE_GROUPS", ""),

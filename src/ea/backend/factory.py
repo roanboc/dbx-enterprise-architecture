@@ -10,5 +10,7 @@ def backend_from_settings(settings: Settings) -> DatabaseBackend:
 
         return DuckDBBackend(settings.db_path)
     if settings.backend == "databricks":
-        raise NotImplementedError("the Databricks backend lands in a later initiative; use EA_BACKEND=duckdb")
+        from ea.backend.databricks_backend import DatabricksBackend
+
+        return DatabricksBackend.from_settings(settings)
     raise ValueError(f"unknown backend {settings.backend!r}")
