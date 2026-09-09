@@ -30,7 +30,9 @@ it changes with `Source` reading `adopted — <the call>`, in a document that
 stays `◐`, so a later word from the Requester overrides it. Never ask about a
 state that does not exist yet.
 
-**The PoC posture** (initiatives 1 to 5, built; the Databricks step next):
+**The PoC posture** (initiatives 1 to 12 built; the Databricks step,
+initiative 13, built and waiting for a workspace run; step 3, provenance and
+feeds, waits on the source-of-record table agreed outside the repository):
 iterate and fail fast inside the approved scope, keep the long-term roadmap in
 [`architecture/6_transition/`](./architecture/6_transition/README.md) honest,
 and never quietly widen the PoC with a roadmap item.
@@ -99,7 +101,12 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   CSV contract and per-tool column mappings (`tool-export`). `data/sample/` — a
   fictional university's curriculum slice so the demo works without real data.
 - `src/ea/` — `models` → `metamodel` → `backend` → `services` → `views`,
-  `importer`, `agent` → `ui`, plus `cli.py`. `views/` renders a subgraph of the
+  `importer`, `agent` → `ui`, plus `cli.py`. `backend/` is the store written
+  once on SQL (`sql_backend.py`) with two engines, DuckDB and Databricks, that
+  add only how they connect, run a statement and land rows (decision 0011);
+  the unit suite runs on both, the Databricks engine over a warehouse played by
+  DuckDB (`tests/fake_warehouse.py`), and on a real warehouse with
+  `make test-live`. `views/` renders a subgraph of the
   model as Mermaid or draw.io from the pack's `notation`; nothing is drawn by
   hand and every shape carries an element identifier (principle `P8`). `ui/graph.py`
   is the one network-graph panel (grouping, layouts, pack colours);
@@ -110,6 +117,9 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   same tables (decision 0006), and the current branch is a context variable
   (`backend/branching.py`) that every read and write honours: the app sets it
   from the session, the CLI from `--branch`, a service from `use_branch()`.
+  On Databricks the same tables are Delta tables in a Unity Catalog schema;
+  `databricks.yml` deploys the app and the schema, `deploy/grants.py` grants
+  the app's service principal what the store needs after the first deploy.
   Never write to `branch_*` tables directly and never bypass it. Every element
   and relationship carries `current_state`, `target_state`,
   `target_work_package` and `target_note` (decision 0007); the vocabularies
@@ -117,8 +127,10 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   (`agent/proposal.py`) writes only to a branch and only what the architect
   ticked.
 - **Roles.** The role is a context variable too (`services/roles.py`), set per
-  request from the identity headers (or the debug persona under mock
-  authentication) and from `--as` on the command line. `allowed()` is the only
+  request from the identity headers — with the user's workspace groups read
+  through `services/identity.py`, since the platform forwards none (decision
+  0012) — or the debug persona under mock authentication, and from `--as` on
+  the command line. `allowed()` is the only
   place that knows what a role may do; every writing path calls `require()`
   and the pages hide what the role may not use. A branch in review is frozen.
   Never add a write path without its `require()`.
@@ -140,7 +152,9 @@ make install     # uv sync (runtime and dev dependencies)
 make seed        # create data/ea.duckdb, load the higher-education pack and the sample model
 make run         # http://localhost:8050 (Dash debug server, no reloader)
 make check       # ruff + pytest + the two validators — must be green before pushing
-make test-fast   # the unit tests alone, in seconds, while iterating
+make test-fast   # the unit tests alone, in seconds, while iterating (every store test on both engines)
+make test-live   # the unit tests on a real SQL warehouse, on demand (DATABRICKS_HOST, credentials, DATABRICKS_WAREHOUSE_ID, EA_CATALOG)
+make deploy      # the bundle's dev target: the Unity Catalog schema and the app (BUNDLE_VAR_warehouse_id); then make deploy-grants once
 make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
 uv run ea --help # the CLI: init, import, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …; --branch and --as on any command
 ```

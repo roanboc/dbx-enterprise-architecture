@@ -137,7 +137,7 @@ flowchart TB
 | -- | ---- | ----------- |
 | `G1` | **Query the architecture sustainably** — people and agents get answers about elements, relationships and impact without drawing tools | The three reference questions (ownership, entities behind a data product, impact of an entity change) answered from the loaded model with cited identifiers |
 | `G2` | **Metamodel is configuration** — element types, relationship types and attributes are edited as data and exported as a pack | The institution's metamodel loads from `packs/higher_education/metamodel.yaml`, is edited in the app and round-trips to YAML |
-| `G3` | **One code base, local and Databricks** — the same code runs on a DuckDB file and on Delta tables | The backend interface has a DuckDB implementation now and a Databricks one with the same DDL later |
+| `G3` | **One code base, local and Databricks** — the same code runs on a DuckDB file and on Delta tables | One SQL implementation of the store with a DuckDB engine and a Databricks engine on the same DDL; the unit suite passes on both (the Databricks engine over a warehouse played by DuckDB on every change, and on a real warehouse on demand) |
 | `G4` | **Show a working PoC within a month** — something the owner can show and sell to the information architect and sponsors | A demo of the four deliverables on the curriculum slice of the institution's content |
 | `G5` | **Reusable by any enterprise** — no framework- or institution-specific code | The engine is Apache-2.0; the higher-education pack is one pack among possible others |
 

@@ -46,7 +46,7 @@ flowchart LR
 | ID | Domain | Owner | Holds |
 | -- | ------ | ----- | ----- |
 | `DOBJ1` | **Metamodel** — what may exist: element types, relationship types, attributes, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework; `higher_education` today |
-| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements once the institution's full export is loaded; 45 in the sample |
+| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements once the institution's full export is loaded; 47 in the sample |
 | `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log |
 
 ## Objects
@@ -120,12 +120,15 @@ flowchart LR
 ## Persistence
 
 One schema, two engines (principle `P4`). The DDL in `src/ea/backend/sql.py`
-uses only types both engines share; JSON is stored as text. Locally the schema
-lives in one DuckDB file (`data/ea.duckdb`; `/tmp/ea.duckdb` on Databricks
-Apps while the Delta backend is pending). On Databricks the same tables land in
-one Unity Catalog schema (`EA_CATALOG.EA_SCHEMA`), where Unity Catalog's own
-lineage, comments and grants apply and where the business glossary is published
-(adopted: the platform's own catalogue publishes the glossary).
+uses only types both engines share (an engine spells them in its own dialect);
+JSON is stored as text. Locally the schema lives in one DuckDB file
+(`data/ea.duckdb`). On Databricks the same tables are Delta tables in one Unity
+Catalog schema (`EA_CATALOG.EA_SCHEMA`), created by the deployment bundle and
+reached through a SQL warehouse, where Unity Catalog's own lineage, comments
+and grants apply and where the business glossary is published (adopted: the
+platform's own catalogue publishes the glossary). The store is written once on
+SQL (`src/ea/backend/sql_backend.py`); an engine adds only how it connects,
+runs a statement and lands rows (decision 0011).
 
 Traversals (`neighbours`, `trace`, `impact`) are recursive queries over
 `relationship` with a cycle guard, plus an in-process cache of the graph for

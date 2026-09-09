@@ -44,7 +44,7 @@ flowchart LR
 | ID | Plateau | Status | What is true when it is reached |
 | -- | ------- | ------ | ------------------------------- |
 | `PLAT1` | **Local PoC on DuckDB** — the four deliverables (metamodel manager, element browse and edit, CSV ingestion, grounded agent) run on a DuckDB file with the higher-education pack and the curriculum export; extended by initiative 2 with generated architecture views and answer documents | In flight — initiatives 1 and 2 | The owner can show the app on the curriculum slice; the information architect has seen it |
-| `PLAT2` | **Same application on Databricks** — the app runs on Databricks Apps, the store is a Unity Catalog schema of Delta tables, identity comes from the workspace | Planned | Same tests pass against a dev catalog; one deployment bundle |
+| `PLAT2` | **Same application on Databricks** — the app runs on Databricks Apps, the store is a Unity Catalog schema of Delta tables, identity comes from the workspace | In flight — initiative 13 (built 2026-09-09: the Databricks engine, the bundle, the workspace identity; the run on a workspace pending) | Same tests pass against a dev catalog; one deployment bundle |
 | `PLAT3` | **Real content with provenance** — every type of the institution's metamodel is loaded, every type declares mirrored, authored or enriched semantics, and the mirrored ones are fed from their sources (the CMDB, the HR system, the project portfolio tool, the information asset register, the data platform's metadata catalogue) by scheduled jobs | Planned | A fact from the CMDB is never edited by hand in the repository; freshness is visible per source |
 | `PLAT4` | **Governed change** — proposals are change sets with a base version, an impact assessment and a recorded approval; stewards and owners review in the app; sensitive attributes are granted by role | In flight — initiatives 4 to 7 delivered the change sets, the roles and the review on DuckDB; the platform's identity and grants wait for `PLAT2` | No approved status is written without a recorded human decision |
 | `PLAT5` | **Semantic front doors** — a typed, commented projection with keys is generated from the metamodel into Unity Catalog; Business Definitions and Measures are published to the Unity Catalog business glossary and metric views; Genie-based agents over the projection, or whichever agent framework the platform offers, traverse the graph and answer in Markdown, with questions, answers and user feedback logged for monitoring and improvement; a tool server exposes the model to external agents | Planned | The three reference questions are answered through a Genie-based agent and through an external agent, with the same identifiers |
@@ -78,8 +78,8 @@ flowchart LR
 
 | ID | Gap | Between | Closed by |
 | -- | --- | ------- | --------- |
-| `GAP1` | **No Delta backend** — the store interface has one implementation | `PLAT1` and `PLAT2` | Initiative 3: `DatabricksBackend` on the same DDL, opt-in live tests |
-| `GAP2` | **No deployment bundle** — `app.yaml` exists, the bundle, catalog, schema, warehouse and grants do not | `PLAT1` and `PLAT2` | Initiative 3 |
+| `GAP1` | **No Delta backend** — the store interface has one implementation | `PLAT1` and `PLAT2` | Initiative 13 (built 2026-09-09): the store written once on SQL, the Databricks engine on the same DDL proved on a warehouse played by DuckDB in every test run and on a real warehouse by `make test-live`, which waits for a workspace |
+| `GAP2` | **No deployment bundle** — `app.yaml` exists, the bundle, catalog, schema, warehouse and grants do not | `PLAT1` and `PLAT2` | Initiative 13 (built 2026-09-09): `databricks.yml` with the schema, the app and its warehouse, the grant step after the first deploy; the deploy waits for a workspace |
 | `GAP3` | **No real institutional content** — the sample model stands in for the curriculum export | `PLAT1` and `PLAT3` | The current tool's export loaded through the export mapping (inside initiative 1 once the CSVs arrive) |
 | `GAP4` | **No source feeds** — the current EA tool's export is the source of everything; nothing distinguishes a mirrored fact from an authored one yet | `PLAT1` and `PLAT3` | Initiative 4: per-type source-of-record semantics enforced, scheduled feeds |
 | `GAP5` | **No change-set model** — edits are immediate, with optimistic concurrency and a change log but no proposal, review or approval | `PLAT1` and `PLAT4` | Core closed by initiative 4 (built 2026-09-06): branches as overlays, diff with base versions, merge item by item with conflicts resolved; the review and approval flow by a second person follows once roles are enforced |
@@ -99,7 +99,10 @@ flowchart LR
 ```mermaid
 flowchart LR
   p1["≡ Local PoC on DuckDB [PLAT1]"]:::implementation
+  p2["≡ Same application on Databricks [PLAT2]"]:::implementation
   p4["≡ Governed change [PLAT4]"]:::implementation
+  g1["⊘ No Delta backend [GAP1]"]:::implementation
+  g2["⊘ No deployment bundle [GAP2]"]:::implementation
   g9["⊘ Views are graph layouts, not architecture diagrams [GAP9]"]:::implementation
   g11["⊘ No notation editor, hard-coded colours, fixed diagrams, graphs that overlap [GAP11]"]:::implementation
   g5["⊘ No change-set model [GAP5]"]:::implementation
@@ -114,6 +117,8 @@ flowchart LR
   g5 -->|core closed, initiative 4| p4
   g14 -->|closed, initiative 7| p4
   g15 -->|closed, initiative 6| p1
+  g1 -->|closed in code, initiative 13| p2
+  g2 -->|closed in code, initiative 13| p2
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
