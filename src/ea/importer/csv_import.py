@@ -6,8 +6,11 @@ uses it); `import_directory` wraps it for files on disk (the CLI uses it).
 
 from __future__ import annotations
 
+import io
 import re
+import warnings
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -23,6 +26,7 @@ from ea.importer.mapping import (
 from ea.metamodel.registry import Registry
 from ea.models import (
     CURRENT_STATES,
+    LINK_SCHEMES,
     TARGET_STATES,
     Element,
     Forbidden,
@@ -42,8 +46,50 @@ def _norm_col(name: str) -> str:
     return slugify(str(name))
 
 
+class CsvShapeError(ValueError):
+    """A file whose rows do not match the header it declares."""
+
+    def __init__(self, filename: str, detail: str) -> None:
+        super().__init__(f"{filename}: {detail}")
+        self.filename = filename
+        self.detail = detail
+
+
+def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.DataFrame:
+    """One CSV, read strictly: a row that does not match the header is refused, not reshaped.
+
+    Left to itself, a row carrying more fields than the header makes the parser promote the
+    first column to the index, and every field on that row shifts one place left. The file
+    then loads without a word, under identifiers it never declared — the worst outcome an
+    importer can have. Refusing it is the only safe answer.
+    """
+    kwargs: dict[str, Any] = {"dtype": str, "keep_default_na": False, "index_col": False}
+    if encoding is not None:
+        kwargs["encoding"] = encoding
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", pd.errors.ParserWarning)
+            frame = pd.read_csv(source, **kwargs)
+    except pd.errors.EmptyDataError:
+        raise CsvShapeError(filename, "the file is empty: it has no header row to read") from None
+    except pd.errors.ParserError as exc:
+        raise CsvShapeError(filename, " ".join(str(exc).split())) from None
+    # A surplus field is a warning, not an error: the parser keeps the fields the header
+    # declares and drops the rest. Dropping part of a row silently is the same failure as
+    # shifting it, so the file is refused here too.
+    ragged = [w for w in caught if issubclass(w.category, pd.errors.ParserWarning)]
+    if ragged:
+        raise CsvShapeError(filename, " ".join(str(ragged[0].message).split()))
+    return frame
+
+
+def read_csv_text(text: str, filename: str) -> pd.DataFrame:
+    """The same strict read, for a file that arrived as text rather than a path."""
+    return _read_frame(io.StringIO(text), filename)
+
+
 def _read_csv(path: Path, encoding: str) -> pd.DataFrame:
-    return pd.read_csv(path, dtype=str, keep_default_na=False, encoding=encoding)
+    return _read_frame(path, path.name, encoding)
 
 
 def _rename(df: pd.DataFrame, columns: dict[str, str]) -> pd.DataFrame:
@@ -60,9 +106,15 @@ def _rename(df: pd.DataFrame, columns: dict[str, str]) -> pd.DataFrame:
 
 
 def read_directory(
-    directory: str | Path, mapping: Mapping | None = None
+    directory: str | Path,
+    mapping: Mapping | None = None,
+    problems: list[CsvShapeError] | None = None,
 ) -> dict[str, list[tuple[str, pd.DataFrame]]]:
-    """Frames per kind, tagged with the file they came from."""
+    """Frames per kind, tagged with the file they came from.
+
+    A file whose rows do not match its header is collected into `problems` and left out,
+    so one malformed file does not stop the rest; with no list to collect into, it raises.
+    """
     mapping = mapping or Mapping()
     d = Path(directory)
     if not d.exists():
@@ -79,7 +131,12 @@ def read_directory(
                 if p in seen or not p.is_file():
                     continue
                 seen.add(p)
-                out[kind].append((p.name, _read_csv(p, mapping.encoding)))
+                try:
+                    out[kind].append((p.name, _read_csv(p, mapping.encoding)))
+                except CsvShapeError as exc:
+                    if problems is None:
+                        raise
+                    problems.append(exc)
     return out
 
 
@@ -333,8 +390,18 @@ def build_relationships(
 
 
 def build_links(
-    frames: list[tuple[str, pd.DataFrame]], mapping: Mapping, known: dict[str, str], report: ImportReport
+    frames: list[tuple[str, pd.DataFrame]],
+    mapping: Mapping,
+    known: dict[str, str],
+    report: ImportReport,
+    backend: DatabaseBackend | None = None,
 ) -> list[Link]:
+    """Links for elements this import brought, and for elements the model already holds.
+
+    A links file is routinely loaded on its own — a second pass adding documentation to
+    elements imported last week. Knowing only what came in the same upload would call
+    every one of those unknown and drop the file.
+    """
     links: list[Link] = []
     for fname, raw in frames:
         df = _rename(raw, mapping.link_columns)
@@ -342,12 +409,29 @@ def build_links(
             report.links_read += 1
             rec = {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
             eid, url = rec.get("element_id", ""), rec.get("url", "")
-            if eid not in known or not url:
+            here = eid in known or (
+                bool(eid) and backend is not None and backend.get_element(eid) is not None
+            )
+            if not here or not url:
                 report.issues.append(
                     Issue(
                         "warning",
                         "dangling_link",
                         f"link for unknown element {eid!r} or empty url",
+                        row=i,
+                        file=fname,
+                        entity=eid,
+                    )
+                )
+                continue
+            if not url.lower().startswith(LINK_SCHEMES):
+                # The element page refuses the same line for the same reason: a `javascript:`
+                # line waiting for a click is not a link to a source.
+                report.issues.append(
+                    Issue(
+                        "warning",
+                        "bad_link",
+                        f"link for {eid!r} refused: {url!r} is not an http, https or mailto address",
                         row=i,
                         file=fname,
                         entity=eid,
@@ -370,7 +454,7 @@ def import_frames(
 ) -> ImportReport:
     mapping = mapping or Mapping()
     source_system = source_system or mapping.source_system or "import"
-    report = ImportReport(source_system=source_system)
+    report = ImportReport(source_system=source_system, dry_run=dry_run)
     elements, inline_links = build_elements(
         registry, frames.get("elements", []), mapping, source_system, report
     )
@@ -388,7 +472,7 @@ def import_frames(
     rels = build_relationships(
         registry, frames.get("relationships", []), mapping, source_system, known, report
     )
-    links = inline_links + build_links(frames.get("links", []), mapping, known, report)
+    links = inline_links + build_links(frames.get("links", []), mapping, known, report, backend)
     for e in elements + rels:  # type: ignore[operator]
         wp = e.target_work_package
         if wp and wp not in known and backend.get_element(wp) is None:
@@ -434,10 +518,11 @@ def import_directory(
     dry_run: bool = False,
 ) -> ImportReport:
     mapping = mapping or Mapping()
-    frames = read_directory(directory, mapping)
-    if not any(frames.values()):
+    problems: list[CsvShapeError] = []
+    frames = read_directory(directory, mapping, problems)
+    if not any(frames.values()) and not problems:
         raise FileNotFoundError(f"no CSV files matched in {directory}")
-    return import_frames(
+    report = import_frames(
         backend,
         registry,
         frames,
@@ -446,3 +531,13 @@ def import_directory(
         actor,
         dry_run,
     )
+    for problem in problems:
+        report.issues.append(
+            Issue(
+                level="error",
+                code="ragged_row",
+                message=f"a row does not match the header this file declares: {problem.detail}",
+                file=problem.filename,
+            )
+        )
+    return report

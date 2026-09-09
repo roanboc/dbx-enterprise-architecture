@@ -365,6 +365,12 @@ class RepositoryService:
         existing = self.backend.get_relationship(rel.relationship_id)
         if existing:
             return existing
+        # The identifier carries the origin, so the same edge added by hand after it arrived
+        # from a tool would otherwise be written a second time. The model holds one edge
+        # between two elements of one type and qualifier, however it got here.
+        for other in self.backend.relationships_of(src_id, "out"):
+            if (other.rel_type_id, other.dst_id, other.qualifier) == (rt.id, dst_id, qualifier):
+                return other
         return self.backend.insert_relationship(rel, actor)
 
     def set_relationship_states(
@@ -379,7 +385,7 @@ class RepositoryService:
         self.check_write()
         r = self.backend.get_relationship(relationship_id)
         if r is None:
-            raise NotFoundError(relationship_id)
+            raise NotFoundError(relationship_id, "relationship")
         for k, v in (
             ("current_state", current_state),
             ("target_state", target_state),

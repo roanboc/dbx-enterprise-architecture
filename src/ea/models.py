@@ -12,6 +12,11 @@ from typing import Any
 
 ANY = "ANY"
 IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+# A link is published to every reader of the element that carries it, so what may be stored
+# is named rather than guessed at. A `javascript:` line waiting for a click, a `data:`
+# document or a `file:` path off somebody else's disk is not a link to a source.
+LINK_SCHEMES = ("http://", "https://", "mailto:")
+
 ELEMENT_STATUSES = ("draft", "approved", "retired")
 ATTRIBUTE_TYPES = ("string", "text", "integer", "number", "boolean", "date", "json")
 
@@ -351,6 +356,7 @@ class ImportReport:
     elements_skipped: int = 0
     relationships_skipped: int = 0
     issues: list[Issue] = field(default_factory=list)
+    dry_run: bool = False
 
     @property
     def errors(self) -> list[Issue]:
@@ -365,6 +371,15 @@ class ImportReport:
         return not self.errors
 
     def summary(self) -> str:
+        if self.dry_run:
+            # A run that was never going to write anything must not report itself in the
+            # language of one that failed to: '0/47 loaded' reads as a shortfall.
+            return (
+                f"source={self.source_system} checked elements {self.elements_read}"
+                f" ({self.elements_skipped} would be skipped), relationships {self.relationships_read}"
+                f" ({self.relationships_skipped} would be skipped), links {self.links_read};"
+                f" {len(self.errors)} errors, {len(self.warnings)} warnings"
+            )
         return (
             f"source={self.source_system} elements {self.elements_loaded}/{self.elements_read} loaded"
             f" ({self.elements_skipped} skipped), relationships {self.relationships_loaded}/{self.relationships_read}"
@@ -378,7 +393,17 @@ class ConflictError(Exception):
 
 
 class NotFoundError(Exception):
-    pass
+    """Nothing carries the identifier that was asked for.
+
+    It reads as a sentence because it is shown to people: on the command line it is the
+    last line of the failure, and in a bulk edit it is the reason beside the row that was
+    refused. An identifier on its own answers nothing.
+    """
+
+    def __init__(self, identifier: str, kind: str = "element") -> None:
+        super().__init__(f"no {kind} with id {identifier}")
+        self.identifier = identifier
+        self.kind = kind
 
 
 class ValidationError(Exception):

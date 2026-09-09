@@ -122,8 +122,16 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   place that knows what a role may do; every writing path calls `require()`
   and the pages hide what the role may not use. A branch in review is frozen.
   Never add a write path without its `require()`.
-- `tests/` — pytest on an in-memory DuckDB. `scripts/` — the two archreator
-  validators, run before every push.
+- `tests/` — pytest on an in-memory DuckDB, and the command-line scenarios;
+  both run in `make check` on every change, and **every behavioural fix has a
+  unit test there first.** `tests/ui/` is the application test round: it
+  drives every screen in a browser, audits each against a fixed usability
+  checklist and axe-core, and writes the evidence to a gitignored folder. It
+  runs on demand — before a demo or a release, or when asked — never as a
+  gate on a change, and it ends with a triaged list for the Requester
+  (decision 0010). The scenarios are the record and are committed; a run
+  never is. `.claude/skills/application-test-round/` is the skill, invoked
+  by name. `scripts/` — the two archreator validators, run before every push.
 
 ## Commands
 
@@ -132,6 +140,8 @@ make install     # uv sync (runtime and dev dependencies)
 make seed        # create data/ea.duckdb, load the higher-education pack and the sample model
 make run         # http://localhost:8050 (Dash debug server, no reloader)
 make check       # ruff + pytest + the two validators — must be green before pushing
+make test-fast   # the unit tests alone, in seconds, while iterating
+make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
 uv run ea --help # the CLI: init, import, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …; --branch and --as on any command
 ```
 

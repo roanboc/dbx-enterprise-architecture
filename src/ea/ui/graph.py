@@ -511,6 +511,7 @@ def graph_panel(
                         value=group_by,
                         w=200,
                         size="xs",
+                        **{"aria-label": "Group the graph by"},
                     ),
                     dmc.Select(
                         id={"type": LAYOUT, "id": panel_id},
@@ -518,6 +519,7 @@ def graph_panel(
                         value=layout,
                         w=150,
                         size="xs",
+                        **{"aria-label": "Lay the graph out as"},
                     ),
                     dmc.Button(
                         "Fit",
@@ -556,7 +558,13 @@ def graph_panel(
 
 def _panel_control(kind: str, panel_id: str, icon_name: str, label: str) -> dmc.Tooltip:
     return dmc.Tooltip(
-        dmc.ActionIcon(icon(icon_name, 14), id={"type": kind, "id": panel_id}, variant="default", size="sm"),
+        dmc.ActionIcon(
+            icon(icon_name, 14),
+            id={"type": kind, "id": panel_id},
+            variant="default",
+            size="sm",
+            **{"aria-label": label},
+        ),
         label=label,
     )
 

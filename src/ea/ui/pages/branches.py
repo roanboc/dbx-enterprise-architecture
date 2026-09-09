@@ -56,7 +56,7 @@ GRID_COLUMNS = [
     {
         "field": "conflict",
         "width": 100,
-        "valueFormatter": {"function": "params.value ? 'conflict' : ''"},
+        "cellDataType": "text",
         "cellClassRules": {"ea-conflict": "params.value"},
     },
     {
@@ -137,8 +137,12 @@ def _may_abandon(ctx: AppContext, b) -> bool:
     return ctx.can("abandon_branch") and (ctx.role() == "admin" or b.created_by == ctx.actor)
 
 
-def _review_panel(ctx: AppContext, b, has_rows: bool):
-    """Where the branch stands in its review, who must approve what, and the controls the role has."""
+def _review_panel(ctx: AppContext, b, has_rows: bool, message: Any = None):
+    """Where the branch stands in its review, who must approve what, and the controls the role has.
+
+    `message` is the outcome of the last review decision, and it is rendered here rather than
+    under the merge log: a refusal belongs beside the button that raised it.
+    """
     reqs = ctx.reviews.requirements(b.branch_id) if b.status not in ("merged", "abandoned") else []
     reviews = ctx.reviews.reviews(b.branch_id)
     me = ctx.current_user()
@@ -241,7 +245,7 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
                 [
                     dmc.Stack(
                         [
-                            dmc.Text("Review", className="ea-section-title"),
+                            dmc.Title("Review", order=2, className="ea-section-title"),
                             dmc.Text(headline, size="xs", c="dimmed"),
                         ],
                         gap=2,
@@ -253,7 +257,7 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
             ),
             simple_table(["type touched", "reviewers", "decision"], req_rows) if req_rows else None,
             dmc.Stack(history, gap=2, mt="xs") if history else None,
-            html.Div(id=ids.RV_FEEDBACK, style={"marginTop": "0.4rem"}),
+            html.Div(message, id=ids.RV_FEEDBACK, style={"marginTop": "0.4rem"}),
             hidden,
         ],
         p="md",
@@ -263,8 +267,13 @@ def _review_panel(ctx: AppContext, b, has_rows: bool):
     )
 
 
-def _detail(ctx: AppContext, branch_id: str, message: Any = None):
-    """The branch's head, counts and merge log; `message` is the outcome of the last merge or abandon."""
+def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message: Any = None):
+    """The branch's head, counts and merge log.
+
+    `message` is the outcome of the last merge or abandon, printed under the log it acted on;
+    `review_message` is the outcome of the last review decision, printed in the review panel
+    beside the button that made it.
+    """
     try:
         cs: ChangeSet = ctx.branches.diff(branch_id)
     except NotFoundError:
@@ -279,7 +288,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
                 [
                     dmc.Group(
                         [
-                            dmc.Title(b.name, order=3),
+                            dmc.Title(b.name, order=2, size="h3"),
                             dmc.Badge(
                                 b.status.replace("_", " "),
                                 color=STATUS_COLOURS.get(b.status, "gray"),
@@ -421,17 +430,16 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
     )
     return html.Div(
         [
-            dcc.Store(id=ids.BR_SELECTED, data=branch_id),
             head,
             count_badges,
-            html.Div(_review_panel(ctx, b, bool(rows)), id=ids.RV_PANEL),
+            html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
             dmc.Paper(
                 [
                     dmc.Group(
                         [
                             dmc.Stack(
                                 [
-                                    dmc.Text("Merge log", className="ea-section-title"),
+                                    dmc.Title("Merge log", order=2, className="ea-section-title"),
                                     dmc.Text(
                                         "Every row is one element or relationship this branch would write to main. Tick what goes "
                                         "to main now; what is not ticked remains on the branch. A conflict means main changed the "
@@ -472,7 +480,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None):
             ),
             dmc.Paper(
                 [
-                    dmc.Text("What each row changes", className="ea-section-title"),
+                    dmc.Title("What each row changes", order=2, className="ea-section-title"),
                     dmc.Text(
                         "Main's row on the left, the branch's row on the right; only the fields that differ.",
                         size="xs",
@@ -528,11 +536,12 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         value="open",
                         size="xs",
                     ),
-                    dmc.Text(f"You are on {ctx.branch()} as {ctx.role_label()}.", size="sm", c="dimmed"),
+                    dmc.Text(_where(ctx), id=ids.BR_WHERE, size="sm", c="dimmed"),
                 ],
                 gap="md",
                 mb="sm",
             ),
+            dcc.Store(id=ids.BR_SELECTED, data=selected),
             html.Div(_branch_table(ctx, "open", selected), id=ids.BR_LIST),
             dmc.Divider(my="md"),
             html.Div(
@@ -543,6 +552,21 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             ),
         ]
     )
+
+
+def _where(ctx: AppContext) -> str:
+    """Which branch the reader is standing on, as the page says it.
+
+    Written in one place because a callback has to rewrite it: abandoning the branch you are
+    on moves the header to main, and a line still naming the branch that was thrown away
+    disagrees with the header a few pixels above it.
+    """
+    return f"You are on {ctx.branch()} as {ctx.role_label()}."
+
+
+def _type_names(ctx: AppContext, type_ids: list[str]) -> str:
+    """Element types by the names the page uses for them everywhere else."""
+    return ", ".join(ctx.registry.types[t].name if t in ctx.registry.types else t for t in (type_ids or []))
 
 
 def register(app: dash.Dash) -> None:
@@ -557,14 +581,20 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.BR_DETAIL, "children"),
+        Output(ids.BR_SELECTED, "data"),
         Input({"type": ids.BR_OPEN, "id": ALL}, "n_clicks"),
         prevent_initial_call=True,
     )
     def open_branch(clicks):
+        """Open one branch's detail, and remember which one it is.
+
+        The store used to live inside the detail, so it went with it; it belongs to the page,
+        which means the page has to keep it up to date.
+        """
         trig = dash_ctx.triggered_id
         if not trig or not any(clicks):
-            return no_update
-        return _detail(get_context(), trig["id"])
+            return no_update, no_update
+        return _detail(get_context(), trig["id"]), trig["id"]
 
     @app.callback(
         Output(ids.BRANCH_NEW_MODAL, "opened", allow_duplicate=True),
@@ -580,6 +610,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.BR_LIST, "children", allow_duplicate=True),
         Output(ids.BRANCH_SELECT, "data", allow_duplicate=True),
         Output(ids.BRANCH_SELECT, "value", allow_duplicate=True),
+        Output(ids.BR_WHERE, "children"),
         Input(ids.BR_MERGE, "n_clicks"),
         Input(ids.BR_ABANDON, "n_clicks"),
         State(ids.BR_SELECTED, "data"),
@@ -597,7 +628,7 @@ def register(app: dash.Dash) -> None:
             try:
                 ctx.branches.abandon(branch_id, ctx.actor)
             except (NotFoundError, Forbidden) as exc:
-                return alert(str(exc), "red"), no_update, no_update, no_update, no_update
+                return alert(str(exc), "red"), no_update, no_update, no_update, no_update, no_update
             ctx.graph.invalidate()
             switched = _leave_if_current(ctx, branch_id)
             return (
@@ -613,13 +644,15 @@ def register(app: dash.Dash) -> None:
                 _branch_table(ctx, status or None, branch_id),
                 ctx.branch_options(),
                 MAIN if switched else no_update,
+                _where(ctx),
             )
         if trig != ids.BR_MERGE or not n_merge:
-            return no_update, no_update, no_update, no_update, no_update
+            return (no_update,) * 6
         include = {r["key"] for r in (selected or [])}
         if not include:
             return (
                 alert("Tick at least one row to merge.", "yellow"),
+                no_update,
                 no_update,
                 no_update,
                 no_update,
@@ -634,7 +667,7 @@ def register(app: dash.Dash) -> None:
         try:
             res = ctx.branches.merge(branch_id, ctx.actor, include, resolutions)
         except (ConflictError, NotFoundError, Forbidden) as exc:
-            return alert(str(exc), "red"), no_update, no_update, no_update, no_update
+            return alert(str(exc), "red"), no_update, no_update, no_update, no_update, no_update
         ctx.graph.invalidate()
         msg = f"Merged {len(res.applied)} row(s) to main"
         if res.dropped:
@@ -651,6 +684,7 @@ def register(app: dash.Dash) -> None:
             _branch_table(ctx, status or None, branch_id),
             ctx.branch_options(),
             MAIN if switched else no_update,
+            _where(ctx),
         )
 
     @app.callback(
@@ -678,14 +712,13 @@ def register(app: dash.Dash) -> None:
                 out = ctx.reviews.approve(branch_id, me.username, types or None, comment or "", me.groups)
                 msg = alert(
                     "Approved "
-                    + ", ".join(
-                        ctx.registry.types[t].name if t in ctx.registry.types else t
-                        for t in out["approved_types"]
-                    )
+                    + _type_names(ctx, out["approved_types"])
                     + (
                         "; the branch is approved."
                         if out["complete"]
-                        else "; still pending: " + ", ".join(out["pending"]) + "."
+                        # Named the way the panel above names them: a reader should not have
+                        # to translate an identifier back into the type they just approved.
+                        else "; still pending: " + _type_names(ctx, out["pending"]) + "."
                     ),
                     "green",
                 )
@@ -697,7 +730,7 @@ def register(app: dash.Dash) -> None:
         except (ConflictError, NotFoundError, Forbidden) as exc:
             msg = alert(str(exc), "red")
         return (
-            _detail(ctx, branch_id, msg),
+            _detail(ctx, branch_id, review_message=msg),
             _branch_table(ctx, status or None, branch_id),
             ctx.branch_options(),
         )

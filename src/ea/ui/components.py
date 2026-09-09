@@ -189,6 +189,9 @@ def markdown_editor(
                             id={"type": ids.MD_TEXT, "id": editor_id},
                             value=value,
                             placeholder=placeholder,
+                            # A placeholder is a hint, and it goes the moment anything is
+                            # typed. The name has to outlast it.
+                            **{"aria-label": label or "Markdown"},
                             resize="vertical",
                             styles={"input": {"minHeight": f"{min_rows * 24}px"}},
                         ),
@@ -231,6 +234,7 @@ def modal_title(title: str, modal_key: str) -> dmc.Group:
                     size="sm",
                     className="ea-modal-full",
                     id=f"{modal_key}-full",
+                    **{"aria-label": "Full screen"},
                 ),
                 label="Full screen (Escape leaves it)",
             ),
@@ -308,24 +312,33 @@ def _fmt(v: Any) -> str:
     return "" if v is None else str(v)
 
 
-def simple_table(headers: list[str], rows: list[list[Any]], striped: bool = True) -> dmc.Table:
-    return dmc.Table(
-        [
-            dmc.TableThead(dmc.TableTr([dmc.TableTh(h) for h in headers])),
-            dmc.TableTbody(
-                [
-                    dmc.TableTr(
-                        [dmc.TableTd(c if not isinstance(c, (str, int, float)) else _fmt(c)) for c in r]
-                    )
-                    for r in rows
-                ]
-            ),
-        ],
-        striped=striped,
-        highlightOnHover=True,
-        withTableBorder=True,
-        verticalSpacing="xs",
-        fz="sm",
+def simple_table(headers: list[str], rows: list[list[Any]], striped: bool = True) -> Any:
+    """A table that scrolls inside its own card rather than pushing the page sideways.
+
+    A model table is naturally wide — an identifier, a name, a type, two states. On a
+    phone that width has to go somewhere, and the reader would rather pan one table than
+    the whole document.
+    """
+    return dmc.TableScrollContainer(
+        dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr([dmc.TableTh(h) for h in headers])),
+                dmc.TableTbody(
+                    [
+                        dmc.TableTr(
+                            [dmc.TableTd(c if not isinstance(c, (str, int, float)) else _fmt(c)) for c in r]
+                        )
+                        for r in rows
+                    ]
+                ),
+            ],
+            striped=striped,
+            highlightOnHover=True,
+            withTableBorder=True,
+            verticalSpacing="xs",
+            fz="sm",
+        ),
+        minWidth=560,
     )
 
 
@@ -346,17 +359,39 @@ def issues_table(issues: list[Issue]) -> Any:
     return simple_table(["level", "code", "message", "file", "row", "entity"], rows)
 
 
-def alert(message: str, color: str = "blue") -> dmc.Alert:
-    return dmc.Alert(message, color=color, variant="light", withCloseButton=True)
+def alert(message: str, color: str = "blue", dismissible: bool = True) -> dmc.Alert:
+    """A message the reader can close — unless it is the only thing on the screen saying
+    why a control is refused, in which case closing it would leave the refusal unexplained.
+
+    The close button is named: an icon-only control with no wording is nothing at all to a
+    reader who is not looking at it.
+    """
+    return dmc.Alert(
+        message,
+        color=color,
+        variant="light",
+        withCloseButton=dismissible,
+        closeButtonLabel="Close this message",
+    )
 
 
 def error_alert(exc: Exception) -> dmc.Alert:
     return alert(str(exc), "red")
 
 
-def page_title(title: str, subtitle: str | None = None, right: Any = None) -> dmc.Group:
+def page_title(
+    title: str, subtitle: str | None = None, right: Any = None, subtitle_id: str = ""
+) -> dmc.Group:
     left = dmc.Stack(
-        [dmc.Title(title, order=2), dmc.Text(subtitle, c="dimmed", size="sm") if subtitle else None], gap=2
+        [
+            # The one h1 on the page: a document that starts at h2 gives assistive
+            # technology no title to announce.
+            dmc.Title(title, order=1, size="h2"),
+            dmc.Text(subtitle, c="dimmed", size="sm", **({"id": subtitle_id} if subtitle_id else {}))
+            if subtitle
+            else None,
+        ],
+        gap=2,
     )
     return dmc.Group(
         [left, right] if right is not None else [left], justify="space-between", align="flex-start", mb="md"
@@ -435,6 +470,9 @@ def _view_control(kind: str, block_id: str, icon_name: str, label: str) -> dmc.T
             id={"type": kind, "id": block_id},
             variant="default",
             size="sm",
+            # The tooltip describes the control once it is hovered; the name is what a
+            # reader who cannot hover, or cannot see the icon, is given instead.
+            **{"aria-label": label},
         ),
         label=label,
     )
@@ -446,8 +484,15 @@ def view_toolbar(
     note: str = "",
     copy_content: str | None = None,
     extra: list[Any] | None = None,
+    md_reason: str = "",
+    drawio_reason: str = "",
+    note_id: str = "",
 ) -> dmc.Group:
-    """Download (and optionally copy) buttons under a generated view or document."""
+    """Download (and optionally copy) buttons under a generated view or document.
+
+    A reason disables the button it names and says why: a button that can produce nothing
+    should not take the click and answer with silence.
+    """
     items: list[Any] = []
     if copy_content is not None:
         items.append(
@@ -463,19 +508,25 @@ def view_toolbar(
                 label="Copy the whole document as Markdown",
             )
         )
-    items += [
-        dmc.Button(
-            "Download Markdown", id=md_id, size="xs", variant="light", leftSection=icon("tabler:download", 14)
-        ),
-        dmc.Button(
-            "Download draw.io",
-            id=drawio_id,
+
+    def download_button(label: str, button_id: str, reason: str) -> Any:
+        return dmc.Button(
+            label,
+            id=button_id,
             size="xs",
             variant="light",
             leftSection=icon("tabler:download", 14),
-        ),
+            disabled=bool(reason),
+        )
+
+    items += [
+        download_button("Download Markdown", md_id, md_reason),
+        download_button("Download draw.io", drawio_id, drawio_reason),
         *(extra or []),
     ]
-    if note:
-        items.append(dmc.Text(note, size="xs", c="dimmed"))
+    # The note is beside the buttons, so a disabled one has its reason where a reader
+    # looking at it is already looking. With an id, a callback can change it.
+    if note or note_id:
+        text = dmc.Text(note, size="xs", c="dimmed")
+        items.append(html.Div(text, id=note_id) if note_id else text)
     return dmc.Group(items, gap="sm", mt="xs", align="center")

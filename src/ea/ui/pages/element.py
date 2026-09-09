@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import dash
@@ -11,6 +12,7 @@ from dash import ctx as dash_ctx
 
 from ea.models import (
     CURRENT_STATES,
+    LINK_SCHEMES,
     TARGET_STATES,
     ConflictError,
     Forbidden,
@@ -18,6 +20,7 @@ from ea.models import (
     NotFoundError,
     ValidationError,
 )
+from ea.services.roles import a_role
 from ea.services.target import CURRENT_STYLE, TARGET_STYLE, state_label
 from ea.ui import graph as gp
 from ea.ui import ids
@@ -41,11 +44,21 @@ from ea.views import view_from_neighbourhood
 from ea.views.drawio import to_drawio
 from ea.views.mermaid import to_markdown, to_mermaid
 
+QUALIFIER_HINT = "Only some relationship types declare qualifiers; the list fills when one does."
+
 STATUS_OPTIONS = ["draft", "approved", "retired"]
 CURRENT_OPTIONS = [{"value": s, "label": state_label(s, CURRENT_STYLE)} for s in CURRENT_STATES]
 TARGET_OPTIONS = [
     {"value": s, "label": f"{TARGET_STYLE[s]['glyph']} {TARGET_STYLE[s]['label']}"} for s in TARGET_STATES
 ]
+
+
+def _is_date(text: str) -> bool:
+    try:
+        date.fromisoformat(text[:10])
+    except ValueError:
+        return False
+    return True
 
 
 def _attr_input(a, value: Any):
@@ -73,13 +86,40 @@ def _attr_input(a, value: Any):
         return dmc.NumberInput(id=aid, label=label, value=value, allowDecimal=a.type == "number")
     if a.type == "text":
         return dmc.Textarea(id=aid, label=label, value=value or "", autosize=True, minRows=2)
+    if a.type == "date":
+        # A date typed into a plain box has no picker and nothing to fail against. A value
+        # already in the row that is not a date keeps its plain box, so an import's odd
+        # value is never silently emptied by the control that shows it.
+        if not value or _is_date(str(value)):
+            return dmc.DateInput(
+                id=aid,
+                label=label,
+                value=str(value) or None if value else None,
+                valueFormat="YYYY-MM-DD",
+                placeholder="YYYY-MM-DD",
+                clearable=True,
+                description=a.description or "as YYYY-MM-DD",
+            )
+        return dmc.TextInput(
+            id=aid,
+            label=label,
+            value=str(value),
+            description="expected YYYY-MM-DD; this row holds something else",
+        )
     return dmc.TextInput(
         id=aid, label=label, value="" if value is None else str(value), description=a.description or None
     )
 
 
+def _rel_tab_label(ctx: AppContext, element_id: str) -> str:
+    """What the Relationships tab says, so the label and the tables are written together."""
+    d = ctx.repo.element_detail(element_id)
+    return f"Relationships ({len(d['outgoing']) + len(d['incoming'])})"
+
+
 def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     d = ctx.repo.element_detail(element_id)
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
 
     def rows(items, incoming: bool):
         out = []
@@ -99,6 +139,11 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
                         variant="subtle",
                         color="red",
                         size="sm",
+                        # Offered only to a role that may take it: the server refuses the
+                        # rest, and a bin that is offered and then refused is a broken
+                        # promise. Add, beside it, is already gated the same way.
+                        disabled=not can_write,
+                        **{"aria-label": "Remove this relationship"},
                     ),
                 ]
             )
@@ -107,11 +152,11 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     out_rows, in_rows = rows(d["outgoing"], False), rows(d["incoming"], True)
     return html.Div(
         [
-            dmc.Title("Outgoing", order=5, mt="sm"),
+            dmc.Title("Outgoing", order=2, size="h5", mt="sm"),
             simple_table(["relationship", "to", "type", "origin", ""], out_rows)
             if out_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
-            dmc.Title("Incoming", order=5, mt="md"),
+            dmc.Title("Incoming", order=2, size="h5", mt="md"),
             simple_table(["relationship", "from", "type", "origin", ""], in_rows)
             if in_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
@@ -133,7 +178,7 @@ def _state_card(ctx: AppContext, e) -> dmc.Paper:
     wp = ctx.backend.get_element(e.target_work_package) if e.target_work_package else None
     return dmc.Paper(
         [
-            dmc.Title("State", order=5, mb="xs"),
+            dmc.Title("State", order=2, size="h5", mb="xs"),
             kv_table(
                 [
                     ("Current state", current_badge(e.current_state)),
@@ -163,13 +208,39 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     try:
         d = ctx.repo.element_detail(element_id)
     except NotFoundError:
-        return html.Div([dmc.Title("Not found", order=2), dmc.Text(f"No element with id {element_id}.")])
+        return html.Div(
+            [
+                dmc.Title("Not found", order=1, size="h2"),
+                dmc.Text(f"No element with id {element_id}."),
+                dmc.Text(
+                    "It may have been renamed or removed, or the identifier may belong to a "
+                    "branch you are not on.",
+                    c="dimmed",
+                    size="sm",
+                    mt="xs",
+                ),
+                dmc.Group(
+                    [
+                        dmc.Anchor("Search the model", href="/browse", size="sm"),
+                        dmc.Anchor("Home", href="/", size="sm"),
+                    ],
+                    gap="md",
+                    mt="sm",
+                ),
+            ]
+        )
     e, t = d["element"], d["type"]
-    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
+    frozen = ctx.frozen_reason()
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main")) and not frozen
     attrs = ctx.registry.attributes_for(e.type_id)
     own = [a for a in attrs if a.type_id == e.type_id or (a.type_id and a.type_id != e.type_id)]
     common = [a for a in attrs if a.type_id is None]
-    shown_attrs = [(a.label, e.attrs.get(a.name)) for a in attrs if e.attrs.get(a.name) not in (None, "")]
+    # The Edit tab marks a restricted attribute; a reader who only reads has to be told too.
+    shown_attrs = [
+        (a.label + (" (restricted)" if a.sensitivity else ""), e.attrs.get(a.name))
+        for a in attrs
+        if e.attrs.get(a.name) not in (None, "")
+    ]
     extra_attrs = [(k, v) for k, v in e.attrs.items() if k not in {a.name for a in attrs}]
     header = dmc.Group(
         [
@@ -177,7 +248,9 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 [
                     dmc.Group(
                         [
-                            dmc.Title(e.name, order=2),
+                            # The element is what this page is about, so its name is the
+                            # document title. Everything below it is a section.
+                            dmc.Title(e.name, order=1, size="h2"),
                             type_badge(ctx.registry, e.type_id),
                             status_badge(e.status),
                             current_badge(e.current_state),
@@ -215,7 +288,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
         [
             dmc.Paper(
                 [
-                    dmc.Title("Description", order=5, mb="xs"),
+                    dmc.Title("Description", order=2, size="h5", mb="xs"),
                     markdown(e.description_md, f"el-desc-{e.element_id}"),
                 ],
                 p="md",
@@ -223,11 +296,11 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             ),
             dmc.Paper(
                 [
-                    dmc.Title("Attributes", order=5, mb="xs"),
+                    dmc.Title("Attributes", order=2, size="h5", mb="xs"),
                     kv_table(shown_attrs + extra_attrs)
                     if (shown_attrs or extra_attrs)
                     else dmc.Text("No attributes set.", c="dimmed", size="sm"),
-                    dmc.Title("Links", order=5, mt="md", mb="xs"),
+                    dmc.Title("Links", order=2, size="h5", mt="md", mb="xs"),
                     dmc.Stack(
                         [
                             dmc.Anchor(ln.label or ln.url, href=ln.url, target="_blank", size="sm")
@@ -237,7 +310,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     )
                     if e.links
                     else dmc.Text("No links.", c="dimmed", size="sm"),
-                    dmc.Title("Type", order=5, mt="md", mb="xs"),
+                    dmc.Title("Type", order=2, size="h5", mt="md", mb="xs"),
                     dmc.Text(t.description if t else "", size="sm", c="dimmed"),
                 ],
                 p="md",
@@ -267,7 +340,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     autosize=True,
                     minRows=2,
                 ),
-                dmc.Title("State", order=5),
+                dmc.Title("State", order=2, size="h5"),
                 dmc.SimpleGrid(
                     [
                         dmc.Select(
@@ -302,7 +375,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     ],
                     cols={"base": 1, "md": 4},
                 ),
-                dmc.Title("Type attributes", order=5) if own else None,
+                dmc.Title("Type attributes", order=2, size="h5") if own else None,
                 dmc.SimpleGrid([_attr_input(a, e.attrs.get(a.name)) for a in own], cols={"base": 1, "md": 3})
                 if own
                 else None,
@@ -327,11 +400,13 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 dmc.Group(
                     [
                         dmc.Text(
-                            "Switch to a branch in the header to edit."
-                            if ctx.can("edit_content") and not can_write
-                            else f"A {ctx.role_label()} may not edit."
-                            if not can_write
-                            else "",
+                            # The role first: a Reader is a Reader wherever they stand, and
+                            # the freeze is what stops a role that could otherwise write.
+                            f"{a_role(ctx.role_label())} may not edit."
+                            if not ctx.can("edit_content")
+                            else frozen
+                            or ("Switch to a branch in the header to edit." if not can_write else ""),
+                            id=ids.EL_SAVE_WHY,
                             size="xs",
                             c="dimmed",
                         ),
@@ -354,7 +429,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             dmc.Paper(
                 dmc.Stack(
                     [
-                        dmc.Title("Add a relationship", order=5),
+                        dmc.Title("Add a relationship", order=2, size="h5"),
                         dmc.Group(
                             [
                                 dmc.SegmentedControl(
@@ -367,6 +442,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_OTHER,
+                                    label="The other element",
                                     placeholder="Search the other element…",
                                     searchable=True,
                                     data=[
@@ -382,6 +458,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_TYPE,
+                                    label="Relationship",
                                     placeholder="Relationship",
                                     data=[
                                         {
@@ -395,11 +472,14 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                                 ),
                                 dmc.Select(
                                     id=ids.EL_REL_QUALIFIER,
+                                    label="Qualifier",
                                     placeholder="Qualifier",
                                     data=[],
                                     w=180,
                                     clearable=True,
                                     disabled=True,
+                                    # A control that is off owes the reader the reason.
+                                    description=QUALIFIER_HINT,
                                 ),
                                 dmc.Button(
                                     "Add",
@@ -474,7 +554,10 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                             dmc.TabsTab("Overview", value="overview", leftSection=icon("tabler:eye")),
                             dmc.TabsTab("Edit", value="edit", leftSection=icon("tabler:pencil")),
                             dmc.TabsTab(
-                                f"Relationships ({len(d['outgoing']) + len(d['incoming'])})",
+                                html.Span(
+                                    f"Relationships ({len(d['outgoing']) + len(d['incoming'])})",
+                                    id=ids.EL_REL_COUNT,
+                                ),
                                 value="rels",
                                 leftSection=icon("tabler:arrows-exchange"),
                             ),
@@ -497,15 +580,25 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     )
 
 
-def _parse_links(element_id: str, text: str) -> list[Link]:
-    out = []
+def _parse_links(element_id: str, text: str) -> tuple[list[Link], list[str]]:
+    """The links in the box, and the lines that are not links.
+
+    A refused line is handed back rather than dropped: the reader typed it, and a line that
+    disappears in silence is worse than one that is refused out loud.
+    """
+    out: list[Link] = []
+    refused: list[str] = []
     for line in (text or "").splitlines():
         line = line.strip()
         if not line:
             continue
         url, _, label = line.partition("|")
-        out.append(Link(element_id, url.strip(), label.strip()))
-    return out
+        url, label = url.strip(), label.strip()
+        if not url.lower().startswith(LINK_SCHEMES):
+            refused.append(line)
+            continue
+        out.append(Link(element_id, url, label))
+    return out, refused
 
 
 def register(app: dash.Dash) -> None:
@@ -554,6 +647,7 @@ def register(app: dash.Dash) -> None:
             if v in (None, ""):
                 continue
             attrs[aid["name"]] = {"true": True, "false": False}.get(v, v) if isinstance(v, str) else v
+        links, refused_links = _parse_links(element_id, links_text)
         try:
             e = ctx.repo.update_element(
                 element_id,
@@ -564,7 +658,7 @@ def register(app: dash.Dash) -> None:
                 status=status,
                 description_md=desc or "",
                 attrs=attrs,
-                links=_parse_links(element_id, links_text),
+                links=links,
                 current_state=current_state or "live",
                 target_state=target_state or "undecided",
                 target_work_package=target_wp or "",
@@ -581,7 +675,20 @@ def register(app: dash.Dash) -> None:
         except Forbidden as exc:
             return alert(str(exc), "red"), no_update, no_update
         ctx.graph.invalidate()
-        return alert(f"Saved version {e.version}.", "green"), e.version, _history_table(ctx, element_id)
+        saved = f"Saved version {e.version}."
+        if refused_links:
+            # Said out loud, and the lines are named: a link that vanishes on save leaves the
+            # reader believing it was kept.
+            return (
+                alert(
+                    saved + " These lines were not kept as links, because a link is an http, https "
+                    "or mailto address: " + "; ".join(refused_links[:5]) + ".",
+                    "yellow",
+                ),
+                e.version,
+                _history_table(ctx, element_id),
+            )
+        return alert(saved, "green"), e.version, _history_table(ctx, element_id)
 
     @app.callback(
         Output(ids.EL_REL_OTHER, "data"),
@@ -612,8 +719,10 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.EL_REL_TYPE, "data"),
+        Output(ids.EL_REL_TYPE, "description"),
         Output(ids.EL_REL_QUALIFIER, "data"),
         Output(ids.EL_REL_QUALIFIER, "disabled"),
+        Output(ids.EL_REL_QUALIFIER, "description"),
         Input(ids.EL_REL_OTHER, "value"),
         Input(ids.EL_REL_DIRECTION, "value"),
         Input(ids.EL_REL_TYPE, "value"),
@@ -624,11 +733,11 @@ def register(app: dash.Dash) -> None:
         ctx = get_context()
         me = ctx.backend.get_element(element_id)
         if not me:
-            return [], [], True
+            return [], "", [], True, QUALIFIER_HINT
         if other_id:
             other = ctx.backend.get_element(other_id)
             if not other:
-                return [], [], True
+                return [], "", [], True, QUALIFIER_HINT
             src_t, dst_t = (me.type_id, other.type_id) if direction == "out" else (other.type_id, me.type_id)
             allowed = ctx.registry.allowed_rel_types(src_t, dst_t)
         else:
@@ -644,11 +753,38 @@ def register(app: dash.Dash) -> None:
         ]
         rt = ctx.registry.rel_types.get(chosen or "")
         quals = list(rt.qualifiers) if rt and rt.qualifiers else []
-        return data, quals, not quals
+        # The Select drops a value that is no longer among its options, so a choice made
+        # before the other end was known disappears. Say which pair decided it.
+        offered = [d["value"] for d in data]
+        if chosen and chosen not in offered:
+            names = ", ".join(
+                f"'{ctx.registry.rel_types[v].name}'" for v in offered if v in ctx.registry.rel_types
+            )
+            note = (
+                f"This pair allows only {names}, so the relationship you had chosen was cleared."
+                if names
+                else "This pair allows no relationship in that direction, so the one you had chosen was cleared."
+            )
+        elif chosen:
+            note = ""  # the reader has chosen one this pair allows: nothing to explain
+        else:
+            # The Select drops a value that is no longer among its options, and that drop
+            # calls this back a second time with nothing chosen. The box cannot be cleared
+            # by hand, so an empty one is always that second call — leave standing whatever
+            # the first one said, or the sentence would be written and wiped in one move.
+            note = no_update
+        return (
+            data,
+            note,
+            quals,
+            not quals,
+            "" if quals else QUALIFIER_HINT,
+        )
 
     @app.callback(
         Output(ids.EL_REL_FEEDBACK, "children"),
         Output(ids.EL_REL_TABLES, "children"),
+        Output(ids.EL_REL_COUNT, "children"),
         Input(ids.EL_REL_ADD, "n_clicks"),
         Input({"type": ids.EL_REL_DELETE, "id": ALL}, "n_clicks"),
         State(ids.EL_ID, "data"),
@@ -663,26 +799,34 @@ def register(app: dash.Dash) -> None:
         trig = dash_ctx.triggered_id
         if isinstance(trig, dict) and trig.get("type") == ids.EL_REL_DELETE:
             if not any(n_del):
-                return no_update, no_update
+                return no_update, no_update, no_update
             try:
                 ctx.repo.remove_relationship(trig["id"], ctx.actor)
             except Forbidden as exc:
-                return alert(str(exc), "red"), no_update
+                return alert(str(exc), "red"), no_update, no_update
             ctx.graph.invalidate()
-            return alert("Relationship removed.", "green"), _rel_tables(ctx, element_id)
+            return (
+                alert("Relationship removed.", "green"),
+                _rel_tables(ctx, element_id),
+                _rel_tab_label(ctx, element_id),
+            )
         if not n_add:
-            return no_update, no_update
+            return no_update, no_update, no_update
         if not other_id or not rel_type_id:
-            return alert("Choose the other element and a relationship.", "yellow"), no_update
+            return alert("Choose the other element and a relationship.", "yellow"), no_update, no_update
         src, dst = (element_id, other_id) if direction == "out" else (other_id, element_id)
         try:
             ctx.repo.add_relationship(rel_type_id, src, dst, ctx.actor, qualifier or "")
         except ValidationError as exc:
-            return alert("; ".join(str(i) for i in exc.issues), "red"), no_update
+            return alert("; ".join(str(i) for i in exc.issues), "red"), no_update, no_update
         except Forbidden as exc:
-            return alert(str(exc), "red"), no_update
+            return alert(str(exc), "red"), no_update, no_update
         ctx.graph.invalidate()
-        return alert("Relationship added.", "green"), _rel_tables(ctx, element_id)
+        return (
+            alert("Relationship added.", "green"),
+            _rel_tables(ctx, element_id),
+            _rel_tab_label(ctx, element_id),
+        )
 
     @app.callback(
         Output(gp.store_id("el"), "data"),

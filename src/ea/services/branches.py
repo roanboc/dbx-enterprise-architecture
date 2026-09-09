@@ -11,7 +11,16 @@ from typing import Any
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, branch_id_from_name, current_branch, use_branch
 from ea.metamodel.registry import Registry
-from ea.models import Branch, ChangeItem, ChangeSet, ConflictError, Forbidden, MergeResult, NotFoundError
+from ea.models import (
+    OPEN_STATUSES,
+    Branch,
+    ChangeItem,
+    ChangeSet,
+    ConflictError,
+    Forbidden,
+    MergeResult,
+    NotFoundError,
+)
 from ea.services.roles import current_role, require
 
 
@@ -85,6 +94,10 @@ class BranchService:
     def abandon(self, branch_id: str, actor: str) -> Branch:
         require("abandon_branch", what="abandon a branch")
         b = self.get(branch_id)
+        if b.status not in OPEN_STATUSES:
+            # Abandoning a merged branch used to rewrite its status, so the record then
+            # denied a merge that had happened. A closed branch is history.
+            raise ConflictError(f"branch {branch_id} is already {b.status}: a closed branch is not abandoned")
         if current_role() != "admin" and b.created_by != actor:
             raise Forbidden("an architect may abandon only their own branch")
         return self.backend.abandon_branch(branch_id, actor)
@@ -108,7 +121,9 @@ class BranchService:
                     "fields": ", ".join(it.fields_changed) if it.change == "changed" else "",
                     "base_version": it.base_version,
                     "main_version": it.main_version,
-                    "conflict": it.conflict,
+                    # The word, not a boolean: a grid draws a boolean as a checkbox, and a
+                    # checkbox in this row reads as one more thing to tick.
+                    "conflict": "conflict" if it.conflict else "",
                     "resolution": "branch" if it.conflict else "",
                     "include": True,
                 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import dash
 import dash_mantine_components as dmc
@@ -20,11 +21,23 @@ FACET_TITLES = {
     "attributes": "Required attributes",
     "target": "Target decided",
 }
+# A column heading is not a countable noun: '5 target decided missing' says the opposite of
+# what it counts. The totals read as sentences, and in the same words Browse uses for the
+# rows behind them.
+FACET_TOTALS = {
+    "description": "without a description",
+    "links": "without a link",
+    "relationships": "without a relationship",
+    "attributes": "with a required attribute empty",
+    "target": "with an undecided target state",
+}
 
 
-def _pct_cell(pct: int, missing: int, href: str | None):
+def _pct_cell(pct: int, missing: int, href: str | None, label: str = ""):
     colour = "green" if pct >= 90 else "yellow" if pct >= 60 else "red"
-    bar = dmc.Progress(value=pct, color=colour, size="sm", w=90)
+    # A bar is read aloud as "progress bar" unless it says what it measures; the name is
+    # the type and the facet, the same words the column heading and the row carry.
+    bar = dmc.Progress(value=pct, color=colour, size="sm", w=90, **{"aria-label": f"{label}: {pct}%"})
     label = (
         dmc.Anchor(f"{missing} missing", href=href, size="xs")
         if missing and href
@@ -51,7 +64,9 @@ def _freshness(ctx: AppContext) -> html.Div:
     body = []
     for r in fresh["sources"]:
         src = r["source"]
-        q = f"&source={src}" if src != "(authored)" else ""
+        # Every row carries its source into the link, `(authored)` included: without it the
+        # figure for the rows nobody imported opened the rows everybody did.
+        q = f"&source={quote(src)}"
         body.append(
             dmc.TableTr(
                 [
@@ -107,7 +122,7 @@ def _freshness(ctx: AppContext) -> html.Div:
     )
     return html.Div(
         [
-            dmc.Text(f"Freshness · as of {fresh['as_of']}", className="ea-section-title"),
+            dmc.Title(f"Freshness · as of {fresh['as_of']}", order=2, className="ea-section-title"),
             dmc.Text(
                 "Per source system: when it was first loaded, when any of its rows last moved, how many rows have not "
                 "been updated for 30, 90 and 180 days, and how many were never touched since the import. A number opens the rows.",
@@ -115,14 +130,17 @@ def _freshness(ctx: AppContext) -> html.Div:
                 c="dimmed",
                 mb="xs",
             ),
-            dmc.Table(
-                [head, dmc.TableTbody(body)],
-                withTableBorder=True,
-                striped=True,
-                verticalSpacing="xs",
-                fz="sm",
+            dmc.TableScrollContainer(
+                dmc.Table(
+                    [head, dmc.TableTbody(body)],
+                    withTableBorder=True,
+                    striped=True,
+                    verticalSpacing="xs",
+                    fz="sm",
+                ),
+                minWidth=560,
             ),
-            dmc.Text("Change activity, last 12 weeks", className="ea-section-title", mt="md"),
+            dmc.Title("Change activity, last 12 weeks", order=2, className="ea-section-title", mt="md"),
             dmc.Text(
                 "Change-log entries per week on this branch, every kind of write counted.",
                 size="xs",
@@ -163,17 +181,21 @@ def _completeness(ctx: AppContext) -> html.Div:
         ]
         for f in COMPLETENESS_FACETS:
             href = f"/browse?type={r['type_id']}&missing={f}" if r[f"{f}_missing"] else None
-            cells.append(dmc.TableTd(_pct_cell(r[f"{f}_pct"], r[f"{f}_missing"], href)))
+            cells.append(
+                dmc.TableTd(
+                    _pct_cell(r[f"{f}_pct"], r[f"{f}_missing"], href, f"{r['type']} {FACET_TITLES[f]}")
+                )
+            )
         body.append(dmc.TableTr(cells))
     totals = comp["missing"]
     empty_rels = ctx.health.relationship_coverage()
     return html.Div(
         [
-            dmc.Text(f"Completeness · {comp['elements']} elements", className="ea-section-title"),
+            dmc.Title(f"Completeness · {comp['elements']} elements", order=2, className="ea-section-title"),
             dmc.Group(
                 [
                     dmc.Badge(
-                        f"{totals[f]} {FACET_TITLES[f].lower()} missing",
+                        f"{totals[f]} {FACET_TOTALS[f]}",
                         color="orange" if totals[f] else "green",
                         variant="light",
                     )
@@ -189,15 +211,19 @@ def _completeness(ctx: AppContext) -> html.Div:
                 c="dimmed",
                 mb="xs",
             ),
-            dmc.Table(
-                [head, dmc.TableTbody(body)],
-                withTableBorder=True,
-                striped=True,
-                verticalSpacing="xs",
-                fz="sm",
+            dmc.TableScrollContainer(
+                dmc.Table(
+                    [head, dmc.TableTbody(body)],
+                    withTableBorder=True,
+                    striped=True,
+                    verticalSpacing="xs",
+                    fz="sm",
+                ),
+                minWidth=560,
             ),
-            dmc.Text(
+            dmc.Title(
                 f"Relationship types with no instance ({len(empty_rels)})",
+                order=2,
                 className="ea-section-title",
                 mt="md",
             ),

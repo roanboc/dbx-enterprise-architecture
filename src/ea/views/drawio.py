@@ -6,6 +6,7 @@ link to the element's page, which is the linking contract; nothing imports it ba
 
 from __future__ import annotations
 
+import textwrap
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
@@ -73,6 +74,7 @@ STENCIL = {
 SPECIAL_FILL = {"Location": "#efd1e4", "Plateau": "#E0FFE0", "Gap": "#E0FFE0"}
 
 NODE_W, NODE_H, GAP_X, GAP_Y, COLS, LANE_HEADER, LANE_GAP = 170, 60, 30, 30, 5, 28, 30
+NODE_W_MAX, WRAP_CHARS, CHAR_W, LINE_H = 300, 24, 7.0, 17
 
 
 def state_style(n: ViewNode) -> str:
@@ -137,13 +139,18 @@ def to_drawio(
     mxfile, root = _document(view)
 
     layers = sorted(view.layers(), key=layer_rank)
+    sizes = {n.id: node_size(n) for n in view.nodes}
+    # One column width and one row height for the whole drawing, so the lanes still line up
+    # while every shape is big enough for what is written in it.
+    cell_w = max((w for w, _ in sizes.values()), default=NODE_W)
+    cell_h = max((h for _, h in sizes.values()), default=NODE_H)
     widest = max((min(len(view.nodes_in(layer)), COLS) for layer in layers), default=1)
-    lane_w = GAP_X + widest * (NODE_W + GAP_X)
+    lane_w = GAP_X + widest * (cell_w + GAP_X)
     y = 20
     for layer in layers:
         nodes = view.nodes_in(layer)
         rows = (len(nodes) + COLS - 1) // COLS
-        lane_h = LANE_HEADER + GAP_Y + rows * (NODE_H + GAP_Y)
+        lane_h = LANE_HEADER + GAP_Y + rows * (cell_h + GAP_Y)
         lane_id = f"lane_{layer}"
         lane = _cell(
             root,
@@ -166,16 +173,32 @@ def to_drawio(
             ET.SubElement(
                 cell,
                 "mxGeometry",
-                x=str(GAP_X + col * (NODE_W + GAP_X)),
-                y=str(LANE_HEADER + GAP_Y + row * (NODE_H + GAP_Y)),
-                width=str(NODE_W),
-                height=str(NODE_H),
+                x=str(GAP_X + col * (cell_w + GAP_X)),
+                y=str(LANE_HEADER + GAP_Y + row * (cell_h + GAP_Y)),
+                width=str(sizes[n.id][0]),
+                height=str(sizes[n.id][1]),
                 **{"as": "geometry"},
             )
         y += lane_h + LANE_GAP
 
     _edges(root, view, marked)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")
+
+
+def node_size(n: ViewNode) -> tuple[int, int]:
+    """A box wide enough for the name in it.
+
+    Every shape the same size turns an export into a grid of identical rectangles with the
+    names trimmed inside them — a picture of the layout rather than of the model. This is
+    only for a view nobody has arranged; once the reader has dragged the shapes, the sizes
+    the browser reports are used instead.
+    """
+    label = f"{n.glyph} {n.name}".strip() or n.id
+    lines = textwrap.wrap(label, WRAP_CHARS) or [label]
+    widest = max(len(line) for line in lines)
+    width = max(NODE_W, min(NODE_W_MAX, int(widest * CHAR_W) + 28))
+    height = max(NODE_H, 24 + len(lines) * LINE_H)
+    return width, height
 
 
 def _document(view: View) -> tuple[ET.Element, ET.Element]:

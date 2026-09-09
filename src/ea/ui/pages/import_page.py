@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 import base64
+import csv
 import fnmatch
 import io
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
 
 from ea.config import ROOT
 from ea.importer import Mapping, import_frames, load_mapping
-from ea.models import Forbidden
+from ea.importer.csv_import import CsvShapeError, read_csv_text
+from ea.models import Forbidden, Issue
+from ea.services.roles import a_role
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, page_title
 from ea.ui.context import AppContext, get_context
+
+ISSUE_LIMIT = 500  # a page cannot usefully show more, and says so when it holds back
 
 MAPPINGS = {
     "": "No mapping (CSV contract)",
@@ -36,7 +41,21 @@ def import_template_archive() -> bytes:
     return out.getvalue()
 
 
+def _why_not(ctx: AppContext) -> str:
+    """Why Load is off, in the reader's own terms, or empty when it is not.
+
+    Telling a Reader to switch to a branch is advice that will never enable the button for
+    them: importing is an Architect's or an Admin's action, and the page has to say which.
+    """
+    if not ctx.can("import"):
+        return f"{a_role(ctx.role_label())} may not load an import; an architect or an admin can."
+    if ctx.frozen_reason():
+        return ctx.frozen_reason()
+    return ""
+
+
 def render(ctx: AppContext) -> html.Div:
+    why_not = _why_not(ctx)
     return html.Div(
         [
             page_title(
@@ -49,6 +68,7 @@ def render(ctx: AppContext) -> html.Div:
                 else "You are on main: what you load changes the model directly. Switch to a branch in the header to stage an import for review.",
                 "orange" if ctx.on_branch() else "blue",
             ),
+            alert(why_not, "blue", dismissible=False) if why_not else None,
             dmc.SimpleGrid(
                 [
                     dmc.Paper(
@@ -112,7 +132,8 @@ def render(ctx: AppContext) -> html.Div:
                                             "Load",
                                             id=ids.IM_LOAD,
                                             leftSection=icon("tabler:database-import"),
-                                            disabled=not (
+                                            disabled=bool(why_not)
+                                            or not (
                                                 ctx.can("import")
                                                 and (ctx.on_branch() or ctx.can("edit_main"))
                                             ),
@@ -153,14 +174,75 @@ def _classify(name: str, mapping: Mapping) -> str | None:
 
 def _frames(store: dict, mapping: Mapping):
     frames = {"elements": [], "relationships": [], "links": []}
-    unclassified = []
+    unclassified: list[str] = []
+    malformed: list[CsvShapeError] = []
     for name, text in (store or {}).items():
         kind = _classify(name, mapping)
         if kind is None:
             unclassified.append(name)
             continue
-        frames[kind].append((name, pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)))
-    return frames, unclassified
+        try:
+            frames[kind].append((name, read_csv_text(text, name)))
+        except CsvShapeError as exc:
+            malformed.append(exc)
+    return frames, unclassified, malformed
+
+
+def _row_count(text: str) -> int:
+    """How many records a file holds, which is not how many lines it has.
+
+    A quoted field may run over several lines — a description pasted from a document
+    routinely does — and counting lines then says the file holds rows it does not, before
+    the reader has pressed anything.
+    """
+    try:
+        return max(0, sum(1 for _ in csv.reader(io.StringIO(text))) - 1)
+    except csv.Error:
+        return max(0, len(text.splitlines()) - 1)
+
+
+def _file_list(store: dict) -> Any:
+    """What has been uploaded so far, each with the way to take it back off."""
+    if not store:
+        return dmc.Text("No files yet.", size="xs", c="dimmed")
+    return dmc.Stack(
+        [
+            dmc.Group(
+                [
+                    icon("tabler:file-type-csv"),
+                    dmc.Text(name, size="sm"),
+                    dmc.Text(_rows_label(_row_count(text)), size="xs", c="dimmed"),
+                    dmc.ActionIcon(
+                        icon("tabler:trash", 14),
+                        id={"type": ids.IM_DROP, "name": name},
+                        variant="subtle",
+                        color="red",
+                        size="sm",
+                        **{"aria-label": f"Remove {name}"},
+                    ),
+                ],
+                gap="xs",
+            )
+            for name, text in store.items()
+        ],
+        gap=4,
+    )
+
+
+def _rows_label(n: int) -> str:
+    return f"{n} row" if n == 1 else f"{n} rows"
+
+
+def _malformed_alert(malformed: list[CsvShapeError]):
+    """A file whose rows do not match its own header is named, and nothing of it is read."""
+    if not malformed:
+        return None
+    return alert(
+        "Not read — a row does not match the header the file declares, and reading it anyway "
+        "would load rows under identifiers the file never named: "
+        + "; ".join(f"{e.filename} ({e.detail})" for e in malformed),
+        "red",
+    )
 
 
 def _run(store, source, mapping_key, dry_run: bool):
@@ -168,11 +250,13 @@ def _run(store, source, mapping_key, dry_run: bool):
     if not store:
         return alert("Upload at least one CSV file first.", "yellow")
     mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml") if mapping_key else Mapping()
-    frames, unclassified = _frames(store, mapping)
-    if not any(frames.values()):
+    frames, unclassified, malformed = _frames(store, mapping)
+    if not any(frames.values()) and not malformed:
         return alert(
             "None of the files matched the element/relationship/link file patterns of the mapping.", "red"
         )
+    if not any(frames.values()):
+        return html.Div([_malformed_alert(malformed)])
     try:
         report = import_frames(
             ctx.backend,
@@ -185,18 +269,50 @@ def _run(store, source, mapping_key, dry_run: bool):
         )
     except Forbidden as exc:
         return alert(str(exc), "red")
+    for bad in malformed:
+        # The command line counts a file it could not read as an error of the import
+        # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
+        # file that went unread.
+        report.issues.append(
+            Issue(
+                level="error",
+                code="ragged_row",
+                message=f"a row does not match the header this file declares: {bad.detail}",
+                file=bad.filename,
+            )
+        )
     if not dry_run:
         ctx.graph.invalidate()
-    color = "green" if report.ok else "red"
-    head = ("Validation only — nothing written. " if dry_run else "Loaded. ") + report.summary()
+    color = "green" if report.ok and not malformed else "red"
+    wrote = report.elements_loaded + report.relationships_loaded + report.links_loaded
+    if dry_run:
+        lead = "Validation only — nothing written. "
+    elif wrote:
+        lead = "Loaded. "
+    else:
+        lead = "Nothing was loaded. "
+    head = lead + report.summary()
+    if malformed:
+        # A file that could not be read is an error, and the count a reader compares with
+        # the command line has to say so.
+        head += f"; {len(malformed)} file(s) refused"
     return html.Div(
         [
-            alert(head, color),
+            alert(head, "red" if malformed else color),
+            _malformed_alert(malformed),
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified
             else None,
-            dmc.Title(f"Issues ({len(report.issues)})", order=5, my="sm"),
-            issues_table(report.issues[:500]),
+            dmc.Title(f"Issues ({len(report.issues)})", order=2, size="h5", my="sm"),
+            issues_table(report.issues[:ISSUE_LIMIT]),
+            dmc.Text(
+                f"Showing the first {ISSUE_LIMIT} of {len(report.issues)}. "
+                "Fix these and run it again to see the rest.",
+                size="xs",
+                c="dimmed",
+            )
+            if len(report.issues) > ISSUE_LIMIT
+            else None,
         ]
     )
 
@@ -227,18 +343,24 @@ def register(app: dash.Dash) -> None:
         for content, name in zip(contents, names, strict=True):
             _, b64 = content.split(",", 1)
             store[name] = base64.b64decode(b64).decode("utf-8-sig", errors="replace")
-        rows = [
-            dmc.Group(
-                [
-                    icon("tabler:file-type-csv"),
-                    dmc.Text(n, size="sm"),
-                    dmc.Text(f"{len(t.splitlines()) - 1} rows", size="xs", c="dimmed"),
-                ],
-                gap="xs",
-            )
-            for n, t in store.items()
-        ]
-        return store, dmc.Stack(rows, gap=4)
+        return store, _file_list(store)
+
+    @app.callback(
+        Output(ids.IM_STORE, "data", allow_duplicate=True),
+        Output(ids.IM_FILES, "children", allow_duplicate=True),
+        Input({"type": ids.IM_DROP, "name": dash.ALL}, "n_clicks"),
+        State(ids.IM_STORE, "data"),
+        prevent_initial_call=True,
+    )
+    def drop_file(clicks, store):
+        """Take one file back off the list. Uploading the wrong file was the commonest way
+        to end up reloading the page, because there was no way to undo it."""
+        trigger = dash.ctx.triggered_id
+        if not isinstance(trigger, dict) or not any(clicks or []):
+            return no_update, no_update
+        store = dict(store or {})
+        store.pop(trigger.get("name"), None)
+        return store, _file_list(store)
 
     @app.callback(
         Output(ids.IM_REPORT, "children"),

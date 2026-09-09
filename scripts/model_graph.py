@@ -85,21 +85,23 @@ FEDERATION_DOC = "federation.md"
 # transcript in which somebody says "CAP3" is a person talking, not a model
 # defining an element. Parsing it would invent references nobody wrote.
 NARRATIVE = {"scope", "decisions", "reviews", "engagements", "reference"}
-# Directories that are tooling rather than repository content. `.git` is
-# obvious; `.claude`, `.agents`, `.gemini`, `.codex` and `.copilot` hold
-# agent-local material — installed and vendored third-party skills, worktrees,
-# local settings — one per host the method runs on, and `.aip` is a checkout
-# of the pinned AIP release the validators are run from. None is this
-# repository's to validate, and none is a downstream project's once these
-# scripts ship there.
-# `.archreator` is where every generated working surface lands — briefs, the
-# portal configuration and whatever it builds — and `.model` is the exported
-# model.json; both are the model a second time, which would otherwise read as
-# every element being defined twice, or as a built page with links written
-# for a rendered site. `.docs` is where the pre-reset tooling staged the same
-# things, kept so a stale local copy never fails a fresh checkout's checks.
-EXCLUDED_DIRS = {".git", ".claude", ".agents", ".gemini", ".codex", ".copilot",
-                 ".aip", ".docs", ".archreator", ".model"}
+# Directories that are tooling rather than repository content. A dot-directory
+# is local state by convention — a host's own settings (`.claude`, `.agents`,
+# `.gemini`, `.codex`, `.copilot`), a tool's cache, an installed dependency, a
+# generated working surface (`.archreator`, `.model`) — and every project grows
+# ones this method has never heard of: a test round's evidence, a framework's
+# build output, the worktree an agent made this morning. So the rule is the
+# convention rather than a list somebody has to keep: a path segment that
+# begins with a dot is not walked.
+#
+# `.github` is the exception, because it is content the repository answers for.
+# The pull-request template and the workflows README ship with relative links,
+# and a broken link there is as broken as one anywhere else.
+KEPT_DOT_DIRS = {".github"}
+# The same thing without the dot: installed dependencies and build output. What
+# a package ships is not the project's to answer for, and a validator that walks
+# a virtual environment reports somebody else's broken links.
+EXCLUDED_DIRS = {"venv", "node_modules"}
 # See the note in check_links.py: anchored to line starts and matched on fence
 # length, so a fence containing a fence does not close early and leak its body
 # back into the scanned prose.
@@ -349,7 +351,23 @@ def unvalidated_tables(text: str) -> int:
 
 
 def _excluded(path: Path) -> bool:
-    return bool(EXCLUDED_DIRS & set(path.parts))
+    """True for a path under a directory that is tooling rather than content.
+
+    Judged on the path *inside the repository*: a checkout that itself lives
+    under a dot-directory — `~/.cache/somewhere`, an agent's `.worktrees/x` —
+    would otherwise match on a segment above the repository and skip the whole
+    model without a word.
+    """
+    parts = path.parts
+    if path.is_absolute():
+        try:
+            parts = path.resolve().relative_to(REPO_ROOT).parts
+        except ValueError:  # not under this repository: judge it as it stands
+            parts = path.parts
+    return any(
+        part in EXCLUDED_DIRS or (part.startswith(".") and part not in KEPT_DOT_DIRS)
+        for part in parts
+    )
 
 
 def project_key(project: Path) -> str:

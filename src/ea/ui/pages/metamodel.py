@@ -13,9 +13,10 @@ from dash import Input, Output, State, dcc, html, no_update
 from ea.metamodel import Registry, load_pack, pack_to_dict
 from ea.metamodel.loader import pack_from_dict
 from ea.models import ANY, Forbidden
+from ea.services.roles import a_role
 from ea.ui import graph as gp
 from ea.ui import ids
-from ea.ui.components import alert, icon, mermaid_block, page_title
+from ea.ui.components import FALLBACK_HEX, alert, icon, mermaid_block, page_title
 from ea.ui.context import AppContext, get_context
 from ea.views.drawio import STENCIL
 from ea.views.mermaid import SHAPES, to_mermaid
@@ -187,6 +188,44 @@ def _type_notation_rows(reg: Registry) -> list[dict[str, Any]]:
     return rows
 
 
+def notation_swatches(reg: Registry) -> Any:
+    """One chip per domain in the colour that domain declares.
+
+    A generated view is filled by ArchiMate layer, so the domain's colour never shows there;
+    it is what the network graph fills a node with and what every badge in the application
+    takes its colour from. Without this the colour column reads as a control that does
+    nothing, which is worse than a control that does something elsewhere.
+    """
+    return dmc.Group(
+        [
+            dmc.Group(
+                [
+                    html.Div(
+                        style={
+                            "width": "14px",
+                            "height": "14px",
+                            "borderRadius": "3px",
+                            "background": d.notation.get("hex") or FALLBACK_HEX,
+                            "border": "1px solid rgba(0,0,0,.2)",
+                        }
+                    ),
+                    dmc.Text(d.name, size="xs"),
+                    dmc.Badge(
+                        d.notation.get("colour") or "gray",
+                        color=d.notation.get("colour") or "gray",
+                        variant="light",
+                        size="xs",
+                    ),
+                ],
+                gap=6,
+            )
+            for d in reg.pack.domains
+        ],
+        gap="md",
+        mb="xs",
+    )
+
+
 def notation_preview(reg: Registry) -> str:
     """One sample node per active type, in its layer, drawn with the notation as it stands."""
     view = View(title="Notation preview")
@@ -270,7 +309,7 @@ def _detail(reg: Registry, node_id: str | None):
         [
             dmc.Group(
                 [
-                    dmc.Title(t.name, order=4),
+                    dmc.Title(t.name, order=2, size="h4"),
                     dmc.Badge(t.domain, color="gray", variant="light", size="xs"),
                     dmc.Badge(t.provenance, variant="outline", size="xs"),
                     dmc.Badge("inactive", color="red", size="xs") if not t.active else None,
@@ -328,7 +367,7 @@ def render(ctx: AppContext) -> html.Div:
         [
             page_title(
                 "Metamodel",
-                f"{reg.pack.name} — {len(reg.active_types())} active types, {len(reg.pack.element_types) - len(reg.active_types())} inactive, {len(reg.pack.relationship_types)} relationship types. Edit the grids and save; export the result as a pack.",
+                _counts(reg),
                 dmc.Group(
                     [
                         dmc.Button(
@@ -353,6 +392,18 @@ def render(ctx: AppContext) -> html.Div:
                     ],
                     gap="xs",
                 ),
+                subtitle_id=ids.MM_SUBTITLE,
+            ),
+            # A disabled button raises no tooltip, so the reason stands under the row it is
+            # in, the way the Reviewers tab already says who saves that table.
+            dmc.Text(
+                f"{a_role(ctx.role_label())} may not change the metamodel; only an admin saves it."
+                if not ctx.can("edit_metamodel")
+                else "",
+                id=ids.MM_SAVE_WHY,
+                size="xs",
+                c="dimmed",
+                mb="xs",
             ),
             html.Div(id=ids.MM_FEEDBACK),
             dmc.Paper(
@@ -368,6 +419,7 @@ def render(ctx: AppContext) -> html.Div:
                                 extra_controls=[
                                     dmc.Select(
                                         id=ids.MM_DOMAIN_FILTER,
+                                        **{"aria-label": "Domain"},
                                         data=[{"value": "", "label": "All domains"}]
                                         + [{"value": d.id, "label": d.name} for d in reg.pack.domains],
                                         value="",
@@ -452,7 +504,7 @@ def render(ctx: AppContext) -> html.Div:
                                 c="dimmed",
                                 my="xs",
                             ),
-                            dmc.Text("Domains", className="ea-section-title"),
+                            dmc.Title("Domains", order=2, className="ea-section-title"),
                             dag.AgGrid(
                                 id=ids.MM_NOTATION_DOMAINS_GRID,
                                 columnDefs=DOMAIN_NOTATION_COLS,
@@ -460,7 +512,9 @@ def render(ctx: AppContext) -> html.Div:
                                 getRowId="params.data.id",
                                 **dict(grid_kw, style={"height": "24vh", "width": "100%"}),
                             ),
-                            dmc.Text("Element types (overrides)", className="ea-section-title", mt="md"),
+                            dmc.Title(
+                                "Element types (overrides)", order=2, className="ea-section-title", mt="md"
+                            ),
                             dag.AgGrid(
                                 id=ids.MM_NOTATION_TYPES_GRID,
                                 columnDefs=TYPE_NOTATION_COLS,
@@ -468,7 +522,16 @@ def render(ctx: AppContext) -> html.Div:
                                 getRowId="params.data.id",
                                 **dict(grid_kw, style={"height": "40vh", "width": "100%"}),
                             ),
-                            dmc.Text("Preview", className="ea-section-title", mt="md"),
+                            dmc.Title("Preview", order=2, className="ea-section-title", mt="md"),
+                            html.Div(id=ids.MM_NOTATION_NOTE),
+                            dmc.Text(
+                                "The chips take each domain's colour, which the network graph and every "
+                                "badge use; the diagram below takes each type's glyph, stereotype and "
+                                "shape, and is filled by ArchiMate layer rather than by domain.",
+                                size="xs",
+                                c="dimmed",
+                            ),
+                            html.Div(notation_swatches(reg), id=ids.MM_NOTATION_SWATCHES),
                             mermaid_block(ids.MM_NOTATION_PREVIEW, notation_preview(reg)),
                         ],
                         value="notation",
@@ -556,6 +619,41 @@ def render(ctx: AppContext) -> html.Div:
 
 def _split(v: Any) -> list[str]:
     return [x.strip() for x in str(v or "").replace(";", ",").split(",") if x.strip()]
+
+
+def _all_rows(virtual: list[dict] | None, rows: list[dict] | None, *key: str) -> list[dict]:
+    """Every row of a grid, carrying whatever was edited in the rows on screen.
+
+    `virtualRowData` is what the grid is showing — filtered and sorted — and it is the only
+    place a cell edit appears. `rowData` is everything the grid was given. Saving from the
+    first alone means a column filter decides what is written, and everything it hid is
+    dropped; saving from the second alone throws away the edit that prompted the save.
+    So: everything, with the rows on screen laid over it.
+    """
+    rows = list(rows or [])
+    virtual = list(virtual or [])
+    if not rows:
+        return virtual
+    if not virtual:
+        return rows
+
+    def identity(row: dict) -> tuple:
+        return tuple(str(row.get(k, "")) for k in key)
+
+    edited = {identity(r): r for r in virtual}
+    out = [edited.pop(identity(r), r) for r in rows]
+    out.extend(edited.values())  # a row added on screen is not in rowData yet
+    return out
+
+
+def _counts(reg: Registry) -> str:
+    """What the page says it holds. A save changes it, so it is written in one place."""
+    inactive = len(reg.pack.element_types) - len(reg.active_types())
+    return (
+        f"{reg.pack.name} — {len(reg.active_types())} active types, {inactive} inactive, "
+        f"{len(reg.pack.relationship_types)} relationship types. Edit the grids and save; "
+        "export the result as a pack."
+    )
 
 
 def _pack_from_grids(
@@ -655,7 +753,7 @@ def register(app: dash.Dash) -> None:
             return no_update
         ctx = get_context()
         try:
-            for r in virtual_rows or rows or []:
+            for r in _all_rows(virtual_rows, rows, "type_id"):
                 ctx.reviews.set_assignment(r["type_id"], (r.get("reviewers") or "").split(","), ctx.actor)
         except Forbidden as exc:
             return alert(str(exc), "red")
@@ -755,6 +853,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.MM_FEEDBACK, "children"),
         Output(gp.store_id("mm"), "data", allow_duplicate=True),
+        Output(ids.MM_SUBTITLE, "children"),
         Input(ids.MM_SAVE, "n_clicks"),
         State(ids.MM_TYPES_GRID, "virtualRowData"),
         State(ids.MM_TYPES_GRID, "rowData"),
@@ -773,29 +872,38 @@ def register(app: dash.Dash) -> None:
         n, t_virtual, t_rows, r_virtual, r_rows, a_virtual, a_rows, dn_virtual, dn_rows, tn_virtual, tn_rows
     ):
         if not n:
-            return no_update, no_update
+            return no_update, no_update, no_update
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
-            return alert(f"A {ctx.role_label()} may not edit the metamodel.", "red"), no_update
+            return (
+                alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),
+                no_update,
+                no_update,
+            )
         try:
             d = _pack_from_grids(
                 ctx.registry,
-                t_virtual or t_rows or [],
-                r_virtual or r_rows or [],
-                a_virtual or a_rows or [],
-                dn_virtual or dn_rows or [],
-                tn_virtual or tn_rows or [],
+                _all_rows(t_virtual, t_rows, "id"),
+                _all_rows(r_virtual, r_rows, "id"),
+                _all_rows(a_virtual, a_rows, "type_id", "name"),
+                _all_rows(dn_virtual, dn_rows, "id"),
+                _all_rows(tn_virtual, tn_rows, "id"),
             )
             pack = pack_from_dict(d)
             Registry(pack)  # validates references and cycles before anything is stored
             ctx.backend.save_pack(pack)
             reg = ctx.reload_registry()
         except (ValueError, KeyError) as exc:
-            return alert(f"Not saved: {exc}", "red"), no_update
-        return alert(
-            f"Metamodel saved: {len(reg.pack.element_types)} types, {len(reg.pack.relationship_types)} relationship types.",
-            "green",
-        ), gp.raw_from_types(reg)
+            return alert(f"Not saved: {exc}", "red"), no_update, no_update
+        return (
+            alert(
+                f"Metamodel saved: {len(reg.pack.element_types)} types, "
+                f"{len(reg.pack.relationship_types)} relationship types.",
+                "green",
+            ),
+            gp.raw_from_types(reg),
+            _counts(reg),
+        )
 
     @app.callback(Output(ids.DOWNLOAD, "data"), Input(ids.MM_EXPORT, "n_clicks"), prevent_initial_call=True)
     def export(n):
@@ -814,19 +922,26 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_NOTATION_DOMAINS_GRID, "rowData"),
         Output(ids.MM_NOTATION_TYPES_GRID, "rowData"),
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children", allow_duplicate=True),
+        Output(ids.MM_SUBTITLE, "children", allow_duplicate=True),
         Input(ids.MM_RELOAD, "n_clicks"),
         prevent_initial_call=True,
     )
     def reload(n):
         if not n:
-            return (no_update,) * 8
+            return (no_update,) * 9
         ctx = get_context()
+        if not ctx.can("edit_metamodel"):
+            # Reload writes the pack into the store: it is an edit, and the button being
+            # visible is not permission to make one.
+            return (alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),) + (
+                no_update,
+            ) * 8
         try:
             pack = load_pack(ctx.settings.pack_path)
             ctx.backend.save_pack(pack)
             reg = ctx.reload_registry()
         except (OSError, ValueError) as exc:
-            return (alert(f"Reload failed: {exc}", "red"),) + (no_update,) * 7
+            return (alert(f"Reload failed: {exc}", "red"),) + (no_update,) * 8
         return (
             alert(f"Reloaded {reg.pack.id} from {ctx.settings.pack_path}.", "green"),
             _type_rows(reg),
@@ -836,10 +951,13 @@ def register(app: dash.Dash) -> None:
             _domain_notation_rows(reg),
             _type_notation_rows(reg),
             notation_preview(reg),
+            _counts(reg),
         )
 
     @app.callback(
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children"),
+        Output(ids.MM_NOTATION_NOTE, "children"),
+        Output(ids.MM_NOTATION_SWATCHES, "children"),
         Input(ids.MM_NOTATION_DOMAINS_GRID, "cellValueChanged"),
         Input(ids.MM_NOTATION_TYPES_GRID, "cellValueChanged"),
         State(ids.MM_NOTATION_DOMAINS_GRID, "virtualRowData"),
@@ -873,13 +991,23 @@ def register(app: dash.Dash) -> None:
         try:
             d = _pack_from_grids(
                 ctx.registry,
-                t_virtual or t_rows or [],
-                r_virtual or r_rows or [],
-                a_virtual or a_rows or [],
-                dn_virtual or dn_rows or [],
-                tn_virtual or tn_rows or [],
+                _all_rows(t_virtual, t_rows, "id"),
+                _all_rows(r_virtual, r_rows, "id"),
+                _all_rows(a_virtual, a_rows, "type_id", "name"),
+                _all_rows(dn_virtual, dn_rows, "id"),
+                _all_rows(tn_virtual, tn_rows, "id"),
             )
             reg = Registry(pack_from_dict(d))
-        except (ValueError, KeyError):
-            return no_update
-        return notation_preview(reg)
+        except (ValueError, KeyError) as exc:
+            # Freezing in silence looks like an edit that did not take. Say which grid is
+            # holding the preview back, so the reader knows what to fix.
+            return (
+                no_update,
+                alert(
+                    f"The preview cannot be drawn from the grids as they stand: {exc}. "
+                    "It will follow again once that is fixed.",
+                    "yellow",
+                ),
+                no_update,
+            )
+        return notation_preview(reg), None, notation_swatches(reg)

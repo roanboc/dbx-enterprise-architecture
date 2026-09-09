@@ -38,6 +38,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger(__name__)
 
 APP_TITLE = "EA Repository"
+NAV_TARGETS = [href for _, links in layout.NAV_SECTIONS for _, href, _ in links]
+NAV_LINK_IDS = [f"nav-{href.strip('/') or 'home'}" for href in NAV_TARGETS]
 PAGES = {"browse", "metamodel", "impact", "import", "ask", "branches", "target", "propose", "health"}
 
 
@@ -50,6 +52,29 @@ def parse_path(pathname: str | None) -> tuple[str, str | None]:
     if parts[0] in PAGES:
         return parts[0], None
     return "home", None
+
+
+def address_note(pathname: str | None) -> str:
+    """What the router could not place in the address, or empty when it read all of it.
+
+    Falling back is the right answer; doing it in silence is not. An address the router
+    cannot place at all, one that names a page and then says more, and a half-written
+    element address are all mistypes, and the reader is told which they made.
+    """
+    parts = [unquote(p) for p in (pathname or "/").split("/") if p]
+    if not parts:
+        return ""
+    if parts[0] == "element":
+        if len(parts) == 1:
+            return f"There is no page at {pathname}: an element address carries its identifier, as /element/<id>."
+        if len(parts) > 2:
+            return f"There is no page at {pathname}: everything after the element identifier was ignored."
+        return ""
+    if parts[0] in PAGES:
+        if len(parts) > 1:
+            return f"There is no page at {pathname}: /{parts[0]} takes no address under it, so the rest was ignored."
+        return ""
+    return f"There is no page at {pathname}. This is the home page."
 
 
 def session_branch() -> str:
@@ -71,6 +96,9 @@ def create_app() -> dash.Dash:
         assets_folder=str(ROOT / "assets"),
         update_title=None,
     )
+    # The document's language is the first thing assistive technology reads: without it a
+    # screen reader guesses its voice from the reader's locale rather than from the page.
+    app.index_string = app.index_string.replace("<html>", '<html lang="en">', 1)
     # The branch a reader is on lives in a signed session cookie. Set EA_SECRET_KEY so sessions
     # survive a restart; without it every restart puts everybody back on main.
     app.server.secret_key = os.environ.get("EA_SECRET_KEY") or secrets.token_hex(32)
@@ -110,18 +138,28 @@ def create_app() -> dash.Dash:
         Output(ids.NAVBAR_OPEN, "data"),
         Output(ids.NAV_BURGER, "opened"),
         Output(ids.APP_SHELL, "navbar"),
-        Input(ids.NAV_BURGER, "n_clicks"),
+        Input(ids.NAV_BURGER_CLICK, "n_clicks"),
         Input(ids.URL, "pathname"),
         State(ids.NAVBAR_OPEN, "data"),
         prevent_initial_call=True,
     )
     def toggle_mobile_nav(_clicks, _pathname, opened):
-        next_open = not bool(opened) if ctx.triggered_id == ids.NAV_BURGER else False
+        next_open = not bool(opened) if ctx.triggered_id == ids.NAV_BURGER_CLICK else False
         return (
             next_open,
             next_open,
             {"width": 220, "breakpoint": "sm", "collapsed": {"mobile": not next_open}},
         )
+
+    @app.callback(
+        [Output(link, "active") for link in NAV_LINK_IDS],
+        Input(ids.URL, "pathname"),
+    )
+    def mark_current_page(pathname):
+        """Say which page the reader is on. An element belongs to Browse, which opened it."""
+        page, _ = parse_path(pathname)
+        here = "/browse" if page == "element" else ("/" if page == "home" else f"/{page}")
+        return [href == here for href in NAV_TARGETS]
 
     @app.callback(
         Output(ids.PAGE, "children"),
@@ -134,26 +172,29 @@ def create_app() -> dash.Dash:
         page, arg = parse_path(pathname)
         try:
             if page == "element":
-                return element.render(ctx, arg or "")
-            if page == "browse":
-                return browse.render(ctx, search)
-            if page == "metamodel":
-                return metamodel.render(ctx)
-            if page == "impact":
-                return impact.render(ctx, search)
-            if page == "import":
-                return import_page.render(ctx)
-            if page == "ask":
-                return ask.render(ctx)
-            if page == "branches":
-                return branches.render(ctx, search)
-            if page == "target":
-                return target.render(ctx, search)
-            if page == "propose":
-                return propose.render(ctx)
-            if page == "health":
-                return health.render(ctx)
-            return home.render(ctx)
+                body = element.render(ctx, arg or "")
+            elif page == "browse":
+                body = browse.render(ctx, search)
+            elif page == "metamodel":
+                body = metamodel.render(ctx)
+            elif page == "impact":
+                body = impact.render(ctx, search)
+            elif page == "import":
+                body = import_page.render(ctx)
+            elif page == "ask":
+                body = ask.render(ctx)
+            elif page == "branches":
+                body = branches.render(ctx, search)
+            elif page == "target":
+                body = target.render(ctx, search)
+            elif page == "propose":
+                body = propose.render(ctx)
+            elif page == "health":
+                body = health.render(ctx)
+            else:
+                body = home.render(ctx)
+            note = address_note(pathname)
+            return dmc.Stack([alert(note, "yellow"), body], gap="sm") if note else body
         except Exception as exc:  # noqa: BLE001 — a page error must not blank the shell
             log.exception("page %s failed", page)
             return dmc.Alert(f"{type(exc).__name__}: {exc}", color="red", title="This page failed to render")
@@ -192,6 +233,8 @@ def create_app() -> dash.Dash:
             Output(ids.NAV_VERSION, "data", allow_duplicate=True),
             Output(ids.ROLE_BADGE, "children"),
             Output(ids.BRANCH_NEW_OPEN, "disabled"),
+            Output(ids.BRANCH_NEW_TIP, "label"),
+            Output(ids.BRANCH_NEW_WHY, "children"),
             Input(ids.PERSONA_SELECT, "value"),
             State(ids.NAV_VERSION, "data"),
             prevent_initial_call=True,
@@ -203,10 +246,13 @@ def create_app() -> dash.Dash:
             session["persona"] = persona
             user = PERSONAS[persona]
             set_role(user.role)
+            can_create = get_context().can("create_branch")
             return (
                 int(version or 0) + 1 if changed else no_update,
                 layout.role_badge(user.role, user.display_name),
-                not get_context().can("create_branch"),
+                not can_create,
+                layout.new_branch_tip(can_create),
+                layout.new_branch_tip(can_create),
             )
 
     @app.callback(

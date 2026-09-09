@@ -15,19 +15,20 @@ from ea.ui import ids
 from ea.ui.components import alert, icon, markdown_editor, modal_title, page_title
 from ea.ui.context import AppContext, get_context
 
+SELECT_COLUMN = {
+    "field": "sel",
+    "headerName": "",
+    "checkboxSelection": True,
+    "headerCheckboxSelection": True,
+    "width": 46,
+    "pinned": "left",
+    "sortable": False,
+    "filter": False,
+    "resizable": False,
+    "valueFormatter": {"function": "''"},
+}
+
 COLUMNS = [
-    {
-        "field": "sel",
-        "headerName": "",
-        "checkboxSelection": True,
-        "headerCheckboxSelection": True,
-        "width": 46,
-        "pinned": "left",
-        "sortable": False,
-        "filter": False,
-        "resizable": False,
-        "valueFormatter": {"function": "''"},
-    },
     {"field": "element_id", "headerName": "id", "width": 190},
     {"field": "name", "flex": 2, "minWidth": 200},
     {"field": "type", "flex": 1, "minWidth": 150},
@@ -44,6 +45,70 @@ COLUMNS = [
         "cellClassRules": {"ea-snippet": "params.value"},
     },
 ]
+
+
+GRID_OPTIONS = {
+    "rowSelection": "multiple",
+    "suppressRowClickSelection": True,
+    "animateRows": False,
+    "pagination": True,
+    "paginationPageSize": 50,
+    "tooltipShowDelay": 300,
+}
+
+
+def _and(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+
+def _no_rows(ctx: AppContext, type_id, text, status, health_filter):
+    """What the screen says when nothing matched, or None when something did.
+
+    The grid's own overlay reads 'No Rows To Show', which is true of a search that missed,
+    of a filter left on from an earlier one and of a repository with nothing in it alike.
+    This says what was asked for, what is still narrowing the list, and the way back.
+    """
+    narrowing = []
+    if text:
+        narrowing.append(f"the words '{text}'")
+    if type_id:
+        t = ctx.registry.get_type(type_id)
+        narrowing.append(f"the type {t.name if t else type_id}")
+    if status:
+        narrowing.append(f"status {status}")
+    if health_filter and health_filter.get("facet"):
+        narrowing.append(f"the Health filter {health_filter['facet']}")
+    if not narrowing:
+        return dmc.Alert(
+            "There is nothing here yet. Import a directory of CSV files, or add one with New element.",
+            color="gray",
+            variant="light",
+            withCloseButton=False,
+        )
+    body = f"Nothing matches {_and(narrowing)}."
+    if text:
+        body += " Every word has to match, and the controls above narrow the list together."
+    elif len(narrowing) > 1:
+        body += " The controls above narrow the list together."
+    return dmc.Alert(
+        dmc.Group(
+            [
+                dmc.Text(body, size="sm"),
+                dmc.Anchor("Show all elements", href="/browse", size="sm", fw=600),
+            ],
+            gap="sm",
+        ),
+        color="gray",
+        variant="light",
+        withCloseButton=False,
+    )
+
+
+def _columns(can_write: bool) -> list[dict]:
+    """The tick column is offered only to a role that can do something with a tick: a
+    Reader who ticks a row — or the header box, and the whole model — has nothing to apply."""
+    return ([SELECT_COLUMN] if can_write else []) + COLUMNS
+
 
 FACET_LABELS = {
     "description": "without a description",
@@ -66,16 +131,56 @@ def _type_options(ctx: AppContext) -> list[dict[str, str]]:
     return opts
 
 
+def _on_screen(selected: list[dict] | None, visible: list[dict] | None) -> list[dict]:
+    """The ticked rows that are still in the grid.
+
+    A tick survives the filter that takes its row away, so a reader who ticks a row, narrows
+    the search past it and presses Bulk edit would change a row they can no longer see.
+    """
+    rows = list(selected or [])
+    if visible is None:
+        return rows
+    on_screen = {r.get("element_id") for r in visible}
+    return [r for r in rows if r.get("element_id") in on_screen]
+
+
+def _days(q: dict, default: int = 90) -> int:
+    """The days= an address carries. An address is typed and pasted, so it is never trusted."""
+    try:
+        return max(1, int((q.get("days") or [default])[0]))
+    except (TypeError, ValueError):
+        return default
+
+
+def _unknown_type(ctx: AppContext, q: dict) -> str:
+    """The element type an address names that this metamodel does not hold, if any."""
+    type_id = (q.get("type") or [""])[0]
+    return "" if not type_id or ctx.registry.get_type(type_id) else type_id
+
+
 def _filter_note(ctx: AppContext, q: dict) -> str:
     facet = (q.get("missing") or q.get("facet") or [""])[0]
+    unknown_type = _unknown_type(ctx, q)
     if not facet:
-        return ""
-    label = FACET_LABELS.get(facet, facet)
+        # An address that narrows the grid to nothing has to say so, or an empty grid reads
+        # as a model with nothing in it.
+        return (
+            f"The address asks for the element type '{unknown_type}', which this metamodel "
+            "does not hold, so nothing is shown."
+            if unknown_type
+            else ""
+        )
+    label = FACET_LABELS.get(facet)
+    if label is None:
+        return (
+            f"'{facet}' is not a filter this page knows, so nothing is shown. The link came "
+            "from the Health page and may name a filter that has since been renamed."
+        )
     where = ""
     if q.get("source"):
         where = f" from source {q['source'][0]}"
     if facet == "stale":
-        label = f"not updated for {q.get('days', ['90'])[0]} days or more"
+        label = f"not updated for {_days(q)} days or more"
     return f"Showing only the elements {label}{where} (from the Health page)."
 
 
@@ -85,11 +190,11 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset_text = (q.get("q") or [""])[0]
     facet = (q.get("missing") or q.get("facet") or [""])[0]
     health_filter = (
-        {"facet": facet, "source": (q.get("source") or [""])[0], "days": int((q.get("days") or ["90"])[0])}
-        if facet
-        else None
+        {"facet": facet, "source": (q.get("source") or [""])[0], "days": _days(q)} if facet else None
     )
-    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main"))
+    frozen = ctx.frozen_reason()
+    can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main")) and not frozen
+    address_note = _filter_note(ctx, q)
     return html.Div(
         [
             page_title(
@@ -116,12 +221,20 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 ),
             ),
             alert(
-                "You are a Reader on this page: browse and open, but nothing here changes the model."
+                # The role first: it is why the buttons are off wherever the reader stands.
+                # The freeze is what stops a role that could otherwise write.
+                f"You are a {ctx.role_label()} on this page: browse and open, but nothing here "
+                "changes the model."
                 if not ctx.can("edit_content")
+                else frozen
+                if frozen
                 else "You are on main: switch to a branch in the header to edit or bulk-edit."
                 if not can_write
                 else "",
                 "blue",
+                # It is the only thing on the screen saying why New element and Bulk edit are
+                # greyed out, so closing it would leave the refusal unexplained.
+                dismissible=False,
             )
             if not can_write
             else None,
@@ -129,6 +242,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Select(
                         id=ids.BROWSE_TYPE,
+                        **{"aria-label": "Element type"},
                         data=_type_options(ctx),
                         value=preset_type,
                         w=300,
@@ -137,6 +251,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     ),
                     dmc.TextInput(
                         id=ids.BROWSE_TEXT,
+                        **{"aria-label": "Search the model"},
                         placeholder="Search words…",
                         leftSection=icon("tabler:search"),
                         debounce=400,
@@ -145,6 +260,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     ),
                     dmc.Select(
                         id=ids.BROWSE_STATUS,
+                        **{"aria-label": "Status"},
                         data=[{"value": "", "label": "Any status"}, "draft", "approved", "retired"],
                         value="",
                         w=140,
@@ -155,29 +271,43 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 mb="xs",
             ),
             html.Div(
-                alert(_filter_note(ctx, q), "yellow") if health_filter else None, id=ids.BROWSE_FILTER_NOTE
+                dmc.Alert(
+                    dmc.Group(
+                        [
+                            dmc.Text(address_note, size="sm"),
+                            dmc.Anchor("Show all elements", href="/browse", size="sm", fw=600),
+                        ],
+                        gap="sm",
+                    ),
+                    color="yellow",
+                    variant="light",
+                    # Not dismissible: it is the only thing on the page saying the grid is
+                    # filtered, and the filter came from an address rather than from the
+                    # controls above. Closing it would leave a partial list looking whole.
+                    withCloseButton=False,
+                )
+                if address_note
+                else None,
+                id=ids.BROWSE_FILTER_NOTE,
             ),
             dcc.Store(id=ids.BROWSE_SELECTED, data=health_filter),
+            html.Div(id=ids.BROWSE_EMPTY),
             dag.AgGrid(
                 id=ids.BROWSE_GRID,
-                columnDefs=COLUMNS,
+                columnDefs=_columns(can_write),
                 rowData=[],
                 getRowId="params.data.element_id",
                 defaultColDef={"sortable": True, "filter": True, "resizable": True},
-                dashGridOptions={
-                    "rowSelection": "multiple",
-                    "suppressRowClickSelection": True,
-                    "animateRows": False,
-                    "pagination": True,
-                    "paginationPageSize": 50,
-                    "tooltipShowDelay": 300,
-                },
+                dashGridOptions=GRID_OPTIONS,
                 className="ag-theme-alpine",
                 style={"height": "68vh", "width": "100%"},
             ),
             dmc.Modal(
                 id=ids.NEW_MODAL,
                 title=modal_title("New element", ids.NEW_MODAL),
+                # The dialog's own close button is an icon with no wording: named here, or it
+                # is nothing at all to a reader who is not looking at it.
+                closeButtonProps={"aria-label": "Close this dialog"},
                 children=dmc.Stack(
                     [
                         dmc.Select(
@@ -197,6 +327,9 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             dmc.Modal(
                 id=ids.BULK_MODAL,
                 title=modal_title("Bulk edit the ticked elements", ids.BULK_MODAL),
+                # The dialog's own close button is an icon with no wording: named here, or it
+                # is nothing at all to a reader who is not looking at it.
+                closeButtonProps={"aria-label": "Close this dialog"},
                 size="lg",
                 children=dmc.Stack(
                     [
@@ -275,6 +408,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.BROWSE_GRID, "rowData"),
         Output(ids.BROWSE_COUNT, "children"),
+        Output(ids.BROWSE_EMPTY, "children"),
         Input(ids.BROWSE_TYPE, "value"),
         Input(ids.BROWSE_TEXT, "value"),
         Input(ids.BROWSE_STATUS, "value"),
@@ -283,7 +417,8 @@ def register(app: dash.Dash) -> None:
     def load_rows(type_id, text, status, health_filter):
         ctx = get_context()
         rows, total = _load(ctx, type_id, text, status, health_filter)
-        return rows, f"{len(rows)} of {total}"
+        empty = None if rows else _no_rows(ctx, type_id, text, status, health_filter)
+        return rows, f"{len(rows)} of {total}", empty
 
     @app.callback(
         Output(ids.URL, "pathname", allow_duplicate=True),
@@ -305,13 +440,21 @@ def register(app: dash.Dash) -> None:
         Output(ids.BULK_FEEDBACK, "children", allow_duplicate=True),
         Input(ids.BULK_OPEN, "n_clicks"),
         State(ids.BROWSE_GRID, "selectedRows"),
+        State(ids.BROWSE_GRID, "virtualRowData"),
         prevent_initial_call=True,
     )
-    def open_bulk(n, selected):
+    def open_bulk(n, selected, visible):
         if not n:
             return no_update, no_update
+        selected = _on_screen(selected, visible)
         if not selected:
-            return False, no_update
+            # A button that does nothing when pressed reads as broken. Open it and say why
+            # there is nothing to do; Save refuses for the same reason.
+            return True, alert(
+                "Nothing is ticked. Close this, tick the rows you want to change in the "
+                "left-hand column, and open it again.",
+                "yellow",
+            )
         return True, dmc.Text(f"{len(selected)} element(s) ticked.", size="sm", c="dimmed")
 
     @app.callback(
@@ -319,6 +462,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.BROWSE_GRID, "rowData", allow_duplicate=True),
         Input(ids.BULK_SAVE, "n_clicks"),
         State(ids.BROWSE_GRID, "selectedRows"),
+        State(ids.BROWSE_GRID, "virtualRowData"),
         State(ids.BULK_STATUS, "value"),
         State(ids.BULK_CURRENT, "value"),
         State(ids.BULK_TARGET, "value"),
@@ -336,6 +480,7 @@ def register(app: dash.Dash) -> None:
     def bulk_save(
         n,
         selected,
+        visible,
         status,
         current,
         target,
@@ -351,7 +496,7 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update, no_update
         ctx = get_context()
-        ids_ = [r["element_id"] for r in (selected or [])]
+        ids_ = [r["element_id"] for r in _on_screen(selected, visible)]
         if not ids_:
             return alert("Tick at least one row first.", "yellow"), no_update
         fields = {

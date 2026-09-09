@@ -146,7 +146,7 @@ class ToolBox:
         try:
             result = getattr(self, "tool_" + name)(**(args or {}))
         except NotFoundError as exc:
-            result = {"error": f"no element with id {exc}"}
+            result = {"error": str(exc)}
         except AttributeError:
             result = {"error": f"unknown tool {name}"}
         except Exception as exc:  # noqa: BLE001 — the model must see the failure, not the process

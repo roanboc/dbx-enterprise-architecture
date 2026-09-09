@@ -6,7 +6,7 @@ import dash_mantine_components as dmc
 from dash import dcc, html
 
 from ea.backend.branching import MAIN
-from ea.services.roles import DESCRIPTIONS, LABELS
+from ea.services.roles import LABELS
 from ea.ui import ids
 from ea.ui.components import icon, modal_title
 
@@ -60,6 +60,16 @@ def branch_badge(branch_id: str, changes: int | None = None) -> dmc.Badge:
     )
 
 
+def new_branch_tip(can_create_branch: bool) -> str:
+    """What the New branch button says of itself.
+
+    The header is built once and the persona can change without a page load, so the label
+    is written here and re-read by the callback that switches persona; otherwise it goes on
+    telling the reader what the role before them was allowed to do.
+    """
+    return "New branch from main" if can_create_branch else "Your role may not create branches"
+
+
 def role_badge(role: str, display_name: str = "") -> dmc.Badge:
     """Who the reader is and in which role."""
     return dmc.Badge(
@@ -73,19 +83,21 @@ def role_badge(role: str, display_name: str = "") -> dmc.Badge:
 
 def persona_switcher(persona: str) -> dmc.Select:
     """The debug switcher of mock authentication: the four user roles a click away, Admin by default."""
+    # The label is the role, and nothing else. A description cut to 48 characters was cut
+    # again by the 200 px the header gives this control, so the value a reader sees while it
+    # is shut ended mid-word — 'Admin — Everything, including the metamodel, main, revie…'.
+    # What each role may do belongs on the Metamodel page and in the README, not in a
+    # control that is 200 px wide.
     return dmc.Select(
         id=ids.PERSONA_SELECT,
-        data=[
-            {"value": r, "label": f"{LABELS[r]} \u2014 {DESCRIPTIONS[r][:48]}\u2026"}
-            for r in LABELS
-            if r != "agent"
-        ],
+        **{"aria-label": "Act as another role (local only)"},
+        data=[{"value": r, "label": LABELS[r]} for r in LABELS if r != "agent"],
         value=persona if persona != "agent" else "admin",
-        w=200,
+        w=170,
         size="sm",
         allowDeselect=False,
         leftSection=icon("tabler:user", 14),
-        comboboxProps={"withinPortal": True, "width": 420, "position": "bottom-end"},
+        comboboxProps={"withinPortal": True, "position": "bottom-end"},
     )
 
 
@@ -93,6 +105,9 @@ def new_branch_modal(work_packages: list[dict[str, str]]) -> dmc.Modal:
     return dmc.Modal(
         id=ids.BRANCH_NEW_MODAL,
         title=modal_title("New branch", ids.BRANCH_NEW_MODAL),
+        # The dialog's own close button is an icon with no wording: named here, or it
+        # is nothing at all to a reader who is not looking at it.
+        closeButtonProps={"aria-label": "Close this dialog"},
         children=dmc.Stack(
             [
                 dmc.Text(
@@ -150,6 +165,9 @@ def shell(
             dcc.Download(id=ids.DOWNLOAD),
             dmc.NotificationContainer(id=ids.NOTIFY, position="top-right"),
             new_branch_modal(work_packages or []),
+            # The first thing the keyboard reaches, so a reader working without a mouse is
+            # not walked through the header and the ten navigation links on every screen.
+            html.A("Skip to the page", href="#page", className="ea-skip-link"),
             dmc.AppShell(
                 [
                     dmc.AppShellHeader(
@@ -157,18 +175,26 @@ def shell(
                             [
                                 html.Div(
                                     [
-                                        dmc.Burger(
-                                            id=ids.NAV_BURGER,
-                                            opened=False,
-                                            hiddenFrom="sm",
-                                            size="sm",
+                                        # The burger is a Mantine control and reports no clicks
+                                        # of its own, so the click is taken by a wrapper. The
+                                        # wrapper generates no box, so the header is unchanged.
+                                        html.Div(
+                                            dmc.Burger(
+                                                id=ids.NAV_BURGER,
+                                                opened=False,
+                                                hiddenFrom="sm",
+                                                size="sm",
+                                            ),
+                                            id=ids.NAV_BURGER_CLICK,
+                                            n_clicks=0,
+                                            style={"display": "contents"},
                                         ),
                                         html.Div(
                                             icon("tabler:topology-star-3", 20), className="ea-brand-mark"
                                         ),
                                         dmc.Stack(
                                             [
-                                                dmc.Title(title, order=4, style={"lineHeight": 1.1}),
+                                                dmc.Text(title, fw=650, fz="h4", style={"lineHeight": 1.1}),
                                                 dmc.Text(
                                                     "model first · agent ready · DuckDB now, Databricks next",
                                                     size="xs",
@@ -185,6 +211,7 @@ def shell(
                                         html.Div(branch_badge(current, changes), id=ids.BRANCH_BADGE),
                                         dmc.Select(
                                             id=ids.BRANCH_SELECT,
+                                            **{"aria-label": "The branch you are working on"},
                                             data=branch_options,
                                             value=current,
                                             w=240,
@@ -194,16 +221,31 @@ def shell(
                                             comboboxProps={"withinPortal": True},
                                         ),
                                         dmc.Tooltip(
-                                            dmc.ActionIcon(
-                                                icon("tabler:plus", 16),
-                                                id=ids.BRANCH_NEW_OPEN,
-                                                variant="light",
-                                                size="lg",
-                                                disabled=not can_create_branch,
+                                            html.Span(
+                                                dmc.ActionIcon(
+                                                    icon("tabler:plus", 16),
+                                                    id=ids.BRANCH_NEW_OPEN,
+                                                    **{
+                                                        "aria-label": "New branch",
+                                                        "aria-describedby": ids.BRANCH_NEW_WHY,
+                                                    },
+                                                    variant="light",
+                                                    size="lg",
+                                                    disabled=not can_create_branch,
+                                                ),
+                                                # A disabled control takes no pointer events, so
+                                                # the wrapper carries the native tooltip and the
+                                                # reason is readable either way.
+                                                title=new_branch_tip(can_create_branch),
+                                                style={"display": "inline-flex"},
                                             ),
-                                            label="New branch from main"
-                                            if can_create_branch
-                                            else "Your role may not create branches",
+                                            id=ids.BRANCH_NEW_TIP,
+                                            label=new_branch_tip(can_create_branch),
+                                        ),
+                                        html.Span(
+                                            new_branch_tip(can_create_branch),
+                                            id=ids.BRANCH_NEW_WHY,
+                                            className="ea-visually-hidden",
                                         ),
                                         html.Div(role_badge(role, display_name), id=ids.ROLE_BADGE),
                                         persona_switcher(persona) if persona else None,

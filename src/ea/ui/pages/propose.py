@@ -15,6 +15,7 @@ from ea.agent.proposal import ProposalResult, fetch_link, result_from_payload
 from ea.backend.branching import MAIN
 from ea.config import ROOT
 from ea.models import CURRENT_STATES, TARGET_STATES, ConflictError, Forbidden, NotFoundError, ValidationError
+from ea.services.roles import a_role
 from ea.ui import ids
 from ea.ui.components import alert, icon, markdown_editor, page_title
 from ea.ui.context import AppContext, get_context
@@ -103,6 +104,10 @@ def element_columns(ctx: AppContext) -> list[dict[str, Any]]:
             "flex": 1.5,
             "minWidth": 220,
             "editable": False,
+            # Pinned right: it is the column that says why a row cannot be applied, and ten
+            # columns put it off the edge of a wide window, where the architect correcting
+            # the row cannot see it.
+            "pinned": "right",
             "cellClassRules": {"ea-conflict": "params.value"},
         },
     ]
@@ -121,6 +126,7 @@ REL_COLUMNS = [
         "flex": 1.5,
         "minWidth": 220,
         "editable": False,
+        "pinned": "right",
         "cellClassRules": {"ea-conflict": "params.value"},
     },
 ]
@@ -233,7 +239,17 @@ def _preview(ctx: AppContext, r: ProposalResult):
                         f"{len(r.relationships)} relationships", color="gray", variant="light", size="lg"
                     ),
                     dmc.Text(wp_note, size="sm", c="dimmed"),
-                    dmc.Text(f"read by {who}", size="xs", c="dimmed") if r.provider else None,
+                    dmc.Text(
+                        # 'manual' is not a third provider beside the model ones: those rows
+                        # came from the architect, and the line has to read that way.
+                        "typed here, not read from a document"
+                        if r.provider == "manual"
+                        else f"read by {who}",
+                        size="xs",
+                        c="dimmed",
+                    )
+                    if r.provider
+                    else None,
                 ],
                 gap="sm",
                 mb="sm",
@@ -262,7 +278,7 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 ),
                 id=ids.PR_PUSHBACK,
             ),
-            dmc.Text("Elements", className="ea-section-title"),
+            dmc.Title("Elements", order=2, className="ea-section-title"),
             dmc.Text(
                 "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
                 size="xs",
@@ -285,7 +301,7 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 leftSection=icon("tabler:plus", 12),
                 mt=4,
             ),
-            dmc.Text("Relationships", className="ea-section-title", mt="md"),
+            dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
             dmc.Text(
                 "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
                 size="xs",
@@ -322,6 +338,16 @@ def _preview(ctx: AppContext, r: ProposalResult):
                         id=ids.PR_APPLY,
                         leftSection=icon("tabler:git-branch"),
                         disabled=not ctx.can("propose"),
+                    ),
+                    # A disabled button raises no tooltip, so the reason stands beside it.
+                    dmc.Text(
+                        f"{a_role(ctx.role_label())} may not apply a proposal; an architect or an "
+                        "admin can. Everything above is still yours to read and export."
+                        if not ctx.can("propose")
+                        else "",
+                        id=ids.PR_APPLY_WHY,
+                        size="xs",
+                        c="dimmed",
                     ),
                 ],
                 gap="sm",
@@ -494,7 +520,10 @@ def _sources(text: str, files: dict[str, str], links_text: str) -> tuple[list[di
         try:
             sources.append({"kind": "link", "name": url, "text": fetch_link(url)})
         except Exception as exc:  # noqa: BLE001 — the reason goes to the architect
-            problems.append(f"{url}: {exc}")
+            # `fetch_link` raises with the URL already in its message, so prefixing it again
+            # names the same link twice in one sentence.
+            reason = str(exc)
+            problems.append(reason if url in reason else f"{url}: {reason}")
     return sources, problems
 
 

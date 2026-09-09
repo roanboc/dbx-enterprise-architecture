@@ -108,6 +108,23 @@ class AppContext:
     def on_branch(self) -> bool:
         return current_branch() != MAIN
 
+    def frozen_reason(self) -> str:
+        """Why a write here would be refused before anything is typed, or empty.
+
+        `RepositoryService.check_write` refuses a branch that is in review one layer down.
+        A page that offers Save anyway makes the reader type the change first and read the
+        refusal afterwards; the reason belongs beside the control, before the typing.
+        """
+        if not self.on_branch():
+            return ""
+        b = self.backend.get_branch(current_branch())
+        if b is not None and b.status in ("in_review", "approved"):
+            return (
+                f"Branch {b.branch_id} is {b.status.replace('_', ' ')}: frozen until the review "
+                "is decided, so nothing on it can be changed."
+            )
+        return ""
+
     def branch_options(self) -> list[dict[str, str]]:
         """`main` and the open branches, for the header selector."""
         opts = [{"value": MAIN, "label": "main"}]

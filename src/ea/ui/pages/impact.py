@@ -33,6 +33,11 @@ def _option(ctx: AppContext, e) -> dict[str, str]:
     return {"value": e.element_id, "label": f"{e.name} [{e.element_id}] \u00b7 {t.name if t else e.type_id}"}
 
 
+NOTHING_TO_EXPORT = "Choose an element and press Run: there is no view to export yet."
+NOTHING_CHOSEN = "Choose an element above, then press Run."
+GRAPH_HOPS = 2  # the picture stays readable at two hops however far the tables answer
+
+
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset = (parse_qs((search or "").lstrip("?")).get("element") or [None])[0]
     data = [_option(ctx, e) for e in ctx.repo.search(limit=50)]
@@ -43,6 +48,13 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             if not any(o["value"] == preset for o in data):
                 data = [_option(ctx, e), *data]
             result, elements, mermaid = _result(ctx, preset, 3)
+        else:
+            # An address naming an element that is not here is refused rather than answered
+            # with an empty page, and the selector is left empty because there is nothing
+            # to select.
+            result = _unknown(preset)
+            preset = None
+    nothing_yet = "" if mermaid else NOTHING_TO_EXPORT
     return html.Div(
         [
             page_title(
@@ -53,6 +65,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Select(
                         id=ids.IMP_ELEMENT,
+                        **{"aria-label": "The element to trace"},
                         placeholder="Search an element…",
                         searchable=True,
                         data=data,
@@ -60,7 +73,15 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         w=460,
                         nothingFoundMessage="Type to search",
                     ),
-                    dmc.NumberInput(id=ids.IMP_DEPTH, label=None, value=3, min=1, max=6, w=90),
+                    dmc.NumberInput(
+                        id=ids.IMP_DEPTH,
+                        **{"aria-label": "How many hops to follow"},
+                        label=None,
+                        value=3,
+                        min=1,
+                        max=6,
+                        w=90,
+                    ),
                     dmc.Button("Run", id=ids.IMP_RUN, leftSection=icon("tabler:radar")),
                 ],
                 align="flex-end",
@@ -69,14 +90,22 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             ),
             html.Div(result, id=ids.IMP_RESULT),
             dmc.Paper(
-                gp.graph_panel("imp", ctx.registry, elements, height="70vh", group_by="layer"),
+                [
+                    dmc.Text(
+                        _graph_note(3) if elements is not gp.EMPTY else "",
+                        id=ids.IMP_GRAPH_NOTE,
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    gp.graph_panel("imp", ctx.registry, elements, height="70vh", group_by="layer"),
+                ],
                 p="sm",
                 withBorder=True,
                 mt="md",
             ),
             dmc.Paper(
                 [
-                    dmc.Title("Architecture view", order=5, mb="xs"),
+                    dmc.Title("Architecture view", order=2, size="h5", mb="xs"),
                     dmc.Text(
                         "The impact as an architecture diagram, generated from the model: layers top to bottom, every shape an element.",
                         size="sm",
@@ -84,7 +113,14 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         mb="xs",
                     ),
                     mermaid_block("imp-view", mermaid),
-                    view_toolbar(ids.IMP_VIEW_MD, ids.IMP_VIEW_DRAWIO),
+                    view_toolbar(
+                        ids.IMP_VIEW_MD,
+                        ids.IMP_VIEW_DRAWIO,
+                        md_reason=nothing_yet,
+                        drawio_reason=nothing_yet,
+                        note=nothing_yet,
+                        note_id=ids.IMP_VIEW_NOTE,
+                    ),
                 ],
                 p="md",
                 withBorder=True,
@@ -106,19 +142,43 @@ def _rows(ctx: AppContext, rows):
     ]
 
 
+def _unknown(element_id: str) -> dmc.Alert:
+    """A refusal that names what was refused and offers somewhere to go.
+
+    'Unknown element.' on its own says neither which identifier the address carried nor what
+    to do about it; the element page's own Not found screen does both.
+    """
+    return dmc.Alert(
+        dmc.Group(
+            [
+                dmc.Text(
+                    f"Unknown element. Nothing in the model carries the id '{element_id}'; "
+                    "it may have been renamed, merged or never imported.",
+                    size="sm",
+                ),
+                dmc.Anchor("Search the model", href="/browse", size="sm", fw=600),
+            ],
+            gap="sm",
+        ),
+        color="red",
+        variant="light",
+        withCloseButton=False,
+    )
+
+
 def _result(ctx: AppContext, element_id: str, depth: int):
     """(summary and tables, cytoscape elements, mermaid code) for one impact run."""
     try:
         res = ctx.graph.impact(element_id, depth)
     except NotFoundError:
-        return alert("Unknown element.", "red"), gp.EMPTY, ""
+        return _unknown(element_id), gp.EMPTY, ""
     e, c = res["element"], res["completeness"]
     summary = dmc.Paper(
         dmc.Stack(
             [
                 dmc.Group(
                     [
-                        dmc.Title(e["name"], order=3),
+                        dmc.Title(e["name"], order=2, size="h3"),
                         type_badge(ctx.registry, e["type_id"]),
                         dmc.Anchor("open", href=f"/element/{e['element_id']}", size="sm"),
                     ],
@@ -150,7 +210,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
         [
             dmc.Paper(
                 [
-                    dmc.Title("Depends on this (upstream)", order=5, mb="xs"),
+                    dmc.Title("Depends on this (upstream)", order=2, size="h5", mb="xs"),
                     simple_table(["hops", "element", "type", "via"], _rows(ctx, res["upstream"]))
                     if res["upstream"]
                     else dmc.Text("Nothing.", c="dimmed", size="sm"),
@@ -160,7 +220,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
             ),
             dmc.Paper(
                 [
-                    dmc.Title("This depends on (downstream)", order=5, mb="xs"),
+                    dmc.Title("This depends on (downstream)", order=2, size="h5", mb="xs"),
                     simple_table(["hops", "element", "type", "via"], _rows(ctx, res["downstream"]))
                     if res["downstream"]
                     else dmc.Text("Nothing.", c="dimmed", size="sm"),
@@ -172,7 +232,9 @@ def _result(ctx: AppContext, element_id: str, depth: int):
         cols={"base": 1, "lg": 2},
         spacing="md",
     )
-    elements = gp.raw_from_subgraph(ctx.registry, ctx.graph.neighbours(element_id, min(int(depth or 3), 2)))
+    elements = gp.raw_from_subgraph(
+        ctx.registry, ctx.graph.neighbours(element_id, min(int(depth or 3), GRAPH_HOPS))
+    )
     return (
         html.Div([summary, tables]),
         elements,
@@ -180,9 +242,23 @@ def _result(ctx: AppContext, element_id: str, depth: int):
     )
 
 
+def _graph_note(depth: int) -> str:
+    """What the picture shows against what the tables answered.
+
+    The graph is drawn from two hops however far the answer reaches, so it stays readable;
+    unsaid, a work package the table names three hops out looks missing from the picture.
+    """
+    return (
+        f"The picture shows the two hops nearest the element; the tables above answer to {depth}."
+        if int(depth or 3) > GRAPH_HOPS
+        else ""
+    )
+
+
 def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.IMP_ELEMENT, "data"),
+        Output(ids.IMP_ELEMENT, "nothingFoundMessage"),
         Input(ids.IMP_ELEMENT, "searchValue"),
         State(ids.IMP_ELEMENT, "value"),
         State(ids.IMP_ELEMENT, "data"),
@@ -190,19 +266,25 @@ def register(app: dash.Dash) -> None:
     )
     def search(text, value, data):
         if not text or len(text) < 2:
-            return no_update
+            return no_update, "Type at least two letters to search"
         ctx = get_context()
         options = [_option(ctx, e) for e in ctx.repo.search(text, limit=25)]
         # Picking an option makes the label the next search term, which matches nothing:
         # keep the list as it is rather than dropping the option the value refers to.
         if not options:
-            return no_update
-        return keep_selected_option(options, value, data)
+            # 'Type to search' is the right instruction before anything is typed and reads,
+            # afterwards, as though the search had never run.
+            return no_update, f"No element matches '{text}'."
+        return keep_selected_option(options, value, data), "Type to search"
 
     @app.callback(
         Output(ids.IMP_RESULT, "children"),
+        Output(ids.IMP_VIEW_MD, "disabled"),
+        Output(ids.IMP_VIEW_DRAWIO, "disabled"),
+        Output(ids.IMP_VIEW_NOTE, "children"),
         Output(gp.store_id("imp"), "data"),
         Output({"type": ids.MERMAID_SRC, "id": "imp-view"}, "children"),
+        Output(ids.IMP_GRAPH_NOTE, "children"),
         Input(ids.IMP_RUN, "n_clicks"),
         Input(ids.IMP_ELEMENT, "value"),
         State(ids.IMP_DEPTH, "value"),
@@ -211,8 +293,25 @@ def register(app: dash.Dash) -> None:
     )
     def run(n, element_id, depth):
         if not element_id:
-            return no_update, no_update, no_update
-        return _result(get_context(), element_id, int(depth or 3))
+            # A button that reports as loading and then leaves the page exactly as it was
+            # reads as broken; say what is missing instead.
+            if dash.ctx.triggered_id == ids.IMP_RUN:
+                blocked = dmc.Text(NOTHING_TO_EXPORT, size="xs", c="dimmed")
+                return alert(NOTHING_CHOSEN, "yellow"), True, True, blocked, gp.EMPTY, "", ""
+            return (no_update,) * 7
+        result, nodes, mermaid = _result(get_context(), element_id, int(depth or 3))
+        blocked = "" if mermaid else NOTHING_TO_EXPORT
+        note = dmc.Text(blocked, size="xs", c="dimmed") if blocked else None
+        return result, bool(blocked), bool(blocked), note, nodes, mermaid, _graph_note(int(depth or 3))
+
+    @app.callback(
+        Output(ids.IMP_DEPTH, "value"),
+        Input(ids.IMP_DEPTH, "value"),
+        prevent_initial_call=True,
+    )
+    def keep_a_depth(depth):
+        """An emptied box would answer at three while showing nothing: put the three back."""
+        return no_update if depth not in (None, "") else 3
 
     @app.callback(
         Output(ids.URL, "pathname", allow_duplicate=True),

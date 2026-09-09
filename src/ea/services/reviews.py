@@ -30,7 +30,7 @@ class ReviewService:
     def set_assignment(self, type_id: str, reviewers: list[str], actor: str) -> None:
         require("assign_reviewers", what="assign reviewers")
         if self.registry.get_type(type_id) is None:
-            raise NotFoundError(type_id)
+            raise NotFoundError(type_id, "element type")
         self.backend.set_reviewer_assignment(type_id, reviewers, actor)
 
     def reviewers_for(self, type_id: str) -> list[str]:

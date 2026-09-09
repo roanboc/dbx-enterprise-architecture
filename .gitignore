@@ -41,3 +41,9 @@ app_err.log
 
 # Exported metamodel snapshots written by the app (regenerated on demand)
 .ea/
+
+# What a test round writes: the report and the screenshots that evidence it,
+# in one folder so the report's image links resolve where it is read. Every
+# run is a new folder and none of them is the record; the scenarios in
+# tests/ui/ are, and they are committed.
+.testrun/
