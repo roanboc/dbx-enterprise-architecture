@@ -26,6 +26,7 @@ from ea.importer.mapping import (
 from ea.metamodel.registry import Registry
 from ea.models import (
     CURRENT_STATES,
+    LINK_SCHEMES,
     TARGET_STATES,
     Element,
     Forbidden,
@@ -417,6 +418,20 @@ def build_links(
                         "warning",
                         "dangling_link",
                         f"link for unknown element {eid!r} or empty url",
+                        row=i,
+                        file=fname,
+                        entity=eid,
+                    )
+                )
+                continue
+            if not url.lower().startswith(LINK_SCHEMES):
+                # The element page refuses the same line for the same reason: a `javascript:`
+                # line waiting for a click is not a link to a source.
+                report.issues.append(
+                    Issue(
+                        "warning",
+                        "bad_link",
+                        f"link for {eid!r} refused: {url!r} is not an http, https or mailto address",
                         row=i,
                         file=fname,
                         entity=eid,
