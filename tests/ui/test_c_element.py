@@ -208,6 +208,23 @@ def _choose(ui, selector: str, label: str) -> None:
     ui.settle()
 
 
+def _description(ui, control_id: str) -> str:
+    """What a control says under itself.
+
+    A Mantine `description` is rendered inside the control's own wrapper, so it is read
+    from there rather than from the page, which would find any sentence at all. The class
+    the library writes is `mantine-InputWrapper-description`, so the match is on the tail:
+    `Input-description` finds nothing, because `Wrapper` sits between the two words.
+    """
+    return ui.page.evaluate(
+        "id => { const e = document.getElementById(id);"
+        " const w = e && e.closest('.mantine-InputWrapper-root');"
+        " const d = w && w.querySelector('[class*=\"-description\"]');"
+        " return d ? d.innerText.trim() : ''; }",
+        control_id,
+    )
+
+
 def _value(ui, selector: str) -> str:
     loc = ui.page.locator(_css(selector)).first
     return loc.input_value().strip() if loc.count() else ""
@@ -473,17 +490,33 @@ def test_typed_attribute_inputs(ui, record, finding):
         str(options),
     )
     ui.shot("The Edit tab: the integer attribute as a number input, the enumerated one as a select")
-    # A date attribute is edited in a date control: a picker, with the format it expects shown.
+    # A date attribute is edited in a date control: a picker, and a format to fail against.
+    # It carries no `type`, so it is read by what the component library marks it with.
     date_attr = ui.page.locator(_attr("standard_creation_date")).first
-    if date_attr.count():
-        is_date_control = (
-            date_attr.get_attribute("type") == "date"
-            or (date_attr.get_attribute("placeholder") or "") == "YYYY-MM-DD"
-        )
-        ui.check(
-            "a date attribute is edited in a date control, with the format it expects shown",
-            is_date_control,
-            f"type={date_attr.get_attribute('type')!r} placeholder={date_attr.get_attribute('placeholder')!r}",
+    dated = bool(date_attr.count()) and (
+        date_attr.get_attribute("data-dates-input") == "true"
+        or "DateInput" in (date_attr.get_attribute("class") or "")
+    )
+    ui.check(
+        "the date attribute is a date control, and says the format it wants",
+        dated and (date_attr.get_attribute("placeholder") or "") == "YYYY-MM-DD",
+        f"class={date_attr.get_attribute('class')!r}, placeholder={date_attr.get_attribute('placeholder')!r}"
+        if date_attr.count()
+        else "this element carries no date attribute",
+    )
+    if date_attr.count() and not dated:
+        finding.append(
+            Finding(
+                finding_id="C-1",
+                where="src/ea/ui/pages/element.py · _attr_input",
+                severity="usability",
+                summary="A date attribute is edited in a plain text box",
+                detail=(
+                    "`_attr_input` branches on boolean, enum, integer/number and text; the pack's four "
+                    "`date` attributes (Standard Creation Date and its siblings) fall through to a bare "
+                    "TextInput, so the reader gets no picker, no placeholder and no format checking."
+                ),
+            )
         )
     _open(ui, DE)
     _tab(ui, "Edit")
@@ -1384,15 +1417,29 @@ def test_a_forbidden_pair_cannot_be_written(ui, record, finding):
     )
     ui.check("nothing was written", _rel_rows(ui) == rows, f"{rows} then {_rel_rows(ui)} rows")
     ui.check("the tab count did not move", _rel_tab_count(ui) == label, f"{label} then {_rel_tab_count(ui)}")
-    ui.shot("The relationship box after an other element that cannot take the relationship chosen first")
-    # The Select drops a value that is no longer among its options; the page says which pair
-    # decided it, beside the box, rather than undoing the choice in silence.
-    explained = "so the relationship you had chosen was cleared" in ui.body()
+    said = _description(ui, "el-rel-type")
     ui.check(
-        "the cleared choice is explained beside the box, naming what this pair allows",
-        explained and "allows only" in ui.body(),
-        "the note names the pair's relationships" if explained else "no note beside the box",
+        "and the box says which pair decided it, rather than emptying in silence",
+        "encapsulates" in said.lower(),
+        said or "(nothing beside the box)",
     )
+    ui.shot("The relationship box after an other element that cannot take the relationship chosen first")
+    if not left and not said.strip():
+        finding.append(
+            Finding(
+                finding_id="C-5",
+                where="src/ea/ui/pages/element.py · rel_type_options",
+                severity="usability",
+                summary="A relationship chosen first is dropped without a word when the other end cannot take it",
+                detail=(
+                    "`rel_type_options` rewrites the relationship Select's `data` whenever the other end "
+                    "changes, and a value that is no longer among the options disappears from the control. "
+                    "The reader's choice is undone silently: nothing says it was dropped or why, and the "
+                    "only sign is Add then asking for a relationship. A line beside the box — this pair "
+                    "allows only 'encapsulates' — would say what the metamodel decided."
+                ),
+            )
+        )
 
 
 @pytest.mark.scenario(

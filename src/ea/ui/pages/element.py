@@ -756,7 +756,6 @@ def register(app: dash.Dash) -> None:
         # The Select drops a value that is no longer among its options, so a choice made
         # before the other end was known disappears. Say which pair decided it.
         offered = [d["value"] for d in data]
-        note = ""
         if chosen and chosen not in offered:
             names = ", ".join(
                 f"'{ctx.registry.rel_types[v].name}'" for v in offered if v in ctx.registry.rel_types
@@ -766,6 +765,14 @@ def register(app: dash.Dash) -> None:
                 if names
                 else "This pair allows no relationship in that direction, so the one you had chosen was cleared."
             )
+        elif chosen:
+            note = ""  # the reader has chosen one this pair allows: nothing to explain
+        else:
+            # The Select drops a value that is no longer among its options, and that drop
+            # calls this back a second time with nothing chosen. The box cannot be cleared
+            # by hand, so an empty one is always that second call — leave standing whatever
+            # the first one said, or the sentence would be written and wiped in one move.
+            note = no_update
         return (
             data,
             note,

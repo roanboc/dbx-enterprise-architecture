@@ -105,6 +105,9 @@ def new_branch_modal(work_packages: list[dict[str, str]]) -> dmc.Modal:
     return dmc.Modal(
         id=ids.BRANCH_NEW_MODAL,
         title=modal_title("New branch", ids.BRANCH_NEW_MODAL),
+        # The dialog's own close button is an icon with no wording: named here, or it
+        # is nothing at all to a reader who is not looking at it.
+        closeButtonProps={"aria-label": "Close this dialog"},
         children=dmc.Stack(
             [
                 dmc.Text(

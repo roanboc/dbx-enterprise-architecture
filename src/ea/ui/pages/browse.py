@@ -305,6 +305,9 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             dmc.Modal(
                 id=ids.NEW_MODAL,
                 title=modal_title("New element", ids.NEW_MODAL),
+                # The dialog's own close button is an icon with no wording: named here, or it
+                # is nothing at all to a reader who is not looking at it.
+                closeButtonProps={"aria-label": "Close this dialog"},
                 children=dmc.Stack(
                     [
                         dmc.Select(
@@ -324,6 +327,9 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             dmc.Modal(
                 id=ids.BULK_MODAL,
                 title=modal_title("Bulk edit the ticked elements", ids.BULK_MODAL),
+                # The dialog's own close button is an icon with no wording: named here, or it
+                # is nothing at all to a reader who is not looking at it.
+                closeButtonProps={"aria-label": "Close this dialog"},
                 size="lg",
                 children=dmc.Stack(
                     [

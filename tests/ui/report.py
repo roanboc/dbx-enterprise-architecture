@@ -33,11 +33,21 @@ def _rel(path: Path, base: Path) -> str:
         return path.as_posix()
 
 
+def _cell(text: str) -> str:
+    """One table cell: a pipe escaped, and a newline turned into a break.
+
+    A detail read off a screen carries whatever the screen carried — a table's
+    rows, a badge above a caption — and a raw newline in a cell ends the row
+    early, so the rest of what was measured is lost from the document.
+    """
+    return text.replace("|", "\\|").replace("\n", " ⏎ ")
+
+
 def _table(header: list[str], rows: list[list[str]]) -> list[str]:
     if not rows:
         return []
     out = ["| " + " | ".join(header) + " |", "| " + " | ".join("---" for _ in header) + " |"]
-    out += ["| " + " | ".join(" ".join(c.split()).replace("|", "\\|") for c in r) + " |" for r in rows]
+    out += ["| " + " | ".join(_cell(c) for c in r) + " |" for r in rows]
     out.append("")
     return out
 

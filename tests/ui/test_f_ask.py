@@ -833,9 +833,11 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
         "An identifier the model does not carry: the answer says it was not found and the banner marks it unverified"
     )
     trace = ui.text("ask-trace")
+    # The heading is drawn in capitals, so read it in the case it is measured in.
+    heading = trace.lower()
     ui.check(
         "the trace heading counts one call as one call",
-        "1 call" in trace.lower() and "1 calls" not in trace.lower(),
+        "1 call" in heading and "1 calls" not in heading,
         trace[:120] or "(no trace)",
     )
     if re.search(r"1 calls", trace, re.IGNORECASE):

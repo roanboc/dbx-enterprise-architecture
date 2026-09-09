@@ -966,12 +966,10 @@ def test_a_work_package_in_the_address(ui, record, finding):
     )
     ui.shot("The work package taken from the address: both controls set, and both tables scoped to it")
 
-    # With one work package in scope every row would name it, so the column is dropped here
-    # and carried only when every work package is in scope (E07 reads it there).
-    rel_heads = [h.strip().lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
+    rel_heads = [h.lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
     ui.check(
-        "the relationships table drops the work-package column while one package is in scope",
-        "work package" not in rel_heads,
+        "and this table drops the work package column too, because every row would name the same one",
+        not any("work package" in h for h in rel_heads),
         str(rel_heads),
     )
 
@@ -1259,10 +1257,10 @@ def test_the_view_marks_relationships(ui, record):
     group="E",
     title="The downloads follow the picker, and the whole model has a draw.io of its own",
     feature="Target state · downloads",
-    expected="A work package chosen in the picker is written into the address, so a copied link returns "
-    "to the same scope, and the files are named for it; Download draw.io with every work package in "
-    "scope returns target-state-all.drawio holding exactly the shapes the page draws, each with both "
-    "its states.",
+    expected="A work package chosen in the picker names the files, and the address follows it there, "
+    "so the link a reader copies is the scope they are looking at; Download draw.io with every work "
+    "package in scope returns target-state-all.drawio holding exactly the shapes the page draws, "
+    "each with both its states.",
 )
 def test_downloads_follow_the_picker(ui, record):
     ui.goto("/target")
@@ -1276,7 +1274,7 @@ def test_downloads_follow_the_picker(ui, record):
     )
     md = ui.download("tg-view-md", ".md")
     ui.check(
-        "the file is named for the work package in scope",
+        "the file is named for what is in scope",
         md.name == f"target-state-{WP}.md",
         md.name,
     )
@@ -1285,7 +1283,7 @@ def test_downloads_follow_the_picker(ui, record):
         f"## Target state of {WP_NAME}" in md.read_text(encoding="utf-8"),
         md.read_text(encoding="utf-8")[:80],
     )
-    ui.shot("A work package chosen in the picker alone, and the file it produced named for it")
+    ui.shot("A work package chosen in the picker, the address that followed it, and the file it named")
 
     ui.goto("/target")
     ui.wait_mermaid()
