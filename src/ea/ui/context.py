@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 from ea.agent import Agent
 from ea.agent.proposal import ProposalService
@@ -23,6 +24,7 @@ from ea.services import (
     SearchService,
     TargetStateService,
 )
+from ea.services.identity import WorkspaceGroups, forwarded_identity
 from ea.services.roles import LABELS, allowed, current_role, parse_role_groups, role_from_groups
 
 log = logging.getLogger(__name__)
@@ -56,6 +58,7 @@ class AppContext:
     search: SearchService = field(init=False)
     health: HealthService = field(init=False)
     reviews: ReviewService = field(init=False)
+    identity: WorkspaceGroups = field(default_factory=WorkspaceGroups)
     _agent: Agent | None = field(default=None, init=False)
     _proposals: ProposalService | None = field(default=None, init=False)
 
@@ -166,31 +169,32 @@ class AppContext:
         return ""
 
     def current_user(self) -> User:
-        """Who is asking: on the platform the forwarded identity and groups; locally the debug persona."""
+        """Who is asking: on the platform the forwarded identity and its workspace groups; locally the debug persona."""
         if self.settings.auth == "databricks":
             try:
                 from flask import has_request_context, request
 
                 if has_request_context():
-                    email = (
-                        request.headers.get("X-Forwarded-Email")
-                        or request.headers.get("X-Forwarded-Preferred-Username")
-                        or ""
-                    )
-                    groups = [
-                        g.strip()
-                        for g in request.headers.get("X-Forwarded-Groups", "").split(",")
-                        if g.strip()
-                    ]
-                    if email:
-                        role = role_from_groups(groups, parse_role_groups(self.settings.role_groups))
-                        return User(
-                            username=email, display_name=email.split("@")[0], groups=groups, role=role
-                        )
+                    return self.user_from_headers(request.headers)
             except Exception:  # noqa: BLE001
-                pass
+                log.exception("could not read the forwarded identity")
             return User(username="anonymous", display_name="Anonymous", role="reader")
         return persona_user(self.persona())
+
+    def user_from_headers(self, headers: Any) -> User:
+        """The user the platform forwarded, with the groups it holds them in and the role those grant.
+
+        The platform forwards no groups, so they are looked up in the workspace (`identity`),
+        with the user's own token when the app is granted one. A proxy that does forward a
+        groups header is believed instead, and nobody signed in is a Reader.
+        """
+        email, groups, token = forwarded_identity(headers)
+        if not email:
+            return User(username="anonymous", display_name="Anonymous", role="reader")
+        if groups is None:
+            groups = self.identity.groups(email, token)
+        role = role_from_groups(groups, parse_role_groups(self.settings.role_groups))
+        return User(username=email, display_name=email.split("@")[0], groups=groups, role=role)
 
     def persona(self) -> str:
         """The debug persona kept in the session; Admin by default."""

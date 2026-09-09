@@ -1,4 +1,4 @@
-.PHONY: install seed run test test-fast gui gui-install lint format check validate clean
+.PHONY: install seed run test test-fast test-live gui gui-install lint format check validate deploy deploy-grants clean
 
 install:            ## create .venv and install runtime + dev dependencies with uv
 	uv sync
@@ -15,6 +15,9 @@ test:               ## run the test suite: the unit tests and the command-line s
 
 test-fast:          ## the unit tests alone, in seconds, while iterating
 	uv run pytest -m "not cli"
+
+test-live:          ## the unit tests a third time, on a real SQL warehouse (DATABRICKS_HOST, credentials, DATABRICKS_WAREHOUSE_ID, EA_CATALOG)
+	EA_LIVE_DATABRICKS=1 uv run --extra databricks pytest -m "not cli"
 
 gui-install:        ## add the browser driver and its browser
 	uv sync --group gui
@@ -34,6 +37,14 @@ validate:           ## archreator validators (relative links, element-ID referen
 	python3 scripts/check_model.py
 
 check: lint test validate   ## everything CI runs
+
+deploy:             ## the bundle: the Unity Catalog schema and the app (BUNDLE_VAR_warehouse_id names the warehouse; TARGET=dev)
+	databricks bundle validate -t $(or $(TARGET),dev)
+	databricks bundle deploy -t $(or $(TARGET),dev)
+	databricks bundle run ea_repository -t $(or $(TARGET),dev)
+
+deploy-grants:      ## after the first deploy: the app's service principal on the schema (EA_CATALOG, EA_SCHEMA, DATABRICKS_WAREHOUSE_ID)
+	uv run --extra databricks python deploy/grants.py
 
 clean:
 	rm -f data/ea.duckdb data/ea.duckdb.wal
