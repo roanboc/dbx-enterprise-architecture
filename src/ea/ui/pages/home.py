@@ -83,7 +83,7 @@ def render(ctx: AppContext) -> html.Div:
                     dmc.Paper(
                         [
                             dmc.Title("Elements by type", order=2, size="h4"),
-                            simple_table(["type", "domain", "count", ""], type_rows)
+                            simple_table(["type", "domain", "count", "status"], type_rows)
                             if type_rows
                             else dmc.Text(
                                 "Nothing loaded yet — use Import, or `make seed`.", c="dimmed", size="sm"

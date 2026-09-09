@@ -96,6 +96,9 @@ def create_app() -> dash.Dash:
         assets_folder=str(ROOT / "assets"),
         update_title=None,
     )
+    # The document's language is the first thing assistive technology reads: without it a
+    # screen reader guesses its voice from the reader's locale rather than from the page.
+    app.index_string = app.index_string.replace("<html>", '<html lang="en">', 1)
     # The branch a reader is on lives in a signed session cookie. Set EA_SECRET_KEY so sessions
     # survive a restart; without it every restart puts everybody back on main.
     app.server.secret_key = os.environ.get("EA_SECRET_KEY") or secrets.token_hex(32)

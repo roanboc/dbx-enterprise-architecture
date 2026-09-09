@@ -33,9 +33,11 @@ FACET_TOTALS = {
 }
 
 
-def _pct_cell(pct: int, missing: int, href: str | None):
+def _pct_cell(pct: int, missing: int, href: str | None, label: str = ""):
     colour = "green" if pct >= 90 else "yellow" if pct >= 60 else "red"
-    bar = dmc.Progress(value=pct, color=colour, size="sm", w=90)
+    # A bar is read aloud as "progress bar" unless it says what it measures; the name is
+    # the type and the facet, the same words the column heading and the row carry.
+    bar = dmc.Progress(value=pct, color=colour, size="sm", w=90, **{"aria-label": f"{label}: {pct}%"})
     label = (
         dmc.Anchor(f"{missing} missing", href=href, size="xs")
         if missing and href
@@ -179,7 +181,11 @@ def _completeness(ctx: AppContext) -> html.Div:
         ]
         for f in COMPLETENESS_FACETS:
             href = f"/browse?type={r['type_id']}&missing={f}" if r[f"{f}_missing"] else None
-            cells.append(dmc.TableTd(_pct_cell(r[f"{f}_pct"], r[f"{f}_missing"], href)))
+            cells.append(
+                dmc.TableTd(
+                    _pct_cell(r[f"{f}_pct"], r[f"{f}_missing"], href, f"{r['type']} {FACET_TITLES[f]}")
+                )
+            )
         body.append(dmc.TableTr(cells))
     totals = comp["missing"]
     empty_rels = ctx.health.relationship_coverage()
