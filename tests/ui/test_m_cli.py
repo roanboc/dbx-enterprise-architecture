@@ -33,7 +33,7 @@ from __future__ import annotations
 import pytest
 from tests.ui.evidence import Check, Finding
 
-pytestmark = pytest.mark.gui
+pytestmark = pytest.mark.cli  # no browser: this group runs in `make check` as well as in the round
 
 # ------------------------------------------------------------------ the model under test
 # Elements from the sample model. The read-only scenarios use the first three; every write

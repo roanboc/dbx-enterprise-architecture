@@ -7,11 +7,12 @@ the scenarios are, in `tests/ui/`, and this is one run of them.
 
 from __future__ import annotations
 
+import html
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tests.ui.evidence import GROUPS, Finding, Scenario
+from tests.ui.evidence import GROUPS, Finding, Scenario, Shot
 
 MARK = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}
 
@@ -36,7 +37,7 @@ def _table(header: list[str], rows: list[list[str]]) -> list[str]:
     if not rows:
         return []
     out = ["| " + " | ".join(header) + " |", "| " + " | ".join("---" for _ in header) + " |"]
-    out += ["| " + " | ".join(c.replace("|", "\\|") for c in r) + " |" for r in rows]
+    out += ["| " + " | ".join(" ".join(c.split()).replace("|", "\\|") for c in r) + " |" for r in rows]
     out.append("")
     return out
 
@@ -64,6 +65,13 @@ def write_report(
         f"{len(skipped)} skipped.**"
     )
     L.append("")
+    if (run_dir / "key-screens.html").exists():
+        L.append(
+            "The screenshots a reviewer reads are on one page: [key-screens.html](./key-screens.html) — "
+            "every screen wide and at 480 px, and each state the audit reaches, with the rest of the "
+            "evidence folded away by group."
+        )
+        L.append("")
     L += _table(
         ["", ""],
         [
@@ -183,6 +191,70 @@ def write_report(
 
     out = run_dir / "report.md"
     out.write_text("\n".join(L).rstrip() + "\n", encoding="utf-8")
+    return out
+
+
+GALLERY_CSS = """
+body{font:14px/1.45 system-ui,sans-serif;margin:0;padding:1.5rem;background:#f6f7f9;color:#1b1f24}
+h1{font-size:1.4rem;margin:0 0 .25rem} h2{font-size:1.1rem;margin:2rem 0 .75rem}
+p.lead{margin:0 0 1rem;color:#4b5563} .grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
+figure{margin:0;background:#fff;border:1px solid #d9dde3;border-radius:6px;padding:.5rem;display:flex;flex-direction:column}
+figure img{max-width:100%;height:auto;max-height:70vh;object-fit:contain;object-position:top;border:1px solid #e5e7eb;background:#fff}
+figure a{display:block} figcaption{font-size:.85rem;margin-top:.5rem;color:#374151}
+figcaption code{font-size:.8rem;background:#eef0f3;padding:0 .3em;border-radius:3px}
+details{margin:.75rem 0} summary{cursor:pointer;font-weight:600;padding:.4rem 0} .fail{color:#b42318;font-weight:600}
+"""
+
+
+def write_gallery(run_dir: Path, scenarios: list[Scenario], context: dict[str, str]) -> Path:
+    """One page of the screenshots a reviewer is meant to read, the screen audit's first.
+
+    The audit photographs every screen once wide and once at 480 px, and each state that no
+    plain address renders; those are the key screens, and a reviewer reads them in one
+    scroll instead of opening files. Every other scenario's evidence is on the same page,
+    folded away by group, so nothing is hidden and nothing has to be hunted for.
+    """
+    scenarios = sorted(scenarios, key=lambda s: (list(GROUPS).index(s.group), s.scenario_id))
+
+    def figure(s: Scenario, shot: Shot) -> str:
+        src = html.escape(_rel(shot.path, run_dir))
+        cap = html.escape(shot.caption)
+        mark = "" if s.outcome == "passed" else f' <span class="fail">{MARK[s.outcome]}</span>'
+        return (
+            f'<figure><a href="{src}"><img src="{src}" alt="{cap}" loading="lazy"></a>'
+            f"<figcaption><code>{html.escape(s.scenario_id)}</code>{mark} {cap}</figcaption></figure>"
+        )
+
+    L = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">', "<title>Key screens</title>"]
+    L.append(f"<style>{GALLERY_CSS}</style></head><body>")
+    L.append("<h1>Key screens</h1>")
+    L.append(
+        f'<p class="lead">Run {html.escape(context.get("started", ""))} · commit '
+        f"{html.escape(context.get('commit', ''))} · {html.escape(context.get('viewport', ''))}. "
+        'The report is <a href="report.md">report.md</a>.</p>'
+    )
+    audit = [s for s in scenarios if s.group == "P"]
+    others = [s for s in scenarios if s.group != "P"]
+    L.append("<h2>Every screen, wide and at 480 px, and each state the audit reaches</h2>")
+    L.append('<div class="grid">')
+    L += [figure(s, shot) for s in audit for shot in s.shots if shot.path.exists()]
+    L.append("</div>")
+    L.append("<h2>The rest of the evidence, by group</h2>")
+    for key, name in GROUPS.items():
+        grp = [s for s in others if s.group == key]
+        figs = [figure(s, shot) for s in grp for shot in s.shots if shot.path.exists()]
+        if not figs:
+            continue
+        bad = len([s for s in grp if s.outcome == "failed"])
+        L.append(
+            f"<details><summary>{key} — {html.escape(name)}: {len(figs)} screenshots"
+            + (f', <span class="fail">{bad} scenarios failed</span>' if bad else "")
+            + "</summary>"
+        )
+        L.append('<div class="grid">' + "".join(figs) + "</div></details>")
+    L.append("</body></html>")
+    out = run_dir / "key-screens.html"
+    out.write_text("\n".join(L) + "\n", encoding="utf-8")
     return out
 
 

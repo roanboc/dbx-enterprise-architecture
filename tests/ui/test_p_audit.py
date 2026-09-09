@@ -7,6 +7,11 @@ point of a fixed list is comparison: two rounds put side by side show a regressi
 polish as plainly as a regression in behaviour, and a screen that quietly grows an
 unlabelled control is caught the round after it appears.
 
+Checkpoint 13 is the axe-core rule engine at WCAG 2.2 AA, run on every screen the audit
+reads: the industry's rule set beside the repository's own list, so a rule nobody here
+thought to write — the document's language, a progress bar with no name — is still read.
+A serious or critical violation fails the scenario; the rest are findings.
+
 Seven of the twelve checkpoints are automated here — the navigation marking where the
 reader is, heading hierarchy, labelling, disabled-with-a-reason, a card headed with
 nothing under it, text contrast, and sideways scroll at 480 px — and with them a badge
@@ -18,8 +23,9 @@ changes rather than one property guessed at. The rest (loading, alignment and te
 are read from the screenshots each scenario takes, or proved by the groups that exercise
 those paths.
 
-**A scenario in this group fails only when a screen does not load.** Everything the
-checklist turns up is lodged as a finding instead, so the audit reports the whole state
+**A scenario in this group fails only when a screen does not load, or when axe-core
+reports a serious or critical violation on it.** Everything else the checklist turns up
+is lodged as a finding instead, so the audit reports the whole state
 of the application in one pass rather than stopping at the first blemish. The checks
 recorded against each scenario therefore say what the audit found, not whether the
 screen was perfect.
@@ -459,6 +465,29 @@ def _clipped_badges(ui, finding, name: str, width: str) -> None:
         )
 
 
+def _axe(ui) -> list[dict]:
+    """Every violation axe-core reports at WCAG 2.2 AA, with the nodes it points at."""
+    from axe_playwright_python.sync_playwright import Axe
+
+    result = Axe().run(
+        ui.page,
+        options={
+            "runOnly": ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"],
+            "resultTypes": ["violations"],
+        },
+    )
+    return [
+        {
+            "id": v["id"],
+            "impact": v.get("impact") or "minor",
+            "help": v.get("help", ""),
+            "help_url": v.get("helpUrl", ""),
+            "nodes": [", ".join(str(t) for t in n.get("target", [])) for n in v.get("nodes", [])],
+        }
+        for v in result.response.get("violations", [])
+    ]
+
+
 def audit_screen(ui, record, finding, name: str, path: str, source: str = "") -> None:
     """Run every automatable checkpoint over one screen and photograph it twice.
 
@@ -672,6 +701,27 @@ def audit_screen(ui, record, finding, name: str, path: str, source: str = "") ->
         )
     else:
         ui.check("checkpoint 8 · contrast", True, "clean — every text node meets its floor")
+
+    # ---- 13. the axe-core rule engine at WCAG 2.2 AA: the industry's list beside ours
+    violations = _axe(ui)
+    for v in violations:
+        _lodge(
+            finding,
+            f"axe-{v['id']}",
+            name,
+            "accessibility",
+            f"axe-core `{v['id']}` ({v['impact']}): {v['help']}",
+            [f"{name}: {node}" for node in v["nodes"][:MAX_DETAIL]]
+            + ([v["help_url"]] if v["help_url"] else []),
+        )
+    serious = [v for v in violations if v["impact"] in ("serious", "critical")]
+    ui.check(
+        "checkpoint 13 · axe-core finds no serious or critical WCAG violation",
+        not serious,
+        _brief([f"{v['id']} ({v['impact']}) x{len(v['nodes'])}" for v in violations])
+        if violations
+        else "clean — no violation at WCAG 2.2 AA",
+    )
 
     _clipped_badges(ui, finding, name, "1600 px")
     ui.shot(f"{name} as a reader sees it on a wide screen, the whole page")

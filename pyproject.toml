@@ -30,7 +30,10 @@ dev = ["pytest>=8.3", "ruff>=0.6"]
 # The browser-driven round, installed on request with `uv sync --group gui`.
 # Pinned: the driver and the browser build ship as a pair, so a bump is a
 # bump of both, together with `playwright install chromium`.
-gui = ["playwright>=1.56,<1.57"]
+gui = [
+    "axe-playwright-python>=0.1.8",
+    "playwright>=1.56,<1.57",
+]
 
 [project.scripts]
 ea = "ea.cli:run"
@@ -48,6 +51,7 @@ pythonpath = ["src", "."]
 addopts = "-q -m 'not gui'"
 markers = [
     "gui: drives the running application in a browser (make gui)",
+    "cli: drives the command line against a database of its own (make check and make gui)",
     "scenario(scenario_id, group, title, expected, ...): what this test proves, for the report",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]

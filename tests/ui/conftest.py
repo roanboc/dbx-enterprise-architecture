@@ -22,12 +22,15 @@ from pathlib import Path
 import pytest
 from tests.ui.evidence import Finding, Scenario
 from tests.ui.harness import Ui
-from tests.ui.report import run_context, write_report
+from tests.ui.report import run_context, write_gallery, write_report
 
 if importlib.util.find_spec("playwright") is None:
-    # The round is not installed here (CI takes the default groups only). Deselecting by
-    # marker is not enough: pytest imports a module before it reads its markers.
-    collect_ignore_glob = ["test_*.py"]
+    # The browser round is not installed here (CI takes the default groups only).
+    # Deselecting by marker is not enough: pytest imports a module before it reads its
+    # markers. The command-line group needs no browser and is collected everywhere.
+    collect_ignore_glob = [
+        p.name for p in Path(__file__).parent.glob("test_*.py") if p.name != "test_m_cli.py"
+    ]
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "data" / "sample"
@@ -238,13 +241,20 @@ def cli(tmp_path_factory: pytest.TempPathFactory):
 
 
 @pytest.fixture
-def record(request: pytest.FixtureRequest, ui: Ui) -> Iterator[Scenario]:
-    """The scenario this test performs, recorded whatever happens to it."""
+def record(request: pytest.FixtureRequest) -> Iterator[Scenario]:
+    """The scenario this test performs, recorded whatever happens to it.
+
+    A browser scenario binds the recorder to the page helper; a command-line scenario has
+    no page and records its checks itself, so the browser is started only for a test that
+    asks for it.
+    """
     marker = request.node.get_closest_marker("scenario")
     if marker is None:
         raise pytest.UsageError(f"{request.node.name} needs a @pytest.mark.scenario(...)")
     scenario = Scenario(**marker.kwargs)
-    ui.bind(scenario)
+    helper: Ui | None = request.getfixturevalue("ui") if "ui" in request.fixturenames else None
+    if helper is not None:
+        helper.bind(scenario)
     _scenarios.append(scenario)
     try:
         yield scenario
@@ -256,7 +266,8 @@ def record(request: pytest.FixtureRequest, ui: Ui) -> Iterator[Scenario]:
         if scenario.outcome == "passed" and scenario.failed_checks:
             scenario.outcome = "failed"
             scenario.error = "; ".join(c.name for c in scenario.failed_checks)
-        ui.unbind()
+        if helper is not None:
+            helper.unbind()
 
 
 @pytest.fixture
@@ -283,5 +294,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         return
     if not _run_dir:
         return
+    if any(s.shots for s in _scenarios):
+        write_gallery(_run_dir[-1], _scenarios, _context)
     out = write_report(_run_dir[-1], _scenarios, _findings, _context)
     print(f"\nRound written to {out}")

@@ -1,9 +1,11 @@
 """The round claims to cover everything. This is where that claim is checked.
 
-It reads the scenario modules as text — no browser, no application, nothing to install —
-so the claim is checked on every change, by CI, in the job that already runs. A page, a
-command or a download that nothing exercises fails here rather than being discovered by
-a reader of the report noticing an absence.
+It reads the scenario modules as text — no browser, no application, nothing to install.
+Two checks run everywhere: every scenario says what it proves, and no identifier is used
+twice. The coverage checks — every page, command, role and download has a scenario — are
+marked `gui` and run with the round, so a new page or command is reported by the next
+audit rather than blocking the pull request that adds it. A browser scenario is the most
+expensive test there is, and whether one is wanted is a decision, not a rule.
 """
 
 from __future__ import annotations
@@ -94,6 +96,7 @@ def test_scenario_ids_are_unique(suite: str) -> None:
     assert not duplicates, f"the same scenario id is used twice: {duplicates}"
 
 
+@pytest.mark.gui
 def test_every_page_is_exercised(suite: str) -> None:
     from ea.ui.app import PAGES
 
@@ -102,6 +105,7 @@ def test_every_page_is_exercised(suite: str) -> None:
     assert not missing, f"no scenario opens: {missing}"
 
 
+@pytest.mark.gui
 def test_every_command_line_command_is_exercised(suite: str) -> None:
     from ea.cli import app as cli_app
 
@@ -125,6 +129,7 @@ def test_every_command_line_command_is_exercised(suite: str) -> None:
     assert not missing, f"no scenario runs: {missing}"
 
 
+@pytest.mark.gui
 def test_every_download_producer_is_exercised(suite: str) -> None:
     missing = sorted(f"{k} ({v})" for k, v in DOWNLOAD_TRIGGERS.items() if k not in suite)
     assert not missing, f"nothing downloads: {missing}"
@@ -148,6 +153,7 @@ def _download_trigger_ids() -> set[str]:
     return found
 
 
+@pytest.mark.gui
 def test_the_download_producers_are_all_listed() -> None:
     """A producer added to the application must gain a scenario, not slip past this file."""
     found = _download_trigger_ids()
@@ -157,6 +163,7 @@ def test_the_download_producers_are_all_listed() -> None:
     assert not stale, f"this file lists producers the application no longer has: {stale}"
 
 
+@pytest.mark.gui
 def test_every_role_is_exercised(suite: str) -> None:
     from ea.models import ROLES
 
@@ -165,6 +172,7 @@ def test_every_role_is_exercised(suite: str) -> None:
     assert not missing, f"no scenario runs as: {missing}"
 
 
+@pytest.mark.gui
 def test_most_component_ids_are_exercised(suite: str) -> None:
     """Not every id is a control a reader touches, so this reports rather than demands 100%."""
     import ea.ui.ids as ids
