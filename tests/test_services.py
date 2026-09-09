@@ -53,3 +53,27 @@ def test_neighbours_and_cytoscape(graph):
     assert {"POS-DATA-GOV", "ORG-DAU", "IA-COURSE-CAT", "IA-STUDENT-ENROL"} <= ids
     els = graph.cytoscape_elements(sub)
     assert any("source" in el["data"] for el in els) and any(el["data"].get("centre") for el in els)
+
+
+def test_the_same_edge_is_never_written_twice(repo, loaded):
+    """An edge added by hand after it arrived from a tool is the edge the model already holds."""
+    existing = loaded.relationships_of("PAC-CMS", "out")[0]
+    before = loaded.count_relationships()
+    again = repo.add_relationship(
+        existing.rel_type_id,
+        existing.src_id,
+        existing.dst_id,
+        "ana",
+        qualifier=existing.qualifier,
+        origin="user",
+    )
+    assert again.relationship_id == existing.relationship_id
+    assert loaded.count_relationships() == before
+
+
+def test_not_found_reads_as_a_sentence():
+    """The message is shown to people — on the command line and beside a refused row."""
+    from ea.models import NotFoundError
+
+    assert str(NotFoundError("DE-NOPE")) == "no element with id DE-NOPE"
+    assert str(NotFoundError("wp9", "branch")) == "no branch with id wp9"

@@ -90,3 +90,15 @@ def test_architects_write_on_branches_not_on_main(loaded, registry):
     # an admin writes anywhere
     e = repo.create_element("capability", "On main by admin", "ada")
     assert loaded.get_element(e.element_id) is not None
+
+
+def test_a_refusal_begins_like_a_sentence():
+    """'a Architect may not' is not English; the refusal stands on its own, so it reads as one."""
+    from ea.services.roles import require
+
+    with use_role("architect"):
+        with pytest.raises(Forbidden, match=r"^An Architect may not assign reviewers"):
+            require("assign_reviewers")
+    with use_role("reader"):
+        with pytest.raises(Forbidden, match=r"^A Reader may not load a file"):
+            require("import", what="load a file")

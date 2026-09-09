@@ -92,3 +92,27 @@ def test_completeness_per_type(loaded, registry):
 
 def _days_ago(n: int) -> datetime:
     return datetime.now() - timedelta(days=n)
+
+
+def test_health_measures_the_moment_it_is_asked(loaded, registry):
+    """Built once for the life of the process, the service must not freeze the clock at start-up."""
+    import time
+
+    svc = HealthService(loaded, registry)
+    first = svc.now
+    time.sleep(0.01)
+    assert svc.now > first
+    pinned = HealthService(loaded, registry, now=datetime(2026, 9, 8, 12, 0))
+    assert pinned.now == datetime(2026, 9, 8, 12, 0)
+
+
+def test_twelve_weeks_means_twelve_bars(loaded, registry):
+    """Whatever weekday 'now' falls on, the activity chart draws exactly the weeks it is headed with."""
+    for day in range(7, 14):  # a Monday through the following Sunday
+        svc = HealthService(loaded, registry, now=datetime(2026, 9, day, 9, 30))
+        weeks = [r["week"] for r in svc.activity(12)]
+        assert len(weeks) == 12 and len(set(weeks)) == 12, (day, weeks)
+        assert (
+            weeks[-1]
+            == f"{datetime(2026, 9, day).isocalendar()[0]}-W{datetime(2026, 9, day).isocalendar()[1]:02d}"
+        )

@@ -220,3 +220,20 @@ def test_target_state_summary_and_scope(loaded, registry):
     assert ids[0] == "WP-CMS-UPGRADE" and len(ids) == s["elements"] + 1
     everything = svc.summary()
     assert everything["elements"] == 47
+
+
+def test_a_branch_name_with_nothing_usable_in_it_is_refused_for_what_it_is():
+    """Punctuation only is a different mistake from typing 'main', and gets a different answer."""
+    with pytest.raises(ValueError, match="letter or a number"):
+        branch_id_from_name("!!!")
+    with pytest.raises(ValueError, match="other than 'main'"):
+        branch_id_from_name("MAIN")
+
+
+def test_a_closed_branch_is_not_abandoned(loaded, branches):
+    """Abandoning a merged branch used to rewrite its status, so the record denied a merge that happened."""
+    b = branches.create("Already merged", "ana")
+    loaded.set_branch_status(b.branch_id, "merged", "ana")
+    with pytest.raises(ConflictError, match="already merged"):
+        branches.abandon(b.branch_id, "ana")
+    assert loaded.get_branch(b.branch_id).status == "merged"
