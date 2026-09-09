@@ -1,35 +1,33 @@
 ---
 name: application-test-round
-description: Run a full test and improvement round of this repository's application — drive every screen in a browser and every command on the command line, audit each screen for consistency and usability, produce the evidence report, then triage and fix what it found and run it again. Use when asked to test the app, to check everything still works, to review the GUI or the UX, to produce a test report with screenshots, or after a change to src/ea/ui/, assets/ or the CLI.
+description: Run one test round of this repository's application on demand — drive every screen in a browser and every command on the command line, audit each screen against a fixed usability checklist and the axe-core rule engine, and hand the Requester a report, a page of key screenshots and a triaged list of findings. Use when asked to test the app, to review the GUI or the UX, to produce a test report with screenshots, or before a demo or a release. Not a step of every change: a fix is its own scoped piece of work, with a unit test first.
 ---
 
-# A full application test round
+# One application test round
 
-A round proves the application does what this repository says it does, and says so in one
-document a reader can review instead of clicking through eleven screens. It is not a test
-run: it ends with the defects fixed and the report green.
+A round proves what the application does today and says so in one document a reader can
+review instead of clicking through eleven screens. **A round ends with the report and a
+triaged list of findings.** It does not end with every finding fixed: what is fixed, and in
+what order, is the Requester's choice, and each fix is its own piece of work.
 
 The scenarios live in `tests/ui/` and are the durable record. A run is not — it is written
 to `.testrun/<stamp>/` and never committed. `tests/ui/README.md` is the reference for the
-harness and the usability checklist; read it before writing a scenario.
+harness, the checklist and where an assertion belongs; read it before writing a scenario.
+Decision `architecture/decisions/0010` says why the round is shaped this way.
 
-## Before anything: which side of the model a fix is on
+## Before anything: which side of the model a finding is on
 
-`AGENTS.md` governs. A fix inside something the model already names — a screen, a filter,
-a label, a control that does not work, a missing icon — is coded directly and documents
-nothing. A fix that changes **what the model claims** — an element added, removed or
-re-related, a rule in `architecture/` contradicted — is never coded directly: align it
-through the layers, stop at Understanding for the Requester, write the scope document,
-and only then write the code.
-
-Most of what a round finds is the first kind. Decide per finding, not per round, and say
-which in the report. When it is the second kind, stop and hand off rather than widening
-the round.
+`AGENTS.md` governs. A finding inside something the model already names — a screen, a
+filter, a label, a control that does not work, a missing icon — is coded directly and
+documents nothing. A finding that changes **what the model claims** — an element added,
+removed or re-related, a rule in `architecture/` contradicted — is never coded directly:
+align it through the layers, stop at Understanding for the Requester, write the scope
+document, and only then write the code. Say which kind each finding is, in the report.
 
 ## 1 — Bootstrap
 
 ```bash
-make gui-install     # the browser driver and its browser; once per machine
+make gui-install     # the browser driver, its browser and axe-core; once per machine
 make seed            # only if data/ea.duckdb is missing
 ```
 
@@ -43,78 +41,75 @@ commit `uv.lock` in the same commit.
 ## 2 — Run
 
 ```bash
-make gui                                   # the whole round
+make gui                                                          # the whole round, about forty minutes
 .venv/bin/python -m pytest tests/ui/test_b_browse.py -m gui -q    # one group, while iterating
 ```
 
 Use `.venv/bin/python` directly while iterating: `uv run` without `--group gui`
 re-synchronises the environment and removes the driver.
 
-The run writes `.testrun/<stamp>/report.md` with its screenshots beside it. A first pass
-on a change of any size is expected to be red. Read the whole report before touching
-anything — fixing while it runs loses the picture.
+The run writes `.testrun/<stamp>/report.md`, `key-screens.html` and the screenshots beside
+them. Read the whole report before touching anything — fixing while it runs loses the
+picture.
 
-## 3 — Audit
+## 3 — Read
 
-The report's Findings table is what the round noticed, with each finding's detail under
-it; the screenshots are what it saw. Work both:
+Three things, in this order:
 
-- Read each screen's two screenshots — wide and narrow — against the checklist in
-  `tests/ui/README.md`. Checkpoints 1 to 10 are asserted; 11 and 12 (alignment and
-  rhythm, terminology) are yours to judge, and the judgement goes into the report.
-- Read the coverage tables. A route, control, role, download or command with no scenario
-  is itself a finding: the scenario is missing, and writing it comes before fixing
-  anything else.
+- **`key-screens.html`** — every screen wide and at 480 px and each state the audit reaches,
+  about forty images on one page. This is what a person reviews; the other screenshots are
+  the machine's evidence and are folded away under it by group. Checkpoints 11 and 12
+  (alignment and rhythm, terminology) are read here, by eye, and the judgement goes into
+  the list of findings.
+- **The Findings table** in `report.md`, with each finding's detail under it: what the
+  checklist and axe-core raised, whether or not a scenario failed for it.
+- **What failed.** A scenario that failed with a fix behind it is a stale assertion: the
+  wording moved and the scenario pinned it. Repair the scenario, never widen the fix. One
+  that failed with no fix behind it is a flake or a defect; a flake is a wait repaired in
+  `tests/ui/harness.py`, never an expectation loosened.
 
-`.venv/bin/python -m pytest tests/test_ui_coverage.py -q` says whether every page,
-command, role and download is exercised. It needs no browser and runs in CI.
+The coverage checks in `tests/test_ui_coverage.py` run with the round and say which page,
+command, role or download has no scenario. That is information for the triage, not a rule:
+a browser scenario is the most expensive test there is, and whether one is wanted is a
+decision.
 
-## 4 — Triage
+## 4 — Triage, and stop
 
-Order by what a reader loses: a control that does not work, then a permission that is
-wrong, then a message that misleads, then a screen that is merely untidy. For each
-finding name the file and the control, the scenario that caught it, and which side of
-the model it is on.
+Order the findings by what a reader loses: a control that does not work, then a
+permission that is wrong, then a message that misleads, then a screen that is merely
+untidy. For each, name the file and the control, the scenario or checkpoint that caught
+it, which side of the model it is on, and a rough size. Put the list to the Requester.
 
-Larger visual rework is in scope for a round, but size it and say so before starting it —
-it is the part that grows without noticing.
+**The round is over here.** Do not start fixing because the list is long, and do not run
+the round again to see whether it got shorter. A round is one run and one triage.
 
-## 5 — Fix
+## 5 — A fix, when the Requester asks for one
 
-- Code the fix. A new component id belongs in `src/ea/ui/ids.py`; a new icon in
-  `assets/icons/` as a Tabler outline SVG, matching the ones already there.
-- **Turn the finding into a check.** A finding whose fault is fixed should stop firing on
-  its own; if it was lodged unconditionally, replace it with a `ui.check` that asserts the
-  behaviour the fix gives, so the next round proves it rather than reporting it.
-- **A fix without a scenario that would have caught it is not finished.** Extend
-  `tests/ui/` in the same commit.
-- `make check` after each fix, before the next.
+Each fix is its own scoped piece of work, and it is finished in this order:
 
-## 6 — Run it again
+1. **A unit test first** — on the service, the importer, a callback function or the
+   command line in-process (`tests/test_*.py`, seconds, runs on every change). Every
+   behavioural fix has one; the browser is not where a behavioural assertion belongs.
+2. **The code.** A new component id belongs in `src/ea/ui/ids.py`; a new icon in
+   `assets/icons/` as a Tabler outline SVG, matching the ones already there.
+3. **The scenario**, only where the round is the only thing that can see the fix — a
+   layout, a control wired to the wrong property, a screen at 480 px. Turn the finding
+   into a check: a finding lodged unconditionally is replaced by a `ui.check` that
+   asserts the behaviour the fix gives. Run that group alone to prove it.
+4. `make check` green; one Conventional Commit per concern (`fix(ui):`, `test:`,
+   `test(ui):`); the finding's row in the report marked fixed.
 
-`make gui` on a clean tree. Compare the summary against the previous run. A scenario that
-changed outcome without a fix behind it is flake: repair the wait in `tests/ui/harness.py`,
-never the expectation. The usual cause is a screen that finishes drawing after its
-callback returns — a generated view or a graph — so wait for what is drawn, not for the
-network to fall quiet.
+The whole round runs again before the next demo or release, not after each fix.
 
-## 7 — Report
+## 6 — Commit and describe
 
-The report the Requester reads is the last run's, green, with every finding listed and
-its status. Keep the last few run folders and delete the rest; nothing under `.testrun/`
-is ever committed.
-
-## 8 — Commit
-
-Conventional Commits, one concern each: `test(ui):` for scenarios, `fix(ui):` per defect,
-`docs:` for the documentation. Never commit `.testrun/`. Describe the pull request with
+Never commit `.testrun/`. Describe the pull request with
 `/archreator:write-pr-description`, and put the round's numbers in its Verification
-section — scenarios run, findings found, findings fixed.
+section — scenarios run, findings found, which the Requester chose to fix.
 
 ## Done when
 
-- Every group in `tests/ui/README.md` has scenarios and they all pass.
-- `tests/test_ui_coverage.py` passes: no page, command, role or download is unexercised.
-- Every finding is fixed, or listed with a reason it was not and what it would take.
-- Every fix has a scenario that would have caught it.
-- `make check` is green, and the report of the final run is in `.testrun/`.
+- The report, the key screens and the triaged list have been handed to the Requester.
+- Every scenario that failed is explained: a stale assertion repaired, a flake's wait
+  repaired, or a defect on the list.
+- `make check` is green.

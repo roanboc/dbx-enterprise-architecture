@@ -2,9 +2,13 @@
 
 A round drives the running application in a browser and on the command line, proves
 every feature the repository claims, reads every screen against a fixed usability
-checklist, and writes one document with the screenshots that evidence it.
+checklist and the axe-core rule engine, and writes one document with the screenshots
+that evidence it. It runs on demand — before a demo or a release, or when asked — and
+ends with a triaged list of findings for the Requester; decision
+[0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**417 scenarios in sixteen groups**, and around forty minutes end to end.
+**417 scenarios in sixteen groups**, and around forty minutes end to end. The
+command-line group (M, 64 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
 make gui-install   # once: the browser driver and its browser
@@ -29,13 +33,27 @@ opened and no run is ever committed as a second version of the truth.
 ```
 .testrun/2026-09-08-0930-round/
 ├── report.md          ← the document to review
+├── key-screens.html   ← the screenshots a person reads: every screen wide and at 480 px, and each audited state
 ├── screenshots/       ← one image per evidence point
 ├── downloads/         ← every file the application produced
 └── server.log         ← what the application logged while it ran
 ```
 
-`make check` is unaffected: the round is marked `gui` and `pytest` deselects it, so the
-suite CI runs stays what it was.
+**What a person reviews** is `key-screens.html`: about forty images from the screen
+audit on one page, with the other five hundred folded away under it by group. The
+browser scenarios are marked `gui` and `pytest` deselects them, so `make check` runs the
+unit tests and the command-line scenarios (marked `cli`) and nothing that needs a browser.
+
+## Where an assertion belongs
+
+The round is the most expensive test there is, and a scenario that pins wording moves
+whenever the wording does. So a **behavioural** assertion — what a service returns, what
+a callback writes, what the command line refuses — belongs in `tests/test_*.py`, against
+the service, the importer, the callback function or the Typer application in-process,
+where it runs in seconds on every change. A scenario here asserts what only a browser can
+see: a control wired to the wrong property, a layout at 480 px, a download that arrives,
+a colour that can be read. A fix comes with its unit test first, and with a scenario only
+where the round is the only thing that can see it.
 
 ## Groups
 
@@ -77,6 +95,7 @@ regression in polish is as visible as a regression in behaviour.
 | 10 | **Narrow viewport** — the page is usable at 480 px with nothing clipped | asserted |
 | 11 | **Alignment and rhythm** — tiles, cards and columns line up | read from the screenshot |
 | 12 | **Terminology** — the same thing has the same name everywhere | read from the screenshot |
+| 13 | **axe-core at WCAG 2.2 AA** — the industry's rule set beside this list; a serious or critical violation fails the audit, the rest are findings | asserted |
 
 ## Writing a scenario
 

@@ -20,3 +20,4 @@ alternative?".
 | [0007](./0007-current-and-target-state.md) | Current and target state as core fields, analysed by work package | Accepted 2026-09-06 (built) | `DOBJ2.1`, `DOBJ2.2`, `ASVC8` |
 | [0008](./0008-roles-from-groups.md) | Roles derived from workspace groups, a debug persona locally, one permission function | Accepted 2026-09-06 | `ACMP12`, `ROLE1`–`ROLE5` |
 | [0009](./0009-review-before-merge.md) | Review before merge, approved per element type by assigned reviewers | Accepted 2026-09-06 | `ACMP12`, `DOBJ2.7`, `BPROC2.4` |
+| [0010](./0010-application-test-round.md) | A browser-driven test round on demand, unit tests on every change, and an accessibility floor | Adopted 2026-09-09, for the Requester to confirm | `ACMP6`, `ACMP7` |
