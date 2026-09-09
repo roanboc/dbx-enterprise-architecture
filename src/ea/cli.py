@@ -11,7 +11,7 @@ import typer
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
 from ea.models import BRANCH_STATUSES, ConflictError, Forbidden, NotFoundError, ValidationError
-from ea.services.roles import set_role
+from ea.services.roles import require, set_role
 
 app = typer.Typer(
     help="EA repository — a generic, metamodel-driven enterprise architecture repository.",
@@ -117,6 +117,7 @@ def init(
     """Create the database and load a metamodel pack."""
     from ea.metamodel import load_pack
 
+    require("edit_metamodel", what="load a metamodel pack")
     settings = Settings.from_env()
     if db:
         settings.db_path = str(db)
@@ -146,6 +147,7 @@ def load_pack_cmd(path: Path):
     """(Re)load a metamodel pack from YAML."""
     from ea.metamodel import load_pack
 
+    require("edit_metamodel", what="load a metamodel pack")
     _, backend, *_ = _ctx()
     p = load_pack(path)
     backend.save_pack(p)
