@@ -966,23 +966,14 @@ def test_a_work_package_in_the_address(ui, record, finding):
     )
     ui.shot("The work package taken from the address: both controls set, and both tables scoped to it")
 
-    rel_heads = [h.lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
-    if not any("work package" in h for h in rel_heads):
-        finding.append(
-            _finding(
-                finding_id="E-5",
-                where="src/ea/ui/pages/target.py · _body(), the relationships table",
-                severity="usability",
-                summary="The relationships table never says which work package carries the change",
-                detail=(
-                    "The elements table gives each row its work package, and links from it to the "
-                    "page scoped to that package; the relationships table beside it has no such "
-                    "column. With every work package in scope the two kinds of row sit together — "
-                    "five that name WP-CMS-UPGRADE and one that names no work package at all — and "
-                    "nothing on screen tells them apart or leads to the package that owns one."
-                ),
-            )
-        )
+    # With one work package in scope every row would name it, so the column is dropped here
+    # and carried only when every work package is in scope (E07 reads it there).
+    rel_heads = [h.strip().lower() for h in _table(ui, 1).locator("thead th").all_inner_texts()]
+    ui.check(
+        "the relationships table drops the work-package column while one package is in scope",
+        "work package" not in rel_heads,
+        str(rel_heads),
+    )
 
 
 @pytest.mark.scenario(
@@ -1268,9 +1259,10 @@ def test_the_view_marks_relationships(ui, record):
     group="E",
     title="The downloads follow the picker, and the whole model has a draw.io of its own",
     feature="Target state · downloads",
-    expected="A work package chosen in the picker rather than the address still names the files, and "
-    "Download draw.io with every work package in scope returns target-state-all.drawio holding "
-    "exactly the shapes the page draws, each with both its states.",
+    expected="A work package chosen in the picker is written into the address, so a copied link returns "
+    "to the same scope, and the files are named for it; Download draw.io with every work package in "
+    "scope returns target-state-all.drawio holding exactly the shapes the page draws, each with both "
+    "its states.",
 )
 def test_downloads_follow_the_picker(ui, record):
     ui.goto("/target")
@@ -1278,13 +1270,13 @@ def test_downloads_follow_the_picker(ui, record):
     _choose_wp(ui, WP)
     ui.wait_mermaid()
     ui.must(
-        "the work package was chosen without the address ever naming it",
-        WP_NAME in _wp(ui) and "wp=" not in ui.page.url,
+        "the work package was chosen in the picker, and the address followed it",
+        WP_NAME in _wp(ui) and f"wp={WP}" in ui.page.url,
         f"{_wp(ui)} at {ui.page.url}",
     )
     md = ui.download("tg-view-md", ".md")
     ui.check(
-        "the file is named for what the picker holds, not for what the address says",
+        "the file is named for the work package in scope",
         md.name == f"target-state-{WP}.md",
         md.name,
     )

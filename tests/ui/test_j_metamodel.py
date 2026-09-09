@@ -874,10 +874,10 @@ def test_notation_grids_and_preview(ui, record, finding):
         "the preview is still drawn after the colour change",
         ui.page.locator(f"{PREVIEW} svg").count() > 0,
     )
-    swatches = ui.text("mm-notation-swatches")
+    swatches = " ".join(ui.text("mm-notation-swatches").split())
     ui.check(
         "and the chips that carry the domain colours follow the edit",
-        DOMAIN_COLOUR in swatches,
+        DOMAIN_COLOUR.lower() in swatches.lower(),
         swatches[:200] or "(no chips)",
     )
     ui.shot("A domain colour change leaves the preview unchanged, because a view is filled by layer")

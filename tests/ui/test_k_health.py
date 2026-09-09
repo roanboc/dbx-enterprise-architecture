@@ -37,6 +37,14 @@ SOURCE, ELEMENTS, RELATIONSHIPS, FIRST_LOADED, LAST_UPDATED = 0, 1, 2, 3, 4
 STALE_30, STALE_90, STALE_180, NEVER_UPDATED = 5, 6, 7, 8
 STALE_COLUMNS = ((STALE_30, 30), (STALE_90, 90), (STALE_180, 180))
 FACET_COLUMNS = ("Description", "Link", "Relationship", "Required attributes", "Target decided")
+# The sentence the card's total for each column is written in, above the table.
+FACET_SENTENCES = {
+    "Description": "without a description",
+    "Link": "without a link",
+    "Relationship": "without a relationship",
+    "Required attributes": "with a required attribute empty",
+    "Target decided": "with an undecided target state",
+}
 # What Browse writes in its yellow note for each facet a Health figure can send it.
 FACET_NOTES = {
     "description": "without a description",
@@ -456,15 +464,18 @@ def test_completeness_table(ui, record):
     totals = dict.fromkeys(FACET_COLUMNS, 0)
     for _row, name, facet in gaps:
         totals[name] += _number(facet["label"])
-    body = ui.text("health-body").lower()
+    body = " ".join(ui.text("health-body").lower().split())
     for name in FACET_COLUMNS:
-        match = re.search(rf"(\d+)\s+{re.escape(name.lower())}\s+missing", body)
-        ui.check(f"a badge totals the {name} column", match is not None, name)
+        # The total above the table is a sentence in Browse's words — "3 without a link" —
+        # rather than the column heading pressed into service as a noun.
+        sentence = FACET_SENTENCES[name]
+        match = re.search(rf"(\d+)\s+{re.escape(sentence)}", body)
+        ui.check(f"the card totals the {name} column in a sentence", match is not None, f"'{sentence}'")
         if match:
             ui.check(
-                f"the {name} badge agrees with the column beneath it",
+                f"the {name} total agrees with the column beneath it",
                 int(match.group(1)) == totals[name],
-                f"badge {match.group(1)}, column {totals[name]}",
+                f"total {match.group(1)}, column {totals[name]}",
             )
     ui.shot("The completeness table: a bar, a percentage and a way to the missing rows for every facet")
 
@@ -1433,7 +1444,7 @@ def test_bar_colours(ui, record, finding):
     badges = [
         b.strip()
         for b in ui.page.locator('#health-body [class*="Badge-root"]').all_inner_texts()
-        if re.search(r"^\d+ (without|with) ", b.strip())
+        if re.search(r"^\d+ (without|with) ", b.strip(), re.IGNORECASE)
     ]
     awkward = [
         b for b in badges if re.search(r"\b(link|target decided|required attributes) missing\b", b.lower())

@@ -473,21 +473,17 @@ def test_typed_attribute_inputs(ui, record, finding):
         str(options),
     )
     ui.shot("The Edit tab: the integer attribute as a number input, the enumerated one as a select")
-    # A date attribute has no branch of its own in `_attr_input`, so it falls through to a text box.
+    # A date attribute is edited in a date control: a picker, with the format it expects shown.
     date_attr = ui.page.locator(_attr("standard_creation_date")).first
-    if date_attr.count() and not date_attr.get_attribute("type"):
-        finding.append(
-            Finding(
-                finding_id="C-1",
-                where="src/ea/ui/pages/element.py · _attr_input",
-                severity="usability",
-                summary="A date attribute is edited in a plain text box",
-                detail=(
-                    "`_attr_input` branches on boolean, enum, integer/number and text; the pack's four "
-                    "`date` attributes (Standard Creation Date and its siblings) fall through to a bare "
-                    "TextInput, so the reader gets no picker, no placeholder and no format checking."
-                ),
-            )
+    if date_attr.count():
+        is_date_control = (
+            date_attr.get_attribute("type") == "date"
+            or (date_attr.get_attribute("placeholder") or "") == "YYYY-MM-DD"
+        )
+        ui.check(
+            "a date attribute is edited in a date control, with the format it expects shown",
+            is_date_control,
+            f"type={date_attr.get_attribute('type')!r} placeholder={date_attr.get_attribute('placeholder')!r}",
         )
     _open(ui, DE)
     _tab(ui, "Edit")
@@ -1389,22 +1385,14 @@ def test_a_forbidden_pair_cannot_be_written(ui, record, finding):
     ui.check("nothing was written", _rel_rows(ui) == rows, f"{rows} then {_rel_rows(ui)} rows")
     ui.check("the tab count did not move", _rel_tab_count(ui) == label, f"{label} then {_rel_tab_count(ui)}")
     ui.shot("The relationship box after an other element that cannot take the relationship chosen first")
-    if not left:
-        finding.append(
-            Finding(
-                finding_id="C-5",
-                where="src/ea/ui/pages/element.py · rel_type_options",
-                severity="usability",
-                summary="A relationship chosen first is dropped without a word when the other end cannot take it",
-                detail=(
-                    "`rel_type_options` rewrites the relationship Select's `data` whenever the other end "
-                    "changes, and a value that is no longer among the options disappears from the control. "
-                    "The reader's choice is undone silently: nothing says it was dropped or why, and the "
-                    "only sign is Add then asking for a relationship. A line beside the box — this pair "
-                    "allows only 'encapsulates' — would say what the metamodel decided."
-                ),
-            )
-        )
+    # The Select drops a value that is no longer among its options; the page says which pair
+    # decided it, beside the box, rather than undoing the choice in silence.
+    explained = "so the relationship you had chosen was cleared" in ui.body()
+    ui.check(
+        "the cleared choice is explained beside the box, naming what this pair allows",
+        explained and "allows only" in ui.body(),
+        "the note names the pair's relationships" if explained else "no note beside the box",
+    )
 
 
 @pytest.mark.scenario(

@@ -20,6 +20,7 @@ group ends on main.
 
 from __future__ import annotations
 
+import re
 import zipfile
 from pathlib import Path
 
@@ -978,12 +979,18 @@ def test_mapping_reads_the_tools_own_words(ui, record):
         "element the model already holds warns only about the id that is nowhere."
     ),
 )
+def _links_read(summary: str) -> int:
+    """How many link rows the report read: `links 2` after a validation, `links 2/2` after a load."""
+    m = re.search(r"links (?:\d+/)?(\d+)", summary)
+    return int(m.group(1)) if m else -1
+
+
 def test_links_inline_and_by_file(ui, record, finding):
     _open(ui)
     _upload(ui, _write(ui, "h-inline-elements.csv", INLINE_LINKS_CSV))
     ui.click("im-validate")
     inline = _report(ui)
-    ui.check("the two URLs in the one cell are read as two links", "links 0/2" in inline, inline[:300])
+    ui.check("the two URLs in the one cell are read as two links", _links_read(inline) == 2, inline[:300])
     ui.check(
         "and the row carrying them is clean", "0 errors" in inline and "No issues." in inline, inline[:300]
     )
@@ -992,7 +999,7 @@ def test_links_inline_and_by_file(ui, record, finding):
     _upload(ui, _write(ui, "h-links.csv", LINKS_CSV))
     ui.click("im-validate")
     text = _report(ui)
-    ui.check("both rows of the links file are read", "links 0/2" in text, text[:300])
+    ui.check("both rows of the links file are read", _links_read(text) == 2, text[:300])
     ui.check("the link for an id that is nowhere is reported", "H-NOWHERE" in text, text[:500])
     ui.check("as a warning rather than an error", "0 errors" in text, text[:300])
     # The endpoints of a relationship are looked up in the model when they are not in the same

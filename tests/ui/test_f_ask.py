@@ -835,7 +835,7 @@ def test_unknown_identifier_is_not_invented(ui, record, finding):
     trace = ui.text("ask-trace")
     ui.check(
         "the trace heading counts one call as one call",
-        "1 call" in trace and "1 calls" not in trace,
+        "1 call" in trace.lower() and "1 calls" not in trace.lower(),
         trace[:120] or "(no trace)",
     )
     if re.search(r"1 calls", trace, re.IGNORECASE):
