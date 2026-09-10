@@ -132,7 +132,9 @@ class DatabricksBackend(SqlBackend):
             try:  # the bundle creates the schema; a principal without CREATE SCHEMA still works in it
                 cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.catalog}.{self.schema}")
             except Exception as exc:  # noqa: BLE001
-                log.debug("could not create schema %s.%s (%s); using it as it is", self.catalog, self.schema, exc)
+                log.debug(
+                    "could not create schema %s.%s (%s); using it as it is", self.catalog, self.schema, exc
+                )
             cur.execute(f"USE {self.catalog}.{self.schema}")
             cur.execute("SET TIME ZONE 'UTC'")
         return conn

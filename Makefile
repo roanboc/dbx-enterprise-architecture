@@ -26,8 +26,9 @@ gui-install:        ## add the browser driver and its browser
 gui:                ## the browser-driven round: drives the app, writes .testrun/<stamp>/
 	uv run --group gui pytest tests/ui tests/test_ui_coverage.py -m "gui or cli"
 
-lint:               ## ruff
+lint:               ## ruff, as CI runs it: the lint rules and the formatting
 	uv run ruff check src tests app.py
+	uv run ruff format --check src tests app.py
 
 format:             ## ruff format
 	uv run ruff format src tests app.py
