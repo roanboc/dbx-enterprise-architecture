@@ -1,0 +1,94 @@
+# The deployment bundle: the same application as a Databricks App, its store a
+# Unity Catalog schema of Delta tables reached through a SQL warehouse.
+#
+#   export BUNDLE_VAR_warehouse_id=<the warehouse's id>
+#   make deploy          # validate and deploy: the schema and the app, not yet running
+#   make deploy-grants   # once: the app's service principal on the schema (its principal exists now)
+#   make deploy-run      # start the app
+#
+# What the platform injects at run time (DATABRICKS_HOST, the app's service
+# principal, DATABRICKS_APP_PORT) is never set here; what the bundle owns is
+# set from its resources, so the app follows the names the target deploys —
+# development mode prefixes the schema and the app with the deployer's name,
+# and `databricks bundle summary -t dev` prints them for the grant step.
+bundle:
+  name: ea-repository
+
+variables:
+  catalog:
+    description: The Unity Catalog catalog that holds the repository's schema.
+    default: ea_dev
+  schema:
+    description: The schema the store's tables live in.
+    default: ea
+  warehouse_id:
+    description: The SQL warehouse the app queries; its service principal is granted CAN USE on it.
+  role_groups:
+    description: Which workspace groups grant which role (decision 0008); nobody listed is a Reader.
+    default: "admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers"
+  agent_provider:
+    description: "auto: a hosted model when its key is bound as a secret, the stub otherwise."
+    default: auto
+
+resources:
+  schemas:
+    ea:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: "EA Repository: the metamodel, the architecture graph, the branches, the reviews and the change log. One portable DDL (src/ea/backend/sql.py)."
+
+  apps:
+    ea_repository:
+      name: ea-repository
+      description: "A generic, metamodel-driven enterprise architecture repository."
+      source_code_path: .
+      # The forwarded token lets the app read the signed-in user's own workspace groups;
+      # without it the app's service principal reads them instead.
+      user_api_scopes:
+        - iam.current-user:read
+      config:
+        # uv-based apps get no pre-installed libraries: every dependency comes from
+        # pyproject.toml + uv.lock. --frozen uses the lock verbatim, --no-dev leaves
+        # pytest and ruff out, --extra databricks adds the warehouse connector and the SDK.
+        command:
+          - uv
+          - run
+          - --frozen
+          - --no-dev
+          - --extra
+          - databricks
+          - python
+          - app.py
+        env:
+          - name: EA_BACKEND
+            value: databricks
+          - name: EA_CATALOG
+            value: ${resources.schemas.ea.catalog_name}
+          - name: EA_SCHEMA
+            value: ${resources.schemas.ea.name}
+          - name: DATABRICKS_WAREHOUSE_ID
+            valueFrom: sql-warehouse
+          - name: EA_PACK
+            value: packs/higher_education/metamodel.yaml
+          - name: EA_AUTH
+            value: databricks
+          - name: EA_ROLE_GROUPS
+            value: ${var.role_groups}
+          - name: EA_AGENT_PROVIDER
+            value: ${var.agent_provider}
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production
+    variables:
+      catalog: ea_prod
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

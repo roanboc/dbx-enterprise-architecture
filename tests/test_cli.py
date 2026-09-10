@@ -108,3 +108,24 @@ def test_what_the_repository_refuses_reaches_the_reader_as_a_sentence(ea_env, mo
     captured = capsys.readouterr()
     assert captured.err.strip() == "no element with id DE-NOPE"
     assert "Traceback" not in captured.err
+
+
+def test_loading_a_pack_is_the_metamodel_owners_write(ea_env, monkeypatch, capsys):
+    """`ea init` and `ea load-pack` replace the metamodel, which only an Admin may do in the app;
+    the command line used to accept them from any role."""
+    for role, sentence in (
+        ("reader", "A Reader may not load a metamodel pack"),
+        ("architect", "An Architect may not load a metamodel pack"),
+        ("reviewer", "A Reviewer may not load a metamodel pack"),
+    ):
+        monkeypatch.setattr(sys, "argv", ["ea", "--as", role, "load-pack", str(PACK)])
+        with pytest.raises(SystemExit) as exit_info:
+            run()
+        assert exit_info.value.code == 1 and capsys.readouterr().err.strip() == sentence
+    monkeypatch.setattr(sys, "argv", ["ea", "--as", "architect", "init", "--pack", str(PACK)])
+    with pytest.raises(SystemExit) as exit_info:
+        run()
+    assert (
+        exit_info.value.code == 1 and "An Architect may not load a metamodel pack" in capsys.readouterr().err
+    )
+    assert runner.invoke(app, ["--as", "admin", "load-pack", str(PACK)]).exit_code == 0

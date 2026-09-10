@@ -3,10 +3,10 @@
 _[← EA home](../README.md)_
 
 What runs the application today: one Python process over one DuckDB file on
-a workstation, and the artifacts around it. The Databricks runtime the roadmap
-targets is drawn dashed where it touches this layer and described as a plateau
-in [6_transition/](../6_transition/README.md); it becomes rows here once it
-runs.
+a workstation, and the artifacts around it. The Databricks workspace the
+roadmap targets has its store engine and its deployment bundle in the code; it
+is drawn dashed where it touches this layer and described as a plateau in
+[6_transition/](../6_transition/README.md) until a workspace runs it.
 
 ## How to read this document
 
@@ -42,12 +42,15 @@ flowchart TB
   end
   file[("⎔ Repository file [ART1]")]:::technology
   pack[("⎔ Metamodel pack [ART2]")]:::technology
+  bundle[("⎔ Deployment bundle [ART6]")]:::technology
   dbx["⬒ Databricks workspace [NODE2]"]:::technology
+  wh(["⬯ Warehouse SQL store [TSVC4]"]):::technology
   py --> web
   duck --> sql
   sql --> file
   py -->|reads| pack
-  py -.->|realized by, pending| dbx
+  bundle -.->|deployed as, pending| dbx
+  dbx -.->|provides, pending| wh
 
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
 ```

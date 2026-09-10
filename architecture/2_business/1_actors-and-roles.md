@@ -132,7 +132,7 @@ flowchart LR
 
 | ID | Business object | Held in |
 | -- | --------------- | ------- |
-| `BOBJ1` | **Workspace groups** — the identity provider's groups the user belongs to (Databricks workspace groups on the platform) | The platform; forwarded to the app as identity headers |
+| `BOBJ1` | **Workspace groups** — the identity provider's groups the user belongs to (Databricks workspace groups on the platform) | The workspace's directory, read once per forwarded user and kept for a few minutes (`TSVC5`, decision 0012); a groups header is believed only behind a proxy of the deployment's own |
 | `BOBJ2` | **Role configuration** — which group grants which role, and which reviewers cover which element types | `EA_ROLE_GROUPS` in the environment; the reviewer table in the store (`reviewer_assignment`) |
 | `BOBJ3` | **Debug persona** — the role a local user impersonates when no identity provider is present | The session, set from the header switcher; mock authentication only |
 

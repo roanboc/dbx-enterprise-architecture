@@ -1,9 +1,12 @@
 """Portable DDL. One schema, two engines: DuckDB locally, Delta on Databricks.
 
-Types are kept to the intersection both understand. JSON is stored as text and
-parsed in Python, which keeps the DDL identical and the rows readable from any
-SQL client.
+Types are kept to the intersection both understand (a backend spells them in
+its own dialect: `VARCHAR` is `STRING` on Databricks). JSON is stored as text
+and parsed in Python, which keeps the DDL identical and the rows readable from
+any SQL client.
 """
+
+import re
 
 META_TABLES = ["meta_pack", "meta_domain", "meta_element_type", "meta_attribute", "meta_relationship_type"]
 CONTENT_TABLES = ["element", "relationship", "element_link", "change_log"]
@@ -18,8 +21,9 @@ BRANCH_TABLES = [
 ]
 
 # Columns added after a table first shipped. A backend applies them to an existing
-# store on start-up (ADD COLUMN IF NOT EXISTS on DuckDB), so an older file keeps
-# working. New columns go at the end because the inserts are positional.
+# store on start-up (ADD COLUMN IF NOT EXISTS on DuckDB, DESCRIBE then ADD COLUMNS
+# on Databricks), so an older store keeps working. New columns go at the end
+# because the inserts are positional.
 MIGRATIONS: list[tuple[str, str, str]] = [
     ("meta_domain", "notation", "VARCHAR"),
     ("meta_element_type", "notation", "VARCHAR"),
@@ -319,16 +323,18 @@ RELATIONSHIP_COLUMNS = [
 STATE_COLUMNS = ["current_state", "target_state", "target_work_package", "target_note"]
 
 # Recursive traversal over the relationship table. Parameters: start id, max depth.
-# `direction` is substituted by the backend: out = follow src->dst, in = dst->src.
+# `{rel}` is the relationship source of the current branch and `{string}` the
+# engine's string type; both are substituted by the backend. out = follow
+# src->dst, in = dst->src. INSTR, MIN_BY and || read the same on both engines.
 TRACE_OUT_SQL = """
 WITH RECURSIVE walk(start_id, node_id, depth, path, rel_path) AS (
-    SELECT ?, ?, 0, CAST(? AS VARCHAR), CAST('' AS VARCHAR)
+    SELECT ?, ?, 0, CAST(? AS {string}), CAST('' AS {string})
     UNION ALL
     SELECT w.start_id, r.dst_id, w.depth + 1,
            w.path || '>' || r.dst_id,
            CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '>' || r.rel_type_id END
     FROM walk w JOIN {rel} r ON r.src_id = w.node_id
-    WHERE w.depth < ? AND r.status <> 'retired' AND POSITION('>' || r.dst_id || '>' IN '>' || w.path || '>') = 0
+    WHERE w.depth < ? AND r.status <> 'retired' AND INSTR('>' || w.path || '>', '>' || r.dst_id || '>') = 0
 )
 SELECT node_id, MIN(depth) AS depth, MIN_BY(path, depth) AS path, MIN_BY(rel_path, depth) AS rel_path
 FROM walk WHERE depth > 0 GROUP BY node_id ORDER BY depth, node_id
@@ -336,14 +342,25 @@ FROM walk WHERE depth > 0 GROUP BY node_id ORDER BY depth, node_id
 
 TRACE_IN_SQL = """
 WITH RECURSIVE walk(start_id, node_id, depth, path, rel_path) AS (
-    SELECT ?, ?, 0, CAST(? AS VARCHAR), CAST('' AS VARCHAR)
+    SELECT ?, ?, 0, CAST(? AS {string}), CAST('' AS {string})
     UNION ALL
     SELECT w.start_id, r.src_id, w.depth + 1,
            w.path || '<' || r.src_id,
            CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '<' || r.rel_type_id END
     FROM walk w JOIN {rel} r ON r.dst_id = w.node_id
-    WHERE w.depth < ? AND r.status <> 'retired' AND POSITION('<' || r.src_id || '<' IN '<' || w.path || '<') = 0
+    WHERE w.depth < ? AND r.status <> 'retired' AND INSTR('<' || w.path || '<', '<' || r.src_id || '<') = 0
 )
 SELECT node_id, MIN(depth) AS depth, MIN_BY(path, depth) AS path, MIN_BY(rel_path, depth) AS rel_path
 FROM walk WHERE depth > 0 GROUP BY node_id ORDER BY depth, node_id
 """
+
+_COLUMN_RE = re.compile(r"^\s*(\w+)\s+(VARCHAR|INTEGER|BOOLEAN|TIMESTAMP)\b", re.MULTILINE)
+
+
+def column_types(table: str) -> dict[str, str]:
+    """The columns of a table and their portable types, in DDL order, read from the DDL itself."""
+    return dict(_COLUMN_RE.findall(DDL[table]))
+
+
+def table_columns(table: str) -> list[str]:
+    return list(column_types(table))

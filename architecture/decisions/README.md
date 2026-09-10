@@ -21,3 +21,5 @@ alternative?".
 | [0008](./0008-roles-from-groups.md) | Roles derived from workspace groups, a debug persona locally, one permission function | Accepted 2026-09-06 | `ACMP12`, `ROLE1`–`ROLE5` |
 | [0009](./0009-review-before-merge.md) | Review before merge, approved per element type by assigned reviewers | Accepted 2026-09-06 | `ACMP12`, `DOBJ2.7`, `BPROC2.4` |
 | [0010](./0010-application-test-round.md) | A browser-driven test round on demand, unit tests on every change, and an accessibility floor | Adopted 2026-09-09, for the Requester to confirm | `ACMP6`, `ACMP7` |
+| [0011](./0011-one-sql-store-two-engines.md) | The store is written once on SQL, and an engine adds only its dialect | Adopted 2026-09-09, for the Requester to confirm | `ACMP2`, `ACMP2.1`, `ACMP2.2`, `TSVC4` |
+| [0012](./0012-workspace-groups-looked-up.md) | The forwarded user's groups are read from the workspace, once, and kept for a few minutes | Adopted 2026-09-09, for the Requester to confirm | `ACMP12`, `TSVC5` |

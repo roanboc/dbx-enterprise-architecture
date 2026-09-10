@@ -1,7 +1,7 @@
 """Entrypoint for the EA repository app (Dash).
 
 * ``python app.py --dev``  - Dash development server with the debug tools (local work)
-* ``python app.py``        - gunicorn, what ``app.yaml`` runs on Databricks Apps
+* ``python app.py``        - gunicorn, what the bundle (``databricks.yml``) runs on Databricks Apps
 
 Binds 0.0.0.0 on DATABRICKS_APP_PORT (or PORT, or 8050); logs to stdout/stderr;
 gunicorn's graceful timeout stays under the 15 s SIGTERM budget of Databricks Apps.

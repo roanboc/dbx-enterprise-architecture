@@ -69,7 +69,7 @@ flowchart TB
   health --> svc
   roles --> svc
   store -->|realized by| duck
-  store -.->|realized by, pending| dbx
+  store -->|realized by| dbx
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
