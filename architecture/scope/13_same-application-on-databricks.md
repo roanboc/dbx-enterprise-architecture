@@ -150,6 +150,20 @@ run by whoever manages the catalog.
   half (per-type mirrored, authored or enriched semantics in the pack, and a
   scheduled import from a Volume through the existing CSV contract) can be
   built once that table exists.
+- **The model has drifted, in rows this initiative did not touch.** The
+  assessment that opened this initiative read every layer document against
+  the code and found rows that were true when written and are not now: the
+  command line's row omits `branch send-back` and `reviewers`; the browsing
+  service still says a bulk edit sets the lifecycle; assessment `ASM3` still
+  defers the change-set model past the PoC; the branch object lists three
+  statuses of five; the attribute types listed are not the ones the code
+  accepts; the motivation document's relationship table uses glyphs its legend
+  does not; the technology relationship table types the workstation's nodes as
+  system software; the settings module, the validators, the import template,
+  three browser scripts and the component-id registry are named by no element;
+  the front door describes the document shape initiative 8 undid. None of it
+  is this initiative's to fix — restating the current state is its own
+  initiative with its own Understanding — and the list is the backlog for it.
 - **Recursive queries on the warehouse.** If the Requester's warehouse runs
   `WITH RECURSIVE`, the in-process fallback is never used; if it does not, the
   trace costs one edge query per call instead of one recursive query. Either
