@@ -28,6 +28,7 @@ class Settings:
     databricks_catalog: str = ""
     databricks_schema: str = "ea"
     role_groups: str = ""  # admin=grp1,grp2;architect=grp3;reviewer=grp4 (decision 0008)
+    trust_groups_header: bool = False  # only behind a proxy of ours that sets X-Forwarded-Groups
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -46,4 +47,5 @@ class Settings:
             databricks_catalog=env.get("EA_CATALOG", ""),
             databricks_schema=env.get("EA_SCHEMA", "ea"),
             role_groups=env.get("EA_ROLE_GROUPS", ""),
+            trust_groups_header=env.get("EA_TRUST_GROUPS_HEADER", "").strip().lower() in ("1", "true", "yes"),
         )

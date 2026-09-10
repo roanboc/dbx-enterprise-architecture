@@ -119,6 +119,11 @@ class SqlBackend(DatabaseBackend):
     def _create_table(self, ddl: str) -> None:
         self._execute(ddl)
 
+    def _bind(self, values: list[Any]) -> tuple[list[str], list[Any]]:
+        """Values the reader chose (search words, type filters) as SQL: markers and parameters here;
+        an engine with a marker budget renders them as literals instead."""
+        return ["?" for _ in values], list(values)
+
     def _add_missing_columns(self) -> None:
         """Bring a store created by an earlier version up to the DDL (the MIGRATIONS list)."""
         raise NotImplementedError
@@ -526,15 +531,17 @@ class SqlBackend(DatabaseBackend):
     ) -> tuple[str, list[Any]]:
         clauses, params = [], []
         for word in (text or "").split():  # every word must match somewhere
-            like = f"%{word}%"
+            marks, bound = self._bind([f"%{word}%"] * 5)
             clauses.append(
-                "(name ILIKE ? OR key ILIKE ? OR element_id ILIKE ? OR description_md ILIKE ? OR attrs ILIKE ?)"
+                f"(name ILIKE {marks[0]} OR key ILIKE {marks[1]} OR element_id ILIKE {marks[2]} "
+                f"OR description_md ILIKE {marks[3]} OR attrs ILIKE {marks[4]})"
             )
-            params += [like] * 5
+            params += bound
         if type_id:
             ids = [type_id] if isinstance(type_id, str) else list(type_id)
-            clauses.append(f"type_id IN ({self._marks(ids)})")
-            params += ids
+            marks, bound = self._bind(ids)
+            clauses.append(f"type_id IN ({', '.join(marks)})")
+            params += bound
         if status:
             clauses.append("status = ?")
             params.append(status)
@@ -1645,7 +1652,9 @@ class SqlBackend(DatabaseBackend):
     # ---------------------------------------------------------------- sql
     def query(self, sql: str, params: list[Any] | None = None, limit: int = 1000) -> pd.DataFrame:
         stripped = re.sub(r"--[^\n]*", "", sql).strip().rstrip(";").strip()
-        if ";" in stripped or not _READ_ONLY_RE.match(stripped) or _FORBIDDEN_RE.search(stripped):
+        # A word inside a string literal is a value ('merge' is a target state), not a statement.
+        bare = re.sub(r"'(?:[^']|'')*'", "''", stripped)
+        if ";" in bare or not _READ_ONLY_RE.match(bare) or _FORBIDDEN_RE.search(bare):
             raise ValueError("only a single read-only SELECT/WITH statement is allowed")
         return self._fetch_df(f"SELECT * FROM ({stripped}) AS q LIMIT {int(limit)}", params)
 

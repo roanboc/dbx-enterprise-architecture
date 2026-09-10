@@ -6,6 +6,8 @@ exists only once the app does, so the grant is a step after the first deploy:
     databricks bundle deploy -t dev
     uv run --extra databricks python deploy/grants.py --catalog ea_dev --schema ea --app ea-repository
 
+The bundle's development mode prefixes the schema and the app with the
+deployer's name; `databricks bundle summary -t dev` prints the names to pass.
 The statements are run on the warehouse the app uses (`DATABRICKS_WAREHOUSE_ID`),
 as whoever runs this — who must own the catalog or hold MANAGE on it.
 """

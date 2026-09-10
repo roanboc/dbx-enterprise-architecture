@@ -154,7 +154,7 @@ make run         # http://localhost:8050 (Dash debug server, no reloader)
 make check       # ruff + pytest + the two validators — must be green before pushing
 make test-fast   # the unit tests alone, in seconds, while iterating (every store test on both engines)
 make test-live   # the unit tests on a real SQL warehouse, on demand (DATABRICKS_HOST, credentials, DATABRICKS_WAREHOUSE_ID, EA_CATALOG)
-make deploy      # the bundle's dev target: the Unity Catalog schema and the app (BUNDLE_VAR_warehouse_id); then make deploy-grants once
+make deploy      # the bundle's dev target: the Unity Catalog schema and the app, deployed, not started (BUNDLE_VAR_warehouse_id); then make deploy-grants once, then make deploy-run
 make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
 uv run ea --help # the CLI: init, import, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …; --branch and --as on any command
 ```

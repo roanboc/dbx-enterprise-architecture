@@ -28,7 +28,9 @@ def test_the_bundle_runs_the_app_on_the_databricks_store_with_the_extra_installe
     env = {e["name"]: e for e in app["config"]["env"]}
     assert env["EA_BACKEND"]["value"] == "databricks" and env["EA_AUTH"]["value"] == "databricks"
     assert env["DATABRICKS_WAREHOUSE_ID"]["valueFrom"] == "sql-warehouse"
-    assert env["EA_CATALOG"]["value"] == "${var.catalog}" and env["EA_SCHEMA"]["value"] == "${var.schema}"
+    # the deployed names, not the variables: development mode prefixes what it creates
+    assert env["EA_CATALOG"]["value"] == "${resources.schemas.ea.catalog_name}"
+    assert env["EA_SCHEMA"]["value"] == "${resources.schemas.ea.name}"
     assert {r["name"] for r in app["resources"]} == {"sql-warehouse"}
     assert app["resources"][0]["sql_warehouse"]["permission"] == "CAN_USE"
     schema = bundle["resources"]["schemas"]["ea"]

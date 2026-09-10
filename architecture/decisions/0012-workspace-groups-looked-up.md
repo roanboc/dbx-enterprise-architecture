@@ -28,7 +28,10 @@ groups with their own token when one is forwarded (the user reading their own
 record, scope `iam.current-user:read`, declared in the bundle) and otherwise as
 the app's service principal, and keeps the answer per user for five minutes.
 A lookup that fails makes a Reader and is logged, never raised. A groups header
-a proxy adds is believed without a lookup; the debug persona stays local.
+in the request is believed only where `EA_TRUST_GROUPS_HEADER` says a proxy of
+the deployment's own sets it — the platform passes a client's headers through,
+and a believed header would let a signed-in Reader pick their role; the debug
+persona stays local.
 
 ## Consequences
 

@@ -2,14 +2,15 @@
 # Unity Catalog schema of Delta tables reached through a SQL warehouse.
 #
 #   export BUNDLE_VAR_warehouse_id=<the warehouse's id>
-#   databricks bundle validate -t dev
-#   databricks bundle deploy -t dev            # the schema and the app
-#   make deploy-grants                          # the app's service principal on the schema (once)
-#   databricks bundle run ea_repository -t dev  # start it
+#   make deploy          # validate and deploy: the schema and the app, not yet running
+#   make deploy-grants   # once: the app's service principal on the schema (its principal exists now)
+#   make deploy-run      # start the app
 #
 # What the platform injects at run time (DATABRICKS_HOST, the app's service
 # principal, DATABRICKS_APP_PORT) is never set here; what the bundle owns is
-# set from its variables, so dev and prod differ only in the target block.
+# set from its resources, so the app follows the names the target deploys —
+# development mode prefixes the schema and the app with the deployer's name,
+# and `databricks bundle summary -t dev` prints them for the grant step.
 bundle:
   name: ea-repository
 
@@ -62,9 +63,9 @@ resources:
           - name: EA_BACKEND
             value: databricks
           - name: EA_CATALOG
-            value: ${var.catalog}
+            value: ${resources.schemas.ea.catalog_name}
           - name: EA_SCHEMA
-            value: ${var.schema}
+            value: ${resources.schemas.ea.name}
           - name: DATABRICKS_WAREHOUSE_ID
             valueFrom: sql-warehouse
           - name: EA_PACK

@@ -1,4 +1,4 @@
-.PHONY: install seed run test test-fast test-live gui gui-install lint format check validate deploy deploy-grants clean
+.PHONY: install seed run test test-fast test-live gui gui-install lint format check validate deploy deploy-grants deploy-run clean
 
 install:            ## create .venv and install runtime + dev dependencies with uv
 	uv sync
@@ -39,13 +39,15 @@ validate:           ## archreator validators (relative links, element-ID referen
 
 check: lint test validate   ## everything CI runs
 
-deploy:             ## the bundle: the Unity Catalog schema and the app (BUNDLE_VAR_warehouse_id names the warehouse; TARGET=dev)
+deploy:             ## the bundle: the Unity Catalog schema and the app, deployed and not yet started (BUNDLE_VAR_warehouse_id; TARGET=dev)
 	databricks bundle validate -t $(or $(TARGET),dev)
 	databricks bundle deploy -t $(or $(TARGET),dev)
-	databricks bundle run ea_repository -t $(or $(TARGET),dev)
 
-deploy-grants:      ## after the first deploy: the app's service principal on the schema (EA_CATALOG, EA_SCHEMA, DATABRICKS_WAREHOUSE_ID)
-	uv run --extra databricks python deploy/grants.py
+deploy-grants:      ## after the first deploy, before the first run: the app's principal on the schema (EA_CATALOG, EA_SCHEMA, DATABRICKS_WAREHOUSE_ID; --schema/--app in GRANT_ARGS for dev-mode names)
+	uv run --extra databricks python deploy/grants.py $(GRANT_ARGS)
+
+deploy-run:         ## start (or restart) the deployed app
+	databricks bundle run ea_repository -t $(or $(TARGET),dev)
 
 clean:
 	rm -f data/ea.duckdb data/ea.duckdb.wal

@@ -50,8 +50,16 @@ def test_trace_returns_shortest_path(backend):
 
 
 def test_query_is_read_only(backend):
-    backend.insert_element(Element("X1", "capability", "Cap"), "a")
+    backend.insert_element(Element("X1", "capability", "Cap", target_state="merge"), "a")
     assert len(backend.query("select * from element")) == 1
-    for bad in ("delete from element", "select 1; drop table element", "update element set name='x'"):
+    for bad in (
+        "delete from element",
+        "select 1; drop table element",
+        "update element set name='x'",
+        "merge into element using element on 1=1 when matched then delete",
+    ):
         with pytest.raises(ValueError):
             backend.query(bad)
+    # a word inside a literal is a value: 'merge' is a target state, 'delete' a change-log op
+    assert len(backend.query("select element_id from element where target_state = 'merge'")) == 1
+    assert len(backend.query("select * from change_log where op = 'delete; drop'")) == 0

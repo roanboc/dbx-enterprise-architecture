@@ -204,6 +204,7 @@ Metamodel page and export it.
 | `EA_SECRET_KEY` | (random per start) | Signs the session cookie that remembers a reader's branch and debug persona; set it so sessions survive a restart |
 | `EA_ROLE` | `admin` | The role the CLI runs as (same as `--as`) |
 | `EA_ROLE_GROUPS` | (empty: everyone a reader) | On the platform, which workspace group grants which role: `admin=g1,g2;architect=g3;reviewer=g4` |
+| `EA_TRUST_GROUPS_HEADER` | (off) | Believe an `X-Forwarded-Groups` header instead of reading the workspace; only behind a proxy of your own that sets it, never on Databricks Apps |
 
 ## Running on Databricks
 
@@ -223,20 +224,28 @@ and the app with the warehouse it queries, and owns the app's configuration
 (`uv run --frozen --no-dev --extra databricks python app.py`, which binds
 `0.0.0.0:$DATABRICKS_APP_PORT` under gunicorn with a graceful timeout under
 the platform's 15-second SIGTERM budget). The app's service principal exists
-only once the app does, so the grants it needs on the schema are a step after
-the first deploy, run by whoever manages the catalog:
+only once the app does, so the grants it needs on the schema come between the
+first deploy and the first run, from whoever manages the catalog:
 
 ```bash
 export BUNDLE_VAR_warehouse_id=<the SQL warehouse's id>
-make deploy                      # validate, deploy and run the bundle's dev target (TARGET=prod for prod)
+make deploy                      # validate and deploy the dev target: the schema and the app, not yet running (TARGET=prod for prod)
 EA_CATALOG=ea_dev DATABRICKS_WAREHOUSE_ID=<id> make deploy-grants   # once: the app's principal on the schema
+make deploy-run                  # start the app
 ```
+
+The dev target deploys in development mode, which prefixes the schema and the
+app with the deployer's name; `databricks bundle summary -t dev` prints them,
+and `make deploy-grants GRANT_ARGS="--schema <name> --app <name>"` grants on
+those.
 
 On the platform the signed-in user arrives as forwarded headers; their
 workspace groups are read once and kept for five minutes (with the user's own
 token when the app is granted the `iam.current-user:read` scope, otherwise as
 the app's service principal), and `EA_ROLE_GROUPS` turns the groups into a
-role. Running the same tests against a dev catalog is what reaches plateau
+role. A groups header in the request is never believed unless
+`EA_TRUST_GROUPS_HEADER=1` says a proxy of your own sets it: behind Databricks
+Apps a client could send one and pick its own role. Running the same tests against a dev catalog is what reaches plateau
 `PLAT2` on the roadmap
 ([`architecture/6_transition/`](./architecture/6_transition/README.md)).
 

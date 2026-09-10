@@ -18,14 +18,16 @@ without a warehouse, which the repository does not have.
 | Option | Why not (or why) |
 | ------ | ---------------- |
 | A second backend written from scratch against the interface | Two implementations of the overlay and the merge to keep in step; the platform one testable only live |
-| One SQL implementation with engine hooks — **chosen** | The shared code is the code the suite already covers; an engine is the connection, the statement, the bulk load and the type spelling, sixty lines for DuckDB |
+| One SQL implementation with engine hooks — **chosen** | The shared code is the code the suite already covers; an engine is the connection, the statement, the bulk load and the type spelling, a page for DuckDB |
 | An ORM or query builder over both engines | A third dialect to learn, and the recursive trace and the overlay `UNION` are exactly what such layers express worst |
 | Prove the Databricks engine only on a live warehouse | Nothing would guard it on a pull request; a warehouse played by DuckDB reads the same `MERGE`, `DESCRIBE`, `INSTR` and `WITH RECURSIVE`, and can be taught Spark's string escapes |
 
 ## Decision
 
 `SqlBackend` holds everything the repository asks of a SQL store; `DuckDBBackend`
-and `DatabricksBackend` implement six hooks each. The unit suite's `backend`
+and `DatabricksBackend` implement the hooks it leaves open (run, fetch, append,
+replace by key, add a column, close; a table's DDL and a reader's values where
+the dialect differs). The unit suite's `backend`
 fixture runs every test on both engines, the Databricks one over a fake
 warehouse on DuckDB, and a third time on a real warehouse when asked. On a
 warehouse, rows land as `MERGE` batches of literals (the connector allows 255

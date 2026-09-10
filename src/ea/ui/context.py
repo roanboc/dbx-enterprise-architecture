@@ -185,10 +185,10 @@ class AppContext:
         """The user the platform forwarded, with the groups it holds them in and the role those grant.
 
         The platform forwards no groups, so they are looked up in the workspace (`identity`),
-        with the user's own token when the app is granted one. A proxy that does forward a
-        groups header is believed instead, and nobody signed in is a Reader.
+        with the user's own token when the app is granted one. A groups header is believed only
+        where `EA_TRUST_GROUPS_HEADER` says a proxy of ours sets it, and nobody signed in is a Reader.
         """
-        email, groups, token = forwarded_identity(headers)
+        email, groups, token = forwarded_identity(headers, self.settings.trust_groups_header)
         if not email:
             return User(username="anonymous", display_name="Anonymous", role="reader")
         if groups is None:

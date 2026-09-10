@@ -22,7 +22,7 @@ outside the repository (see the gap notes), so this initiative is step 2.
 | ----- | ------ |
 | 0_business-design | Not used — this is a Depth 1 application project. |
 | 1_strategy | No new element. The change realises goal `G3` (one code base, local and Databricks) and serves `G1`; principle `P4` (SQL only in the store) is what makes a second engine one module, and `P7` (the PoC may be thrown away) still holds because nothing on the platform is hand-built. The "Measured by" cell of `G3` in [1_motivation.md](../1_strategy/1_motivation.md) now states what exists. |
-| 2_business | No change. The same five roles and the same review before merge; what changes is how a user's group membership is read on the platform (decision [0012](../decisions/0012-workspace-groups-looked-up.md)), not who decides anything. |
+| 2_business | No new element and no change to who decides: the same five roles and the same review before merge. One row kept true: the business object `BOBJ1` Workspace groups is held in the workspace's directory, read for the forwarded user, not forwarded as a header (decision [0012](../decisions/0012-workspace-groups-looked-up.md)); see [1_actors-and-roles.md](../2_business/1_actors-and-roles.md). |
 | 3_information | No new data object. Every object of [1_data-objects.md](../3_information/1_data-objects.md) is persisted in the same tables on the second engine; the persistence section says where they live on the platform (a Unity Catalog schema the bundle creates). Classification and retention are unchanged; the two-year retention of the change log on the platform is not yet a job (gap note). |
 | 4_application | The graph store `ACMP2` is now written once on SQL and an engine adds only its dialect (decision [0011](../decisions/0011-one-sql-store-two-engines.md)); `ACMP2.2` Databricks backend exists; `ACMP12` gains the workspace group lookup behind the forwarded identity; `ACMP6` is configured by the bundle instead of `app.yaml`. See [2_application-components.md](../4_application/2_application-components.md). |
 | 5_technology | `NODE2` Databricks workspace stays **Pending** until a workspace runs it; it gains the services it will provide (`TSVC4` Warehouse SQL store, `TSVC5` Workspace identity) and the artifact that deploys it (`ART6` Deployment bundle). See [1_runtime.md](../5_technology/1_runtime.md). |
@@ -38,9 +38,10 @@ No gate has been granted yet. The Requester's instruction of 2026-09-09
 intention defined in the architecture") opened the initiative while the
 Requester was not in the session, so **Understanding** is presented on the pull
 request, with these documents: [1_motivation.md](../1_strategy/1_motivation.md)
-(no change but one measured-by cell), the business layer (no change),
-[1_data-objects.md](../3_information/1_data-objects.md) (the persistence
-section) and this document. Every layer document stays `◐`; the code sits on
+(no change but one measured-by cell),
+[1_actors-and-roles.md](../2_business/1_actors-and-roles.md) (one row, where
+the workspace groups are held), [1_data-objects.md](../3_information/1_data-objects.md)
+(the persistence section) and this document. Every layer document stays `◐`; the code sits on
 the branch and nothing reaches `main` before the gate and the review.
 
 ## Plateaus
@@ -67,10 +68,11 @@ flowchart LR
 **The store once, the engines thin.** Everything the repository asks of a SQL
 store — the branch overlay, the optimistic concurrency, the change log, the
 diff and the merge — moved unchanged from the DuckDB module into
-`src/ea/backend/sql_backend.py`. An engine implements six hooks: connect, run
-a statement, fetch, append rows, replace rows by key, and add a column that
-shipped later. The DuckDB engine is sixty lines; the Databricks engine is the
-dialect and the session. The unit suite's `backend` fixture runs every test on
+`src/ea/backend/sql_backend.py`. An engine implements the hooks the base
+leaves open: run a statement, fetch rows, fetch a frame, append rows, replace
+rows by key, add a column that shipped later, close, and (where it differs)
+create a table and bind a reader's values. The DuckDB engine is a page; the
+Databricks engine is the dialect and the session. The unit suite's `backend` fixture runs every test on
 both, the second over a warehouse played by DuckDB (`tests/fake_warehouse.py`)
 that reads Delta's `ADD COLUMNS`, `SET TIME ZONE` and Spark's string escapes
 the way the platform does, so the SQL the platform will receive is proved on
@@ -83,22 +85,29 @@ one `MERGE INTO … USING (VALUES …)` per batch of 200 rows written as literal
 every `IN (…)` list is chunked at 200, and the pack is saved in five inserts
 rather than three hundred. `VARCHAR` is spelt `STRING` and `INTEGER` `INT`; a
 column added by a later version is found by `DESCRIBE` and added with
-`ADD COLUMNS`. A string literal doubles the backslash, because Spark reads it
-as an escape and a JSON attribute with a newline would otherwise come back
-broken. Timestamps are written and read in UTC and come back naive, as they
-do from DuckDB. A session the warehouse closed is reopened once. The recursive
-trace query is tried first; a warehouse that refuses `WITH RECURSIVE` (the
-open-source Spark 4.0 release does not carry it) is answered with the same
-walk in process, over the same edges, and the engine remembers the answer.
+`ADD COLUMNS`. A string literal escapes the backslash and the quote with a
+backslash, because Spark reads a doubled quote as two literals side by side
+(an apostrophe would vanish) and a backslash as an escape (a JSON attribute
+with a newline would come back broken). A reader's search words and type
+filters are bound as literals too, so a long search never spends the marker
+budget. Timestamps are written and read in UTC and come back naive, as they
+do from DuckDB. The session enters the schema after creating it where it may,
+and a session the warehouse closed is reopened once. The recursive trace query
+is tried first; a warehouse that refuses `WITH RECURSIVE` (the open-source
+Spark 4.0 release does not carry it) is answered with the same walk in
+process, over the same edges, and the engine remembers the answer.
 
 **Identity from the workspace.** Databricks Apps forwards the signed-in user's
 e-mail, username and — when the app declares the `iam.current-user:read`
 scope — an access token; it forwards no groups. `src/ea/services/identity.py`
 reads the user's groups from the workspace, with the forwarded token when there
 is one (the user reading their own record) and otherwise as the app's service
-principal, and keeps the answer for five minutes per user. A directory that
-fails makes a Reader, never an error page. A proxy that does forward a groups
-header is believed without a lookup, and the debug persona stays local.
+principal, and keeps the answer for five minutes per user, one directory call
+per user however many requests arrive together. A directory that fails makes
+a Reader, never an error page. A groups header in the request is believed only
+where `EA_TRUST_GROUPS_HEADER` says a proxy of the deployment's own sets it —
+behind Databricks Apps a client could send one and choose its role — and the
+debug persona stays local.
 
 **The bundle.** `databricks.yml` declares the Unity Catalog schema and the app
 with the SQL warehouse it queries (`CAN USE`), and owns the app's configuration
@@ -106,8 +115,10 @@ with the SQL warehouse it queries (`CAN USE`), and owns the app's configuration
 environment that names the engine, the catalog, the schema, the warehouse and
 the group-to-role mapping — so `app.yaml` is retired. The app's service
 principal exists only once the app does, so the grants it needs on the schema
-are a step after the first deploy (`make deploy-grants`, `deploy/grants.py`),
-run by whoever manages the catalog.
+come between the first deploy and the first run (`make deploy`,
+`make deploy-grants`, `make deploy-run`; `deploy/grants.py`), from whoever
+manages the catalog. The app's environment names the schema by its resource,
+so the development target's prefixed names reach it unchanged.
 
 ## Work packages
 
@@ -116,7 +127,7 @@ run by whoever manages the catalog.
 | 1 | The store on SQL, once | `src/ea/backend/sql_backend.py`; `src/ea/backend/duckdb_backend.py` reduced to the engine; the trace query in `src/ea/backend/sql.py` portable (`INSTR`, the engine's string type); `tests/conftest.py` running the suite on both engines; `tests/fake_warehouse.py` | Built 2026-09-09 |
 | 2 | The Databricks engine | `src/ea/backend/databricks_backend.py`, its registration in `src/ea/backend/factory.py`, `DATABRICKS_HTTP_PATH` in `src/ea/config.py`; `tests/test_databricks_backend.py`; `make test-live` | Built 2026-09-09; the live run waits for a workspace |
 | 3 | Identity from the workspace | `src/ea/services/identity.py`; `user_from_headers()` in `src/ea/ui/context.py`; `tests/test_identity.py` | Built 2026-09-09 |
-| 4 | The deployment bundle | `databricks.yml`, `deploy/grants.py`, `make deploy`, `make deploy-grants`; `app.yaml` retired; `tests/test_deploy.py` | Built 2026-09-09; the deploy waits for a workspace |
+| 4 | The deployment bundle | `databricks.yml`, `deploy/grants.py`, `make deploy`, `make deploy-grants`, `make deploy-run`; `app.yaml` retired; `tests/test_deploy.py` | Built 2026-09-09; the deploy waits for a workspace |
 | 5 | The model kept true | The layer rows named above, the roadmap, decisions 0011 and 0012, the README and `AGENTS.md` | Done |
 
 ## In scope / out of scope

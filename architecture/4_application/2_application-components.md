@@ -158,10 +158,11 @@ flowchart LR
 - **A new export format**: add a mapping under `connectors/<tool>/mapping.yaml`;
   the importer needs no change unless the format is not tabular.
 - **A new storage engine**: subclass `SqlBackend` in `src/ea/backend/` with
-  the engine's hooks (connect, run a statement, fetch, append rows, replace
-  rows by key, add a column) and register it in `factory.py`; the DDL in
-  `sql.py` is the contract, and the unit suite runs on the engine through the
-  `backend` fixture in `tests/conftest.py`.
+  the engine's hooks (`_execute`, `_fetch_all`, `_fetch_df`, `_insert_rows`,
+  `_replace_rows`, `_add_missing_columns`, `close`, and `_create_table` or
+  `_bind` where the dialect differs) and register it in `factory.py`; the DDL
+  in `sql.py` is the contract, and the unit suite runs on the engine through
+  the `backend` fixture in `tests/conftest.py`.
 - **A new agent provider**: implement the provider protocol in
   `src/ea/agent/agent.py`; the tools stay the same.
 - **A new diagram format**: add a renderer over `View` in `src/ea/views/`;

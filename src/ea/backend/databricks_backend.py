@@ -9,7 +9,8 @@ workstation, and each is handled here and nowhere else:
   with the rows written as SQL literals, never one insert per row.
 * **The dialect.** `VARCHAR` is `STRING`, an added column is `ADD COLUMNS (…)`
   after a `DESCRIBE` says it is missing, and a string literal escapes the
-  backslash the way Spark reads it.
+  quote and the backslash the way Spark reads them (a doubled quote is not an
+  escape there: `'it''s'` is two literals side by side and reads as `its`).
 * **The session.** Credentials come from the environment the way every
   Databricks SDK client finds them (the app's service principal on Databricks
   Apps, a token or a profile on a workstation); a session that expires is
@@ -38,15 +39,16 @@ _TYPE_RE = re.compile(r"\b(VARCHAR|INTEGER)\b")
 #: rows per MERGE or INSERT statement (literals, so the marker limit does not apply; the
 #: statement stays well under the warehouse's text limit at this size)
 BATCH_ROWS = 200
-_RECURSION_UNSUPPORTED = ("RECURSIVE", "RECURSION", "PARSE_SYNTAX_ERROR", "UNSUPPORTED")
+_RECURSION_UNSUPPORTED = ("RECURSI",)  # RECURSIVE or RECURSION in the error: the feature, not another fault
 
 
 def spark_literal(value: Any, sql_type: str) -> str:
     """A value as a SQL literal Spark reads back unchanged.
 
-    Strings double the quote and escape the backslash (Spark treats `\\` as an
-    escape character inside a literal); a missing value is cast so that a batch
-    whose column is null throughout still carries the column's type.
+    Strings escape the backslash and the quote with a backslash, which is how
+    Spark reads a literal (a doubled quote is two adjacent literals there, and
+    the quote is lost); a missing value is cast so that a batch whose column is
+    null throughout still carries the column's type.
     """
     if value is None:
         return f"CAST(NULL AS {_TYPES.get(sql_type, sql_type)})"
@@ -62,7 +64,7 @@ def spark_literal(value: Any, sql_type: str) -> str:
         return f"TIMESTAMP '{value.isoformat(sep=' ')}'"
     if hasattr(value, "to_pydatetime"):  # a pandas Timestamp
         return spark_literal(value.to_pydatetime(), sql_type)
-    text = str(value).replace("\\", "\\\\").replace("'", "''")
+    text = str(value).replace("\\", "\\\\").replace("'", "\\'")
     return f"'{text}'"
 
 
@@ -88,13 +90,14 @@ class DatabricksBackend(SqlBackend):
         schema: str = "ea",
         connect: Callable[[], Any] | None = None,
     ):
-        """`connect` returns a DB-API connection; by default the SQL connector authenticated from
-        the environment. It is a parameter so the dialect can be proved on another engine."""
+        """`connect` opens a DB-API connection; by default the SQL connector authenticated from
+        the environment. It is a parameter so the dialect can be proved on another engine; the
+        session is prepared the same way (schema, namespace, time zone) whichever it is."""
         super().__init__()
         self.http_path = http_path
         self.catalog = catalog
         self.schema = schema
-        self._connect = connect or self._connect_warehouse
+        self._open = connect or self._open_warehouse
         self._conn = self._connect()
         self._recursive_sql: bool | None = None  # unknown until the first trace
         self.init_schema()
@@ -114,20 +117,28 @@ class DatabricksBackend(SqlBackend):
             )
         return cls(http_path, settings.databricks_catalog, settings.databricks_schema or "ea")
 
-    def _connect_warehouse(self) -> Any:
+    def _open_warehouse(self) -> Any:
         from databricks import sql as dbsql  # the `databricks` extra
         from databricks.sdk.core import Config
 
         cfg = Config()  # DATABRICKS_HOST and the credentials: the app's service principal, a token, a profile
         host = re.sub(r"^https?://", "", cfg.host or "").rstrip("/")
-        conn = dbsql.connect(
+        # No initial namespace: the session opens on the catalog's default, and the schema is
+        # created (where the principal may) before it is entered.
+        return dbsql.connect(
             server_hostname=host,
             http_path=self.http_path,
             credentials_provider=lambda: cfg.authenticate,
-            catalog=self.catalog,
-            schema=self.schema,
             user_agent_entry="ea-repository",
         )
+
+    def _connect(self) -> Any:
+        conn = self._open()
+        self._prepare_session(conn)
+        return conn
+
+    def _prepare_session(self, conn: Any) -> None:
+        """The schema if it can be made, then the namespace and the time zone; on every connection."""
         with conn.cursor() as cur:
             try:  # the bundle creates the schema; a principal without CREATE SCHEMA still works in it
                 cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.catalog}.{self.schema}")
@@ -137,7 +148,6 @@ class DatabricksBackend(SqlBackend):
                 )
             cur.execute(f"USE {self.catalog}.{self.schema}")
             cur.execute("SET TIME ZONE 'UTC'")
-        return conn
 
     # ------------------------------------------------------------ engine hooks
     def _run(self, sql: str, params: list[Any] | None, fetch: bool) -> tuple[list[tuple], list[str]]:
@@ -160,12 +170,18 @@ class DatabricksBackend(SqlBackend):
         return [], []  # unreachable
 
     def _session_gone(self, exc: Exception) -> bool:
-        text = str(exc).lower()
-        return (
-            not getattr(self._conn, "open", True)
-            or "session" in text
-            and ("expired" in text or "invalid" in text or "closed" in text or "not found" in text)
+        """A closed connection, or an error that names the session as expired, invalid or gone."""
+        if not getattr(self._conn, "open", True):
+            return True
+        text = str(exc).lower().replace("_", " ")
+        return "session" in text and any(
+            w in text for w in ("expired", "invalid", "closed", "not found", "gone", "timed out")
         )
+
+    def _bind(self, values: list[Any]) -> tuple[list[str], list[Any]]:
+        """Reader-chosen values as literals: the connector allows 255 markers a statement, and a
+        search of many words or types would otherwise spend them all."""
+        return [spark_literal(v, "VARCHAR") for v in values], []
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
         self._run(sql, params, fetch=False)
