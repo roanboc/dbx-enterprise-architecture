@@ -1,9 +1,8 @@
-"""DuckDB engine: one file, zero infrastructure, the same DDL as Delta.
+"""DuckDB engine: one file, zero infrastructure, the same DDL as Lakebase.
 
 Everything the store does is in `sql_backend.py`; this module only knows how
-to talk to DuckDB — a connection, a lock (the file is single-writer), frames
-registered as tables for the bulk loads, and the one DDL form DuckDB has that
-Delta does not (`ADD COLUMN IF NOT EXISTS`).
+to talk to DuckDB — a connection, a lock (the file is single-writer), and
+frames registered as tables for the bulk loads.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from ea.backend.sql import MIGRATIONS
 from ea.backend.sql_backend import SqlBackend, new_id
 
 __all__ = ["DuckDBBackend", "new_id"]
@@ -64,10 +62,6 @@ class DuckDBBackend(SqlBackend):
                 self._conn.execute(f"INSERT INTO {table} SELECT {', '.join(columns)} FROM {incoming}")
             finally:
                 self._conn.unregister(incoming)
-
-    def _add_missing_columns(self) -> None:
-        for table, column, dtype in MIGRATIONS:  # older files: add what shipped later
-            self._execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}")
 
     def close(self) -> None:
         with self._lock:

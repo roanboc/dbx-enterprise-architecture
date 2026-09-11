@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass
 class Settings:
-    backend: str = "duckdb"
+    backend: str = "duckdb"  # duckdb (a file) | lakebase (Postgres: the platform's Lakebase, or any Postgres)
     db_path: str = str(ROOT / "data" / "ea.duckdb")
     pack_path: str = str(ROOT / "packs" / "higher_education" / "metamodel.yaml")
     auth: str = "mock"
@@ -23,10 +23,17 @@ class Settings:
     agent_model: str = "claude-opus-5"
     max_rows: int = 5000
     admin_contact: str = ""
-    databricks_warehouse_id: str = ""
-    databricks_http_path: str = ""  # instead of the warehouse id: any SQL endpoint path
-    databricks_catalog: str = ""
-    databricks_schema: str = "ea"
+    # On lakebase: the schema the tables live in; the instance the platform's identity signs in to
+    # (the SDK issues the token); or any Postgres instead, as libpq reads a URL or a key=value
+    # string; and libpq's own PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE, honoured either way.
+    store_schema: str = "ea"
+    lakebase_instance: str = ""
+    pg_dsn: str = ""
+    pg_host: str = ""
+    pg_port: int = 5432
+    pg_database: str = ""
+    pg_user: str = ""
+    pg_sslmode: str = ""
     role_groups: str = ""  # admin=grp1,grp2;architect=grp3;reviewer=grp4 (decision 0008)
     trust_groups_header: bool = False  # only behind a proxy of ours that sets X-Forwarded-Groups
 
@@ -42,10 +49,14 @@ class Settings:
             agent_model=env.get("EA_AGENT_MODEL", "claude-opus-5"),
             max_rows=int(env.get("EA_MAX_ROWS", "5000")),
             admin_contact=env.get("EA_ADMIN_CONTACT", ""),
-            databricks_warehouse_id=env.get("DATABRICKS_WAREHOUSE_ID", ""),
-            databricks_http_path=env.get("DATABRICKS_HTTP_PATH", ""),
-            databricks_catalog=env.get("EA_CATALOG", ""),
-            databricks_schema=env.get("EA_SCHEMA", "ea"),
+            store_schema=env.get("EA_SCHEMA", "ea"),
+            lakebase_instance=env.get("EA_LAKEBASE_INSTANCE", ""),
+            pg_dsn=env.get("EA_POSTGRES_DSN", ""),
+            pg_host=env.get("PGHOST", ""),
+            pg_port=int(env.get("PGPORT") or 5432),
+            pg_database=env.get("PGDATABASE", ""),
+            pg_user=env.get("PGUSER", ""),
+            pg_sslmode=env.get("PGSSLMODE", ""),
             role_groups=env.get("EA_ROLE_GROUPS", ""),
             trust_groups_header=env.get("EA_TRUST_GROUPS_HEADER", "").strip().lower() in ("1", "true", "yes"),
         )

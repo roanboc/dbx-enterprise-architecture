@@ -2,7 +2,7 @@
 
 The store narrows the rows (every word must match somewhere); this module ranks
 them and says where each matched, so a reader knows why a row is in the list.
-No index: a few thousand rows scan in milliseconds on DuckDB and Delta alike.
+No index: a few thousand rows scan in milliseconds on DuckDB and Postgres alike.
 """
 
 from __future__ import annotations
