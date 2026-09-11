@@ -73,6 +73,7 @@ flowchart LR
   asm5["⌕ The metamodel changes [ASM5]"]:::motivation
   asm6["⌕ Content is small and largely draft [ASM6]"]:::motivation
   asm7["⌕ Architects read diagrams, not graph layouts [ASM7]"]:::motivation
+  asm8["⌕ A warehouse is not an application store [ASM8]"]:::motivation
   g1("◎ Query the architecture sustainably [G1]"):::motivation
   g2("◎ Metamodel is configuration [G2]"):::motivation
   g3("◎ One code base, local and Databricks [G3]"):::motivation
@@ -86,6 +87,7 @@ flowchart LR
   asm7 --> g1
   asm5 --> g2
   asm6 --> g3
+  asm8 --> g3
 
   classDef motivation fill:#e6d6f5,stroke:#7e57c2,color:#333
 ```
@@ -108,6 +110,7 @@ flowchart LR
 | `ASM5` | **The metamodel changes** — 27 active and 32 inactive types, instances still present for inactive ones, ANY-targeted and role-qualified relationships | The metamodel is data (a pack), never a fixed schema |
 | `ASM6` | **Content is small and largely draft** — about 4,600 elements across 59 types, many not approved | DuckDB and an in-process graph are enough; no warehouse traversal per click |
 | `ASM7` | **Architects read diagrams, not graph layouts** — a force-directed graph answers a query but is not an architecture diagram; a hand-drawn diagram that is the store is the current EA tool's problem | Views are generated from the model in an architecture notation; diagram editors are at most an export format (initiative 2) |
+| `ASM8` | **A warehouse is not an application store** — a SQL warehouse answers a statement in a round trip of seconds, binds a few hundred values, holds no constraints and no transaction across statements; an application that writes on every click needs the platform's transactional database (adopted — the reading behind the owner's instruction of 2026-09-11, Lakebase and not the lakehouse) | The store on Databricks is Lakebase, the platform's Postgres (decision 0013); the lakehouse reads it through Unity Catalog where a projection is wanted (plateau `PLAT5`) |
 
 ## Goals and outcomes
 
@@ -137,7 +140,7 @@ flowchart TB
 | -- | ---- | ----------- |
 | `G1` | **Query the architecture sustainably** — people and agents get answers about elements, relationships and impact without drawing tools | The three reference questions (ownership, entities behind a data product, impact of an entity change) answered from the loaded model with cited identifiers |
 | `G2` | **Metamodel is configuration** — element types, relationship types and attributes are edited as data and exported as a pack | The institution's metamodel loads from `packs/higher_education/metamodel.yaml`, is edited in the app and round-trips to YAML |
-| `G3` | **One code base, local and Databricks** — the same code runs on a DuckDB file and on Delta tables | One SQL implementation of the store with a DuckDB engine and a Databricks engine on the same DDL; the unit suite passes on both (the Databricks engine over a warehouse played by DuckDB on every change, and on a real warehouse on demand) |
+| `G3` | **One code base, local and Databricks** — the same code runs on a DuckDB file and on Lakebase, the platform's Postgres database | One SQL implementation of the store with a DuckDB engine and a Lakebase engine on the same DDL; the unit suite passes on both (the Lakebase engine on a Postgres started for the run on every change, and on a Lakebase instance on demand) |
 | `G4` | **Show a working PoC within a month** — something the owner can show and sell to the information architect and sponsors | A demo of the four deliverables on the curriculum slice of the institution's content |
 | `G5` | **Reusable by any enterprise** — no framework- or institution-specific code | The engine is Apache-2.0; the higher-education pack is one pack among possible others |
 
@@ -153,7 +156,7 @@ flowchart TB
 | `P1` | **Metamodel is data, never DDL** — a new element type is a row, not a migration | Adding a type needs no code change |
 | `P2` | **Every element carries provenance** — source system, source reference and origin on every element and relationship | No row without `source_system` and `origin` |
 | `P3` | **Agents draft, people approve** — an agent proposes and explains; a person records the approval | No agent path writes an approved status |
-| `P4` | **One schema, two engines** — the DDL is portable between DuckDB and Delta; engine-specific SQL lives in the backend only | Services and UI contain no SQL dialect |
+| `P4` | **One schema, two engines** — the DDL is portable between DuckDB and Postgres; engine-specific SQL lives in the backend only | Services and UI contain no SQL dialect |
 | `P5` | **Nothing framework-specific in code** — the institution's own, TOGAF or ArchiMate type names appear only in packs and mappings | `grep` for a type name finds it in `packs/` and `connectors/` only |
 | `P6` | **Answers cite element identifiers** — every claim in an agent answer names the elements it came from, and an identifier that no tool returned is flagged | Ungrounded identifiers are reported on every answer |
 | `P7` | **Fail fast, keep the long-term goal** — the PoC is allowed to be thrown away; the roadmap is not | Every shortcut is listed as a gap in [6_transition](../6_transition/1_target-state.md) |
@@ -174,6 +177,7 @@ flowchart TB
 | `ASM2` | ⚖ «Assessment» Genie Ontology is not a graph | `G1` | ◎ «Goal» Query the architecture sustainably | influences | the graph is explicit |
 | `ASM5` | ⚖ «Assessment» The metamodel changes | `G2` | ◎ «Goal» Metamodel is configuration | influences | |
 | `ASM6` | ⚖ «Assessment» Content is small and largely draft | `G3` | ◎ «Goal» One code base, local and Databricks | influences | DuckDB is enough to start |
+| `ASM8` | ⚖ «Assessment» A warehouse is not an application store | `G3` | ◎ «Goal» One code base, local and Databricks | influences | Lakebase, not the lakehouse, on the platform |
 | `G1` | ◎ «Goal» Query the architecture sustainably | `OUT1` | ◎ «Outcome» Curriculum model loaded and queried | realized by | |
 | `G4` | ◎ «Goal» Show a working PoC within a month | `OUT2` | ◎ «Outcome» Information architect endorses the approach | realized by | |
 | `G2` | ◎ «Goal» Metamodel is configuration | `P1` | ▣ «Principle» Metamodel is data, never DDL | realized by | |

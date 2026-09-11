@@ -55,7 +55,7 @@ flowchart TB
 | `NODE1.1` | **Python process** — one Python 3.11 process: Flask and Dash serve the pages and callbacks; gunicorn (one worker, four threads) in production mode, the Dash development server locally; the same process hosts the agent and the importer | `app.py`, `src/ea/` | Running |
 | `NODE1.2` | **DuckDB engine** — the embedded analytical engine, in-process, one writer per file; recursive queries for the traversals | `src/ea/backend/duckdb_backend.py` | Running |
 | `NODE1.3` | **Browser** — where the pages render, the diagrams are drawn and the graph panel is laid out; nothing is fetched from the internet at run time (icons, Mermaid and Cytoscape are bundled) | `assets/` | Running |
-| `NODE2` | **Databricks workspace** — Databricks Apps hosting the same process, a SQL warehouse over Delta tables in a Unity Catalog schema, the signed-in user forwarded as headers and their groups read from the workspace's directory | `databricks.yml` deploys it; `src/ea/backend/databricks_backend.py` is the store on it | **Pending — plateau `PLAT2`**: built by initiative 13, Running once a workspace runs it (`make test-live`, `make deploy`) |
+| `NODE2` | **Databricks workspace** — Databricks Apps hosting the same process, a Lakebase database instance holding the store, the signed-in user forwarded as headers and their groups read from the workspace's directory | `databricks.yml` deploys it; `src/ea/backend/lakebase_backend.py` is the store on it | **Pending — plateau `PLAT2`**: built by initiatives 13 and 14, Running once a workspace runs it (`make test-live`, `make deploy`) |
 
 ## Technology services
 
@@ -64,11 +64,11 @@ flowchart LR
   web(["⬯ Web serving [TSVC1]"]):::technology
   sql(["⬯ Embedded SQL store [TSVC2]"]):::technology
   render(["⬯ In-browser rendering [TSVC3]"]):::technology
-  wh(["⬯ Warehouse SQL store [TSVC4]"]):::technology
+  lake(["⬯ Lakebase SQL store [TSVC6]"]):::technology
   idp(["⬯ Workspace identity [TSVC5]"]):::technology
   ui["⊞ Web application [ACMP6]"]:::application
   store["⊞ DuckDB backend [ACMP2.1]"]:::application
-  delta["⊞ Databricks backend [ACMP2.2]"]:::application
+  engine["⊞ Lakebase backend [ACMP2.3]"]:::application
   roles["⊞ Roles and review [ACMP12]"]:::application
   cli["⊞ Command line [ACMP7]"]:::application
   views["⊞ View generator [ACMP8]"]:::application
@@ -78,9 +78,9 @@ flowchart LR
   views -->|drawn by| render
   store -->|uses| sql
   cli -->|uses| sql
-  dbx -.->|provides, pending| wh
+  dbx -.->|provides, pending| lake
   dbx -.->|provides, pending| idp
-  delta -.->|uses, pending| wh
+  engine -.->|uses, pending| lake
   roles -.->|uses, pending| idp
   ui -.->|hosted on, pending| dbx
 
@@ -91,10 +91,10 @@ flowchart LR
 | ID | Service | Provided by | Used by | State |
 | -- | ------- | ----------- | ------- | ----- |
 | `TSVC1` | **Web serving** — HTTP on `0.0.0.0` and the port the platform names (`DATABRICKS_APP_PORT`, `PORT`, or 8050); a signed session cookie carries the reader's branch and, locally, the debug persona | `NODE1.1` | `ACMP6` | Running |
-| `TSVC2` | **Embedded SQL store** — SQL over a single file with the portable DDL of `src/ea/backend/sql.py`; the same DDL runs on Delta through `TSVC4` | `NODE1.2` | `ACMP2.1`, `ACMP7` | Running |
+| `TSVC2` | **Embedded SQL store** — SQL over a single file with the portable DDL of `src/ea/backend/sql.py`; the same DDL runs on Lakebase through `TSVC6` | `NODE1.2` | `ACMP2.1`, `ACMP7` | Running |
 | `TSVC3` | **In-browser rendering** — Mermaid renders the generated views, Cytoscape lays out the graph panel, AG Grid draws the tables; the arrange-and-export script runs here | `NODE1.3` | `ACMP6`, `ACMP8` | Running |
-| `TSVC4` | **Warehouse SQL store** — SQL over Delta tables in one Unity Catalog schema through a SQL warehouse, the portable DDL spelt in Delta's types; a statement is a round trip and takes at most 255 parameter markers, so rows land in batches of literals; credentials from the app's service principal, a token or a profile | `NODE2` | `ACMP2.2` | **Pending — plateau `PLAT2`**: the engine exists, the warehouse has not run it |
 | `TSVC5` | **Workspace identity** — the signed-in user's e-mail, username and, with the `iam.current-user:read` scope, an access token forwarded on every request; the user's groups read from the workspace's directory with that token, or as the app's service principal | `NODE2` | `ACMP12`, `ACMP6` | **Pending — plateau `PLAT2`**: the lookup exists, the workspace has not run it |
+| `TSVC6` | **Lakebase SQL store** — SQL over one schema of a Lakebase database, the platform's Postgres, reached over the Postgres protocol with TLS; the portable DDL read as written, a statement bound with as many values as it needs, a bulk load held in one transaction; the app's service principal signs in with an OAuth token the SDK generates for the instance, good for an hour, under the Postgres role its database resource gives it (connect to the database, create in it) | `NODE2` | `ACMP2.3` | **Pending — plateau `PLAT2`**: the engine exists, an instance has not run it |
 
 ## Artifacts
 
@@ -128,7 +128,7 @@ flowchart LR
 | `ART3` | **Exchange files** — the CSV files of the contract and a source's mapping | `data/sample/`, `connectors/` | The sample is committed; institutional exports are not |
 | `ART4` | **Source repository** — the code, the packs, the connectors and this model, in git | the repository root | Apache-2.0; public |
 | `ART5` | **Bundled assets** — the Mermaid renderer, the icon set, the styles and the view-arranging script the browser runs | `assets/` | Attributed in `NOTICE` |
-| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Unity Catalog schema and the app with the warehouse it queries and the app's configuration, and the grant step that follows the first deploy | `databricks.yml`, `deploy/grants.py` | Committed; `make deploy`, `make deploy-grants` |
+| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Lakebase database instance and the app with the database resource it connects through and the app's configuration; the resource grants the app's service principal what the store needs, so nothing follows the deploy but the start | `databricks.yml` | Committed; `make deploy`, `make deploy-run` |
 
 ## Relationships
 
@@ -153,9 +153,18 @@ flowchart LR
 | `ACMP2.1` | ▭ «Application Component» DuckDB backend | `TSVC2` | ⚙ «Technology Service» Embedded SQL store | uses | |
 | `ACMP7` | ▭ «Application Component» Command line | `TSVC2` | ⚙ «Technology Service» Embedded SQL store | uses | the same file, one writer at a time |
 | `ACMP6` | ▭ «Application Component» Web application | `NODE2` | ⬒ «Node» Databricks workspace | hosted on | **Pending — plateau `PLAT2`** |
-| `NODE2` | ⬒ «Node» Databricks workspace | `TSVC4` | ⚙ «Technology Service» Warehouse SQL store | provides | **Pending — plateau `PLAT2`** |
+| `NODE2` | ⬒ «Node» Databricks workspace | `TSVC6` | ⚙ «Technology Service» Lakebase SQL store | provides | **Pending — plateau `PLAT2`** |
 | `NODE2` | ⬒ «Node» Databricks workspace | `TSVC5` | ⚙ «Technology Service» Workspace identity | provides | **Pending — plateau `PLAT2`** |
-| `ACMP2.2` | ▭ «Application Component» Databricks backend | `TSVC4` | ⚙ «Technology Service» Warehouse SQL store | uses | **Pending — plateau `PLAT2`**: the engine exists |
+| `ACMP2.3` | ▭ «Application Component» Lakebase backend | `TSVC6` | ⚙ «Technology Service» Lakebase SQL store | uses | **Pending — plateau `PLAT2`**: the engine exists |
 | `ACMP12` | ▭ «Application Component» Roles and review | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the lookup exists |
 | `ACMP6` | ▭ «Application Component» Web application | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the forwarded headers |
 | `ART6` | ▤ «Artifact» Deployment bundle | `NODE2` | ⬒ «Node» Databricks workspace | deployed as | **Pending — plateau `PLAT2`**: `make deploy` |
+
+## Retired
+
+Elements that were live and no longer are. Their IDs stay retired; nothing
+reuses them.
+
+| ID | Element | Retired in | Why |
+| -- | ------- | ---------- | --- |
+| `TSVC4` | Warehouse SQL store | [14_store-on-lakebase.md](../scope/14_store-on-lakebase.md) | SQL over Delta tables through a SQL warehouse, replaced by `TSVC6` when the store on the platform became Lakebase (decision 0013) |

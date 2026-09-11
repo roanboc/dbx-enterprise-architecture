@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Accepted 2026-09-09 (initiative 13) — adopted by the agent, for the Requester to confirm or override at the initiative's gate. **Touches:** `ACMP2`, `ACMP2.1`, `ACMP2.2`, `TSVC4`.
+**Status:** Accepted 2026-09-09 (initiative 13) — adopted by the agent, for the Requester to confirm or override at the initiative's gate; the Databricks engine it names was replaced by the Lakebase engine of [0013](./0013-lakebase-not-the-lakehouse.md), and the store written once with two engines stands. **Touches:** `ACMP2`, `ACMP2.1`, `ACMP2.2`, `TSVC4`.
 
 ## Context
 

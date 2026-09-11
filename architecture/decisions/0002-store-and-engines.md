@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Accepted, 2026-09-05. **Touches:** `ACMP2`, `ACMP3`, `DOBJ2`.
+**Status:** Accepted, 2026-09-05; the platform store superseded by [0013](./0013-lakebase-not-the-lakehouse.md) — Lakebase, not Delta. **Touches:** `ACMP2`, `ACMP3`, `DOBJ2`.
 
 ## Context
 
