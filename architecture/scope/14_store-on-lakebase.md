@@ -32,19 +32,16 @@ application, the identity lookup and the DuckDB engine are untouched.
 
 | Gate | Approved by | Date | What was approved |
 | ---- | ----------- | ---- | ----------------- |
+| Direction | the product owner (Requester) | 2026-09-11, in the session ("looks good, I approve the gates") | The restated plateau `PLAT2` and the gap `GAP16` in [1_target-state.md](../6_transition/1_target-state.md), and the step 2 row of [2_sequence.md](../6_transition/2_sequence.md): the destination and the order, not the work |
+| Understanding | the product owner (Requester) | 2026-09-11, in the session ("looks good, I approve the gates") | [1_motivation.md](../1_strategy/1_motivation.md) — the assessment `ASM8`, and the re-worded `G3` and `P4`; [1_data-objects.md](../3_information/1_data-objects.md) — the persistence section; the "no change" verdict for the business layer; and this document |
 
-No gate has been granted yet. The Requester's instruction of 2026-09-11 ("make
-this project work on Lakebase and not the lakehouse") opened the initiative in
-the session, and the work was built on the branch as initiative 13's was, so
-the Requester sees the model and the code together. Two gates are presented,
-in the session and on the pull request: **Direction**, for the restated
-plateau in [1_target-state.md](../6_transition/1_target-state.md) and
-[2_sequence.md](../6_transition/2_sequence.md), since the roadmap's own rule
-is that a plateau found wrong is restated through its own gate; and
-**Understanding**, for [1_motivation.md](../1_strategy/1_motivation.md) (one
-assessment, two rows re-worded), [1_data-objects.md](../3_information/1_data-objects.md)
-(the persistence section) and this document. Every layer document stays `◐`;
-nothing reaches `main` before the gates and the review.
+The Requester's instruction of 2026-09-11 ("make this project work on
+Lakebase and not the lakehouse") opened the initiative in the session, and the
+work was built on the branch as initiative 13's was, so the Requester saw the
+model and the code together before granting both gates. The layer documents
+stay `◐`: their status lines wait on the information architect's validation of
+each document as a whole ([1_curriculum-poc.md](./1_curriculum-poc.md)), which
+an approval of this initiative's rows does not give them.
 
 ## Plateaus
 
