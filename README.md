@@ -29,7 +29,7 @@ element identifiers it came from.
 | **Target state** — every element and relationship carries what is true today (`proposed`, `planned`, `in_implementation`, `live`, `retired`, `non_existent`) and what is intended (`undecided`, `keep`, `new`, `change`, `decommission`, `merge`) under a work package; derived from the source's lifecycle text on import; analysed per work package with a current-by-target matrix and a generated view whose shapes carry the markers, in Mermaid and draw.io | Target state page, Element page (State card, Edit tab), `ea target` |
 | **Propose** — hand in a design page (pasted text, Markdown, text or CSV files, links); a reader identifies the elements it names, links the ones that exist, adopts the new ones as proposed, and pushes back with the minimum to add when the sources are insufficient; the result is an editable merge log (include ticks, cells editable, rows added by hand, usable without any model) applied to a branch and kept with it; a downloadable Proposal Template | Propose page, `templates/proposal-template.md` |
 | **Search, bulk edit, health** — search word by word across names, identifiers, descriptions and attributes, ranked, with the matching passage shown; tick many rows and set their status, states, work package, lifecycle or an attribute in one audited pass; a Health page with freshness per source system (last load, rows stale for 30, 90 and 180 days, never-updated rows, weekly change activity) and completeness per type (descriptions, links, relationships, required attributes, decided targets), every figure a link to the rows behind it | Browse and Health pages, `ea find`, `ea set`, `ea health` |
-| **DuckDB or Databricks, the same code** — the store is written once on SQL; a DuckDB file locally, Delta tables in a Unity Catalog schema through a SQL warehouse on the platform, the same tests on both; a deployment bundle creates the schema and the app, and the role of the signed-in user comes from their workspace groups | `EA_BACKEND`, `databricks.yml`, `make deploy` |
+| **DuckDB or Lakebase, the same code** — the store is written once on SQL; a DuckDB file locally, a schema in a Lakebase database (the platform's Postgres) on Databricks, the same tests on both; a deployment bundle creates the instance and the app, and the role of the signed-in user comes from their workspace groups | `EA_BACKEND`, `databricks.yml`, `make deploy` |
 | **Roles and review before merge** — five roles enforced (Reader, Reviewer, Architect, Admin, Agent), derived from workspace groups on the platform and picked from a debug persona switcher locally (Admin by default); an architect requests a review, the reviewers assigned to each element type the branch touches approve or send it back, and only an approved branch merges (an admin may merge without a review, and the log says so) | Header persona switcher, Branches page (review panel), Metamodel page (Reviewers tab), `--as` and `ea branch review/approve/send-back`, `ea reviewers` |
 
 The first pack is an anonymised **higher-education** metamodel (59 element types, 27 active; 54
@@ -124,7 +124,7 @@ relationship, the fields that differ, and a conflict flag wherever `main`
 changed the same row since the branch took its copy. Tick what goes to `main`
 now, choose the branch's row or `main`'s for each conflict, merge; what is not
 ticked remains on the branch, which closes only when nothing remains. The same
-overlay is a `MERGE` on Delta, so nothing here is DuckDB-specific.
+overlay runs unchanged on Lakebase, so nothing here is DuckDB-specific.
 
 ## Roles, and who approves a merge
 
@@ -190,11 +190,12 @@ Metamodel page and export it.
 
 | Variable | Default | Meaning |
 | -------- | ------- | ------- |
-| `EA_BACKEND` | `duckdb` | Storage engine: `duckdb` (a file) or `databricks` (Delta tables in a Unity Catalog schema through a SQL warehouse) |
+| `EA_BACKEND` | `duckdb` | Storage engine: `duckdb` (a file) or `lakebase` (a schema in a Postgres database: the platform's Lakebase, or any Postgres) |
 | `EA_DB_PATH` | `data/ea.duckdb` | DuckDB file |
-| `DATABRICKS_WAREHOUSE_ID` | (none) | On `databricks`: the SQL warehouse the store queries (the bundle sets it from the app's warehouse resource); `DATABRICKS_HTTP_PATH` names any SQL endpoint path instead |
-| `EA_CATALOG`, `EA_SCHEMA` | (none), `ea` | On `databricks`: the Unity Catalog catalog and schema that hold the tables |
-| `DATABRICKS_HOST` and credentials | (from the SDK) | On `databricks`: the workspace and how to sign in, read the way every Databricks SDK client reads them — the app's service principal on Databricks Apps, `DATABRICKS_TOKEN` or a profile on a workstation |
+| `EA_LAKEBASE_INSTANCE` | (none) | On `lakebase`: the Lakebase instance to sign in to through the Databricks SDK — its host looked up, an OAuth token generated as the password, the app's service principal (`DATABRICKS_CLIENT_ID`) or the SDK's own identity as the user; the bundle sets it from the instance it creates |
+| `EA_POSTGRES_DSN`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE` | (none; `databricks_postgres` and `require` with an instance) | On `lakebase`: any Postgres instead, or the host and user the platform names, as libpq reads them |
+| `EA_SCHEMA` | `ea` | On `lakebase`: the schema that holds the tables, created on the first start |
+| `DATABRICKS_HOST` and credentials | (from the SDK) | With an instance named, and for the workspace groups: the workspace and how to sign in, read the way every Databricks SDK client reads them — the app's service principal on Databricks Apps, `DATABRICKS_TOKEN` or a profile on a workstation |
 | `EA_PACK` | `packs/higher_education/metamodel.yaml` | Pack loaded by `ea init` and offered by "Reload from file" |
 | `EA_AUTH` | `mock` | `mock` persona locally; `databricks` reads the identity headers Databricks Apps adds |
 | `EA_AGENT_PROVIDER` | `auto` | `anthropic` when a key is present, else `stub` |
@@ -208,36 +209,42 @@ Metamodel page and export it.
 
 ## Running on Databricks
 
-The same application runs as a Databricks App over Delta tables in a Unity
-Catalog schema, reached through a SQL warehouse. The store is written once on
-SQL (`src/ea/backend/sql_backend.py`); the Databricks engine
-(`src/ea/backend/databricks_backend.py`) adds the dialect — `STRING` for
-`VARCHAR`, bulk loads as `MERGE` batches, a session reopened once, the trace
-done in process where the warehouse has no recursive queries — and nothing
-else. The unit suite runs every test on both engines, the Databricks one over a
-warehouse played by DuckDB, so the SQL the platform receives is proved on every
-change; `make test-live` runs it a third time on a real warehouse, in a schema
-of its own.
+The same application runs as a Databricks App over a schema in a Lakebase
+database, the platform's Postgres. The store is written once on SQL
+(`src/ea/backend/sql_backend.py`); the Lakebase engine
+(`src/ea/backend/lakebase_backend.py`) adds the connection and the statements
+— the driver's markers, bulk loads as bound multi-row inserts, a replace in
+one transaction, a reader's query run read-only on the server, the schema
+entered on every connection, a connection the platform closed reopened once
+with a fresh token — and nothing else. The unit suite runs every test on both
+engines, the Lakebase one on a real Postgres: one the run starts for itself
+where `initdb` and `pg_ctl` are installed, or the server `EA_TEST_POSTGRES`
+names (CI runs a service container); a workstation with neither runs the
+store tests on DuckDB alone and is told so. `make test-live` runs the suite a
+third time on a Lakebase instance, in a schema of its own.
 
-The deployment bundle, [`databricks.yml`](./databricks.yml), creates the schema
-and the app with the warehouse it queries, and owns the app's configuration
-(`uv run --frozen --no-dev --extra databricks python app.py`, which binds
-`0.0.0.0:$DATABRICKS_APP_PORT` under gunicorn with a graceful timeout under
-the platform's 15-second SIGTERM budget). The app's service principal exists
-only once the app does, so the grants it needs on the schema come between the
-first deploy and the first run, from whoever manages the catalog:
+The deployment bundle, [`databricks.yml`](./databricks.yml), creates the
+Lakebase instance and the app with a database resource on it, and owns the
+app's configuration (`uv run --frozen --no-dev --extra databricks python
+app.py`, which binds `0.0.0.0:$DATABRICKS_APP_PORT` under gunicorn with a
+graceful timeout under the platform's 15-second SIGTERM budget). The database
+resource gives the app's service principal a Postgres role that connects to
+the database and creates in it, which is all the store needs — it creates its
+schema on the first start — so nothing follows the deploy but the start:
 
 ```bash
-export BUNDLE_VAR_warehouse_id=<the SQL warehouse's id>
-make deploy                      # validate and deploy the dev target: the schema and the app, not yet running (TARGET=prod for prod)
-EA_CATALOG=ea_dev DATABRICKS_WAREHOUSE_ID=<id> make deploy-grants   # once: the app's principal on the schema
-make deploy-run                  # start the app
+make deploy       # validate and deploy the dev target: the instance and the app, not yet running (TARGET=prod for prod)
+make deploy-run   # start the app
 ```
 
-The dev target deploys in development mode, which prefixes the schema and the
-app with the deployer's name; `databricks bundle summary -t dev` prints them,
-and `make deploy-grants GRANT_ARGS="--schema <name> --app <name>"` grants on
-those.
+The dev target deploys in development mode, which prefixes what it creates
+with the deployer's name; the app's environment names the instance by its
+deployed resource, so it follows. On the platform the engine looks the
+instance's host up through the SDK and signs in as the app's service principal
+with an OAuth token it generates for the instance (`EA_LAKEBASE_INSTANCE`).
+From a workstation the same engine signs in as whoever the SDK signs in as,
+who needs a Postgres role on the instance from its owner, or reaches any
+Postgres through the standard `PG*` variables or `EA_POSTGRES_DSN`.
 
 On the platform the signed-in user arrives as forwarded headers; their
 workspace groups are read once and kept for five minutes (with the user's own
@@ -245,8 +252,8 @@ token when the app is granted the `iam.current-user:read` scope, otherwise as
 the app's service principal), and `EA_ROLE_GROUPS` turns the groups into a
 role. A groups header in the request is never believed unless
 `EA_TRUST_GROUPS_HEADER=1` says a proxy of your own sets it: behind Databricks
-Apps a client could send one and pick its own role. Running the same tests against a dev catalog is what reaches plateau
-`PLAT2` on the roadmap
+Apps a client could send one and pick its own role. Running the same tests
+against a Lakebase instance is what reaches plateau `PLAT2` on the roadmap
 ([`architecture/6_transition/`](./architecture/6_transition/README.md)).
 
 ## The model of this project
@@ -268,8 +275,8 @@ says what was derived from them.
 ```bash
 make check      # ruff, pytest, the two archreator validators — CI runs the same
 make lint
-make test       # every store test runs twice: on DuckDB, and on the Databricks engine over a warehouse played by DuckDB
-make test-live  # and a third time on a real SQL warehouse (DATABRICKS_HOST, credentials, DATABRICKS_WAREHOUSE_ID, EA_CATALOG)
+make test       # every store test runs twice: on DuckDB, and on the Lakebase engine over a Postgres started for the run (or the one EA_TEST_POSTGRES names)
+make test-live  # and a third time on a Lakebase instance (EA_LAKEBASE_INSTANCE, DATABRICKS_HOST and the SDK's credentials)
 ```
 
 ### The application test round
@@ -298,7 +305,7 @@ plugin's scaffold scripts, copied so CI runs them without the plugin.
 
 Layering: `models → metamodel → backend → services → importer / agent → ui`.
 SQL only in `backend/`, where the store is written once (`sql_backend.py`) and
-an engine (`duckdb_backend.py`, `databricks_backend.py`) adds only how it
+an engine (`duckdb_backend.py`, `lakebase_backend.py`) adds only how it
 connects, runs a statement and lands rows; framework and institution names
 only in `packs/` and `connectors/`; the UI holds no logic the CLI does not
 also have.

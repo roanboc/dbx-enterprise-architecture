@@ -3,9 +3,9 @@
 One schema, two engines (decision 0002). Everything the repository asks of a
 SQL store — the overlay a branch lays over `main`, the optimistic concurrency,
 the change log, the diff and the merge — is written here against the portable
-DDL of `sql.py`. An engine (`duckdb_backend.py`, `databricks_backend.py`) adds
-only what differs: how to connect, how to run a statement, how to land many
-rows at once, and how to spell a type.
+DDL of `sql.py`. An engine (`duckdb_backend.py`, `lakebase_backend.py`) adds
+only what differs: how to connect, how to run a statement and how to land many
+rows at once.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from ea.backend.branching import MAIN, current_branch, validate_branch_id
 from ea.backend.sql import (
     DDL,
     ELEMENT_COLUMNS,
+    MIGRATIONS,
     RELATIONSHIP_COLUMNS,
     TRACE_IN_SQL,
     TRACE_OUT_SQL,
@@ -92,8 +93,6 @@ class SqlBackend(DatabaseBackend):
 
     #: how many identifiers one `IN (...)` list may carry (a parameter marker each)
     IN_CHUNK = 500
-    #: the engine's spelling of the DDL's VARCHAR, for the casts inside the trace query
-    STRING_TYPE = "VARCHAR"
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -121,12 +120,13 @@ class SqlBackend(DatabaseBackend):
 
     def _bind(self, values: list[Any]) -> tuple[list[str], list[Any]]:
         """Values the reader chose (search words, type filters) as SQL: markers and parameters here;
-        an engine with a marker budget renders them as literals instead."""
+        an engine with a marker budget would render them as literals instead."""
         return ["?" for _ in values], list(values)
 
     def _add_missing_columns(self) -> None:
         """Bring a store created by an earlier version up to the DDL (the MIGRATIONS list)."""
-        raise NotImplementedError
+        for table, column, dtype in MIGRATIONS:
+            self._execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}")
 
     def close(self) -> None:
         raise NotImplementedError
@@ -1084,44 +1084,11 @@ class SqlBackend(DatabaseBackend):
     # -------------------------------------------------------------- graph
     def _trace_sql(self, direction: str) -> str:
         template = TRACE_OUT_SQL if direction == "out" else TRACE_IN_SQL
-        return template.replace("{rel}", self._rel()).replace("{string}", self.STRING_TYPE)
+        return template.replace("{rel}", self._rel())
 
     def _trace_frame(self, element_id: str, direction: str, max_depth: int) -> pd.DataFrame:
         """The reachable nodes with depth, node path and relationship-type path, as the engine computes them."""
         return self._fetch_df(self._trace_sql(direction), [element_id, element_id, element_id, max_depth])
-
-    def _trace_in_process(self, element_id: str, direction: str, max_depth: int) -> pd.DataFrame:
-        """The same walk as the recursive query, done here over the edges of the current branch.
-
-        Breadth first, so the first arrival at a node is at its least depth; neighbours are taken
-        in identifier order so the path recorded for a tie is the same on every run.
-        """
-        adjacent: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for row in self.edges_frame().itertuples(index=False):
-            if direction == "out":
-                adjacent[row.src_id].append((row.dst_id, row.rel_type_id))
-            else:
-                adjacent[row.dst_id].append((row.src_id, row.rel_type_id))
-        sep = ">" if direction == "out" else "<"
-        seen = {element_id}
-        frontier: list[tuple[str, str, str]] = [(element_id, element_id, "")]
-        out: list[tuple[str, int, str, str]] = []
-        depth = 0
-        while frontier and depth < max_depth:
-            depth += 1
-            next_frontier: list[tuple[str, str, str]] = []
-            for node, path, rel_path in frontier:
-                for neighbour, rel_type in sorted(adjacent.get(node, [])):
-                    if neighbour in seen:
-                        continue
-                    seen.add(neighbour)
-                    new_path = f"{path}{sep}{neighbour}"
-                    new_rel_path = rel_type if not rel_path else f"{rel_path}{sep}{rel_type}"
-                    out.append((neighbour, depth, new_path, new_rel_path))
-                    next_frontier.append((neighbour, new_path, new_rel_path))
-            frontier = next_frontier
-        out.sort(key=lambda r: (r[1], r[0]))
-        return pd.DataFrame(out, columns=["node_id", "depth", "path", "rel_path"])
 
     def trace(self, element_id: str, direction: str = "out", max_depth: int = 5) -> list[dict[str, Any]]:
         df = self._trace_frame(element_id, direction, max_depth)

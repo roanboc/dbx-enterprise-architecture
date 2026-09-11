@@ -120,15 +120,17 @@ flowchart LR
 ## Persistence
 
 One schema, two engines (principle `P4`). The DDL in `src/ea/backend/sql.py`
-uses only types both engines share (an engine spells them in its own dialect);
-JSON is stored as text. Locally the schema lives in one DuckDB file
-(`data/ea.duckdb`). On Databricks the same tables are Delta tables in one Unity
-Catalog schema (`EA_CATALOG.EA_SCHEMA`), created by the deployment bundle and
-reached through a SQL warehouse, where Unity Catalog's own lineage, comments
-and grants apply and where the business glossary is published (adopted: the
-platform's own catalogue publishes the glossary). The store is written once on
-SQL (`src/ea/backend/sql_backend.py`); an engine adds only how it connects,
-runs a statement and lands rows (decision 0011).
+uses four types both engines read as written; JSON is stored as text. Locally
+the schema lives in one DuckDB file (`data/ea.duckdb`). On Databricks the same
+tables live in one schema (`EA_SCHEMA`) of a Lakebase database — the
+platform's Postgres, reached over the Postgres protocol with the app's own
+identity — in an instance the deployment bundle creates (decision 0013). The
+lakehouse reads that database through Unity Catalog once it is registered
+there as a catalog, which is where the typed projection and the business
+glossary of plateau `PLAT5` are published (adopted: the platform's own
+catalogue publishes the glossary). The store is written once on SQL
+(`src/ea/backend/sql_backend.py`); an engine adds only how it connects, runs a
+statement and lands rows (decision 0011).
 
 Traversals (`neighbours`, `trace`, `impact`) are recursive queries over
 `relationship` with a cycle guard, plus an in-process cache of the graph for

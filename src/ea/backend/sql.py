@@ -1,9 +1,8 @@
-"""Portable DDL. One schema, two engines: DuckDB locally, Delta on Databricks.
+"""Portable DDL. One schema, two engines: DuckDB locally, Lakebase (Postgres) on Databricks.
 
-Types are kept to the intersection both understand (a backend spells them in
-its own dialect: `VARCHAR` is `STRING` on Databricks). JSON is stored as text
-and parsed in Python, which keeps the DDL identical and the rows readable from
-any SQL client.
+Types are kept to the four both engines read as written (`VARCHAR`, `INTEGER`,
+`BOOLEAN`, `TIMESTAMP`). JSON is stored as text and parsed in Python, which
+keeps the DDL identical and the rows readable from any SQL client.
 """
 
 import re
@@ -20,10 +19,9 @@ BRANCH_TABLES = [
     "reviewer_assignment",
 ]
 
-# Columns added after a table first shipped. A backend applies them to an existing
-# store on start-up (ADD COLUMN IF NOT EXISTS on DuckDB, DESCRIBE then ADD COLUMNS
-# on Databricks), so an older store keeps working. New columns go at the end
-# because the inserts are positional.
+# Columns added after a table first shipped. The store applies them to an existing
+# one on start-up (ADD COLUMN IF NOT EXISTS, which both engines read), so an older
+# store keeps working. New columns go at the end because the inserts are positional.
 MIGRATIONS: list[tuple[str, str, str]] = [
     ("meta_domain", "notation", "VARCHAR"),
     ("meta_element_type", "notation", "VARCHAR"),
@@ -322,36 +320,46 @@ RELATIONSHIP_COLUMNS = [
 ]
 STATE_COLUMNS = ["current_state", "target_state", "target_work_package", "target_note"]
 
-# Recursive traversal over the relationship table. Parameters: start id, max depth.
-# `{rel}` is the relationship source of the current branch and `{string}` the
-# engine's string type; both are substituted by the backend. out = follow
-# src->dst, in = dst->src. INSTR, MIN_BY and || read the same on both engines.
+# Recursive traversal over the relationship table. Parameters: start id (three
+# times: the start, the first node, the first path), then max depth. `{rel}` is
+# the relationship source of the current branch, substituted by the backend.
+# out = follow src->dst, in = dst->src. Every string column is cast in both
+# terms of the recursion because Postgres holds the recursive term to the types
+# of the first one (a concatenation is text there, a column varchar); the
+# shortest path per node is the first row of a window rather than MIN_BY, which
+# Postgres does not have; POSITION reads the same on both engines.
 TRACE_OUT_SQL = """
 WITH RECURSIVE walk(start_id, node_id, depth, path, rel_path) AS (
-    SELECT ?, ?, 0, CAST(? AS {string}), CAST('' AS {string})
+    SELECT CAST(? AS VARCHAR), CAST(? AS VARCHAR), 0, CAST(? AS VARCHAR), CAST('' AS VARCHAR)
     UNION ALL
-    SELECT w.start_id, r.dst_id, w.depth + 1,
-           w.path || '>' || r.dst_id,
-           CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '>' || r.rel_type_id END
+    SELECT w.start_id, CAST(r.dst_id AS VARCHAR), w.depth + 1,
+           CAST(w.path || '>' || r.dst_id AS VARCHAR),
+           CAST(CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '>' || r.rel_type_id END AS VARCHAR)
     FROM walk w JOIN {rel} r ON r.src_id = w.node_id
-    WHERE w.depth < ? AND r.status <> 'retired' AND INSTR('>' || w.path || '>', '>' || r.dst_id || '>') = 0
+    WHERE w.depth < ? AND r.status <> 'retired' AND POSITION('>' || r.dst_id || '>' IN '>' || w.path || '>') = 0
 )
-SELECT node_id, MIN(depth) AS depth, MIN_BY(path, depth) AS path, MIN_BY(rel_path, depth) AS rel_path
-FROM walk WHERE depth > 0 GROUP BY node_id ORDER BY depth, node_id
+SELECT node_id, depth, path, rel_path FROM (
+    SELECT node_id, depth, path, rel_path,
+           ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth, path) AS nearest
+    FROM walk WHERE depth > 0
+) AS reached WHERE nearest = 1 ORDER BY depth, node_id
 """
 
 TRACE_IN_SQL = """
 WITH RECURSIVE walk(start_id, node_id, depth, path, rel_path) AS (
-    SELECT ?, ?, 0, CAST(? AS {string}), CAST('' AS {string})
+    SELECT CAST(? AS VARCHAR), CAST(? AS VARCHAR), 0, CAST(? AS VARCHAR), CAST('' AS VARCHAR)
     UNION ALL
-    SELECT w.start_id, r.src_id, w.depth + 1,
-           w.path || '<' || r.src_id,
-           CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '<' || r.rel_type_id END
+    SELECT w.start_id, CAST(r.src_id AS VARCHAR), w.depth + 1,
+           CAST(w.path || '<' || r.src_id AS VARCHAR),
+           CAST(CASE WHEN w.rel_path = '' THEN r.rel_type_id ELSE w.rel_path || '<' || r.rel_type_id END AS VARCHAR)
     FROM walk w JOIN {rel} r ON r.dst_id = w.node_id
-    WHERE w.depth < ? AND r.status <> 'retired' AND INSTR('<' || w.path || '<', '<' || r.src_id || '<') = 0
+    WHERE w.depth < ? AND r.status <> 'retired' AND POSITION('<' || r.src_id || '<' IN '<' || w.path || '<') = 0
 )
-SELECT node_id, MIN(depth) AS depth, MIN_BY(path, depth) AS path, MIN_BY(rel_path, depth) AS rel_path
-FROM walk WHERE depth > 0 GROUP BY node_id ORDER BY depth, node_id
+SELECT node_id, depth, path, rel_path FROM (
+    SELECT node_id, depth, path, rel_path,
+           ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth, path) AS nearest
+    FROM walk WHERE depth > 0
+) AS reached WHERE nearest = 1 ORDER BY depth, node_id
 """
 
 _COLUMN_RE = re.compile(r"^\s*(\w+)\s+(VARCHAR|INTEGER|BOOLEAN|TIMESTAMP)\b", re.MULTILINE)

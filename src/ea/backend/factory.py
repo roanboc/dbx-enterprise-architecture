@@ -9,8 +9,8 @@ def backend_from_settings(settings: Settings) -> DatabaseBackend:
         from ea.backend.duckdb_backend import DuckDBBackend
 
         return DuckDBBackend(settings.db_path)
-    if settings.backend == "databricks":
-        from ea.backend.databricks_backend import DatabricksBackend
+    if settings.backend == "lakebase":
+        from ea.backend.lakebase_backend import LakebaseBackend
 
-        return DatabricksBackend.from_settings(settings)
+        return LakebaseBackend.from_settings(settings)
     raise ValueError(f"unknown backend {settings.backend!r}")

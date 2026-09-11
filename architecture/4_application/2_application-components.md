@@ -3,7 +3,7 @@
 _[← Application layer](./README.md) · [EA home](../README.md)_
 
 **Status: `◐` draft catalogue** — the components as they exist in the code on
-2026-09-09. A row marked **Pending** names the initiative that will build it.
+2026-09-11. A row marked **Pending** names the initiative that will build it.
 Validated at the **Understanding** gate.
 
 ## How to read this document
@@ -87,9 +87,9 @@ flowchart TB
 | ID | Component | Code | Realizes | State |
 | -- | --------- | ---- | -------- | ----- |
 | `ACMP1` | **Metamodel registry** — loads a pack, validates references and supertype cycles, resolves type and relationship names, computes inherited attributes and allowed pairs, validates elements and relationships, summarises the metamodel for the agent | `src/ea/metamodel/loader.py`, `src/ea/metamodel/registry.py`, `src/ea/models.py` | `ASVC1` | Running |
-| `ACMP2` | **Graph store** — the storage interface and its one implementation on SQL: schema, packs, elements, links, relationships, traces, history, read-only SQL; optimistic concurrency on `_version`, a change log on every write (with the branch), upserts that skip rows that change nothing, the branch overlay as `UNION` views over `main` minus the overridden rows (`src/ea/backend/branching.py` names the branch), the diff, the merge and the proposals; an engine adds only how it connects, runs a statement, lands rows and spells a type (decision 0011) | `src/ea/backend/base.py`, `src/ea/backend/sql_backend.py`, `src/ea/backend/sql.py` (portable DDL and recursive trace queries), `src/ea/backend/factory.py` | `ASVC2`, `ASVC4` | Running |
-| `ACMP2.1` | **DuckDB backend** — the engine on one DuckDB file: one connection under a lock (the file is single-writer), frames registered as tables for the bulk loads, `ADD COLUMN IF NOT EXISTS` for a file created by an earlier version | `src/ea/backend/duckdb_backend.py` | `ASVC2`, `ASVC4` | Running |
-| `ACMP2.2` | **Databricks backend** — the engine on Delta tables in a Unity Catalog schema through a SQL warehouse: the DDL spelt in Delta's types, bulk loads as `MERGE` batches written as literals (the connector allows 255 parameter markers a statement), columns added after `DESCRIBE`, credentials from the environment as every SDK client finds them, a session reopened once, the trace done in process where the warehouse has no recursive queries | `src/ea/backend/databricks_backend.py`; the dialect proved on a warehouse played by DuckDB (`tests/fake_warehouse.py`) in every test run, and on a warehouse by `make test-live` | `ASVC2`, `ASVC4` | Built — initiative 13; not yet run on a workspace (plateau `PLAT2`) |
+| `ACMP2` | **Graph store** — the storage interface and its one implementation on SQL: schema, packs, elements, links, relationships, traces, history, read-only SQL; optimistic concurrency on `_version`, a change log on every write (with the branch), upserts that skip rows that change nothing, the branch overlay as `UNION` views over `main` minus the overridden rows (`src/ea/backend/branching.py` names the branch), the diff, the merge and the proposals; an engine adds only how it connects, runs a statement and lands rows (decision 0011) | `src/ea/backend/base.py`, `src/ea/backend/sql_backend.py`, `src/ea/backend/sql.py` (portable DDL and recursive trace queries), `src/ea/backend/factory.py` | `ASVC2`, `ASVC4` | Running |
+| `ACMP2.1` | **DuckDB backend** — the engine on one DuckDB file: one connection under a lock (the file is single-writer), frames registered as tables for the bulk loads | `src/ea/backend/duckdb_backend.py` | `ASVC2`, `ASVC4` | Running |
+| `ACMP2.3` | **Lakebase backend** — the engine on Lakebase, the platform's Postgres database, and on any Postgres: the DDL read as written, the markers rewritten for the driver, bulk loads as bound multi-row inserts and a replace as a delete and an insert in one transaction, a reader's own query in a read-only transaction, the schema created and entered on every connection; on the platform the instance's host looked up and an OAuth token generated through the SDK for the app's identity, and a connection the platform closed reopened once with a fresh token | `src/ea/backend/lakebase_backend.py`; proved on a Postgres the test run starts for itself (`tests/postgres_server.py`) in every test run, and on a Lakebase instance by `make test-live` | `ASVC2`, `ASVC4` | Built — initiative 14; not yet run on a workspace (plateau `PLAT2`) |
 | `ACMP3` | **Repository and graph services** — element and relationship operations with validation (states and work package included) and identifier minting; a cached in-process graph per branch for neighbours, traces, impact and completeness; Cytoscape-ready subgraphs; the target-state service (work packages from the pack's notation, counts, matrix, view scope) | `src/ea/services/repository.py`, `src/ea/services/graph.py`, `src/ea/services/target.py` | `ASVC2`, `ASVC4`, `ASVC8` | Running |
 | `ACMP4` | **Importer** — reads a directory of CSV files through a mapping, builds elements, relationships and links, validates against the registry, reports, loads idempotently into the current branch; derives the current state from the source's lifecycle text (mapping table, then keywords) | `src/ea/importer/csv_import.py`, `src/ea/importer/mapping.py`, `connectors/tool-export/mapping.yaml` | `ASVC3` | Running |
 | `ACMP5` | **Agent** — a tool-calling loop with a provider interface: a hosted-model provider when a key is present, a stub provider that runs the tools without a model otherwise; grounding check of every identifier in the answer | `src/ea/agent/agent.py`, `src/ea/agent/tools.py` | `ASVC5` | Running (stub locally; the hosted provider needs a key, see the scope document) |
@@ -107,13 +107,13 @@ flowchart TB
 flowchart LR
   store["⊞ Graph store [ACMP2]"]:::application
   duck["⊞ DuckDB backend [ACMP2.1]"]:::application
-  dbx["⊞ Databricks backend [ACMP2.2]"]:::application
+  lake["⊞ Lakebase backend [ACMP2.3]"]:::application
   file[("⎔ Repository file [ART1]")]:::technology
   node["⬒ Databricks workspace [NODE2]"]:::technology
   store -->|realized by| duck
-  store -->|realized by| dbx
+  store -->|realized by| lake
   duck -->|holds| file
-  dbx -.->|runs on, pending| node
+  lake -.->|runs on, pending| node
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
@@ -133,7 +133,7 @@ flowchart LR
 | `ACMP4` | ▭ «Application Component» Importer | `ACMP1` | ▭ «Application Component» Metamodel registry | uses | validation report |
 | `ACMP3` | ▭ «Application Component» Repository and graph services | `ACMP2` | ▭ «Application Component» Graph store | uses | through the interface only |
 | `ACMP2` | ▭ «Application Component» Graph store | `ACMP2.1` | ▭ «Application Component» DuckDB backend | realized by | |
-| `ACMP2` | ▭ «Application Component» Graph store | `ACMP2.2` | ▭ «Application Component» Databricks backend | realized by | built by initiative 13 |
+| `ACMP2` | ▭ «Application Component» Graph store | `ACMP2.3` | ▭ «Application Component» Lakebase backend | realized by | built by initiative 14 |
 | `ACMP6` | ▭ «Application Component» Web application | `ACMP8` | ▭ «Application Component» View generator | uses | Mermaid rendered in the browser from a bundled library |
 | `ACMP5` | ▭ «Application Component» Agent | `ACMP8` | ▭ «Application Component» View generator | uses | the answer document embeds views; `propose_view` tool |
 | `ACMP8` | ▭ «Application Component» View generator | `ACMP3` | ▭ «Application Component» Repository and graph services | uses | neighbourhood, impact, edges among a set |
@@ -149,7 +149,16 @@ flowchart LR
 | `ACMP11` | ▭ «Application Component» Health and search services | `ACMP3` | ▭ «Application Component» Repository and graph services | uses | |
 | `ACMP12` | ▭ «Application Component» Roles and review | `ACMP9` | ▭ «Application Component» Branch overlay and merge | uses | a review decides a branch; the merge asks the review |
 | `ACMP2.1` | ▭ «Application Component» DuckDB backend | `ART1` | ▤ «Artifact» Repository file | holds | |
-| `ACMP2.2` | ▭ «Application Component» Databricks backend | `NODE2` | ⬒ «Node» Databricks workspace | runs on | **Pending — plateau `PLAT2`** |
+| `ACMP2.3` | ▭ «Application Component» Lakebase backend | `NODE2` | ⬒ «Node» Databricks workspace | runs on | **Pending — plateau `PLAT2`** |
+
+## Retired
+
+Elements that were live and no longer are. Their IDs stay retired; nothing
+reuses them.
+
+| ID | Element | Retired in | Why |
+| -- | ------- | ---------- | --- |
+| `ACMP2.2` | Databricks backend | [14_store-on-lakebase.md](../scope/14_store-on-lakebase.md) | The engine on Delta tables through a SQL warehouse, replaced by `ACMP2.3` when the store on the platform became Lakebase (decision 0013) |
 
 ## How to add
 
@@ -159,10 +168,10 @@ flowchart LR
   the importer needs no change unless the format is not tabular.
 - **A new storage engine**: subclass `SqlBackend` in `src/ea/backend/` with
   the engine's hooks (`_execute`, `_fetch_all`, `_fetch_df`, `_insert_rows`,
-  `_replace_rows`, `_add_missing_columns`, `close`, and `_create_table` or
-  `_bind` where the dialect differs) and register it in `factory.py`; the DDL
-  in `sql.py` is the contract, and the unit suite runs on the engine through
-  the `backend` fixture in `tests/conftest.py`.
+  `_replace_rows`, `close`, and `_create_table`, `_bind` or
+  `_add_missing_columns` where the dialect differs) and register it in
+  `factory.py`; the DDL in `sql.py` is the contract, and the unit suite runs
+  on the engine through the `backend` fixture in `tests/conftest.py`.
 - **A new agent provider**: implement the provider protocol in
   `src/ea/agent/agent.py`; the tools stay the same.
 - **A new diagram format**: add a renderer over `View` in `src/ea/views/`;

@@ -1,7 +1,9 @@
 # Everything `make check` runs, on every change.
 #
 # The two archreator validators need nothing but Python; the code checks need
-# the project's locked environment, installed with uv.
+# the project's locked environment, installed with uv, and a Postgres for the
+# Lakebase engine's half of the store tests — a service container here, where
+# a workstation starts one of its own (tests/postgres_server.py).
 
 name: Checks
 
@@ -24,6 +26,22 @@ jobs:
   code:
     name: Lint and tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ea
+          POSTGRES_PASSWORD: ea
+          POSTGRES_DB: ea
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EA_TEST_POSTGRES: postgresql://ea:ea@localhost:5432/ea
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

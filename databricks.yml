@@ -1,28 +1,34 @@
 # The deployment bundle: the same application as a Databricks App, its store a
-# Unity Catalog schema of Delta tables reached through a SQL warehouse.
+# schema in a Lakebase database (Postgres) this bundle creates.
 #
-#   export BUNDLE_VAR_warehouse_id=<the warehouse's id>
-#   make deploy          # validate and deploy: the schema and the app, not yet running
-#   make deploy-grants   # once: the app's service principal on the schema (its principal exists now)
+#   make deploy          # validate and deploy: the database instance and the app, not yet running
 #   make deploy-run      # start the app
 #
 # What the platform injects at run time (DATABRICKS_HOST, the app's service
 # principal, DATABRICKS_APP_PORT) is never set here; what the bundle owns is
 # set from its resources, so the app follows the names the target deploys —
-# development mode prefixes the schema and the app with the deployer's name,
-# and `databricks bundle summary -t dev` prints them for the grant step.
+# development mode prefixes what it creates with the deployer's name, and
+# `databricks bundle summary -t dev` prints them. The app's database resource
+# gives its service principal a Postgres role that may connect to the database
+# and create in it, which is all the store needs: it creates its schema on the
+# first start. The engine looks the instance's host up through the SDK and
+# signs in with a token it generates, so no host, user or password is set.
 bundle:
   name: ea-repository
 
 variables:
-  catalog:
-    description: The Unity Catalog catalog that holds the repository's schema.
-    default: ea_dev
+  instance:
+    description: The Lakebase database instance that holds the store; this bundle creates it.
+    default: ea-repository
+  capacity:
+    description: The instance's compute size (CU_1, CU_2, CU_4, CU_8); the smallest holds the whole model.
+    default: CU_1
+  database:
+    description: The Postgres database inside the instance; every instance is created with this one.
+    default: databricks_postgres
   schema:
-    description: The schema the store's tables live in.
+    description: The schema the store's tables live in; the app creates it on its first start.
     default: ea
-  warehouse_id:
-    description: The SQL warehouse the app queries; its service principal is granted CAN USE on it.
   role_groups:
     description: Which workspace groups grant which role (decision 0008); nobody listed is a Reader.
     default: "admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers"
@@ -31,11 +37,10 @@ variables:
     default: auto
 
 resources:
-  schemas:
+  database_instances:
     ea:
-      catalog_name: ${var.catalog}
-      name: ${var.schema}
-      comment: "EA Repository: the metamodel, the architecture graph, the branches, the reviews and the change log. One portable DDL (src/ea/backend/sql.py)."
+      name: ${var.instance}
+      capacity: ${var.capacity}
 
   apps:
     ea_repository:
@@ -49,7 +54,8 @@ resources:
       config:
         # uv-based apps get no pre-installed libraries: every dependency comes from
         # pyproject.toml + uv.lock. --frozen uses the lock verbatim, --no-dev leaves
-        # pytest and ruff out, --extra databricks adds the warehouse connector and the SDK.
+        # pytest and ruff out, --extra databricks adds the SDK that signs the app in
+        # to its instance and reads the workspace groups.
         command:
           - uv
           - run
@@ -61,13 +67,13 @@ resources:
           - app.py
         env:
           - name: EA_BACKEND
-            value: databricks
-          - name: EA_CATALOG
-            value: ${resources.schemas.ea.catalog_name}
+            value: lakebase
+          - name: EA_LAKEBASE_INSTANCE
+            value: ${resources.database_instances.ea.name}
+          - name: PGDATABASE
+            value: ${var.database}
           - name: EA_SCHEMA
-            value: ${resources.schemas.ea.name}
-          - name: DATABRICKS_WAREHOUSE_ID
-            valueFrom: sql-warehouse
+            value: ${var.schema}
           - name: EA_PACK
             value: packs/higher_education/metamodel.yaml
           - name: EA_AUTH
@@ -77,10 +83,11 @@ resources:
           - name: EA_AGENT_PROVIDER
             value: ${var.agent_provider}
       resources:
-        - name: sql-warehouse
-          sql_warehouse:
-            id: ${var.warehouse_id}
-            permission: CAN_USE
+        - name: database
+          database:
+            instance_name: ${resources.database_instances.ea.name}
+            database_name: ${var.database}
+            permission: CAN_CONNECT_AND_CREATE
 
 targets:
   dev:
@@ -89,6 +96,6 @@ targets:
   prod:
     mode: production
     variables:
-      catalog: ea_prod
+      instance: ea-repository-prod
     workspace:
       root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

@@ -100,7 +100,7 @@ is a stated fact — `Out of scope`, `External`, or a named `Gap` — not a sile
 | 2 | Business | Who does what, and which services are offered? | `Local` — [2_business/](./2_business/README.md): the actors and the five roles the application enforces, the three business services and the processes that deliver them (the governed change process among them); `◐` |
 | 3 | Information | What information exists, and where does it live? | `Local` — [3_information/](./3_information/README.md): the metamodel, the architecture graph, the exchange files and the audit trail; `◐` |
 | 4 | Application | Which software realizes each business service? | `Local` — [4_application/](./4_application/README.md): services and components, every component pointing at its module; `◐` |
-| 5 | Technology | What runs it all — runtimes, build, hosting? | `Local` — [5_technology/](./5_technology/README.md): one Python process, the embedded DuckDB engine, the browser, the artifacts; the Databricks workspace with its store engine and deployment bundle built, drawn dashed until a workspace runs it (plateau `PLAT2`); `◐` |
+| 5 | Technology | What runs it all — runtimes, build, hosting? | `Local` — [5_technology/](./5_technology/README.md): one Python process, the embedded DuckDB engine, the browser, the artifacts; the Databricks workspace with its Lakebase store engine and deployment bundle built, drawn dashed until a workspace runs it (plateau `PLAT2`); `◐` |
 | — | Transition | Where is this going, and in what order? | `Local` — [6_transition/](./6_transition/README.md): six plateaus from the local PoC to the current EA tool retired |
 
 ## How deeply this project models itself
