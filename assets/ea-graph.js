@@ -38,10 +38,14 @@
   };
 
   document.addEventListener('fullscreenchange', function () {
-    // the panel changes size on the way in and on the way out
-    setTimeout(function () {
-      instances().forEach(function (cy) { cy.resize(); cy.fit(undefined, 30); });
-    }, 120);
+    // the panel changes size on the way in and on the way out; wait two frames so the
+    // browser has actually applied the layout (fullscreen exit can lag a fixed timeout,
+    // which left Cytoscape resizing to a stale, larger box and spilling past the frame)
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        instances().forEach(function (cy) { cy.resize(); cy.fit(undefined, 30); });
+      });
+    });
   });
 
   function instances() {

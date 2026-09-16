@@ -335,9 +335,13 @@
   };
 
   document.addEventListener('fullscreenchange', function () {
-    // the viewport changes size on the way in and on the way out
-    Object.keys(viewports).forEach(function (id) {
-      setTimeout(function () { fitView(viewports[id]); }, 120);
+    // the viewport changes size on the way in and on the way out; two frames so the
+    // browser has applied the new layout before we measure it (a fixed timeout could
+    // fire before fullscreen exit finished, leaving the diagram sized for the old box)
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        Object.keys(viewports).forEach(function (id) { fitView(viewports[id]); });
+      });
     });
   });
 

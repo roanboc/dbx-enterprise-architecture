@@ -229,10 +229,18 @@ def _node_fill(n: dict[str, Any], registry: Registry) -> str:
     )
 
 
+# concentric and circle lay out every node on rings around a centre and don't support
+# compound (parent) nodes, so a grouped graph would come out with boxes overlapping the
+# rings; group boxes are dropped for these two rather than handed to a layout that breaks on them.
+NO_COMPOUND_LAYOUTS = {"concentric", "circle"}
+
+
 def elements(
     registry: Registry, raw: dict[str, Any], group_by: str = "", layout: str = "grouped"
 ) -> list[dict[str, Any]]:
     """Cytoscape elements for a raw graph: group parents, nodes with fills and labels, edges; positions for the grouped grid."""
+    if layout in NO_COMPOUND_LAYOUTS:
+        group_by = ""
     nodes = raw.get("nodes") or []
     centre = raw.get("centre")
     groups: dict[str, dict[str, Any]] = {}
@@ -512,6 +520,8 @@ def graph_panel(
                         w=200,
                         size="xs",
                         **{"aria-label": "Group the graph by"},
+                        # rendered inline (not in a body-level portal), or the dropdown is invisible in full screen
+                        comboboxProps={"withinPortal": False},
                     ),
                     dmc.Select(
                         id={"type": LAYOUT, "id": panel_id},
@@ -520,6 +530,7 @@ def graph_panel(
                         w=150,
                         size="xs",
                         **{"aria-label": "Lay the graph out as"},
+                        comboboxProps={"withinPortal": False},
                     ),
                     dmc.Button(
                         "Fit",
