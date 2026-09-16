@@ -4,6 +4,7 @@
    diagram is legible without the page growing around it. */
 .ea-mermaid-frame {
   position: relative;
+  overflow: hidden;
 }
 .ea-mermaid-controls {
   position: absolute;
@@ -52,9 +53,13 @@
 .ea-mermaid-frame:fullscreen .ea-mermaid {
   height: calc(100vh - 60px);
 }
+.ea-graph-frame {
+  overflow: hidden;
+}
 .ea-graph-frame:fullscreen {
   background: #fff;
   padding: 8px;
+  overflow: auto;
 }
 .ea-graph-frame:fullscreen .ea-graph-canvas {
   height: calc(100vh - 90px) !important;

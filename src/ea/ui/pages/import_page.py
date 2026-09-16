@@ -55,6 +55,7 @@ def _why_not(ctx: AppContext) -> str:
 
 
 def render(ctx: AppContext) -> html.Div:
+    on_branch = ctx.on_branch()
     why_not = _why_not(ctx)
     return html.Div(
         [
@@ -64,9 +65,9 @@ def render(ctx: AppContext) -> html.Div:
             ),
             alert(
                 f"You are on branch {ctx.branch()}: what you load lands on the branch and reaches main when it is merged."
-                if ctx.on_branch()
-                else "You are on main: what you load changes the model directly. Switch to a branch in the header to stage an import for review.",
-                "orange" if ctx.on_branch() else "blue",
+                if on_branch
+                else "You are on main: switch to a branch in the header first. Import never writes to main directly, so review happens before anything is merged.",
+                "orange" if on_branch else "blue",
             ),
             alert(why_not, "blue", dismissible=False) if why_not else None,
             dmc.SimpleGrid(
@@ -74,6 +75,42 @@ def render(ctx: AppContext) -> html.Div:
                     dmc.Paper(
                         dmc.Stack(
                             [
+                                dmc.Text("1 · Set up the import", fw=700, size="sm"),
+                                dmc.TextInput(
+                                    id=ids.IM_SOURCE,
+                                    label="Source system",
+                                    value="tool-export",
+                                    description="Recorded on every imported row; the same source re-imported updates in place.",
+                                ),
+                                dmc.Select(
+                                    id=ids.IM_MAPPING,
+                                    label="Mapping",
+                                    data=[{"value": k, "label": v} for k, v in MAPPINGS.items()],
+                                    value="",
+                                    comboboxProps={"withinPortal": False},
+                                ),
+                                dmc.Divider(),
+                                dmc.Button(
+                                    "Download template",
+                                    id=ids.IM_TEMPLATE,
+                                    variant="light",
+                                    leftSection=icon("tabler:download"),
+                                ),
+                                dmc.Text(
+                                    "The template ZIP follows the no-mapping CSV contract in connectors/README.md. Or from the command line: `uv run ea import <dir> --source ea-tool --mapping connectors/tool-export/mapping.yaml`.",
+                                    size="xs",
+                                    c="dimmed",
+                                ),
+                            ],
+                            gap="sm",
+                        ),
+                        p="md",
+                        withBorder=True,
+                    ),
+                    dmc.Paper(
+                        dmc.Stack(
+                            [
+                                dmc.Text("2 · Add the files", fw=700, size="sm"),
                                 dcc.Upload(
                                     id=ids.IM_UPLOAD,
                                     multiple=True,
@@ -94,34 +131,9 @@ def render(ctx: AppContext) -> html.Div:
                                 ),
                                 html.Div(id=ids.IM_FILES),
                                 dcc.Store(id=ids.IM_STORE, data={}),
-                            ]
-                        ),
-                        p="md",
-                        withBorder=True,
-                    ),
-                    dmc.Paper(
-                        dmc.Stack(
-                            [
-                                dmc.TextInput(
-                                    id=ids.IM_SOURCE,
-                                    label="Source system",
-                                    value="tool-export",
-                                    description="Recorded on every imported row; the same source re-imported updates in place.",
-                                ),
-                                dmc.Select(
-                                    id=ids.IM_MAPPING,
-                                    label="Mapping",
-                                    data=[{"value": k, "label": v} for k, v in MAPPINGS.items()],
-                                    value="",
-                                ),
+                                dmc.Divider(),
                                 dmc.Group(
                                     [
-                                        dmc.Button(
-                                            "Download template",
-                                            id=ids.IM_TEMPLATE,
-                                            variant="light",
-                                            leftSection=icon("tabler:download"),
-                                        ),
                                         dmc.Button(
                                             "Validate only",
                                             id=ids.IM_VALIDATE,
@@ -132,20 +144,19 @@ def render(ctx: AppContext) -> html.Div:
                                             "Load",
                                             id=ids.IM_LOAD,
                                             leftSection=icon("tabler:database-import"),
-                                            disabled=bool(why_not)
-                                            or not (
-                                                ctx.can("import")
-                                                and (ctx.on_branch() or ctx.can("edit_main"))
-                                            ),
+                                            disabled=bool(why_not) or not (ctx.can("import") and on_branch),
                                         ),
                                     ]
                                 ),
                                 dmc.Text(
-                                    "The template ZIP follows the no-mapping CSV contract in connectors/README.md. Or from the command line: `uv run ea import <dir> --source ea-tool --mapping connectors/tool-export/mapping.yaml`.",
+                                    "Load is disabled on main: switch to a branch to load."
+                                    if not on_branch
+                                    else "Validate checks the files against the metamodel without writing anything; Load applies them to the branch.",
                                     size="xs",
                                     c="dimmed",
                                 ),
-                            ]
+                            ],
+                            gap="sm",
                         ),
                         p="md",
                         withBorder=True,

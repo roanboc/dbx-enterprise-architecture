@@ -416,14 +416,27 @@ def render(ctx: AppContext) -> html.Div:
                                     style={"display": "none"},
                                 ),
                                 dmc.Divider(),
-                                dmc.Button(
-                                    "Download Proposal Template",
-                                    id=ids.PR_TEMPLATE,
-                                    variant="light",
-                                    leftSection=icon("tabler:download"),
+                                dmc.Group(
+                                    [
+                                        dmc.Button(
+                                            "Download Proposal Template",
+                                            id=ids.PR_TEMPLATE,
+                                            variant="light",
+                                            leftSection=icon("tabler:download"),
+                                        ),
+                                        dmc.Button(
+                                            "Load example",
+                                            id=ids.PR_EXAMPLE,
+                                            variant="subtle",
+                                            color="gray",
+                                            leftSection=icon("tabler:wand"),
+                                        ),
+                                    ],
+                                    gap="xs",
                                 ),
                                 dmc.Text(
-                                    "Start from the template: its tables work without a model key.",
+                                    "Start from the template: its tables work without a model key. Load example "
+                                    "puts the same worked example straight into the editor on the right.",
                                     size="xs",
                                     c="dimmed",
                                 ),
@@ -587,6 +600,16 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update
         return dcc.send_string(TEMPLATE_PATH.read_text(encoding="utf-8"), "proposal-template.md")
+
+    @app.callback(
+        Output({"type": ids.MD_TEXT, "id": ids.PR_TEXT}, "value", allow_duplicate=True),
+        Input(ids.PR_EXAMPLE, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def example(n):
+        if not n:
+            return no_update
+        return TEMPLATE_PATH.read_text(encoding="utf-8")
 
     @app.callback(
         Output(ids.PR_RESULT, "children"),

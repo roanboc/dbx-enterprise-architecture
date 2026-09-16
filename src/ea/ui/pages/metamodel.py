@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import dash
@@ -10,7 +11,7 @@ import dash_mantine_components as dmc
 import yaml
 from dash import Input, Output, State, dcc, html, no_update
 
-from ea.metamodel import Registry, load_pack, pack_to_dict
+from ea.metamodel import Registry, pack_to_dict
 from ea.metamodel.loader import pack_from_dict
 from ea.models import ANY, Forbidden
 from ea.services.roles import a_role
@@ -368,53 +369,17 @@ def render(ctx: AppContext) -> html.Div:
             page_title(
                 "Metamodel",
                 _counts(reg),
-                dmc.Group(
-                    [
-                        dmc.Button(
-                            "Save changes",
-                            id=ids.MM_SAVE,
-                            leftSection=icon("tabler:device-floppy"),
-                            disabled=not ctx.can("edit_metamodel"),
-                        ),
-                        dmc.Button(
-                            "Export YAML",
-                            id=ids.MM_EXPORT,
-                            variant="light",
-                            leftSection=icon("tabler:download"),
-                        ),
-                        dmc.Button(
-                            "Reload from file",
-                            id=ids.MM_RELOAD,
-                            variant="subtle",
-                            color="gray",
-                            leftSection=icon("tabler:refresh"),
-                        ),
-                    ],
-                    gap="xs",
-                ),
                 subtitle_id=ids.MM_SUBTITLE,
             ),
-            # A disabled button raises no tooltip, so the reason stands under the row it is
-            # in, the way the Reviewers tab already says who saves that table.
-            dmc.Text(
-                f"{a_role(ctx.role_label())} may not change the metamodel; only an admin saves it."
-                if not ctx.can("edit_metamodel")
-                else "",
-                id=ids.MM_SAVE_WHY,
-                size="xs",
-                c="dimmed",
-                mb="xs",
-            ),
-            html.Div(id=ids.MM_FEEDBACK),
             dmc.Paper(
                 [
-                    dmc.SimpleGrid(
+                    dmc.Stack(
                         [
                             gp.graph_panel(
                                 "mm",
                                 reg,
                                 gp.raw_from_types(reg),
-                                height="70vh",
+                                height="60vh",
                                 group_by="domain",
                                 extra_controls=[
                                     dmc.Select(
@@ -425,6 +390,7 @@ def render(ctx: AppContext) -> html.Div:
                                         value="",
                                         w=200,
                                         size="xs",
+                                        comboboxProps={"withinPortal": False},
                                     )
                                 ],
                                 hint="Tap a type to see its definition, attributes and relationships. Dashed edge = sub-type; diamond = any element.",
@@ -433,12 +399,10 @@ def render(ctx: AppContext) -> html.Div:
                                 html.Div(_detail(reg, None), id=ids.MM_DETAIL),
                                 p="sm",
                                 withBorder=True,
-                                style={"height": "660px", "overflow": "auto"},
+                                style={"maxHeight": "240px", "overflow": "auto"},
                             ),
                         ],
-                        cols={"base": 1, "lg": 2},
-                        spacing="sm",
-                        style={"gridTemplateColumns": "2fr 1fr"},
+                        gap="sm",
                     ),
                 ],
                 p="md",
@@ -606,6 +570,57 @@ def render(ctx: AppContext) -> html.Div:
                     ),
                 ],
                 value="types",
+            ),
+            html.Div(id=ids.MM_FEEDBACK),
+            dmc.Group(
+                [
+                    dmc.Button(
+                        "Save changes",
+                        id=ids.MM_SAVE,
+                        leftSection=icon("tabler:device-floppy"),
+                        disabled=not ctx.can("edit_metamodel"),
+                    ),
+                    dmc.Button(
+                        "Export YAML",
+                        id=ids.MM_EXPORT,
+                        variant="light",
+                        leftSection=icon("tabler:download"),
+                    ),
+                    dcc.Upload(
+                        id=ids.MM_RELOAD,
+                        accept=".yaml,.yml",
+                        multiple=False,
+                        disable_click=not ctx.can("edit_metamodel"),
+                        children=dmc.Button(
+                            "Load YAML file…",
+                            variant="subtle",
+                            color="gray",
+                            leftSection=icon("tabler:upload"),
+                            disabled=not ctx.can("edit_metamodel"),
+                        ),
+                    ),
+                ],
+                gap="xs",
+                mt="md",
+            ),
+            # A disabled button raises no tooltip, so the reason stands under the row it is
+            # in, the way the Reviewers tab already says who saves that table.
+            dmc.Text(
+                f"{a_role(ctx.role_label())} may not change the metamodel; only an admin saves it."
+                if not ctx.can("edit_metamodel")
+                else "",
+                id=ids.MM_SAVE_WHY,
+                size="xs",
+                c="dimmed",
+                mt="xs",
+            ),
+            dmc.Text(
+                "Save changes writes the grids above to the store. Export YAML downloads that as a file with "
+                "the same structure. Load YAML file discards any edits here and reloads the grids from a file "
+                "you pick — an export of this pack you edited outside the app, or another pack entirely.",
+                size="xs",
+                c="dimmed",
+                mt="xs",
             ),
             dmc.Text(
                 "Rows are matched by id. To retire a type, set active to false rather than deleting it, so existing content still resolves.",
@@ -923,11 +938,12 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_NOTATION_TYPES_GRID, "rowData"),
         Output({"type": ids.MERMAID_SRC, "id": ids.MM_NOTATION_PREVIEW}, "children", allow_duplicate=True),
         Output(ids.MM_SUBTITLE, "children", allow_duplicate=True),
-        Input(ids.MM_RELOAD, "n_clicks"),
+        Input(ids.MM_RELOAD, "contents"),
+        State(ids.MM_RELOAD, "filename"),
         prevent_initial_call=True,
     )
-    def reload(n):
-        if not n:
+    def reload(contents, filename):
+        if not contents:
             return (no_update,) * 9
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
@@ -937,13 +953,16 @@ def register(app: dash.Dash) -> None:
                 no_update,
             ) * 8
         try:
-            pack = load_pack(ctx.settings.pack_path)
+            _, b64 = contents.split(",", 1)
+            data = yaml.safe_load(base64.b64decode(b64).decode("utf-8")) or {}
+            pack = pack_from_dict(data)
+            Registry(pack)  # validates references and cycles before anything is stored
             ctx.backend.save_pack(pack)
             reg = ctx.reload_registry()
-        except (OSError, ValueError) as exc:
-            return (alert(f"Reload failed: {exc}", "red"),) + (no_update,) * 8
+        except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+            return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 8
         return (
-            alert(f"Reloaded {reg.pack.id} from {ctx.settings.pack_path}.", "green"),
+            alert(f"Loaded {reg.pack.id} from {filename}.", "green"),
             _type_rows(reg),
             _rel_rows(reg),
             _attr_rows(reg),
