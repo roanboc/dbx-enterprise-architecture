@@ -33,7 +33,7 @@ from typing import Any
 import pandas as pd
 import psycopg
 
-from ea.backend.sql_backend import SqlBackend, chunks
+from ea.backend.sql_backend import SqlBackend, chunks, table_columns
 
 log = logging.getLogger(__name__)
 
@@ -186,9 +186,10 @@ class LakebaseBackend(SqlBackend):
         return ", ".join(one for _ in rows), [v for row in rows for v in row]
 
     def _insert_rows(self, table: str, rows: list[list[Any]]) -> None:
+        cols = ", ".join(table_columns(table))
         for batch in chunks(rows, BATCH_ROWS):
             values, params = self._values(batch)
-            self._execute(f"INSERT INTO {table} VALUES {values}", params)
+            self._execute(f"INSERT INTO {table} ({cols}) VALUES {values}", params)
 
     def _replace_rows(self, table: str, columns: list[str], rows: list[list[Any]], keys: list[str]) -> None:
         """The keyed rows deleted and the incoming rows inserted, in one transaction per call."""
@@ -211,11 +212,13 @@ class LakebaseBackend(SqlBackend):
                 pass
 
     # ---------------------------------------------------------------- sql
-    def query(self, sql: str, params: list[Any] | None = None, limit: int = 1000) -> pd.DataFrame:
+    def query(
+        self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
+    ) -> pd.DataFrame:
         """A reader's own SQL, in a transaction the server itself holds to reads."""
         with self._lock, self._conn.transaction():
             self._execute("SET LOCAL transaction_read_only = on")
-            return super().query(sql, params, limit)
+            return super().query(sql, params, limit, scoped)
 
 
 __all__ = ["BATCH_ROWS", "DEFAULT_DATABASE", "LakebaseBackend", "connect_to_instance", "to_pg"]

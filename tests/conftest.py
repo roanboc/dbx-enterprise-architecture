@@ -24,7 +24,7 @@ from ea.backend.sql import DDL
 from ea.config import Settings
 from ea.importer import import_directory
 from ea.metamodel import Registry, load_pack
-from ea.services import GraphService, RepositoryService
+from ea.services import GraphService, OrganisationService, RepositoryService
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "packs" / "higher_education" / "metamodel.yaml"
@@ -83,6 +83,7 @@ def backend(request, pack):
         for table in DDL:  # the schema is shared by the run: every test starts from empty tables
             b._execute(f"DELETE FROM {table}")
     b.save_pack(pack)
+    OrganisationService(b).ensure_default(pack)  # what the app does on its first start
     yield b
     if request.param == "lakebase":
         b._execute(f"DROP SCHEMA {b.schema} CASCADE")

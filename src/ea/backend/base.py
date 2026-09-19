@@ -7,7 +7,19 @@ from typing import Any
 
 import pandas as pd
 
-from ea.models import Branch, ChangeSet, Element, Link, MergeResult, Pack, Proposal, Relationship, Review
+from ea.models import (
+    Branch,
+    ChangeSet,
+    Element,
+    Link,
+    MergeResult,
+    Organisation,
+    Pack,
+    PackVersion,
+    Proposal,
+    Relationship,
+    Review,
+)
 
 
 class DatabaseBackend(ABC):
@@ -25,15 +37,54 @@ class DatabaseBackend(ABC):
     def close(self) -> None: ...
 
     # ------------------------------------------------------------ metamodel
+    # A pack is stored in versions (decision 0015): a draft is replaced in place, a published
+    # version is frozen, and an organisation applies exactly one.
     @abstractmethod
-    def save_pack(self, pack: Pack) -> None:
-        """Replace the stored definition of this pack id."""
+    def save_pack(self, pack: Pack, actor: str = "") -> None:
+        """Store this version of the pack: a new one, or a draft replaced in place.
+
+        Storing a published version again with the same content changes nothing; with
+        different content it raises ConflictError, because what was validated against a
+        published version must stay validated."""
 
     @abstractmethod
-    def load_pack(self, pack_id: str) -> Pack | None: ...
+    def load_pack(self, pack_id: str, version: str | None = None) -> Pack | None:
+        """One stored version, or the most recently loaded version of the pack when none is named."""
 
     @abstractmethod
-    def list_packs(self) -> list[dict[str, Any]]: ...
+    def list_pack_versions(self, pack_id: str | None = None) -> list[PackVersion]:
+        """Every stored version, newest first, each naming the organisations that apply it."""
+
+    @abstractmethod
+    def set_pack_status(self, pack_id: str, version: str, status: str, actor: str) -> PackVersion: ...
+
+    @abstractmethod
+    def delete_pack_version(self, pack_id: str, version: str, actor: str) -> None: ...
+
+    # -------------------------------------------------------- organisations
+    # Every read and write above honours the current organisation (ea.backend.organisations);
+    # these manage the organisations themselves (decision 0014).
+    @abstractmethod
+    def list_organisations(self) -> list[Organisation]: ...
+
+    @abstractmethod
+    def get_organisation(self, org_id: str) -> Organisation | None: ...
+
+    @abstractmethod
+    def default_organisation(self) -> Organisation | None: ...
+
+    @abstractmethod
+    def save_organisation(self, org: Organisation, actor: str) -> Organisation:
+        """Insert the organisation, or replace its row (name, description, applied version, default flag)."""
+
+    @abstractmethod
+    def delete_organisation(self, org_id: str, actor: str) -> None:
+        """Remove the organisation and every row that belongs to it."""
+
+    @abstractmethod
+    def copy_organisation_content(self, src_org: str, dst_org: str, actor: str) -> dict[str, int]:
+        """Copy the main content of one organisation (elements, relationships, links, reviewer
+        assignments) into another, which must be empty. Branches, proposals and reviews are not copied."""
 
     # ------------------------------------------------------------- elements
     @abstractmethod
@@ -175,5 +226,11 @@ class DatabaseBackend(ABC):
 
     # ------------------------------------------------------------------ sql
     @abstractmethod
-    def query(self, sql: str, params: list[Any] | None = None, limit: int = 1000) -> pd.DataFrame:
-        """Read-only SQL for power users and the agent. Anything but a SELECT is refused."""
+    def query(
+        self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
+    ) -> pd.DataFrame:
+        """Read-only SQL for power users and the agent. Anything but a SELECT is refused.
+
+        Scoped, the content tables read as the current organisation's main and the metamodel
+        tables as the version it applies, so `select count(*) from element` answers for the
+        organisation the reader is in; unscoped, the tables are read as they are."""

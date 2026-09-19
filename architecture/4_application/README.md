@@ -46,7 +46,8 @@ flowchart TB
   reg["⊞ Metamodel registry [ACMP1]"]:::application
   store["⊸ Graph store [ACMP2]"]:::application
   duck["⊞ DuckDB backend [ACMP2.1]"]:::application
-  dbx["⊞ Databricks backend [ACMP2.2]"]:::application
+  lake["⊞ Lakebase backend [ACMP2.3]"]:::application
+  meta["⊞ Metamodel lifecycle and organisation services [ACMP13]"]:::application
 
   ui --> svc
   ui --> imp
@@ -68,8 +69,12 @@ flowchart TB
   ui --> roles
   health --> svc
   roles --> svc
+  ui --> meta
+  cli --> meta
+  meta --> reg
+  meta --> store
   store -->|realized by| duck
-  store -->|realized by| dbx
+  store -->|realized by| lake
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```

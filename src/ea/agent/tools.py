@@ -131,7 +131,7 @@ class ToolBox:
             },
             {
                 "name": "run_sql",
-                "description": "Read-only SQL over tables element(element_id, type_id, key, name, description_md, status, lifecycle_status, source_system, attrs JSON text), relationship(relationship_id, rel_type_id, src_id, dst_id, qualifier, status), element_link(element_id, url, label), meta_element_type, meta_relationship_type. Use for counts and set questions the other tools do not cover.",
+                "description": "Read-only SQL over tables element(element_id, type_id, key, name, description_md, status, lifecycle_status, source_system, attrs JSON text), relationship(relationship_id, rel_type_id, src_id, dst_id, qualifier, status), element_link(element_id, url, label), meta_element_type, meta_relationship_type. The tables read as the organisation you are answering for and the metamodel version it applies; no filter on organisation or version is needed. Use for counts and set questions the other tools do not cover.",
                 "input_schema": {
                     "type": "object",
                     "properties": {"sql": {"type": "string"}, "limit": {"type": "integer", "default": 200}},

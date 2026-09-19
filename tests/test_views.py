@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 from ea.views import view_from_ids, view_from_impact, view_from_neighbourhood
 from ea.views.drawio import to_drawio
-from ea.views.mermaid import node_id, to_markdown, to_mermaid
+from ea.views.mermaid import layer_legend, node_id, to_markdown, to_mermaid
 
 
 def test_notation_is_inherited_and_defaulted(registry):
@@ -25,17 +25,28 @@ def test_neighbourhood_view_is_layered_and_deterministic(registry, graph):
     assert all(e.src in v1.ids() and e.dst in v1.ids() for e in v1.edges)
 
 
-def test_mermaid_has_subgraphs_labels_and_focus(registry, graph):
+def test_mermaid_draws_the_elements_themselves_and_names_the_layer_colours(registry, graph):
+    """The layers are the fill colour and the line above the diagram, never a box around it.
+
+    A subgraph per layer spread a dozen elements over a page and pushed the relationships —
+    what the picture is for — to its edges, so the bands went and the legend took their job.
+    """
     view = view_from_neighbourhood(registry, graph, "LDC-CURR", 1)
     code = to_mermaid(view)
     assert code.startswith("flowchart BT")
-    assert 'subgraph application["Application"]' in code
+    assert "subgraph" not in code and " ~~~ " not in code  # no bands, and nothing holding them apart
+    assert "classDef application fill:#c2f0ff" in code  # the layer is the fill
     assert "«Data Object»" in code and "[LDC-CURR]" in code
     assert f"style {node_id('LDC-CURR')} stroke-width:3px" in code
     assert "-->|" in code
-    assert " ~~~ " in code  # layers chained top to bottom
+    assert len([ln for ln in code.splitlines() if ":::" in ln]) == len(view.nodes)
+    legend = layer_legend(view)
+    assert legend.startswith("Filled by layer:") and "Application (blue)" in legend
+    assert [layer for layer in ("Business", "Application") if layer in legend] == ["Business", "Application"]
+    assert layer_legend(view_from_ids(registry, graph, [], "empty")) == ""
     md = to_markdown(view)
     assert md.startswith("## ") and "```mermaid" in md and "| `LDC-CURR` |" in md
+    assert f"_{legend}_" in md  # the intro says what the colours mean, above the diagram
 
 
 def test_impact_view_and_cap(registry, graph):

@@ -1,0 +1,171 @@
+"""The metamodel's lifecycle: versions of a pack, drafts, publishing, the diff between two
+versions, and what an organisation's content would say under one (decision 0015).
+
+A pack id names a framework; a version names one stored definition of it, whether it
+succeeds the version before or is a variant tried beside it. A draft is edited in place;
+a published version is frozen; a retired one is kept for the record. An organisation
+applies exactly one version, and applying one is preceded by a compatibility check that
+validates every element and relationship of the organisation's main against it.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from ea.backend.base import DatabaseBackend
+from ea.backend.branching import MAIN, use_branch
+from ea.backend.organisations import use_org
+from ea.metamodel.diff import PackDiff, diff_packs
+from ea.metamodel.registry import Registry
+from ea.models import (
+    CompatibilityReport,
+    ConflictError,
+    NotFoundError,
+    Pack,
+    PackVersion,
+    split_pack_ref,
+    validate_version,
+)
+from ea.services.roles import require
+
+EVERYTHING = 10_000_000  # every row of main, in one read: an EA repository is thousands of rows
+
+
+class MetamodelService:
+    def __init__(self, backend: DatabaseBackend):
+        self.backend = backend
+
+    # -------------------------------------------------------------- reads
+    def versions(self, pack_id: str | None = None) -> list[PackVersion]:
+        return self.backend.list_pack_versions(pack_id)
+
+    def version(self, ref: str) -> PackVersion:
+        pack_id, version = self.resolve(ref)
+        for v in self.backend.list_pack_versions(pack_id):
+            if v.version == version:
+                return v
+        raise NotFoundError(ref, "metamodel version")
+
+    def resolve(self, ref: str) -> tuple[str, str]:
+        """`pack@version` to the pair, or a bare pack id to its most recently loaded version; refused when unknown."""
+        pack_id, version = split_pack_ref(ref)
+        if not pack_id:
+            raise NotFoundError(ref or "(empty)", "metamodel version")
+        held = self.backend.list_pack_versions(pack_id)
+        if not held:
+            raise NotFoundError(ref, "metamodel version")
+        if not version:
+            return pack_id, held[0].version
+        if not any(v.version == version for v in held):
+            raise NotFoundError(ref, "metamodel version")
+        return pack_id, version
+
+    def get(self, ref: str) -> Pack:
+        pack_id, version = self.resolve(ref)
+        pack = self.backend.load_pack(pack_id, version)
+        if pack is None:
+            raise NotFoundError(ref, "metamodel version")
+        return pack
+
+    def diff(self, ref_a: str, ref_b: str) -> PackDiff:
+        return diff_packs(self.get(ref_a), self.get(ref_b))
+
+    def suggest_version(self, pack_id: str) -> str:
+        """A version name nobody holds yet: today's date, numbered when the day already has one."""
+        taken = {v.version for v in self.backend.list_pack_versions(pack_id)}
+        today = datetime.now(UTC).date().isoformat()
+        if today not in taken:
+            return today
+        n = 1
+        while f"{today}-{n}" in taken:
+            n += 1
+        return f"{today}-{n}"
+
+    # ------------------------------------------------------------- writes
+    def save(self, pack: Pack, actor: str) -> Pack:
+        """Store a version: a new one, or a draft replaced in place; a published one is refused by the store."""
+        require("edit_metamodel", what="change the metamodel")
+        Registry(pack)  # references and cycles, before anything is stored
+        self.backend.save_pack(pack, actor)
+        return pack
+
+    def draft(self, from_ref: str, actor: str, version: str | None = None, notes: str = "") -> Pack:
+        """A new draft copied from a stored version, to be edited and tried before it is published."""
+        require("edit_metamodel", what="start a draft of the metamodel")
+        source = self.get(from_ref)
+        new_version = validate_version(version or self.suggest_version(source.id), "version")
+        if any(v.version == new_version for v in self.backend.list_pack_versions(source.id)):
+            raise ConflictError(f"version {new_version} of pack {source.id} already exists")
+        draft = self.backend.load_pack(source.id, source.version)  # a fresh copy, not the caller's object
+        assert draft is not None
+        draft.version = new_version
+        draft.status = "draft"
+        draft.derived_from = source.ref
+        draft.notes = notes or draft.notes
+        self.backend.save_pack(draft, actor)
+        return draft
+
+    def publish(self, ref: str, actor: str) -> PackVersion:
+        """Freeze a draft: from now on its content cannot change, only be copied into a new draft."""
+        require("publish_metamodel", what="publish a metamodel version")
+        pack = self.get(ref)
+        if pack.status == "published":
+            return self.version(ref)
+        if pack.status == "retired":
+            raise ConflictError(f"{pack.ref} is retired; start a draft from it instead")
+        Registry(pack)
+        return self.backend.set_pack_status(pack.id, pack.version, "published", actor)
+
+    def retire(self, ref: str, actor: str) -> PackVersion:
+        """Take a version out of use. One an organisation still applies stays."""
+        require("publish_metamodel", what="retire a metamodel version")
+        v = self.version(ref)
+        if v.applied_by:
+            raise ConflictError(
+                f"{v.ref} is applied by {', '.join(v.applied_by)}; apply another version there first"
+            )
+        return self.backend.set_pack_status(v.pack_id, v.version, "retired", actor)
+
+    def delete(self, ref: str, actor: str) -> None:
+        """Remove a draft nobody applies. A published version is never deleted: it is retired."""
+        require("edit_metamodel", what="delete a metamodel draft")
+        v = self.version(ref)
+        if v.status == "published":
+            raise ConflictError(f"{v.ref} is published; a published version is retired, not deleted")
+        if v.applied_by:
+            raise ConflictError(
+                f"{v.ref} is applied by {', '.join(v.applied_by)}; apply another version there first"
+            )
+        self.backend.delete_pack_version(v.pack_id, v.version, actor)
+
+    # ------------------------------------------------------ compatibility
+    def compatibility(self, org_id: str, pack: Pack) -> CompatibilityReport:
+        """Every element and relationship on the organisation's main, validated against the pack.
+
+        The report says what applying the version would leave invalid — a type the version
+        dropped or made inactive, a required attribute nobody filled, a relationship whose
+        ends the version no longer allows — before anything is applied.
+        """
+        registry = Registry(pack)
+        report = CompatibilityReport(org_id=org_id, pack_id=pack.id, version=pack.version)
+        with use_org(org_id), use_branch(MAIN):
+            elements = self.backend.find_elements(limit=EVERYTHING)
+            types = {e.element_id: e.type_id for e in elements}
+            for e in elements:
+                report.elements += 1
+                for issue in registry.validate_element(e.type_id, e.attrs, entity=e.element_id):
+                    if issue.code == "extra_attribute":
+                        continue  # what a pack does not declare is kept, as the importer keeps it
+                    report.issues.append(issue)
+            for r in self.backend.find_relationships(limit=EVERYTHING):
+                report.relationships += 1
+                src, dst = types.get(r.src_id), types.get(r.dst_id)
+                if src is None or dst is None:
+                    continue  # a dangling edge is the content's problem, not the version's
+                for issue in registry.validate_relationship(
+                    r.rel_type_id, src, dst, r.qualifier, entity=r.relationship_id, attrs=r.attrs
+                ):
+                    if issue.code == "extra_attribute":
+                        continue
+                    report.issues.append(issue)
+        return report

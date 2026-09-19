@@ -6,10 +6,12 @@ hard-coded to any particular pack, ArchiMate or otherwise.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
+from datetime import date
 from typing import Any
 
-from ea.models import ANY, AttributeDef, ElementType, Issue, Pack, RelationshipType
+from ea.models import ANY, LINK_SCHEMES, AttributeDef, ElementType, Issue, Pack, RelationshipType, split_multi
 
 
 class Registry:
@@ -28,6 +30,16 @@ class Registry:
     # ---------------------------------------------------------------- pack
     def _validate_pack(self) -> None:
         problems: list[str] = []
+        for what, items in (
+            ("domain", [d.id for d in self.pack.domains]),
+            ("element type", [t.id for t in self.pack.element_types]),
+            ("relationship type", [r.id for r in self.pack.relationship_types]),
+        ):
+            seen_ids: set[str] = set()
+            for i in items:
+                if i in seen_ids:
+                    problems.append(f"{what} {i}: defined twice")
+                seen_ids.add(i)
         for t in self.pack.element_types:
             if t.supertype and t.supertype not in self.types:
                 problems.append(f"element type {t.id}: unknown supertype {t.supertype}")
@@ -112,8 +124,21 @@ class Registry:
             seen[a.name] = a
         return list(seen.values())
 
+    def attributes_for_relationship(self, rel_type_id: str) -> list[AttributeDef]:
+        """What a relationship of this type may carry: the type's own attributes, none inherited."""
+        r = self.rel_types.get(rel_type_id)
+        return list(r.attributes) if r else []
+
+    def defaults_for(self, type_id: str) -> dict[str, Any]:
+        """The attribute values a new element of the type starts with."""
+        return {a.name: a.default for a in self.attributes_for(type_id) if a.default is not None}
+
     def active_types(self) -> list[ElementType]:
         return [t for t in self.pack.element_types if t.active]
+
+    def concrete_types(self) -> list[ElementType]:
+        """The types an element may be: active and not abstract."""
+        return [t for t in self.pack.element_types if t.active and not t.abstract]
 
     def types_in_domain(self, domain_id: str) -> list[ElementType]:
         return [t for t in self.pack.element_types if t.domain == domain_id]
@@ -163,6 +188,104 @@ class Registry:
         return candidates[0]
 
     # ---------------------------------------------------------- validation
+    @staticmethod
+    def _is_number(v: Any) -> bool:
+        if isinstance(v, bool):
+            return False
+        try:
+            float(v)
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    @staticmethod
+    def _is_date(v: Any) -> bool:
+        try:
+            date.fromisoformat(str(v)[:10])
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    def _value_issues(self, a: AttributeDef, value: Any, entity: str | None) -> list[Issue]:
+        """What one value says against one declaration: the rules a pack states on an attribute."""
+        issues: list[Issue] = []
+
+        def add(level: str, code: str, message: str) -> None:
+            issues.append(Issue(level, code, message, entity=entity))
+
+        for v in split_multi(value) if a.multiple else [value]:
+            if v in (None, ""):
+                continue
+            if a.enum and str(v) not in a.enum:
+                add("warning", "enum_value", f"attribute {a.name!r} value {v!r} not in {a.enum}")
+            if a.type in ("integer", "number"):
+                if not self._is_number(v):
+                    add("warning", "wrong_type", f"attribute {a.name!r} expects a number; got {v!r}")
+                else:
+                    if a.min is not None and self._is_number(a.min) and float(v) < float(a.min):
+                        add("error", "out_of_range", f"attribute {a.name!r} value {v!r} is under {a.min}")
+                    if a.max is not None and self._is_number(a.max) and float(v) > float(a.max):
+                        add("error", "out_of_range", f"attribute {a.name!r} value {v!r} is over {a.max}")
+            elif a.type == "date":
+                if not self._is_date(v):
+                    add(
+                        "warning",
+                        "wrong_type",
+                        f"attribute {a.name!r} expects a date as YYYY-MM-DD; got {v!r}",
+                    )
+                else:
+                    if a.min not in (None, "") and str(v)[:10] < str(a.min)[:10]:
+                        add("error", "out_of_range", f"attribute {a.name!r} value {v!r} is before {a.min}")
+                    if a.max not in (None, "") and str(v)[:10] > str(a.max)[:10]:
+                        add("error", "out_of_range", f"attribute {a.name!r} value {v!r} is after {a.max}")
+            elif a.type == "boolean":
+                if not isinstance(v, bool) and str(v).strip().lower() not in (
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "1",
+                    "0",
+                ):
+                    add("warning", "wrong_type", f"attribute {a.name!r} expects yes or no; got {v!r}")
+            elif a.type == "url":
+                if not str(v).lower().startswith(LINK_SCHEMES):
+                    add("error", "invalid_url", f"attribute {a.name!r} expects a web address; got {v!r}")
+            if a.pattern and a.type in ("string", "text", "url") and not re.fullmatch(a.pattern, str(v)):
+                add(
+                    "error",
+                    "pattern_mismatch",
+                    f"attribute {a.name!r} value {v!r} does not match {a.pattern!r}",
+                )
+        return issues
+
+    def _attribute_issues(
+        self, defs: list[AttributeDef], attrs: dict[str, Any], owner: str, entity: str | None
+    ) -> list[Issue]:
+        issues: list[Issue] = []
+        for a in defs:
+            v = attrs.get(a.name)
+            if a.required and (v is None or v == "" or (a.multiple and not split_multi(v))):
+                issues.append(
+                    Issue(
+                        "error", "missing_attribute", f"required attribute {a.name!r} is empty", entity=entity
+                    )
+                )
+                continue
+            issues.extend(self._value_issues(a, v, entity))
+        known = {a.name for a in defs}
+        for k in attrs:
+            if k not in known:
+                issues.append(
+                    Issue(
+                        "info",
+                        "extra_attribute",
+                        f"attribute {k!r} is not declared for {owner!r}",
+                        entity=entity,
+                    )
+                )
+        return issues
+
     def validate_element(
         self, type_id: str, attrs: dict[str, Any] | None, entity: str | None = None
     ) -> list[Issue]:
@@ -170,6 +293,15 @@ class Registry:
         t = self.types.get(type_id)
         if t is None:
             return [Issue("error", "unknown_type", f"unknown element type {type_id!r}", entity=entity)]
+        if t.abstract:
+            issues.append(
+                Issue(
+                    "error",
+                    "abstract_type",
+                    f"element type {t.name!r} is abstract: an element is one of its sub-types",
+                    entity=entity,
+                )
+            )
         if not t.active:
             issues.append(
                 Issue(
@@ -179,39 +311,17 @@ class Registry:
                     entity=entity,
                 )
             )
-        attrs = attrs or {}
-        for a in self.attributes_for(type_id):
-            v = attrs.get(a.name)
-            if a.required and (v is None or v == ""):
-                issues.append(
-                    Issue(
-                        "error", "missing_attribute", f"required attribute {a.name!r} is empty", entity=entity
-                    )
-                )
-            if a.enum and v not in (None, "") and str(v) not in a.enum:
-                issues.append(
-                    Issue(
-                        "warning",
-                        "enum_value",
-                        f"attribute {a.name!r} value {v!r} not in {a.enum}",
-                        entity=entity,
-                    )
-                )
-        known = {a.name for a in self.attributes_for(type_id)}
-        for k in attrs:
-            if k not in known:
-                issues.append(
-                    Issue(
-                        "info",
-                        "extra_attribute",
-                        f"attribute {k!r} is not declared for {t.name!r}",
-                        entity=entity,
-                    )
-                )
+        issues.extend(self._attribute_issues(self.attributes_for(type_id), attrs or {}, t.name, entity))
         return issues
 
     def validate_relationship(
-        self, rel_type_id: str, src_type: str, dst_type: str, qualifier: str = "", entity: str | None = None
+        self,
+        rel_type_id: str,
+        src_type: str,
+        dst_type: str,
+        qualifier: str = "",
+        entity: str | None = None,
+        attrs: dict[str, Any] | None = None,
     ) -> list[Issue]:
         r = self.rel_types.get(rel_type_id)
         if r is None:
@@ -270,12 +380,21 @@ class Registry:
                     entity=entity,
                 )
             )
+        if attrs is not None and (r.attributes or attrs):
+            # A relationship type that declares no attributes takes whatever an import put on
+            # the edge (the validation code, say) without a word about it.
+            defs = r.attributes
+            if defs:
+                issues.extend(self._attribute_issues(defs, attrs, r.name, entity))
         return issues
 
     # ------------------------------------------------------------- summary
     def summary_markdown(self, type_ids: Iterable[str] | None = None) -> str:
         """A compact description of the metamodel for people and agents."""
-        lines = [f"# {self.pack.name} (pack `{self.pack.id}`, version {self.pack.version})", ""]
+        lines = [
+            f"# {self.pack.name} (pack `{self.pack.id}`, version {self.pack.version}, {self.pack.status})",
+            "",
+        ]
         wanted = set(type_ids) if type_ids else None
         for d in self.pack.domains:
             ts = [t for t in self.types_in_domain(d.id) if t.active and (wanted is None or t.id in wanted)]
@@ -284,9 +403,10 @@ class Registry:
             lines.append(f"## {d.name}")
             for t in ts:
                 sup = f" (sub-type of {t.supertype})" if t.supertype else ""
+                abstract = " (abstract)" if t.abstract else ""
                 attrs = ", ".join(a.name for a in t.attributes)
                 lines.append(
-                    f"- `{t.id}` **{t.name}**{sup}: {t.description}"
+                    f"- `{t.id}` **{t.name}**{sup}{abstract}: {t.description}"
                     + (f" Attributes: {attrs}." if attrs else "")
                 )
             lines.append("")
@@ -300,5 +420,6 @@ class Registry:
             ):
                 continue
             q = f" qualifiers {r.qualifiers}" if r.qualifiers else ""
-            lines.append(f"- `{r.id}`: {r.source} *{r.name}* {r.target} [{r.provenance}]{q}")
+            a = f" attributes {[x.name for x in r.attributes]}" if r.attributes else ""
+            lines.append(f"- `{r.id}`: {r.source} *{r.name}* {r.target} [{r.provenance}]{q}{a}")
         return "\n".join(lines)

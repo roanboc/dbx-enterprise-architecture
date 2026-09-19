@@ -15,6 +15,7 @@ from ea.metamodel.registry import Registry
 from ea.models import (
     CURRENT_STATES,
     TARGET_STATES,
+    AttributeDef,
     ConflictError,
     Element,
     Forbidden,
@@ -22,6 +23,7 @@ from ea.models import (
     NotFoundError,
     Relationship,
     ValidationError,
+    split_multi,
 )
 from ea.services.roles import require
 
@@ -36,30 +38,56 @@ def relationship_key(
     return "rel-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def coerce_attrs(registry: Registry, type_id: str, attrs: dict[str, Any] | None) -> dict[str, Any]:
-    """Cast attribute values to their declared type; unknown attributes pass through as strings."""
+def _cast(d: AttributeDef, v: Any) -> Any:
+    try:
+        if d.type == "integer":
+            return int(float(v))
+        if d.type == "number":
+            return float(v)
+        if d.type == "boolean":
+            return v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "yes", "y")
+        if d.type in ("string", "url", "date") and isinstance(v, str):
+            return v.strip()
+    except (TypeError, ValueError):
+        return v
+    return v
+
+
+def coerce_values(defs: list[AttributeDef], attrs: dict[str, Any] | None) -> dict[str, Any]:
+    """Cast values to their declared type; a list-valued attribute becomes a list; unknown attributes pass through."""
     if not attrs:
         return {}
-    defs = {a.name: a for a in registry.attributes_for(type_id)}
+    by_name = {a.name: a for a in defs}
     out: dict[str, Any] = {}
     for k, v in attrs.items():
-        if v is None or (isinstance(v, str) and v.strip() == ""):
+        if v is None or (isinstance(v, str) and v.strip() == "") or (isinstance(v, list) and not v):
             continue
-        d = defs.get(k)
+        d = by_name.get(k)
         if d is None:
             out[k] = v
-            continue
-        try:
-            if d.type == "integer":
-                out[k] = int(float(v))
-            elif d.type == "number":
-                out[k] = float(v)
-            elif d.type == "boolean":
-                out[k] = v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "yes", "y")
-            else:
-                out[k] = v
-        except (TypeError, ValueError):
-            out[k] = v
+        elif d.multiple:
+            out[k] = [_cast(d, x) for x in split_multi(v)]
+        else:
+            out[k] = _cast(d, v)
+    return out
+
+
+def coerce_attrs(registry: Registry, type_id: str, attrs: dict[str, Any] | None) -> dict[str, Any]:
+    """An element's attribute values cast to what its type declares."""
+    return coerce_values(registry.attributes_for(type_id), attrs)
+
+
+def coerce_relationship_attrs(
+    registry: Registry, rel_type_id: str, attrs: dict[str, Any] | None
+) -> dict[str, Any]:
+    """A relationship's attribute values cast to what its type declares."""
+    return coerce_values(registry.attributes_for_relationship(rel_type_id), attrs)
+
+
+def with_defaults(registry: Registry, type_id: str, attrs: dict[str, Any] | None) -> dict[str, Any]:
+    """The attributes of a new element: what was given, and the type's defaults for what was not."""
+    out = dict(registry.defaults_for(type_id))
+    out.update({k: v for k, v in (attrs or {}).items() if v not in (None, "")})
     return out
 
 
@@ -185,7 +213,7 @@ class RepositoryService:
         t = self.registry.resolve_type(type_id)
         if t is None:
             raise ValidationError(self.registry.validate_element(type_id, attrs))
-        attrs = coerce_attrs(self.registry, t.id, attrs)
+        attrs = coerce_attrs(self.registry, t.id, with_defaults(self.registry, t.id, attrs))
         issues = [i for i in self.registry.validate_element(t.id, attrs) if i.level == "error"]
         if not name or not name.strip():
             issues.append(_err("missing_name", "name is required"))
@@ -340,9 +368,12 @@ class RepositoryService:
                     )
                 ]
             )
+        attrs = coerce_relationship_attrs(self.registry, rt.id, attrs)
         issues = [
             i
-            for i in self.registry.validate_relationship(rt.id, src.type_id, dst.type_id, qualifier)
+            for i in self.registry.validate_relationship(
+                rt.id, src.type_id, dst.type_id, qualifier, attrs=attrs
+            )
             if i.level == "error"
         ]
         issues += self._state_issues(current_state, target_state, target_work_package)
@@ -354,7 +385,7 @@ class RepositoryService:
             src_id=src_id,
             dst_id=dst_id,
             qualifier=qualifier,
-            attrs=attrs or {},
+            attrs=attrs,
             status="approved",
             origin=origin,
             current_state=current_state or "live",

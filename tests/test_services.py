@@ -77,3 +77,38 @@ def test_not_found_reads_as_a_sentence():
 
     assert str(NotFoundError("DE-NOPE")) == "no element with id DE-NOPE"
     assert str(NotFoundError("wp9", "branch")) == "no branch with id wp9"
+
+
+def test_defaults_and_list_values_on_create(backend):
+    """A new element starts with its type's defaults; a list-valued attribute is a list; a
+    relationship carries what its type declares, validated (initiative 15)."""
+    from tests.test_metamodel import RICH
+
+    from ea.metamodel import Registry
+    from ea.metamodel.loader import pack_from_dict
+    from ea.services import RepositoryService
+
+    registry = Registry(pack_from_dict(RICH))
+    repo = RepositoryService(backend, registry)
+    e = repo.create_element(
+        "gadget", "One", "ada", attrs={"colours": "red|blue", "cost": "12.5", "tags": "a; b"}
+    )
+    assert e.attrs == {
+        "tier": "silver",
+        "count": 1,
+        "wanted": True,
+        "colours": ["red", "blue"],
+        "cost": 12.5,
+        "tags": ["a", "b"],
+    }
+    with pytest.raises(ValidationError):
+        repo.create_element("gadget", "Two", "ada", attrs={"cost": 1000})
+    with pytest.raises(ValidationError):
+        repo.create_element("thing", "Abstract", "ada")
+    other = repo.create_element("gadget", "Two", "ada", attrs={"tier": "gold"})
+    with pytest.raises(ValidationError):  # `since` is required on the relationship
+        repo.add_relationship("uses", e.element_id, other.element_id, "ada")
+    rel = repo.add_relationship(
+        "uses", e.element_id, other.element_id, "ada", attrs={"since": "2024-05-01", "weight": "3"}
+    )
+    assert rel.attrs == {"since": "2024-05-01", "weight": 3.0}

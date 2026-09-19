@@ -17,12 +17,14 @@ element identifiers it came from.
 
 | Deliverable | Where |
 | ----------- | ----- |
-| **Metamodel manager** — the type graph, editable tables for element types, relationship types and attributes, save, export as a YAML pack, reload | Metamodel page |
-| **Browse and edit elements** — search by type, text and status; Markdown descriptions, links, typed attributes, relationships in and out, neighbourhood graph, history; optimistic concurrency | Browse and Element pages |
+| **Metamodel manager** — one version at a time under six tabs: four editable lists (element types, relationship types, attributes, domains) where rows are added, edited and deleted with whatever depended on them; the type graph; the metamodel drawn as an architecture view; the notation editor; the versions and their lifecycle; and who reviews what. Export as a YAML pack, load one back | Metamodel page |
+| **A metamodel in versions** — a pack is stored per version, drafted from another, compared with another row by row, published (and then frozen, so what was validated against it stays validated) or retired. Every part of a pack — the pack, a domain, a type, a relationship type, an attribute — carries a `properties` bag the engine keeps and never interprets, and an attribute declares its own rules: a default, several values, a unit, a pattern, bounds, a group and help | Metamodel page (Versions tab), `ea metamodel …` |
+| **Organisations** — the store holds more than one enterprise, one of them the default: each has its own elements, relationships, branches and reviews, and applies exactly one metamodel version. A change to the metamodel is tried in an organisation copied from the default, on the real content, and applied to the default when it is right — no second environment, and the check before applying says what the change would leave invalid | Organisations page, header selector, `ea org …`, `--org` on every command |
+| **Browse and edit elements** — search by type, text and status; Markdown descriptions, links, typed attributes read and edited in the groups the metamodel declares, relationships in and out with the attributes their type carries, neighbourhood graph, history; optimistic concurrency | Browse and Element pages |
 | **CSV ingestion** — `elements.csv`, `relationships.csv`, `links.csv`, an optional mapping for a tool's export (a one-CSV-per-type example included), a validation report, idempotent load | Import page, `ea import` |
 | **Impact and traces** — upstream and downstream closure of any element, by type, with completeness hints | Impact page, `ea impact`, `ea trace` |
 | **Ask** — questions answered by an agent through tools over the model and composed into a document: the answer, the elements involved, generated architecture diagrams, the tool trace; ungrounded identifiers flagged; downloadable as Markdown; a stub provider runs without any model key | Ask page |
-| **Generated architecture views** — any neighbourhood, impact or answer as an architecture diagram in the notation of this repository's own architecture documents (Mermaid, ArchiMate layers and stereotypes from the pack), downloadable as Markdown or as a draft draw.io file with ArchiMate stencils and the element identifier on every shape. Shapes can be dragged to arrange a view (never saved) and the draw.io export follows. Nothing is drawn by hand | Element and Impact pages, Ask page, `ea view` |
+| **Generated architecture views** — any neighbourhood, impact or answer as an architecture diagram in the notation of this repository's own architecture documents (Mermaid, stereotypes from the pack, every shape filled by its ArchiMate layer and a line above the diagram naming the colours), downloadable as Markdown or as a draft draw.io file with ArchiMate stencils and the element identifier on every shape. Shapes can be dragged to arrange a view (never saved) and the draw.io export follows. Nothing is drawn by hand | Element and Impact pages, Ask page, `ea view` |
 | **Graphs with grouping** — every network graph groups its nodes by domain, layer, type, status or source system in labelled boxes, with a grouped grid or an organic layout, coloured from the pack | Element, Impact and Metamodel pages |
 | **Notation editor** — how each domain and type is drawn (layer, glyph, stereotype, ArchiMate element, shape, colour) edited in the app with a live preview, saved into the pack | Metamodel page, Notation tab |
 | **Branches** — several architects draft on their own branch of the model (an overlay on `main`, on the same DuckDB file), edit, import and ask on it as if it were the model, then merge item by item from a merge log: every element and relationship ticked to go to `main` or left on the branch, every conflict (a row `main` changed meanwhile) resolved for the branch or for `main`; abandon discards | Header branch selector, Branches page, `ea branch …`, `--branch` on every command |
@@ -33,7 +35,9 @@ element identifiers it came from.
 | **Roles and review before merge** — five roles enforced (Reader, Reviewer, Architect, Admin, Agent), derived from workspace groups on the platform and picked from a debug persona switcher locally (Admin by default); an architect requests a review, the reviewers assigned to each element type the branch touches approve or send it back, and only an approved branch merges (an admin may merge without a review, and the log says so) | Header persona switcher, Branches page (review panel), Metamodel page (Reviewers tab), `--as` and `ea branch review/approve/send-back`, `ea reviewers` |
 
 The first pack is an anonymised **higher-education** metamodel (59 element types, 27 active; 54
-relationship types with provenance, `ANY` targets and stewardship qualifiers).
+relationship types with provenance, `ANY` targets and stewardship qualifiers;
+its attributes grouped into Identification, Governance, Classification,
+Standard dates, Risk ratings and Data platform).
 The sample content is a fictional university's curriculum slice so the demo
 runs without any institutional data.
 
@@ -65,7 +69,8 @@ curriculum slice — seeded by `make seed`.
 
 | | |
 | --- | --- |
-| **Metamodel** — the type graph as data, editable and exportable as a pack ![Metamodel](docs/screenshots/metamodel.png) | **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) |
+| **Metamodel** — one version at a time: four editable lists, the type graph, the architecture view, the notation, the versions and the reviewers ![Metamodel](docs/screenshots/metamodel.png) | **Organisations** — who applies which version of the metamodel, and where a change is tried before it reaches the default ![Organisations](docs/screenshots/organisations.png) |
+| **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) | |
 
 ## Quick start
 
@@ -179,12 +184,31 @@ page; the proposal itself stays with the branch.
 
 ## Bringing your own metamodel
 
-A pack is one YAML file: domains, element types (with supertypes, active
-flags, attributes, provenance, source of record and owners) and relationship
-types (source and target or `ANY`, inverse, qualifiers, provenance). See
+A pack is one YAML file: domains, element types (with supertypes, active and
+abstract flags, attributes, provenance, source of record and owners) and
+relationship types (source and target or `ANY`, inverse, qualifiers,
+provenance, attributes of their own). Anything the format does not name is kept
+in a `properties` bag rather than dropped. See
 [`packs/README.md`](./packs/README.md). Load it with
 `uv run ea init --pack packs/<name>/metamodel.yaml`, or edit any pack in the
 Metamodel page and export it.
+
+A pack is stored under a version, and a version is a draft until it is
+published, after which it is frozen. To try a change: draft a version from the
+one in use, create an organisation copied from the default one, apply the draft
+there, work in it, compare the two versions, then publish the draft and apply
+it to the default organisation.
+
+```bash
+uv run ea metamodel versions                       # what the store holds, and who applies what
+uv run ea metamodel draft higher_education@2026-08-11 --version trial
+uv run ea org create "Trial" --copy-from default   # a sandbox on a copy of the content
+uv run ea org apply trial higher_education@trial   # checked against that content first
+uv run ea --org trial stats                        # every command reads the organisation named
+uv run ea metamodel diff higher_education@2026-08-11 higher_education@trial
+uv run ea metamodel publish higher_education@trial
+uv run ea org apply default higher_education@trial
+```
 
 ## Configuration
 
@@ -202,6 +226,7 @@ Metamodel page and export it.
 | `EA_AGENT_MODEL` | (provider default) | Model identifier for the hosted provider |
 | `EA_MAX_ROWS` | `5000` | Row cap for Browse and read-only SQL |
 | `EA_BRANCH` | `main` | The branch the CLI works on (same as `--branch`) |
+| `EA_ORG` | `default` | The organisation the CLI reads and writes (same as `--org`) |
 | `EA_SECRET_KEY` | (random per start) | Signs the session cookie that remembers a reader's branch and debug persona; set it so sessions survive a restart |
 | `EA_ROLE` | `admin` | The role the CLI runs as (same as `--as`) |
 | `EA_ROLE_GROUPS` | (empty: everyone a reader) | On the platform, which workspace group grants which role: `admin=g1,g2;architect=g3;reviewer=g4` |

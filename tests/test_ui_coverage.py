@@ -33,6 +33,8 @@ DOWNLOAD_TRIGGERS = {
     "ask-doc-md": "the answer document as Markdown",
     "ask-doc-drawio": "the answer document as draw.io",
     "mm-export": "the metamodel as a YAML pack",
+    "mm-view-md": "the metamodel's architecture view as Markdown",
+    "mm-view-drawio": "the metamodel's architecture view as draw.io",
     "im-template": "the import template archive",
     "pr-template": "the Proposal Template",
 }

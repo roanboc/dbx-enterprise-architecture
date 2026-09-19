@@ -228,7 +228,7 @@ def test_the_platform_sign_in_uses_the_instance_host_and_a_fresh_token(monkeypat
     ]
     with real_connect(postgres_dsn, autocommit=True) as other:  # the platform closes the connection
         other.execute("SELECT pg_terminate_backend(%s)", [b._conn.info.backend_pid])
-    assert b.list_packs() == []
+    assert b.list_pack_versions() == []
     assert [c["password"] for c in connections] == ["token-1", "token-2"], (
         "signed in again with a fresh token"
     )

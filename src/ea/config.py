@@ -34,6 +34,7 @@ class Settings:
     pg_database: str = ""
     pg_user: str = ""
     pg_sslmode: str = ""
+    org: str = ""  # the organisation the command line works on (EA_ORG); empty = the default one
     role_groups: str = ""  # admin=grp1,grp2;architect=grp3;reviewer=grp4 (decision 0008)
     trust_groups_header: bool = False  # only behind a proxy of ours that sets X-Forwarded-Groups
 
@@ -57,6 +58,7 @@ class Settings:
             pg_database=env.get("PGDATABASE", ""),
             pg_user=env.get("PGUSER", ""),
             pg_sslmode=env.get("PGSSLMODE", ""),
+            org=env.get("EA_ORG", ""),
             role_groups=env.get("EA_ROLE_GROUPS", ""),
             trust_groups_header=env.get("EA_TRUST_GROUPS_HEADER", "").strip().lower() in ("1", "true", "yes"),
         )

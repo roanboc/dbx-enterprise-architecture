@@ -10,10 +10,11 @@ from urllib.parse import unquote
 import dash
 import dash_cytoscape as cyto
 import dash_mantine_components as dmc
-from dash import MATCH, Input, Output, State, ctx, no_update
+from dash import ALL, MATCH, Input, Output, State, ctx, no_update
 from flask import session
 
 from ea.backend.branching import MAIN, set_branch
+from ea.backend.organisations import set_org
 from ea.config import ROOT
 from ea.models import ConflictError, Forbidden, NotFoundError
 from ea.services.roles import set_role
@@ -30,6 +31,7 @@ from ea.ui.pages import (
     impact,
     import_page,
     metamodel,
+    organisations,
     propose,
     target,
 )
@@ -40,7 +42,18 @@ log = logging.getLogger(__name__)
 APP_TITLE = "EA Repository"
 NAV_TARGETS = [href for _, links in layout.NAV_SECTIONS for _, href, _ in links]
 NAV_LINK_IDS = [f"nav-{href.strip('/') or 'home'}" for href in NAV_TARGETS]
-PAGES = {"browse", "metamodel", "impact", "import", "ask", "branches", "target", "propose", "health"}
+PAGES = {
+    "browse",
+    "metamodel",
+    "organisations",
+    "impact",
+    "import",
+    "ask",
+    "branches",
+    "target",
+    "propose",
+    "health",
+}
 
 
 def parse_path(pathname: str | None) -> tuple[str, str | None]:
@@ -85,6 +98,27 @@ def session_branch() -> str:
         return MAIN
 
 
+def session_org(default: str) -> str:
+    """The organisation kept in the reader's session; the default one when none is kept."""
+    try:
+        return session.get("org") or default
+    except RuntimeError:  # outside a request
+        return default
+
+
+def _enter_session_org() -> str:
+    """The organisation the request works in: the session's, falling back to the default one when
+    the session names one that is gone. Set before the branch, which belongs to it."""
+    ctx = get_context()
+    default = ctx.orgs.default()
+    default_id = default.org_id if default else "default"
+    org = session_org(default_id)
+    if ctx.backend.get_organisation(org) is None:
+        org = default_id
+    set_org(org)
+    return org
+
+
 def create_app() -> dash.Dash:
     cyto.load_extra_layouts()  # cose-bilkent and friends for the graph panel
     get_context()  # open the store and load the pack before the first request
@@ -106,6 +140,7 @@ def create_app() -> dash.Dash:
     @app.server.before_request
     def _branch_and_role_from_session() -> None:
         ctx = get_context()
+        _enter_session_org()
         branch = session_branch()
         if branch != MAIN and ctx.backend.get_branch(branch) is None:
             branch = MAIN
@@ -121,7 +156,7 @@ def create_app() -> dash.Dash:
         user = ctx.current_user()
         return layout.shell(
             APP_TITLE,
-            ctx.registry.pack.name,
+            ctx.pack_label(),
             ctx.branch_options(),
             current,
             b.changes if b is not None else None,
@@ -130,6 +165,8 @@ def create_app() -> dash.Dash:
             display_name=user.display_name,
             persona=ctx.persona() if ctx.debug_personas() else None,
             can_create_branch=ctx.can("create_branch"),
+            org_options=ctx.org_options(),
+            current_org=ctx.org(),
         )
 
     app.layout = _shell  # a function: the header reflects the session's branch on every page load
@@ -177,6 +214,8 @@ def create_app() -> dash.Dash:
                 body = browse.render(ctx, search)
             elif page == "metamodel":
                 body = metamodel.render(ctx)
+            elif page == "organisations":
+                body = organisations.render(ctx, search)
             elif page == "impact":
                 body = impact.render(ctx, search)
             elif page == "import":
@@ -198,6 +237,47 @@ def create_app() -> dash.Dash:
         except Exception as exc:  # noqa: BLE001 — a page error must not blank the shell
             log.exception("page %s failed", page)
             return dmc.Alert(f"{type(exc).__name__}: {exc}", color="red", title="This page failed to render")
+
+    # ---------------------------------------------------------- organisation
+    @app.callback(
+        Output(ids.NAV_VERSION, "data", allow_duplicate=True),
+        Output(ids.ORG_SELECT, "value"),
+        Output(ids.BRANCH_SELECT, "data", allow_duplicate=True),
+        Output(ids.BRANCH_SELECT, "value", allow_duplicate=True),
+        Output(ids.BRANCH_BADGE, "children", allow_duplicate=True),
+        Output(ids.PACK_BADGE, "children"),
+        Output(ids.BRANCH_NEW_WP, "data"),
+        Input(ids.ORG_SELECT, "value"),
+        Input({"type": ids.ORG_SWITCH, "id": ALL}, "n_clicks"),
+        State(ids.NAV_VERSION, "data"),
+        prevent_initial_call=True,
+    )
+    def switch_org(value, switch_clicks, version):
+        """Keep the chosen organisation in the session, back on its main, and re-render the page in it."""
+        app_ctx = get_context()
+        trigger = ctx.triggered_id
+        from_row = isinstance(trigger, dict) and trigger.get("type") == ids.ORG_SWITCH
+        if from_row and not any(n for n in (switch_clicks or []) if n):
+            return (no_update,) * 7
+        default = app_ctx.orgs.default()
+        default_id = default.org_id if default else "default"
+        chosen = (trigger["id"] if from_row else value) or default_id
+        if app_ctx.backend.get_organisation(chosen) is None:
+            chosen = default_id
+        changed = chosen != session_org(default_id)
+        session["org"] = chosen
+        session["branch"] = MAIN  # a branch belongs to its organisation; the other one starts on main
+        set_org(chosen)
+        set_branch(MAIN)
+        return (
+            int(version or 0) + 1 if changed else no_update,
+            chosen if from_row else no_update,
+            app_ctx.branch_options(),
+            MAIN,
+            layout.branch_badge(MAIN),
+            layout.pack_badge(app_ctx.pack_label()),
+            app_ctx.work_package_options(),
+        )
 
     # ---------------------------------------------------------------- branch
     @app.callback(
@@ -319,6 +399,18 @@ def create_app() -> dash.Dash:
 
     graph.register(app)
     register_markdown(app)
-    for module in (browse, element, metamodel, impact, import_page, ask, branches, target, propose, health):
+    for module in (
+        browse,
+        element,
+        metamodel,
+        organisations,
+        impact,
+        import_page,
+        ask,
+        branches,
+        target,
+        propose,
+        health,
+    ):
         module.register(app)
     return app

@@ -1,4 +1,10 @@
-"""One application context: settings, store, registry, services, agent, current user and role."""
+"""One application context: settings, store, the services per organisation, agent, current user and role.
+
+The organisation a request is in decides which metamodel version is read and which
+content the services see (decision 0014), so the registry and the services are held
+in one bundle per organisation, built from the version the organisation applies and
+rebuilt when the metamodel changes.
+"""
 
 from __future__ import annotations
 
@@ -12,13 +18,16 @@ from ea.agent.proposal import ProposalService
 from ea.agent.tools import ToolBox
 from ea.backend import DatabaseBackend, backend_from_settings
 from ea.backend.branching import MAIN, current_branch
+from ea.backend.organisations import current_org
 from ea.config import Settings
 from ea.metamodel import Registry, load_pack
-from ea.models import User
+from ea.models import Organisation, User
 from ea.services import (
     BranchService,
     GraphService,
     HealthService,
+    MetamodelService,
+    OrganisationService,
     RepositoryService,
     ReviewService,
     SearchService,
@@ -47,61 +56,136 @@ def persona_user(persona: str) -> User:
 
 
 @dataclass
+class Bundle:
+    """The registry and the services of one organisation, on the version it applies."""
+
+    registry: Registry
+    repo: RepositoryService
+    graph: GraphService
+    branches: BranchService
+    target: TargetStateService
+    search: SearchService
+    health: HealthService
+    reviews: ReviewService
+    agent: Agent | None = None
+    proposals: ProposalService | None = None
+
+    @classmethod
+    def build(cls, backend: DatabaseBackend, registry: Registry) -> Bundle:
+        branches = BranchService(backend, registry)
+        return cls(
+            registry=registry,
+            repo=RepositoryService(backend, registry),
+            graph=GraphService(backend, registry),
+            branches=branches,
+            target=TargetStateService(backend, registry),
+            search=SearchService(backend, registry),
+            health=HealthService(backend, registry),
+            reviews=ReviewService(backend, registry, branches),
+        )
+
+
+@dataclass
 class AppContext:
     settings: Settings
     backend: DatabaseBackend
-    registry: Registry
-    repo: RepositoryService = field(init=False)
-    graph: GraphService = field(init=False)
-    branches: BranchService = field(init=False)
-    target: TargetStateService = field(init=False)
-    search: SearchService = field(init=False)
-    health: HealthService = field(init=False)
-    reviews: ReviewService = field(init=False)
     identity: WorkspaceGroups = field(default_factory=WorkspaceGroups)
-    _agent: Agent | None = field(default=None, init=False)
-    _proposals: ProposalService | None = field(default=None, init=False)
+    metamodels: MetamodelService = field(init=False)
+    orgs: OrganisationService = field(init=False)
+    _bundles: dict[str, Bundle] = field(default_factory=dict, init=False)
+    _bundle_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
 
     def __post_init__(self) -> None:
-        self._wire()
+        self.metamodels = MetamodelService(self.backend)
+        self.orgs = OrganisationService(self.backend, self.metamodels)
 
-    def _wire(self) -> None:
-        self.repo = RepositoryService(self.backend, self.registry)
-        self.graph = GraphService(self.backend, self.registry)
-        self.branches = BranchService(self.backend, self.registry)
-        self.target = TargetStateService(self.backend, self.registry)
-        self.search = SearchService(self.backend, self.registry)
-        self.health = HealthService(self.backend, self.registry)
-        self.reviews = ReviewService(self.backend, self.registry, self.branches)
+    # ------------------------------------------------------------ bundle
+    def _bundle(self) -> Bundle:
+        """The services of the organisation this request is in, built on first use."""
+        org = current_org()
+        with self._bundle_lock:
+            b = self._bundles.get(org)
+            if b is None:
+                b = Bundle.build(self.backend, Registry(self.orgs.applied_pack(org)))
+                self._bundles[org] = b
+            return b
+
+    @property
+    def registry(self) -> Registry:
+        return self._bundle().registry
+
+    @property
+    def repo(self) -> RepositoryService:
+        return self._bundle().repo
+
+    @property
+    def graph(self) -> GraphService:
+        return self._bundle().graph
+
+    @property
+    def branches(self) -> BranchService:
+        return self._bundle().branches
+
+    @property
+    def target(self) -> TargetStateService:
+        return self._bundle().target
+
+    @property
+    def search(self) -> SearchService:
+        return self._bundle().search
+
+    @property
+    def health(self) -> HealthService:
+        return self._bundle().health
+
+    @property
+    def reviews(self) -> ReviewService:
+        return self._bundle().reviews
 
     @property
     def agent(self) -> Agent:
-        if self._agent is None:
-            self._agent = Agent(ToolBox(self.backend, self.registry, self.repo, self.graph), self.settings)
-        return self._agent
+        b = self._bundle()
+        if b.agent is None:
+            b.agent = Agent(ToolBox(self.backend, b.registry, b.repo, b.graph), self.settings)
+        return b.agent
 
     @property
     def proposals(self) -> ProposalService:
-        if self._proposals is None:
-            self._proposals = ProposalService(
+        b = self._bundle()
+        if b.proposals is None:
+            b.proposals = ProposalService(
                 self.backend,
-                self.registry,
-                self.repo,
-                self.branches,
-                self.target,
+                b.registry,
+                b.repo,
+                b.branches,
+                b.target,
                 self.settings,
-                ToolBox(self.backend, self.registry, self.repo, self.graph),
+                ToolBox(self.backend, b.registry, b.repo, b.graph),
             )
-        return self._proposals
+        return b.proposals
 
     def reload_registry(self) -> Registry:
-        """After the metamodel changed: re-read the stored pack and rebuild everything that depends on it."""
-        pack = self.backend.load_pack(self.registry.pack.id) or self.registry.pack
-        self.registry = Registry(pack)
-        self._wire()
-        self._agent = None
-        self._proposals = None
+        """After the metamodel or an organisation changed: every bundle is rebuilt on its next use."""
+        with self._bundle_lock:
+            self._bundles.clear()
         return self.registry
+
+    # ------------------------------------------------------ organisation
+    def org(self) -> str:
+        """The organisation this request reads and writes (set from the session before the request)."""
+        return current_org()
+
+    def organisation(self) -> Organisation:
+        return self.orgs.get(current_org())
+
+    def org_options(self) -> list[dict[str, str]]:
+        """Every organisation, the default first, for the header selector."""
+        return [{"value": o.org_id, "label": o.name} for o in self.orgs.list()]
+
+    def pack_label(self) -> str:
+        """What the header says of the metamodel: the pack, its version and, unless published, its state."""
+        p = self.registry.pack
+        return f"{p.id} · {p.version}" + ("" if p.status == "published" else f" · {p.status}")
 
     # ------------------------------------------------------------ branch
     def branch(self) -> str:
@@ -212,18 +296,22 @@ class AppContext:
         return self.current_user().username
 
 
+def open_context(settings: Settings | None = None) -> AppContext:
+    """The store opened and the default organisation in place, applying the pack the settings name
+    when the store holds none yet. What the app and the command line both do first."""
+    settings = settings or Settings.from_env()
+    backend = backend_from_settings(settings)
+    ctx = AppContext(settings, backend)
+    if ctx.orgs.default() is None:
+        pack = load_pack(settings.pack_path)
+        ctx.orgs.ensure_default(pack)
+        log.info("loaded pack %s from %s", pack.ref, settings.pack_path)
+    return ctx
+
+
 def get_context() -> AppContext:
     global _context
     with _lock:
         if _context is None:
-            settings = Settings.from_env()
-            backend = backend_from_settings(settings)
-            packs = backend.list_packs()
-            if packs:
-                pack = backend.load_pack(packs[0]["pack_id"])
-            else:
-                pack = load_pack(settings.pack_path)
-                backend.save_pack(pack)
-                log.info("loaded pack %s from %s", pack.id, settings.pack_path)
-            _context = AppContext(settings, backend, Registry(pack))
+            _context = open_context()
         return _context

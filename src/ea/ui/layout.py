@@ -42,6 +42,7 @@ NAV_SECTIONS = [
         "Manage",
         [
             ("Metamodel", "/metamodel", "tabler:hierarchy-2"),
+            ("Organisations", "/organisations", "tabler:building"),
             ("Health", "/health", "tabler:heart-rate-monitor"),
         ],
     ),
@@ -142,6 +143,26 @@ def new_branch_modal(work_packages: list[dict[str, str]]) -> dmc.Modal:
     )
 
 
+def org_selector(org_options: list[dict[str, str]], current_org: str) -> dmc.Select:
+    """The organisation the reader is in: the default one, or another where a metamodel version is tried."""
+    return dmc.Select(
+        id=ids.ORG_SELECT,
+        **{"aria-label": "The organisation you are working in"},
+        data=org_options,
+        value=current_org,
+        w=190,
+        size="sm",
+        allowDeselect=False,
+        leftSection=icon("tabler:building", 14),
+        comboboxProps={"withinPortal": True},
+    )
+
+
+def pack_badge(label: str) -> dmc.Badge:
+    """The pack and the version the organisation applies, as the header names it."""
+    return dmc.Badge(label, variant="light", color="indigo", size="lg")
+
+
 def shell(
     title: str,
     pack_name: str,
@@ -153,8 +174,11 @@ def shell(
     display_name: str = "",
     persona: str | None = None,
     can_create_branch: bool = True,
+    org_options: list[dict[str, str]] | None = None,
+    current_org: str = "default",
 ) -> dmc.MantineProvider:
-    """`persona` is the debug persona to show in the switcher, or None on the platform (no switcher)."""
+    """`persona` is the debug persona to show in the switcher, or None on the platform (no switcher);
+    `pack_name` is what the header says of the metamodel the organisation applies."""
     return dmc.MantineProvider(
         theme=THEME,
         defaultColorScheme="light",
@@ -208,13 +232,17 @@ def shell(
                                 ),
                                 dmc.Group(
                                     [
+                                        org_selector(
+                                            org_options or [{"value": current_org, "label": current_org}],
+                                            current_org,
+                                        ),
                                         html.Div(branch_badge(current, changes), id=ids.BRANCH_BADGE),
                                         dmc.Select(
                                             id=ids.BRANCH_SELECT,
                                             **{"aria-label": "The branch you are working on"},
                                             data=branch_options,
                                             value=current,
-                                            w=240,
+                                            w=210,
                                             size="sm",
                                             allowDeselect=False,
                                             leftSection=icon("tabler:git-branch", 14),
@@ -249,7 +277,7 @@ def shell(
                                         ),
                                         html.Div(role_badge(role, display_name), id=ids.ROLE_BADGE),
                                         persona_switcher(persona) if persona else None,
-                                        dmc.Badge(pack_name, variant="light", color="indigo", size="lg"),
+                                        html.Div(pack_badge(pack_name), id=ids.PACK_BADGE),
                                     ],
                                     className="ea-header-controls",
                                     gap="xs",
@@ -299,7 +327,7 @@ def shell(
                     ),
                 ],
                 id=ids.APP_SHELL,
-                header={"height": {"base": 204, "sm": 132, "xl": 56}},
+                header={"height": {"base": 250, "sm": 132, "xl": 56}},
                 navbar={"width": 220, "breakpoint": "sm", "collapsed": {"mobile": True}},
                 padding="md",
             ),

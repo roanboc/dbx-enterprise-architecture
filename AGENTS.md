@@ -30,7 +30,7 @@ it changes with `Source` reading `adopted — <the call>`, in a document that
 stays `◐`, so a later word from the Requester overrides it. Never ask about a
 state that does not exist yet.
 
-**The PoC posture** (initiatives 1 to 12 built; the Databricks step,
+**The PoC posture** (initiatives 1 to 12 and 15 built; the Databricks step,
 initiatives 13 and 14, built on Lakebase and waiting for a workspace run;
 step 3, provenance and feeds, waits on the source-of-record table agreed
 outside the repository):
@@ -108,13 +108,29 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   run a statement and land rows (decisions 0011 and 0013); the unit suite runs
   on both, the Lakebase engine on a real Postgres the run starts for itself
   (`tests/postgres_server.py`) or the one `EA_TEST_POSTGRES` names, and on a
-  Lakebase instance with `make test-live`. `views/` renders a subgraph of the
+  Lakebase instance with `make test-live`. `views/` renders a part of the
   model as Mermaid or draw.io from the pack's `notation`; nothing is drawn by
-  hand and every shape carries an element identifier (principle `P8`). `ui/graph.py`
+  hand and every shape carries an element identifier (principle `P8`). A
+  generated view draws no layer boxes: the layer is the fill colour, and
+  `layer_legend` says which colour is which, above the diagram and inside the
+  Mermaid source. `ui/graph.py`
   is the one network-graph panel (grouping, layouts, pack colours);
   `assets/ea-views.js` lets a reader arrange a generated view without saving it. A module imports only from layers to its
   left; SQL lives in `backend/` only; framework and institution names live in
   `packs/` and `connectors/` only.
+- **Organisations and metamodel versions.** The store holds more than one
+  enterprise, one of them the default (decision 0014): every content table
+  carries `org_id`, the current organisation is a context variable
+  (`backend/organisations.py`) set from the session, from `--org` or by
+  `use_org()`, and every read and write is built over a source scoped by it —
+  including a reader's own SQL. Never write a query that reads a content table
+  without going through the store's scoped sources. A pack is stored per
+  version with a lifecycle (decision 0015): a draft is edited in place, a
+  published version is frozen, a retired one is kept; each organisation applies
+  exactly one version, and applying runs the compatibility check first
+  (`services/metamodel.py`, `services/organisations.py`, `metamodel/diff.py`).
+  A change to the metamodel is a new version tried in an organisation of its
+  own, never an edit of what everybody reads.
 - **Branches and states.** `main` is the model; a branch is an overlay on the
   same tables (decision 0006), and the current branch is a context variable
   (`backend/branching.py`) that every read and write honours: the app sets it
@@ -125,7 +141,8 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   Never write to `branch_*` tables directly and never bypass it. Every element
   and relationship carries `current_state`, `target_state`,
   `target_work_package` and `target_note` (decision 0007); the vocabularies
-  live in `models.py` and are not extended per pack. The Propose module
+  live in `models.py` and are not extended per pack. A branch belongs to its
+  organisation. The Propose module
   (`agent/proposal.py`) writes only to a branch and only what the architect
   ticked.
 - **Roles.** The role is a context variable too (`services/roles.py`), set per
@@ -158,7 +175,7 @@ make test-fast   # the unit tests alone, while iterating (every store test on bo
 make test-live   # the unit tests on a Lakebase instance, on demand (EA_LAKEBASE_INSTANCE, DATABRICKS_HOST and the SDK's credentials)
 make deploy      # the bundle's dev target: the Lakebase instance and the app, deployed, not started; then make deploy-run
 make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
-uv run ea --help # the CLI: init, import, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …; --branch and --as on any command
+uv run ea --help # the CLI: init, load-pack, export-pack, import, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …, metamodel …, org …; --branch, --as and --org on any command
 ```
 
 The DuckDB file is single-writer: stop the app before running the CLI on the

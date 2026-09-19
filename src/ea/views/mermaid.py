@@ -18,6 +18,8 @@ TARGET_CLASS = {
 NOT_REAL_CLASS = "stroke-dasharray:6 3"
 
 # archreator's colours per ArchiMate layer (architecture-document-style § ArchiMate on Mermaid).
+# The layers are not drawn as boxes (see `to_mermaid`), so each fill is also named in words:
+# `layer_legend` says which colour is which layer in the line above the diagram.
 LAYER_STYLE = {
     "motivation": ("#e6d6f5", "#7e57c2"),
     "strategy": ("#f5deaa", "#c8a24a"),
@@ -27,6 +29,17 @@ LAYER_STYLE = {
     "physical": ("#c9e7b7", "#558b2f"),
     "implementation": ("#f8d7da", "#c0392b"),
     "other": ("#eeeeee", "#888888"),
+}
+# The same colours in words, for the line that stands in for the layer boxes.
+LAYER_COLOUR_NAMES = {
+    "motivation": "violet",
+    "strategy": "sand",
+    "business": "yellow",
+    "application": "blue",
+    "technology": "green",
+    "physical": "green",
+    "implementation": "red",
+    "other": "grey",
 }
 # Mermaid node shapes by the pack's `shape` key.
 SHAPES = {
@@ -112,8 +125,30 @@ def state_legend(view: View) -> str:
     return "Markers: " + ", ".join(parts) + "." if parts else ""
 
 
-def to_mermaid(view: View, direction: str = "BT", marked: bool = False) -> str:
-    """One subgraph per layer, motivation at the top and technology at the bottom, edges labelled with the relationship name.
+def layer_legend(view: View) -> str:
+    """Which colour stands for which architecture layer, for the layers this view draws.
+
+    The diagram fills every shape by its ArchiMate layer but draws no box around the layers
+    (`to_mermaid` says why), so what a box would have been labelled is said here instead, in
+    the line above the diagram and in the exported Markdown.
+    """
+    layers = view.layers()
+    if not layers:
+        return ""
+    named = ", ".join(
+        f"{LAYER_TITLES.get(layer, layer)} ({LAYER_COLOUR_NAMES.get(layer, 'grey')})" for layer in layers
+    )
+    return f"Filled by layer: {named}."
+
+
+def to_mermaid(view: View, direction: str = "BT", marked: bool = False, legend: bool = False) -> str:
+    """Every element as a shape filled by its architecture layer, joined by the relationships themselves.
+
+    The layers are **not** drawn as boxes. A subgraph per layer pushes the shapes apart —
+    Mermaid gives every box its own rank band and its own padding — so a view of a dozen
+    elements spreads over a page and the relationships, which are the point of it, run half
+    its width. The layer is in the fill colour instead, named above the diagram by
+    `layer_legend`, and the shapes sit where their own relationships put them.
 
     Drawn bottom-to-top: most relationships in an EA model point from the lower layers
     upwards (technology stores data, applications process it, roles own assets), so the
@@ -122,26 +157,21 @@ def to_mermaid(view: View, direction: str = "BT", marked: bool = False) -> str:
     amber, decommissioned red, merged violet, and what is not yet real dashed.
     """
     lines = [f"flowchart {direction}"]
-    for layer in view.layers():
-        lines.append(f'  subgraph {layer}["{LAYER_TITLES.get(layer, layer)}"]')
-        for n in view.nodes_in(layer):
-            lines.append("    " + _node_line(n, marked))
-        lines.append("  end")
+    if legend:
+        # A diagram whose subject is the notation itself — the metamodel, drawn — carries the
+        # marker the architecture documents' validator reads, so its stereotypes are allowed.
+        lines.append("  %% legend")
+    # The colours mean nothing without their names, and the source is pasted where the line
+    # above the diagram does not travel with it: Mermaid ignores a comment, a reader does not.
+    said = layer_legend(view)
+    if said:
+        lines.append(f"  %% {said}")
+    for n in view.nodes:
+        lines.append("  " + _node_line(n, marked))
     if view.edges:
         lines.append("")
     for e in view.edges:
         lines.append(f'  {node_id(e.src)} -->|"{_quote(e.label)}"| {node_id(e.dst)}')
-    # Invisible links keep each layer above the next whatever direction the real relationships
-    # point: one link per node of the lower layer towards the layer above (a source sits below
-    # its target when drawn bottom-to-top), so the ordering outweighs the real edges in the
-    # layout's rank assignment.
-    layers = view.layers()
-    if len(layers) > 1:
-        lines.append("")
-        for upper, lower in zip(layers, layers[1:], strict=False):
-            anchor = view.nodes_in(upper)[0]
-            for n in view.nodes_in(lower):
-                lines.append(f"  {node_id(n.id)} ~~~ {node_id(anchor.id)}")
     lines.append("")
     for layer in view.layers():
         fill, stroke = LAYER_STYLE.get(layer, LAYER_STYLE["other"])
@@ -154,15 +184,18 @@ def to_mermaid(view: View, direction: str = "BT", marked: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
-def to_markdown(view: View, marked: bool = False) -> str:
+def to_markdown(view: View, marked: bool = False, legend: bool = False) -> str:
     """The view as a Markdown section: title, the fenced diagram, and the elements it shows."""
     out = [f"## {view.title}", ""]
     if view.note:
         out += [f"_{view.note}_", ""]
-    legend = state_legend(view) if marked else ""
-    if legend:
-        out += [f"_{legend}_", ""]
-    out += ["```mermaid", to_mermaid(view, marked=marked).rstrip("\n"), "```", ""]
+    notes = [layer_legend(view)]
+    if marked:
+        notes.append(state_legend(view))
+    said = " ".join(n for n in notes if n)
+    if said:
+        out += [f"_{said}_", ""]
+    out += ["```mermaid", to_mermaid(view, marked=marked, legend=legend).rstrip("\n"), "```", ""]
     if marked:
         out += [
             "| ID | Element | Type | Current state | Target state |",

@@ -225,6 +225,13 @@ def _description(ui, control_id: str) -> str:
     )
 
 
+def _value_columns(ui) -> list[int]:
+    """Where the value column starts in each row of the Attributes card, rounded to the pixel."""
+    return ui.page.locator("#el-attr-values tr td:nth-child(2)").evaluate_all(
+        "tds => Array.from(new Set(tds.map(td => Math.round(td.getBoundingClientRect().x))))"
+    )
+
+
 def _value(ui, selector: str) -> str:
     loc = ui.page.locator(_css(selector)).first
     return loc.input_value().strip() if loc.count() else ""
@@ -1320,6 +1327,22 @@ def test_text_and_restricted_attributes(ui, record, finding):
     _tab(ui, "Overview")
     read = _panel(ui, "overview").inner_text()
     ui.check("Overview lists the restricted attribute's value too", "Confidentiality Risk Rating" in read)
+    # The metamodel groups its attributes; the card that reads them is sectioned the same way
+    # as the form that edits them, and both sections' values line up under one column.
+    lower = read.lower()
+    for group in ("identification", "governance", "risk ratings"):
+        ui.check(f"Overview heads the attributes it shows with the {group} group", group in lower, read[:400])
+    ui.check(
+        "a group the metamodel declares but this element has nothing in is not headed",
+        "standard dates" not in lower,
+        read[:400],
+    )
+    ui.check(
+        "the values of every group line up under one column",
+        len(_value_columns(ui)) == 1,
+        f"value cells start at {_value_columns(ui)}",
+    )
+    ui.shot("The Attributes card: what the element holds, in the groups the metamodel declares")
     if "restricted" not in read.lower():
         finding.append(
             Finding(

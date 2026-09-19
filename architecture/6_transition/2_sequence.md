@@ -28,12 +28,13 @@ flowchart LR
   s1e["1e — propose"]:::implementation
   s1f["1f — search, bulk edit, health"]:::implementation
   s1g["1g — roles and review"]:::implementation
+  s1h["1h — metamodel versions and organisations"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s4["4 — governed change on the platform"]:::implementation
   s5["5 — semantic front doors"]:::implementation
   s6["6 — the current EA tool retired"]:::implementation
-  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g
+  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h
   s1g --> s2
   s1g --> s3
   s2 --> s4
@@ -50,6 +51,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   s1g["1g — roles and review"]:::implementation
+  s1h["1h — metamodel versions and organisations"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s5["5 — semantic front doors"]:::implementation
@@ -60,6 +62,7 @@ flowchart LR
   p5["≡ Semantic front doors [PLAT5]"]:::implementation
   s1g -->|reaches on DuckDB| p1
   s1g -->|reaches on DuckDB| p4
+  s1h -->|extends on DuckDB| p1
   s2 -.->|reaches, in flight| p2
   s3 -.->|reaches| p3
   s5 -.->|reaches| p5
@@ -76,12 +79,19 @@ flowchart LR
 | 1e — propose (initiative 5, built 2026-09-06) | `GAP13` | `PLAT4`, intake | Step 1d | A design page in the template becomes a branch with linked and new elements after the architect reviews the merge log; an incomplete page is pushed back with the minimum to add |
 | 1f — search, bulk edit, health (initiative 6, built 2026-09-06) | `GAP15` | `PLAT1`, extended | Step 1e | A steward searches descriptions for a wrong term, fixes twenty elements in one bulk edit, and the Health page shows which source is stale and which types lack descriptions |
 | 1g — roles and review (initiative 7, built 2026-09-06) | `GAP14` | `PLAT4`, roles and review, on DuckDB | Step 1f | An architect requests a review; the information architect approves the information types and a steward the application types; the author merges; a reader cannot edit |
+| 1h — metamodel versions and organisations (initiative 15, built 2026-09-19) | `GAP17` | `PLAT1`, extended | Step 1g | An architect copies the default organisation, drafts a version of the metamodel in the copy, reads in a compatibility check what the change would leave invalid, publishes it and applies it to the default organisation; a reader in the default organisation sees none of the trial |
 | 2 — Databricks (initiatives 13 and 14, built 2026-09-09 and 2026-09-11; the workspace run pending) | `GAP1`, `GAP2`, `GAP16` | `PLAT2` | A workspace with Apps enabled and Lakebase available; a service principal | The same app on Databricks Apps, the same data in a Lakebase database, the same tests green |
 | 3 — provenance and feeds | `GAP4` | `PLAT3` | The per-type source-of-record table agreed with the IT division's enterprise architecture team (open question 5); read access to the extracts of the CMDB, the HR system, the project portfolio tool, the information asset register and the data platform's metadata catalogue (the last through its existing platform pipelines) | A CMDB change appears in the repository without anyone typing it |
 | 4 — governed change on the platform | `GAP5` (the rest) | `PLAT4` | `PLAT2`: roles carried by workspace groups; sensitive attributes granted by role | The same review flow with workspace identities, and restricted attributes hidden from readers |
 | 5 — semantic front doors | `GAP6`, `GAP7` | `PLAT5` | `PLAT2` and `PLAT3`; the glossary publishing target is Unity Catalog (question 6) | A Genie-based agent, or whichever agent framework the platform offers, traverses the projection and answers in Markdown, and an external agent answers the same question from the same projection; questions, answers and user feedback are logged |
 | 6 — the current EA tool retired | `GAP8` | `PLAT6` | `PLAT4` and `PLAT5`; the retirement criteria met and the licence date known | The current tool read-only, then off |
 
-Steps 1b to 1g ran inside the PoC month. Steps 2 and 3 are independent of each other
+Steps 1b to 1h ran inside the PoC month, on DuckDB. Step 1h needs no platform,
+and step 2 does not wait for it. Steps 2 and 3 are independent of each other
 and can run in either order or in parallel; both need step 1. Step 5 needs both. The PoC is allowed to be
 thrown away at any step (principle `P7`); the plateaus are not.
+
+Step 1h leaves two things for later. Nothing per organisation reaches the
+platform, so a catalogue, a row filter or a projection of its own is step 5's
+work. An attribute's group is free text, so the metamodel holds no vocabulary
+to catch a typo against.

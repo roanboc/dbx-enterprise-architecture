@@ -280,6 +280,39 @@ def register_markdown(app) -> None:
         return markdown(value or "", f"md-preview-{editor_id}")
 
 
+def kv_sections(sections: list[tuple[str, list[tuple[str, Any]]]]) -> dmc.Table:
+    """One two-column table whose sections are headed, so every value lines up under one column.
+
+    A table per section would set its own column widths from its own longest label, and the
+    values would step sideways down the card. A heading row inside one table keeps the reading
+    line straight.
+    """
+    rows: list[Any] = []
+    for title, pairs in sections:
+        if title:
+            rows.append(
+                dmc.TableTr(
+                    # `html.Td` rather than Mantine's: the heading spans both columns, and
+                    # Mantine's table styles the element, not a component of its own.
+                    html.Td(
+                        dmc.Text(title, size="xs", fw=700, c="dimmed", tt="uppercase"),
+                        colSpan=2,
+                        style={"paddingTop": "0.6rem"},
+                    )
+                )
+            )
+        rows += [
+            dmc.TableTr(
+                [
+                    dmc.TableTd(dmc.Text(k, size="sm", c="dimmed")),
+                    dmc.TableTd(v if _is_component(v) else dmc.Text(_fmt(v), size="sm")),
+                ]
+            )
+            for k, v in pairs
+        ]
+    return dmc.Table([dmc.TableTbody(rows)], withRowBorders=False, verticalSpacing="xs")
+
+
 def kv_table(rows: list[tuple[str, Any]]) -> dmc.Table:
     return dmc.Table(
         [
@@ -412,10 +445,33 @@ def keep_selected_option(
     return [selected, *options] if selected else options
 
 
-def mermaid_block(block_id: str, code: str, arrangeable: bool = True) -> html.Div:
+SELECT_COLUMN = {
+    "field": "sel",
+    "headerName": "",
+    "checkboxSelection": True,
+    "headerCheckboxSelection": True,
+    "width": 46,
+    "pinned": "left",
+    "sortable": False,
+    "filter": False,
+    "resizable": False,
+    "editable": False,
+    "valueFormatter": {"function": "''"},
+}
+"""The tick column of a grid whose rows an action takes: Browse's bulk edit and the
+metamodel's four lists. One definition, so ticking means the same thing on both."""
+
+
+def mermaid_block(block_id: str, code: str, arrangeable: bool = True, legend: str = "") -> html.Div:
     """A generated diagram: the Mermaid source (hidden), the rendered SVG in a pan-and-zoom viewport,
-    and, when arrangeable, a store of the shape positions that the draw.io export honours."""
+    and, when arrangeable, a store of the shape positions that the draw.io export honours.
+
+    `legend` is the line above the diagram that says what its colours mean — the layers are
+    filled, not boxed (`views.mermaid.to_mermaid`), so the names the boxes would have carried
+    are read here. A callback that redraws the diagram redraws this line with it.
+    """
     children: list[Any] = [
+        dmc.Text(legend, id={"type": "mermaid-legend", "id": block_id}, size="xs", c="dimmed", mb=4),
         html.Pre(code, id={"type": "mermaid-src", "id": block_id}, hidden=True),
         dcc.Store(id={"type": "mermaid-pos", "id": block_id}, data=None),
         dcc.Store(id={"type": "mermaid-view", "id": block_id}, data=None),

@@ -74,6 +74,7 @@ flowchart LR
   asm6["⌕ Content is small and largely draft [ASM6]"]:::motivation
   asm7["⌕ Architects read diagrams, not graph layouts [ASM7]"]:::motivation
   asm8["⌕ A warehouse is not an application store [ASM8]"]:::motivation
+  asm9["⌕ A metamodel change has nowhere to be tried [ASM9]"]:::motivation
   g1("◎ Query the architecture sustainably [G1]"):::motivation
   g2("◎ Metamodel is configuration [G2]"):::motivation
   g3("◎ One code base, local and Databricks [G3]"):::motivation
@@ -86,6 +87,7 @@ flowchart LR
   asm2 --> g1
   asm7 --> g1
   asm5 --> g2
+  asm9 --> g2
   asm6 --> g3
   asm8 --> g3
 
@@ -111,6 +113,7 @@ flowchart LR
 | `ASM6` | **Content is small and largely draft** — about 4,600 elements across 59 types, many not approved | DuckDB and an in-process graph are enough; no warehouse traversal per click |
 | `ASM7` | **Architects read diagrams, not graph layouts** — a force-directed graph answers a query but is not an architecture diagram; a hand-drawn diagram that is the store is the current EA tool's problem | Views are generated from the model in an architecture notation; diagram editors are at most an export format (initiative 2) |
 | `ASM8` | **A warehouse is not an application store** — a SQL warehouse answers a statement in a round trip of seconds, binds a few hundred values, holds no constraints and no transaction across statements; an application that writes on every click needs the platform's transactional database (adopted — the reading behind the owner's instruction of 2026-09-11, Lakebase and not the lakehouse) | The store on Databricks is Lakebase, the platform's Postgres (decision 0013); the lakehouse reads it through Unity Catalog where a projection is wanted (plateau `PLAT5`) |
+| `ASM9` | **A metamodel change has nowhere to be tried** — one definition of the metamodel is edited in place, so a new type or a new attribute reaches every reader the moment it is saved; the alternative is a second environment, a platform cost architecture work does not carry (adopted — the reading of how a type or an attribute is changed today) | The metamodel is kept in versions with a lifecycle, and the content is partitioned into organisations, so a version is tried on a copy and applied once it checks out (decisions 0014 and 0015) |
 
 ## Goals and outcomes
 
@@ -178,6 +181,7 @@ flowchart TB
 | `ASM5` | ⚖ «Assessment» The metamodel changes | `G2` | ◎ «Goal» Metamodel is configuration | influences | |
 | `ASM6` | ⚖ «Assessment» Content is small and largely draft | `G3` | ◎ «Goal» One code base, local and Databricks | influences | DuckDB is enough to start |
 | `ASM8` | ⚖ «Assessment» A warehouse is not an application store | `G3` | ◎ «Goal» One code base, local and Databricks | influences | Lakebase, not the lakehouse, on the platform |
+| `ASM9` | ⚖ «Assessment» A metamodel change has nowhere to be tried | `G2` | ◎ «Goal» Metamodel is configuration | influences | a version is tried on a copy before it is applied |
 | `G1` | ◎ «Goal» Query the architecture sustainably | `OUT1` | ◎ «Outcome» Curriculum model loaded and queried | realized by | |
 | `G4` | ◎ «Goal» Show a working PoC within a month | `OUT2` | ◎ «Outcome» Information architect endorses the approach | realized by | |
 | `G2` | ◎ «Goal» Metamodel is configuration | `P1` | ▣ «Principle» Metamodel is data, never DDL | realized by | |

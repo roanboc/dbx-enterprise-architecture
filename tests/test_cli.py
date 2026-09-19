@@ -21,6 +21,21 @@ from ea.metamodel import Registry, load_pack
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _scope_reset():
+    """The command line sets the role, the branch and the organisation as context variables of
+    the process, and the in-process runner never unwinds them: a scenario that ran `--as reader`
+    would leave every later test a reader."""
+    from ea.backend.branching import MAIN, set_branch
+    from ea.backend.organisations import DEFAULT_ORG, set_org
+    from ea.services.roles import DEFAULT_ROLE, set_role
+
+    yield
+    set_role(DEFAULT_ROLE)
+    set_branch(MAIN)
+    set_org(DEFAULT_ORG)
+
+
 @pytest.fixture
 def ea_env(tmp_path, monkeypatch):
     """A seeded DuckDB file the CLI finds through the environment, as a person's shell would."""
@@ -77,7 +92,7 @@ def test_export_pack_refuses_before_it_opens_the_destination(ea_env):
     out = ea_env / "pack.yaml"
     out.write_text("the reader's own pack\n")
     result = runner.invoke(app, ["export-pack", str(out), "--pack-id", "no_such_pack"])
-    assert result.exit_code == 1 and "no pack with id 'no_such_pack'" in result.output
+    assert result.exit_code == 1 and "no metamodel version 'no_such_pack'" in result.output
     assert out.read_text() == "the reader's own pack\n"
 
 
@@ -129,3 +144,58 @@ def test_loading_a_pack_is_the_metamodel_owners_write(ea_env, monkeypatch, capsy
         exit_info.value.code == 1 and "An Architect may not load a metamodel pack" in capsys.readouterr().err
     )
     assert runner.invoke(app, ["--as", "admin", "load-pack", str(PACK)]).exit_code == 0
+
+
+def test_organisations_and_versions_from_the_command_line(ea_env):
+    """The sandbox flow, end to end: copy the default, draft, apply, compare, check, publish."""
+    assert "default" in runner.invoke(app, ["org", "list"]).output
+    created = runner.invoke(app, ["org", "create", "Trial", "--copy-from", "default"])
+    assert created.exit_code == 0 and "47 elements and 99 relationships copied from default" in created.output
+    assert "47 elements" in runner.invoke(app, ["--org", "trial", "stats"]).output
+    unknown = runner.invoke(app, ["--org", "nowhere", "stats"])
+    assert unknown.exit_code == 1 and "no organisation with id 'nowhere'" in unknown.output
+    draft = runner.invoke(app, ["metamodel", "draft", "higher_education@2026-08-11", "--version", "t1"])
+    assert draft.exit_code == 0 and "draft higher_education@t1 created" in draft.output
+    assert "higher_education@t1" in runner.invoke(app, ["metamodel", "versions"]).output
+    applied = runner.invoke(app, ["org", "apply", "trial", "higher_education@t1"])
+    assert applied.exit_code == 0 and "0 errors" in applied.output
+    assert "trial-1" not in runner.invoke(app, ["org", "list"]).output
+    diff = runner.invoke(app, ["metamodel", "diff", "higher_education@2026-08-11", "higher_education@t1"])
+    assert diff.exit_code == 0 and "define the same metamodel" in diff.output
+    check = runner.invoke(app, ["metamodel", "check", "higher_education@t1", "--org", "default"])
+    assert check.exit_code == 0 and "0 errors" in check.output
+    assert runner.invoke(app, ["metamodel", "publish", "higher_education@t1"]).exit_code == 0
+    # A refusal the services raise reaches the shell as a sentence through `run()`; the in-process
+    # runner hands the exception back instead, so it is read from there.
+    retire = runner.invoke(app, ["metamodel", "retire", "higher_education@t1"])
+    assert retire.exit_code == 1 and "applied by trial" in str(retire.exception)
+    assert runner.invoke(app, ["org", "default", "trial"]).exit_code == 0
+    assert runner.invoke(app, ["org", "rename", "trial", "Trial two"]).exit_code == 0
+    deleted = runner.invoke(app, ["org", "delete", "default"])
+    assert deleted.exit_code == 0
+    assert runner.invoke(app, ["org", "delete", "trial"]).exit_code == 1  # the default stays
+    as_reader = runner.invoke(app, ["--as", "reader", "org", "create", "No"])
+    assert as_reader.exit_code == 1 and "A Reader may not create an organisation" in str(as_reader.exception)
+
+
+def test_loading_a_file_stores_a_version_and_applies_it(ea_env, tmp_path):
+    from ea.metamodel import dump_pack, load_pack
+
+    pack = load_pack(PACK)
+    pack.version, pack.status, pack.notes = "from-file", "draft", "edited outside"
+    path = tmp_path / "next.yaml"
+    dump_pack(pack, path)
+    result = runner.invoke(app, ["load-pack", str(path)])
+    assert result.exit_code == 0 and "now applies higher_education@from-file" in result.output
+    assert "from-file" in runner.invoke(app, ["org", "list"]).output
+    exported = tmp_path / "out.yaml"
+    assert (
+        runner.invoke(app, ["export-pack", str(exported), "-v", "higher_education@from-file"]).exit_code == 0
+    )
+    assert "edited outside" in exported.read_text()
+    # the published version cannot be replaced by a file that differs from it
+    pack.version, pack.status = "2026-08-11", "published"
+    pack.element_types[0].description = "changed"
+    dump_pack(pack, path)
+    refused = runner.invoke(app, ["load-pack", str(path)])
+    assert refused.exit_code == 1 and "frozen" in str(refused.exception)

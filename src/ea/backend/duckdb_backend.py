@@ -13,7 +13,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from ea.backend.sql_backend import SqlBackend, new_id
+from ea.backend.sql_backend import SqlBackend, new_id, table_columns
 
 __all__ = ["DuckDBBackend", "new_id"]
 
@@ -41,11 +41,14 @@ class DuckDBBackend(SqlBackend):
             return self._conn.execute(sql, params or []).fetchall()
 
     def _insert_rows(self, table: str, rows: list[list[Any]]) -> None:
+        """Rows in the DDL's column order, inserted by name: a store migrated column by column may
+        hold them in another physical order."""
         if not rows:
             return
+        cols = ", ".join(table_columns(table))
         marks = ", ".join("?" for _ in rows[0])
         with self._lock:
-            self._conn.executemany(f"INSERT INTO {table} VALUES ({marks})", rows)
+            self._conn.executemany(f"INSERT INTO {table} ({cols}) VALUES ({marks})", rows)
 
     def _replace_rows(self, table: str, columns: list[str], rows: list[list[Any]], keys: list[str]) -> None:
         """A frame registered as a table, the keyed rows deleted, the frame appended: one round trip each."""
@@ -59,7 +62,9 @@ class DuckDBBackend(SqlBackend):
                 self._conn.execute(
                     f"DELETE FROM {table} WHERE EXISTS (SELECT 1 FROM {incoming} WHERE {match})"
                 )
-                self._conn.execute(f"INSERT INTO {table} SELECT {', '.join(columns)} FROM {incoming}")
+                self._conn.execute(
+                    f"INSERT INTO {table} ({', '.join(columns)}) SELECT {', '.join(columns)} FROM {incoming}"
+                )
             finally:
                 self._conn.unregister(incoming)
 

@@ -39,16 +39,19 @@ flowchart LR
   s8(["⬮ Target state [ASVC8]"]):::application
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
+  s11(["⬮ Organisation management [ASVC11]"]):::application
   reader --> s2
   reader --> s5
   reader --> s8
   reader --> s10
+  reader --> s11
   arch --> s2
   arch --> s3
   arch --> s7
   arch --> s9
   rev --> s7
   admin --> s1
+  admin --> s11
   agent --> s5
 
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
@@ -58,16 +61,17 @@ flowchart LR
 
 | ID | Service | Offered to | Where |
 | -- | ------- | ---------- | ----- |
-| `ASVC1` | **Metamodel management** — see the type graph, edit element types, relationship types, attributes and notation in tables, save to the store, export the result as a YAML pack, reload from file; the Notation tab edits how every domain and type is drawn, with a live preview; an Admin's service — the page hides its writes from every other role, and the command line refuses them | The framework owner, the information architect | Metamodel page; `ea init`, `ea load-pack`, `ea export-pack`, `ea summary` |
-| `ASVC2` | **Element browsing and editing** — search by type, status and text over names, identifiers, descriptions and attributes (every word must match; hits in a name rank first and the matching passage is shown); open an element with its Markdown description, links, typed attributes, relationships in and out, neighbourhood graph and history; edit and save with conflict detection; add or remove relationships; create a new element; select many rows and bulk-edit their status, states, work package, lifecycle or an attribute on the current branch | Readers (reading), architects (writing) | Browse and Element pages; `ea find`, `ea get`, `ea set` |
+| `ASVC1` | **Metamodel management** — see the type graph, edit element types, relationship types, attributes and domains in grids and save them as one version; declare an attribute's type, default, unit, range, pattern, group, help text and whether it takes many values, mark an element type abstract, and give a relationship type attributes of its own; what the framework declares and the engine does not read is kept and handed back unchanged; delete a type, an attribute or a domain, and what the metamodel could not hold without it goes with it; hold several versions of a framework, each a draft edited in place or a published version that is frozen, retire one and delete a draft nobody applies; read the difference between two versions field by field; check an organisation's content against a version before it is applied; export the result as a YAML pack, reload from file; the Notation tab edits how every domain and type is drawn, with a live preview; an Admin's service — the page hides its writes from every other role, and the command line refuses them | The framework owner, the information architect | Metamodel page (Manage, Graph, Architecture view, Notation, Versions and Reviewers tabs); `ea metamodel versions/draft/publish/retire/delete/diff/check`, `ea init`, `ea load-pack`, `ea export-pack`, `ea summary` |
+| `ASVC2` | **Element browsing and editing** — search by type, status and text over names, identifiers, descriptions and attributes (every word must match; hits in a name rank first and the matching passage is shown); open an element with its Markdown description, links, typed attributes in the groups the metamodel declares, relationships in and out, neighbourhood graph and history; edit and save with conflict detection; add or remove relationships, with the attributes their type declares; create a new element; select many rows and bulk-edit their status, states, work package, lifecycle or an attribute on the current branch | Readers (reading), architects (writing) | Browse and Element pages; `ea find`, `ea get`, `ea set` |
 | `ASVC3` | **CSV ingestion** — validate and load `elements.csv`, `relationships.csv` and `links.csv` against the metamodel, with an optional column mapping for a tool's export format, producing a report of errors and warnings; idempotent on source system and reference | Whoever exports from the current tool (a diagram-centric tool today) | Import page; `ea import`, `ea validate` |
-| `ASVC4` | **Graph query** — neighbours to a depth, upstream and downstream traces, impact summary by type and completeness, read-only SQL over the schema | Architects, the agent | Impact page and the Graph tab; `ea neighbours`, `ea trace`, `ea impact`, `ea sql` |
+| `ASVC4` | **Graph query** — neighbours to a depth, upstream and downstream traces, impact summary by type and completeness, read-only SQL over the schema, answering for the organisation the reader is in | Architects, the agent | Impact page and the Graph tab; `ea neighbours`, `ea trace`, `ea impact`, `ea sql` |
 | `ASVC5` | **Grounded question answering** — natural-language questions answered through tools over the model, with the tool trace shown and every identifier in the answer checked against what the tools returned; the answer is composed into a document with the elements involved, generated views and the tool trace, downloadable as Markdown. On Databricks the target is a Genie-based agent, or whichever agent framework the platform offers, that traverses the graph and answers in Markdown, with questions, answers and user feedback logged (plateau `PLAT5`) | Architects, and any user who would rather ask than browse | Ask page |
-| `ASVC6` | **Architecture views** — a neighbourhood, an impact or an answer rendered as an architecture diagram in the notation of this repository's own documents (Mermaid), copied or downloaded as Markdown; the same view as a draft draw.io file with ArchiMate stencils and a link on every shape; shapes can be moved on the canvas and the draw.io export follows the arrangement, which is never saved | Architects, the agent | Element (Graph tab), Impact and Ask pages; `ea view` |
+| `ASVC6` | **Architecture views** — a neighbourhood, an impact or an answer rendered as an architecture diagram in the notation of this repository's own documents (Mermaid), every shape filled by its architecture layer and a line above the diagram naming which colour is which layer, copied or downloaded as Markdown; the same view as a draft draw.io file with ArchiMate stencils and a link on every shape; shapes can be moved on the canvas and the draw.io export follows the arrangement, which is never saved | Architects, the agent | Element (Graph tab), Impact and Ask pages; `ea view` |
 | `ASVC7` | **Branches and merge** — start a branch from `main`, work on it (edit, import, ask, propose) as if it were the model, see its change set against `main` as a merge log with conflicts; request a review, which freezes the branch and names the reviewers of every element type it touches; reviewers approve their types or send the branch back with a comment; once every touched type is approved (or by an admin at any time), merge it item by item (what is not ticked remains on the branch, a conflict takes the branch's row or `main`'s), or abandon it; the branch closes only when nothing remains | Architects, reviewers | Header branch selector and New branch modal, Branches page (merge log, review panel); `ea branch list/create/diff/review/approve/merge/abandon`, `--branch` on every command |
 | `ASVC8` | **Target state** — current state against target state for every element and relationship, counted and listed per work package with a current-by-target matrix, drawn as a generated view with state markers (new dashed green, change amber, decommission red, merge violet) in Mermaid and draw.io; derived from lifecycle text on import | Architects, the organisation | Target state page, the State card and Edit fields on the Element page, the state columns on Browse; `ea target` |
 | `ASVC9` | **Propose** — hand in a document (text, files, links) describing a change; a reader derives the change set, links what exists (by identifier, then by name, with near-matches flagged rather than linked), adopts what is new as proposed, pushes back with the minimum to add when the sources are insufficient; the architect reviews the result as an editable merge log with include ticks and manual rows, and applies it to a branch (a new one, or an open one); the proposal is kept with the branch | Architects | Propose page, the downloadable Proposal Template (`templates/proposal-template.md`); the stub reader parses the template's tables, the hosted reader reads free text |
 | `ASVC10` | **Model health** — freshness per source system (when each last loaded, how many rows have not moved in 30, 90 and 180 days, the change activity of the last weeks) and completeness per element type (descriptions, links, relationships, required attributes, decided target states), each with the rows behind the number one click away | Readers, stewards | Health page; `ea health` |
+| `ASVC11` | **Organisation management** — every element, relationship, link, branch and review belongs to one organisation, and every read and write honours the one the user is in; create an organisation, copy another's content into it, switch to it from the header, rename it, name one the default, and delete one with everything it holds; apply a metamodel version to an organisation, which first validates all of its content against that version and refuses on errors unless it is forced; the default organisation is what the application opens, and a copy of it is where a version is tried before the default applies it | Admins (every change); every user (the organisation they are in) | Organisations page and the organisation selector in the header; `ea org list/create/rename/default/apply/delete`, `--org` on every command |
 
 ## How the services lean on each other
 
@@ -83,6 +87,7 @@ flowchart TB
   s8(["⬮ Target state [ASVC8]"]):::application
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
+  s11(["⬮ Organisation management [ASVC11]"]):::application
   s2 -->|constrained by| s1
   s3 -->|constrained by| s1
   s2 -->|constrained by| s7
@@ -94,6 +99,9 @@ flowchart TB
   s9 --> s4
   s10 --> s4
   s10 --> s2
+  s11 --> s1
+  s2 -->|scoped by| s11
+  s7 -->|scoped by| s11
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -109,6 +117,7 @@ flowchart LR
   s7(["⬮ Branches and merge [ASVC7]"]):::application
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
+  s11(["⬮ Organisation management [ASVC11]"]):::application
   c1["⊞ Metamodel registry [ACMP1]"]:::application
   c3["⊞ Repository and graph services [ACMP3]"]:::application
   c5["⊞ Agent [ACMP5]"]:::application
@@ -116,7 +125,9 @@ flowchart LR
   c10["⊞ Proposal agent [ACMP10]"]:::application
   c11["⊞ Health and search services [ACMP11]"]:::application
   c12["⊞ Roles and review [ACMP12]"]:::application
+  c13["⊞ Metamodel lifecycle and organisation services [ACMP13]"]:::application
   s1 -->|realized by| c1
+  s1 -->|realized by| c13
   s2 -->|realized by| c3
   s4 -->|realized by| c3
   s5 -->|realized by| c5
@@ -124,6 +135,7 @@ flowchart LR
   s7 -->|realized by| c12
   s9 -->|realized by| c10
   s10 -->|realized by| c11
+  s11 -->|realized by| c13
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -142,7 +154,12 @@ flowchart LR
 | `ASVC8` | ⚙ «Application Service» Target state | `ASVC6` | ⚙ «Application Service» Architecture views | uses | the work package view carries state markers |
 | `ASVC10` | ⚙ «Application Service» Model health | `ASVC4` | ⚙ «Application Service» Graph query | uses | counts over the store |
 | `ASVC10` | ⚙ «Application Service» Model health | `ASVC2` | ⚙ «Application Service» Element browsing and editing | uses | every number opens the rows behind it in Browse |
+| `ASVC11` | ⚙ «Application Service» Organisation management | `ASVC1` | ⚙ «Application Service» Metamodel management | uses | applying a version asks the metamodel for the compatibility check |
+| `ASVC2` | ⚙ «Application Service» Element browsing and editing | `ASVC11` | ⚙ «Application Service» Organisation management | scoped by | every element, relationship and link belongs to one organisation |
+| `ASVC7` | ⚙ «Application Service» Branches and merge | `ASVC11` | ⚙ «Application Service» Organisation management | scoped by | a branch belongs to the organisation it was opened in |
 | `ASVC1` | ⚙ «Application Service» Metamodel management | `ACMP1` | ▭ «Application Component» Metamodel registry | realized by | |
+| `ASVC1` | ⚙ «Application Service» Metamodel management | `ACMP13` | ▭ «Application Component» Metamodel lifecycle and organisation services | realized by | the versions, their lifecycle and the compatibility check |
+| `ASVC11` | ⚙ «Application Service» Organisation management | `ACMP13` | ▭ «Application Component» Metamodel lifecycle and organisation services | realized by | |
 | `ASVC2` | ⚙ «Application Service» Element browsing and editing | `ACMP3` | ▭ «Application Component» Repository and graph services | realized by | |
 | `ASVC4` | ⚙ «Application Service» Graph query | `ACMP3` | ▭ «Application Component» Repository and graph services | realized by | |
 | `ASVC5` | ⚙ «Application Service» Grounded question answering | `ACMP5` | ▭ «Application Component» Agent | realized by | |

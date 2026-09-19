@@ -1,5 +1,8 @@
 """Portable DDL. One schema, two engines: DuckDB locally, Lakebase (Postgres) on Databricks.
 
+Every row of content belongs to an organisation (`org_id`, decision 0014) and every
+metamodel row to one version of a pack (`pack_version`, decision 0015).
+
 Types are kept to the four both engines read as written (`VARCHAR`, `INTEGER`,
 `BOOLEAN`, `TIMESTAMP`). JSON is stored as text and parsed in Python, which
 keeps the DDL identical and the rows readable from any SQL client.
@@ -18,6 +21,10 @@ BRANCH_TABLES = [
     "branch_review",
     "reviewer_assignment",
 ]
+# Every table whose rows belong to one organisation (decision 0014): the content, the change
+# log, the branches and everything that hangs off a branch. The organisation table itself and
+# the metamodel tables are shared by every organisation.
+ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES
 
 # Columns added after a table first shipped. The store applies them to an existing
 # one on start-up (ADD COLUMN IF NOT EXISTS, which both engines read), so an older
@@ -34,7 +41,26 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("relationship", "target_work_package", "VARCHAR"),
     ("relationship", "target_note", "VARCHAR"),
     ("change_log", "branch_id", "VARCHAR"),
-]
+    # initiative 15: the metamodel in versions, the content in organisations
+    ("meta_pack", "status", "VARCHAR"),
+    ("meta_pack", "derived_from", "VARCHAR"),
+    ("meta_pack", "notes", "VARCHAR"),
+    ("meta_pack", "properties", "VARCHAR"),
+    ("meta_pack", "created_by", "VARCHAR"),
+    ("meta_pack", "created_at", "TIMESTAMP"),
+    ("meta_pack", "published_by", "VARCHAR"),
+    ("meta_pack", "published_at", "TIMESTAMP"),
+    ("meta_domain", "pack_version", "VARCHAR"),
+    ("meta_domain", "properties", "VARCHAR"),
+    ("meta_element_type", "pack_version", "VARCHAR"),
+    ("meta_element_type", "abstract", "BOOLEAN"),
+    ("meta_element_type", "properties", "VARCHAR"),
+    ("meta_attribute", "pack_version", "VARCHAR"),
+    ("meta_attribute", "rel_type_id", "VARCHAR"),
+    ("meta_attribute", "extra", "VARCHAR"),
+    ("meta_relationship_type", "pack_version", "VARCHAR"),
+    ("meta_relationship_type", "properties", "VARCHAR"),
+] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
             current_state VARCHAR,
@@ -45,6 +71,8 @@ BRANCH_EXTRA_DDL = """,
             branch_id VARCHAR NOT NULL,
             base_version INTEGER NOT NULL,
             op VARCHAR NOT NULL"""
+ORG_COLUMN_DDL = """,
+            org_id VARCHAR"""
 
 DDL: dict[str, str] = {
     "meta_pack": """
@@ -55,7 +83,15 @@ DDL: dict[str, str] = {
             description VARCHAR,
             source VARCHAR,
             provenance_values VARCHAR,
-            loaded_at TIMESTAMP
+            loaded_at TIMESTAMP,
+            status VARCHAR,
+            derived_from VARCHAR,
+            notes VARCHAR,
+            properties VARCHAR,
+            created_by VARCHAR,
+            created_at TIMESTAMP,
+            published_by VARCHAR,
+            published_at TIMESTAMP
         )""",
     "meta_domain": """
         CREATE TABLE IF NOT EXISTS meta_domain (
@@ -64,7 +100,9 @@ DDL: dict[str, str] = {
             name VARCHAR,
             description VARCHAR,
             sort_order INTEGER,
-            notation VARCHAR
+            notation VARCHAR,
+            pack_version VARCHAR,
+            properties VARCHAR
         )""",
     "meta_element_type": """
         CREATE TABLE IF NOT EXISTS meta_element_type (
@@ -84,7 +122,10 @@ DDL: dict[str, str] = {
             type_owner VARCHAR,
             instance_owner VARCHAR,
             sort_order INTEGER,
-            notation VARCHAR
+            notation VARCHAR,
+            pack_version VARCHAR,
+            abstract BOOLEAN,
+            properties VARCHAR
         )""",
     "meta_attribute": """
         CREATE TABLE IF NOT EXISTS meta_attribute (
@@ -97,7 +138,10 @@ DDL: dict[str, str] = {
             enum_values VARCHAR,
             description VARCHAR,
             sensitivity VARCHAR,
-            sort_order INTEGER
+            sort_order INTEGER,
+            pack_version VARCHAR,
+            rel_type_id VARCHAR,
+            extra VARCHAR
         )""",
     "meta_relationship_type": """
         CREATE TABLE IF NOT EXISTS meta_relationship_type (
@@ -113,7 +157,22 @@ DDL: dict[str, str] = {
             description VARCHAR,
             src_max INTEGER,
             dst_max INTEGER,
-            sort_order INTEGER
+            sort_order INTEGER,
+            pack_version VARCHAR,
+            properties VARCHAR
+        )""",
+    "organisation": """
+        CREATE TABLE IF NOT EXISTS organisation (
+            org_id VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            description VARCHAR,
+            pack_id VARCHAR,
+            pack_version VARCHAR,
+            is_default BOOLEAN,
+            copied_from VARCHAR,
+            created_by VARCHAR,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP
         )""",
     "element": """
         CREATE TABLE IF NOT EXISTS element (
@@ -135,6 +194,7 @@ DDL: dict[str, str] = {
             updated_at TIMESTAMP,
             updated_by VARCHAR"""
     + STATE_COLUMNS_DDL
+    + ORG_COLUMN_DDL
     + """
         )""",
     "relationship": """
@@ -155,6 +215,7 @@ DDL: dict[str, str] = {
             updated_at TIMESTAMP,
             updated_by VARCHAR"""
     + STATE_COLUMNS_DDL
+    + ORG_COLUMN_DDL
     + """
         )""",
     "element_link": """
@@ -163,7 +224,8 @@ DDL: dict[str, str] = {
             element_id VARCHAR NOT NULL,
             url VARCHAR NOT NULL,
             label VARCHAR,
-            sort_order INTEGER
+            sort_order INTEGER,
+            org_id VARCHAR
         )""",
     "change_log": """
         CREATE TABLE IF NOT EXISTS change_log (
@@ -176,7 +238,8 @@ DDL: dict[str, str] = {
             before_json VARCHAR,
             after_json VARCHAR,
             version INTEGER,
-            branch_id VARCHAR
+            branch_id VARCHAR,
+            org_id VARCHAR
         )""",
     "branch": """
         CREATE TABLE IF NOT EXISTS branch (
@@ -188,7 +251,8 @@ DDL: dict[str, str] = {
             created_by VARCHAR,
             created_at TIMESTAMP,
             closed_by VARCHAR,
-            closed_at TIMESTAMP
+            closed_at TIMESTAMP,
+            org_id VARCHAR
         )""",
     "branch_element": """
         CREATE TABLE IF NOT EXISTS branch_element (
@@ -211,6 +275,7 @@ DDL: dict[str, str] = {
             updated_by VARCHAR"""
     + STATE_COLUMNS_DDL
     + BRANCH_EXTRA_DDL
+    + ORG_COLUMN_DDL
     + """
         )""",
     "branch_relationship": """
@@ -232,6 +297,7 @@ DDL: dict[str, str] = {
             updated_by VARCHAR"""
     + STATE_COLUMNS_DDL
     + BRANCH_EXTRA_DDL
+    + ORG_COLUMN_DDL
     + """
         )""",
     "branch_link": """
@@ -241,7 +307,8 @@ DDL: dict[str, str] = {
             url VARCHAR NOT NULL,
             label VARCHAR,
             sort_order INTEGER,
-            branch_id VARCHAR NOT NULL
+            branch_id VARCHAR NOT NULL,
+            org_id VARCHAR
         )""",
     "branch_review": """
         CREATE TABLE IF NOT EXISTS branch_review (
@@ -251,14 +318,16 @@ DDL: dict[str, str] = {
             decision VARCHAR NOT NULL,
             type_ids VARCHAR,
             comment VARCHAR,
-            decided_at TIMESTAMP
+            decided_at TIMESTAMP,
+            org_id VARCHAR
         )""",
     "reviewer_assignment": """
         CREATE TABLE IF NOT EXISTS reviewer_assignment (
             type_id VARCHAR NOT NULL,
             reviewer VARCHAR NOT NULL,
             added_by VARCHAR,
-            added_at TIMESTAMP
+            added_at TIMESTAMP,
+            org_id VARCHAR
         )""",
     "proposal": """
         CREATE TABLE IF NOT EXISTS proposal (
@@ -270,7 +339,8 @@ DDL: dict[str, str] = {
             pushback_json VARCHAR,
             status VARCHAR,
             created_by VARCHAR,
-            created_at TIMESTAMP
+            created_at TIMESTAMP,
+            org_id VARCHAR
         )""",
 }
 

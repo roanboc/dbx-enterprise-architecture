@@ -24,3 +24,5 @@ alternative?".
 | [0011](./0011-one-sql-store-two-engines.md) | The store is written once on SQL, and an engine adds only its dialect | Adopted 2026-09-09, for the Requester to confirm; the engine it names replaced by 0013 | `ACMP2`, `ACMP2.1`, `ACMP2.2`, `TSVC4` |
 | [0012](./0012-workspace-groups-looked-up.md) | The forwarded user's groups are read from the workspace, once, and kept for a few minutes | Adopted 2026-09-09, for the Requester to confirm | `ACMP12`, `TSVC5` |
 | [0013](./0013-lakebase-not-the-lakehouse.md) | Lakebase, not the lakehouse, is the store on Databricks | Accepted 2026-09-11 (the Requester's instruction) | `ACMP2.3`, `TSVC6`, `NODE2`, `ART6`, `PLAT2`, `GAP16` |
+| [0014](./0014-organisations-as-a-partition.md) | An organisation is a partition of the one store, not a second store | Adopted 2026-09-19, for the Requester to confirm | `DOBJ2.8`, `ASVC11`, `ACMP2`, `ACMP13` |
+| [0015](./0015-metamodel-versions.md) | The metamodel is kept in versions, and a published version is frozen | Adopted 2026-09-19, for the Requester to confirm | `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP13` |

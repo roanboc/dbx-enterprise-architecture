@@ -12,21 +12,8 @@ from dash import Input, Output, State, dcc, html, no_update
 from ea.models import CURRENT_STATES, TARGET_STATES, Forbidden, ValidationError
 from ea.services.health import COMPLETENESS_FACETS
 from ea.ui import ids
-from ea.ui.components import alert, icon, markdown_editor, modal_title, page_title
+from ea.ui.components import SELECT_COLUMN, alert, icon, markdown_editor, modal_title, page_title
 from ea.ui.context import AppContext, get_context
-
-SELECT_COLUMN = {
-    "field": "sel",
-    "headerName": "",
-    "checkboxSelection": True,
-    "headerCheckboxSelection": True,
-    "width": 46,
-    "pinned": "left",
-    "sortable": False,
-    "filter": False,
-    "resizable": False,
-    "valueFormatter": {"function": "''"},
-}
 
 COLUMNS = [
     {"field": "element_id", "headerName": "id", "width": 190},
@@ -313,7 +300,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         dmc.Select(
                             id=ids.NEW_TYPE,
                             label="Type",
-                            data=[{"value": t.id, "label": t.name} for t in ctx.registry.active_types()],
+                            data=[{"value": t.id, "label": t.name} for t in ctx.registry.concrete_types()],
                             searchable=True,
                             required=True,
                         ),

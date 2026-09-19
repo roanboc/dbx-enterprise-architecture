@@ -13,6 +13,7 @@ from ea.views.model import (
     has_state_markers,
     view_from_ids,
     view_from_impact,
+    view_from_metamodel,
     view_from_neighbourhood,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "has_state_markers",
     "view_from_ids",
     "view_from_impact",
+    "view_from_metamodel",
     "view_from_neighbourhood",
 ]

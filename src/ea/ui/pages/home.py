@@ -58,8 +58,9 @@ def render(ctx: AppContext) -> html.Div:
     return html.Div(
         [
             page_title(
-                f"{reg.pack.name}",
-                f"Pack `{reg.pack.id}` version {reg.pack.version}. Everything below is derived from the metamodel and the content loaded into it.",
+                ctx.organisation().name,
+                f"{reg.pack.name}, version {reg.pack.version} ({reg.pack.status}), pack `{reg.pack.id}`. "
+                "Everything below is derived from that metamodel and the content loaded into this organisation.",
             ),
             dmc.SimpleGrid(
                 [

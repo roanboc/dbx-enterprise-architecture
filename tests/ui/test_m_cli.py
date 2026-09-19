@@ -15,14 +15,14 @@ Three things decide the shape of every scenario:
 | | |
 | - | - |
 | **The database is shared, in file order** | `cli` is one session fixture seeded once. Read-only scenarios come first, `set` next, then `import`, then the branch flow, so nothing an early scenario asserts is moved by a later one. Nothing asserts a total. |
-| **Two global flags cross every command** | `--as` sets the role (`services/roles.py`), `--branch` the overlay (`backend/branching.py`). Both are exercised against a write, not just a read, because a read never proves either. |
+| **Three global flags cross every command** | `--as` sets the role (`services/roles.py`), `--branch` the overlay (`backend/branching.py`), `--org` the organisation (`backend/organisations.py`). Each is exercised against a write, not just a read, because a read never proves any of them. |
 | **The names are prefixed `m-` / `M `** | Every branch, element and reviewer this group creates carries the group letter, so a second group sharing the command line cannot collide with it. |
 
 The branch flow runs as one story across M29 to M37: create, write on the overlay, diff,
 review, approve, send back, merge and abandon — the same sequence group I drives through
 the screens, on the same services.
 
-M41 onward is a second pass over the same nineteen commands, looking for what the first
+M41 onward is a second pass over the same commands, looking for what the first
 one did not touch: the options nobody had run, the branch of a command only an error
 reaches, and the roles nobody had been. It keeps the same state discipline, and its own
 header says what it adds.
@@ -78,6 +78,8 @@ COMMANDS = [
     "summary",
     "branch",
     "reviewers",
+    "metamodel",
+    "org",
 ]
 BRANCH_COMMANDS = ["list", "create", "diff", "merge", "review", "approve", "send-back", "abandon"]
 
@@ -134,7 +136,7 @@ def write_csv(directory, name: str, text: str) -> None:
     group="M",
     title="The help names every command and the two flags that cross them",
     feature="Command line · help",
-    expected="`ea --help` lists all nineteen commands and both global flags; `ea branch --help` lists the eight branch commands.",
+    expected="`ea --help` lists all twenty-one commands and the three global flags; `ea branch --help` lists the eight branch commands.",
 )
 def test_m01_help(cli, record):
     rc, out, ev = run(cli, "--help", limit=120)
@@ -561,16 +563,16 @@ def test_m09_impact(cli, record):
     group="M",
     title="view generates a Mermaid diagram whose every node carries its element identifier",
     feature="Command line · view",
-    expected="`ea view IA-COURSE-CAT` prints a Mermaid flowchart with one subgraph per layer and the element id inside every node label.",
+    expected="`ea view IA-COURSE-CAT` prints a Mermaid flowchart with one shape per element, filled by its architecture layer and carrying the element id inside its label, and no layer boxes.",
 )
 def test_m10_view_mermaid(cli, record):
     rc, out, ev = run(cli, "view", ASSET, "--depth", "1", limit=120)
     must(record, "a diagram was generated", rc == 0 and out.strip().startswith("flowchart"), ev)
     check(
         record,
-        "the nodes are grouped into layers",
-        'subgraph business["Business"]' in out and 'subgraph application["Application"]' in out,
-        "business and application subgraphs",
+        "the layer is the fill colour, not a box around the shapes",
+        "subgraph" not in out and "classDef business fill:" in out and "classDef application fill:" in out,
+        "business and application classDefs, no subgraph",
     )
     check(
         record,
@@ -603,9 +605,9 @@ def test_m10_view_mermaid(cli, record):
 @pytest.mark.scenario(
     scenario_id="M11",
     group="M",
-    title="view renders the same subgraph as Markdown and as a draw.io file, and --out writes it",
+    title="view renders the same diagram as Markdown and as a draw.io file, and --out writes it",
     feature="Command line · view",
-    expected="`--fmt md` wraps the diagram in a titled Markdown section; `--fmt drawio --out` writes an mxfile and reports how much it holds.",
+    expected="`--fmt md` wraps the diagram in a titled Markdown section, under a line naming the colour of each layer it draws; `--fmt drawio --out` writes an mxfile and reports how much it holds.",
 )
 def test_m11_view_formats(cli, record, tmp_path):
     rc, md, md_ev = run(cli, "view", ASSET, "--fmt", "md", limit=120)
@@ -623,6 +625,13 @@ def test_m11_view_formats(cli, record, tmp_path):
         f"{md.count('```')} fence markers",
     )
     check(record, "the fenced diagram is the same flowchart", "flowchart" in md and f"[{ASSET}]" in md, md_ev)
+    intro = md.split("```")[0]
+    check(
+        record,
+        "a line above the diagram says which colour is which layer",
+        "Filled by layer:" in intro and "Application (blue)" in intro,
+        trim(next((ln for ln in intro.splitlines() if "Filled by layer" in ln), "(no such line)"), 160),
+    )
     legend = md.split("```")[2]
     check(
         record,
@@ -3506,3 +3515,255 @@ def test_m64_branch_list_status(cli, record, finding):
             "repository; naming the four statuses, as `--as` names the five roles, would tell the operator "
             "which of the two happened.",
         )
+
+
+# =========================================== organisations and metamodel versions ============
+#
+# Initiative 15: the metamodel is kept in versions and the content in organisations. The
+# scenarios below run the sandbox flow the way an administrator would from a shell — copy the
+# default organisation, draft a version, apply it there, compare, check, publish — and leave the
+# default organisation applying the shipped version, so nothing before or after them moves.
+
+SANDBOX = "m-sandbox"
+SANDBOX_NAME = "M sandbox"
+SHIPPED_VERSION = "higher_education@2026-08-11"
+DRAFT_VERSION = "higher_education@m-trial"
+
+
+@pytest.mark.scenario(
+    scenario_id="M65",
+    group="M",
+    title="org list names the default organisation, and org create copies its content into a sandbox",
+    feature="Command line · org list, org create, --org",
+    expected="`org list` shows the default organisation applying the shipped version; `org create --copy-from default` derives an id from the name, copies every element and relationship, and `--org` reads them there.",
+)
+def test_m65_org_list_and_create(cli, record):
+    rc, listed, ev = run(cli, "org", "list", limit=200)
+    must(record, "the organisations are listed", rc == 0 and listed.strip(), ev)
+    row = next((ln for ln in listed.splitlines() if ln.startswith("default")), "")
+    check(record, "the default organisation is marked as the default", " default " in row, row.strip())
+    check(record, "it applies the shipped version", SHIPPED_VERSION in row, row.strip())
+
+    rc, out, ev = run(cli, "org", "create", SANDBOX_NAME, "--copy-from", "default", limit=200)
+    must(record, "the sandbox was created", rc == 0, ev)
+    check(record, "the id was derived from the name", f"'{SANDBOX}'" in out, trim(out))
+    check(
+        record, "the content was copied", "copied from default" in out and " 0 elements" not in out, trim(out)
+    )
+    check(record, "it says how to work in the sandbox", f"--org {SANDBOX}" in out, trim(out))
+
+    _, there, there_ev = run(cli, "--org", SANDBOX, "stats", limit=120)
+    _, here, _ = run(cli, "stats", limit=120)
+    check(
+        record,
+        "the sandbox holds what the default holds",
+        there.splitlines()[0] == here.splitlines()[0],
+        there_ev,
+    )
+
+    rc_bad, bad, bad_ev = run(cli, "--org", "m-nowhere", "stats", expect=1, limit=140)
+    check(
+        record,
+        "an organisation nobody created is refused by name",
+        rc_bad == 1 and "no organisation with id 'm-nowhere'" in bad,
+        bad_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M66",
+    group="M",
+    title="metamodel versions lists the shipped version as published, and metamodel draft copies it",
+    feature="Command line · metamodel versions, metamodel draft, metamodel diff",
+    expected="`metamodel versions` shows the shipped version published and applied by default; `metamodel draft` creates a named draft from it; `metamodel diff` finds the two identical.",
+)
+def test_m66_metamodel_versions_and_draft(cli, record):
+    rc, listed, ev = run(cli, "metamodel", "versions", limit=200)
+    must(record, "the versions are listed", rc == 0 and SHIPPED_VERSION in listed, ev)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(SHIPPED_VERSION)), "")
+    check(record, "the shipped version is published", " published " in row, row.strip())
+    check(record, "and applied by the default organisation", "default" in row, row.strip())
+
+    rc, out, ev = run(
+        cli,
+        "metamodel",
+        "draft",
+        SHIPPED_VERSION,
+        "--version",
+        "m-trial",
+        "--notes",
+        "the round's trial",
+        limit=160,
+    )
+    must(record, "the draft was created", rc == 0 and f"draft {DRAFT_VERSION} created" in out, ev)
+    _, listed, _ = run(cli, "metamodel", "versions", limit=300)
+    draft_row = next((ln for ln in listed.splitlines() if ln.startswith(DRAFT_VERSION)), "")
+    check(
+        record,
+        "the draft is listed as a draft nobody applies",
+        " draft " in draft_row and "applied by -" in draft_row,
+        draft_row.strip(),
+    )
+    check(record, "it names the version it came from", SHIPPED_VERSION in draft_row, draft_row.strip())
+
+    rc, diff, diff_ev = run(cli, "metamodel", "diff", SHIPPED_VERSION, DRAFT_VERSION, limit=160)
+    check(
+        record,
+        "a fresh draft defines the same metamodel as its source",
+        rc == 0 and "define the same metamodel" in diff,
+        diff_ev,
+    )
+
+    rc_bad, bad, bad_ev = run(
+        cli, "metamodel", "draft", SHIPPED_VERSION, "--version", "m-trial", expect=1, limit=140
+    )
+    check(record, "a version name already taken is refused", rc_bad == 1 and "already exists" in bad, bad_ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M67",
+    group="M",
+    title="org apply checks the content against the version first, and metamodel check reports without applying",
+    feature="Command line · org apply, metamodel check",
+    expected="`org apply` makes the sandbox apply the draft after checking its content; `metamodel check` on the default organisation reports the same check and applies nothing; `org list` shows who applies what.",
+)
+def test_m67_apply_and_check(cli, record):
+    rc, out, ev = run(cli, "org", "apply", SANDBOX, DRAFT_VERSION, limit=200)
+    must(record, "the sandbox applies the draft", rc == 0 and f"now applies {DRAFT_VERSION}" in out, ev)
+    check(
+        record,
+        "the check counted every element and relationship",
+        "elements and" in out and "relationships checked" in out,
+        trim(out),
+    )
+    check(record, "a copy of the same content fits the same definition", "0 errors" in out, trim(out))
+
+    rc, checked, check_ev = run(cli, "metamodel", "check", DRAFT_VERSION, "--org", "default", limit=200)
+    check(
+        record, "the check reports for the organisation named", rc == 0 and "on default:" in checked, check_ev
+    )
+    _, listed, list_ev = run(cli, "org", "list", limit=300)
+    default_row = next((ln for ln in listed.splitlines() if ln.startswith("default")), "")
+    sandbox_row = next((ln for ln in listed.splitlines() if ln.startswith(SANDBOX)), "")
+    check(
+        record,
+        "checking applied nothing to the default organisation",
+        SHIPPED_VERSION in default_row,
+        default_row.strip(),
+    )
+    check(
+        record, "the sandbox is listed applying the draft", DRAFT_VERSION in sandbox_row, sandbox_row.strip()
+    )
+
+    rc_bad, bad, bad_ev = run(cli, "org", "apply", SANDBOX, "higher_education@m-nope", expect=1, limit=140)
+    check(
+        record, "a version nobody stored is refused by name", rc_bad == 1 and "m-nope" in refusal(bad), bad_ev
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M68",
+    group="M",
+    title="metamodel publish freezes the draft, and retire is refused while an organisation applies it",
+    feature="Command line · metamodel publish, metamodel retire, load-pack",
+    expected="`metamodel publish` reports the version published; `metamodel retire` is refused naming the sandbox that applies it; a file that differs from a published version is refused by `load-pack` as frozen.",
+)
+def test_m68_publish_and_retire(cli, record, tmp_path):
+    rc, out, ev = run(cli, "metamodel", "publish", DRAFT_VERSION, limit=120)
+    must(record, "the draft was published", rc == 0 and "is published" in out, ev)
+    rc_bad, bad, bad_ev = run(cli, "metamodel", "retire", DRAFT_VERSION, expect=1, limit=160)
+    check(
+        record,
+        "retiring a version in use is refused, naming who applies it",
+        rc_bad == 1 and SANDBOX in refusal(bad),
+        bad_ev,
+    )
+
+    exported = tmp_path / "m-trial.yaml"
+    run(cli, "export-pack", str(exported), "-v", DRAFT_VERSION, limit=120)
+    text = exported.read_text(encoding="utf-8").replace(
+        "name: Higher Education EA Metamodel", "name: M edited edition", 1
+    )
+    exported.write_text(text, encoding="utf-8")
+    rc_frozen, frozen, frozen_ev = run(cli, "--org", SANDBOX, "load-pack", str(exported), expect=1, limit=160)
+    check(
+        record,
+        "a file that differs from a published version is refused as frozen",
+        rc_frozen == 1 and "frozen" in refusal(frozen),
+        frozen_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M69",
+    group="M",
+    title="org rename and org default change an organisation's name and which one the application opens",
+    feature="Command line · org rename, org default",
+    expected="`org rename` reports the new name and `org list` shows it; `org default` moves the default to the sandbox and back, and the listing's default column follows.",
+)
+def test_m69_rename_and_default(cli, record):
+    rc, out, ev = run(cli, "org", "rename", SANDBOX, "M sandbox, renamed", limit=120)
+    must(record, "the sandbox was renamed", rc == 0 and "'M sandbox, renamed'" in out, ev)
+    _, listed, list_ev = run(cli, "org", "list", limit=300)
+    check(record, "the listing shows the new name", "M sandbox, renamed" in listed, list_ev)
+
+    rc, out, ev = run(cli, "org", "default", SANDBOX, limit=120)
+    must(record, "the default moved to the sandbox", rc == 0 and "is the default" in out, ev)
+    _, listed, _ = run(cli, "org", "list", limit=300)
+    first = listed.splitlines()[0] if listed.strip() else ""
+    check(record, "the default organisation is listed first", first.startswith(SANDBOX), first.strip())
+    _, back, back_ev = run(cli, "org", "default", "default", limit=120)
+    check(record, "and it moves back", "is the default" in back, back_ev)
+    _, listed, _ = run(cli, "org", "list", limit=300)
+    check(
+        record,
+        "the default organisation is the first row again",
+        listed.splitlines()[0].startswith("default"),
+        listed.splitlines()[0].strip(),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M70",
+    group="M",
+    title="org delete removes a sandbox and everything in it, and never the default; metamodel delete removes a draft nobody applies",
+    feature="Command line · org delete, metamodel delete",
+    expected="`org delete default` is refused; `org delete m-sandbox` removes it and `--org m-sandbox` is then unknown; `metamodel delete` refuses a published version and removes a spare draft.",
+)
+def test_m70_delete(cli, record):
+    rc_bad, bad, bad_ev = run(cli, "org", "delete", "default", expect=1, limit=140)
+    check(
+        record,
+        "the default organisation cannot be deleted",
+        rc_bad == 1 and "default" in refusal(bad),
+        bad_ev,
+    )
+    rc, out, ev = run(cli, "org", "delete", SANDBOX, limit=120)
+    must(record, "the sandbox was deleted", rc == 0 and "deleted" in out, ev)
+    rc_gone, gone, gone_ev = run(cli, "--org", SANDBOX, "stats", expect=1, limit=140)
+    check(
+        record,
+        "the sandbox is unknown afterwards",
+        rc_gone == 1 and f"no organisation with id '{SANDBOX}'" in gone,
+        gone_ev,
+    )
+
+    rc_pub, pub, pub_ev = run(cli, "metamodel", "delete", DRAFT_VERSION, expect=1, limit=140)
+    check(
+        record,
+        "a published version is not deleted",
+        rc_pub == 1 and "retired, not deleted" in refusal(pub),
+        pub_ev,
+    )
+    run(cli, "metamodel", "draft", SHIPPED_VERSION, "--version", "m-spare", limit=120)
+    rc, out, ev = run(cli, "metamodel", "delete", "higher_education@m-spare", limit=120)
+    check(record, "a spare draft nobody applies is deleted", rc == 0 and "deleted" in out, ev)
+    _, listed, list_ev = run(cli, "metamodel", "versions", limit=300)
+    check(record, "the listing no longer holds it", "m-spare" not in listed, list_ev)
+    rc_retired, retired, retired_ev = run(cli, "metamodel", "retire", DRAFT_VERSION, limit=120)
+    check(
+        record,
+        "the round's published trial is retired now that nothing applies it",
+        rc_retired == 0 and "retired" in retired,
+        retired_ev,
+    )
