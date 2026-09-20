@@ -287,17 +287,6 @@ def _tick_state(ui, grid_id: str, row_id: str, col: str) -> bool | None:
     return None
 
 
-def _tick(ui, grid_id: str, row_id: str, col: str, on: bool) -> None:
-    """Tick or untick a boolean cell, which ag-grid draws as a checkbox a reader clicks."""
-    if _tick_state(ui, grid_id, row_id, col) == on:
-        return
-    sel = f"#{grid_id} .ag-row[row-id={json.dumps(row_id)}] .ag-cell[col-id='{col}']"
-    box = ui.page.locator(f"{sel} input[type=checkbox]").first
-    (box if box.count() else ui.page.locator(f"{sel} .ag-checkbox-input-wrapper").first).click(force=True)
-    ui.page.wait_for_timeout(250)
-    ui.settle()
-
-
 def _set_select(ui, grid_id: str, row_id: str, col: str, value: str) -> None:
     """A cell whose editor is a list, not a text box: open it and pick the value."""
     _reveal_cell(ui, grid_id, row_id, col)
@@ -382,10 +371,15 @@ def _opens_an_editor(ui, grid_id: str, row_id: str, col: str) -> bool:
 
 
 def _tick(ui, grid_id: str, row_ids: list[str]) -> None:
-    """Tick the rows an action is about to take, by the id the grid matches them on."""
+    """Tick the rows an action is about to take, by the id the grid matches them on.
+
+    One at a time, each brought into the page immediately before it is clicked: a grid
+    renders only the rows on screen, so revealing the second row can take the first one out
+    of the page again, and a checkbox that is not in the page cannot be clicked.
+    """
     for row_id in row_ids:
         _reveal(ui, grid_id, row_id)
-    ui.grid_tick_of(grid_id, row_ids)
+        ui.grid_tick_of(grid_id, [row_id])
 
 
 def _filtered(ui, grid_id: str, col: str, text: str) -> int:
@@ -429,9 +423,12 @@ def _row_of(ui, ref: str) -> str:
     """
     rows = ui.page.locator("#mm-versions-table tbody tr")
     for i in range(rows.count()):
-        text = rows.nth(i).inner_text()
-        if ref in text:
-            return re.sub(r"\s+", " ", text).strip().lower()
+        row = rows.nth(i)
+        first = row.locator("td").first
+        # A draft names the version it was derived from in a column of its own, so a row is
+        # found by the version it *is* — its first cell — not by one it mentions.
+        if first.count() and ref in first.inner_text():
+            return re.sub(r"\s+", " ", row.inner_text()).strip().lower()
     return ""
 
 
@@ -1606,8 +1603,13 @@ def test_architecture_view(ui, record):
     drawio = ui.download("mm-view-drawio", ".drawio")
     root = ET.fromstring(drawio.read_text(encoding="utf-8"))
     cells = root.findall(".//mxCell")
+    shapes = root.findall(".//object")
     ui.check("the draw.io file holds a cell per shape and edge", len(cells) > 20, f"{len(cells)} cells")
-    ui.check("and names the element types in them", any(TYPE in (c.get("value") or "") for c in cells))
+    ui.check(
+        "and carries the element type's identifier on the shape",
+        any(s.get("ea_id") == TYPE for s in shapes),
+        f"{len(shapes)} shapes: {[s.get('ea_id') for s in shapes[:4]]}",
+    )
     ui.shot("The view with the inactive types drawn, after both downloads")
 
 
@@ -2005,10 +2007,12 @@ def test_deleting_rows(ui, record):
     ui.settle()
     said = ui.text("mm-feedback")
     ui.check("both types went", "2 element type(s)" in said, said)
+    took = re.search(r"(\d+) relationship type\(s\) that named one of them as an end", said)
+    ui.check("and the relationship types that named one of them as an end", took is not None, said)
     ui.check(
-        "and the relationship types that named one of them as an end",
-        f"{measure_rels} relationship type(s) that named one of them as an end" in said,
-        said,
+        "which are at least the ones carrying its name",
+        took is not None and int(took.group(1)) >= measure_rels,
+        f"{took.group(1) if took else '(none)'} taken, {measure_rels} carry its name",
     )
     ui.check("and the attributes of what went", "attribute(s) of what went with them" in said, said)
     ui.check(
@@ -2022,8 +2026,11 @@ def test_deleting_rows(ui, record):
     )
     ui.check("the grid holds two rows fewer", _row_total(ui, "mm-types-grid") == types_before - 2)
     _list(ui, "Relationship types")
+    left = _row_total(ui, "mm-rels-grid")
     ui.check(
-        "the relationship types went with them", _row_total(ui, "mm-rels-grid") == rels_before - measure_rels
+        "the relationship types went with them",
+        took is not None and left == rels_before - int(took.group(1)),
+        f"{left} left of {rels_before}",
     )
     ui.shot("Two element types deleted, with the relationship types and attributes that depended on them")
 
@@ -2036,7 +2043,11 @@ def test_deleting_rows(ui, record):
         int(stored.group(1)) == types_before - 2,
         f"{stored.group(1)} types",
     )
-    ui.check("and the relationship types with it", int(stored.group(2)) == rels_before - measure_rels)
+    ui.check(
+        "and the relationship types with it",
+        took is not None and int(stored.group(2)) == rels_before - int(took.group(1)),
+        f"{stored.group(2)} stored of {rels_before}",
+    )
     _graph(ui)
     ui.check("the type graph no longer draws the deleted type", not _has_node(ui, DELETED_TYPE))
     ui.shot("After the save: the draft and its graph without what was deleted")

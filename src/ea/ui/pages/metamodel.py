@@ -30,7 +30,7 @@ from ea.metamodel.loader import pack_from_dict
 from ea.models import ANY, ATTRIBUTE_TYPES, ConflictError, Forbidden, NotFoundError, Pack, PackVersion
 from ea.services.roles import a_role
 from ea.ui import graph as gp
-from ea.ui import ids
+from ea.ui import ids, layout
 from ea.ui.components import (
     FALLBACK_HEX,
     SELECT_COLUMN,
@@ -805,6 +805,7 @@ def _graph_panel(reg: Registry) -> Any:
                 extra_controls=[
                     dmc.Select(
                         id=ids.MM_DOMAIN_FILTER,
+                        allowDeselect=False,
                         **{"aria-label": "Domain"},
                         data=[{"value": "", "label": "All domains"}]
                         + [{"value": d.id, "label": d.name} for d in reg.pack.domains],
@@ -845,6 +846,7 @@ def _view_panel(reg: Registry) -> Any:
                 [
                     dmc.Select(
                         id=ids.MM_VIEW_DOMAIN,
+                        allowDeselect=False,
                         **{"aria-label": "Domain drawn"},
                         data=[{"value": "", "label": "All domains"}]
                         + [{"value": d.id, "label": d.name} for d in reg.pack.domains],
@@ -1047,6 +1049,7 @@ def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
                         [
                             dmc.Select(
                                 id=ids.MM_CMP_A,
+                                allowDeselect=False,
                                 label="From",
                                 data=options,
                                 value=cmp_from,
@@ -1056,6 +1059,7 @@ def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
                             ),
                             dmc.Select(
                                 id=ids.MM_CMP_B,
+                                allowDeselect=False,
                                 label="To",
                                 data=options,
                                 value=cmp_to,
@@ -1484,6 +1488,9 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_VERSION, "data", allow_duplicate=True),
         Output(ids.MM_VERSION_SELECT, "data", allow_duplicate=True),
         Output(ids.MM_VERSION_SELECT, "value", allow_duplicate=True),
+        # Loading a file and creating a draft can both change what the organisation applies,
+        # and the header says which version that is. It is written wherever the page is.
+        Output(ids.PACK_BADGE, "children", allow_duplicate=True),
     ]
 
     def rerender(ctx: AppContext, ref: str, tab: str, list_tab: str, message: Any = None) -> tuple:
@@ -1495,6 +1502,7 @@ def register(app: dash.Dash) -> None:
             reg.pack.ref,
             _version_options(ctx),
             reg.pack.ref,
+            layout.pack_badge(ctx.pack_label()),
         )
 
     @app.callback(
@@ -1507,12 +1515,12 @@ def register(app: dash.Dash) -> None:
     )
     def switch_version(value, shown, tab, list_tab):
         if not value or value == shown:
-            return (no_update,) * 6
+            return (no_update,) * 7
         ctx = get_context()
         try:
             out = rerender(ctx, value, tab, list_tab)
         except NotFoundError as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 5
+            return (alert(str(exc), "red"),) + (no_update,) * 6
         return out
 
     @app.callback(
@@ -1754,27 +1762,27 @@ def register(app: dash.Dash) -> None:
     )
     def save(n, *args):
         if not n:
-            return (no_update,) * 8
+            return (no_update,) * 9
         *grids, ref, tab, list_tab = args
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
             return (alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),) + (
                 no_update,
-            ) * 7
+            ) * 8
         try:
             shown = ctx.metamodels.get(ref)
         except NotFoundError as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 7
+            return (alert(str(exc), "red"),) + (no_update,) * 8
         if shown.status != "draft":
             # Frozen: the edits go into a draft, named in the dialog that opens.
-            return (no_update,) * 6 + (True, ctx.metamodels.suggest_version(shown.id))
+            return (no_update,) * 7 + (True, ctx.metamodels.suggest_version(shown.id))
         try:
             pack = pack_from_dict(_pack_from_states(shown, tuple(grids)))
             pack.version, pack.status, pack.derived_from = shown.version, "draft", shown.derived_from
             ctx.metamodels.save(pack, ctx.actor)
             ctx.reload_registry()
         except (ValueError, KeyError, ConflictError, Forbidden) as exc:
-            return (alert(f"Not saved: {exc}", "red"),) + (no_update,) * 7
+            return (alert(f"Not saved: {exc}", "red"),) + (no_update,) * 8
         return rerender(
             ctx,
             pack.ref,
@@ -1804,7 +1812,7 @@ def register(app: dash.Dash) -> None:
     )
     def create_draft(n, *args):
         if not n:
-            return (no_update,) * 8
+            return (no_update,) * 9
         *grids, version, notes, apply_here, ref, tab, list_tab = args
         ctx = get_context()
         try:
@@ -1821,7 +1829,7 @@ def register(app: dash.Dash) -> None:
                 message += f" Applied to {ctx.organisation().name}: {report.summary()}."
             ctx.reload_registry()
         except (ValueError, KeyError, ConflictError, Forbidden, NotFoundError) as exc:
-            return (no_update,) * 6 + (no_update, alert(f"Not created: {exc}", "red"))
+            return (no_update,) * 7 + (no_update, alert(f"Not created: {exc}", "red"))
         return rerender(ctx, pack.ref, tab, list_tab, alert(message, "green")) + (False, None)
 
     @app.callback(
@@ -1846,20 +1854,20 @@ def register(app: dash.Dash) -> None:
     )
     def reload(contents, filename, tab, list_tab):
         if not contents:
-            return (no_update,) * 6
+            return (no_update,) * 7
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
             # Loading writes a version into the store: it is an edit, and the button being
             # visible is not permission to make one.
             return (alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),) + (
                 no_update,
-            ) * 5
+            ) * 6
         try:
             _, b64 = contents.split(",", 1)
             data = yaml.safe_load(base64.b64decode(b64).decode("utf-8")) or {}
             pack = ctx.metamodels.save(pack_from_dict(data), ctx.actor)
         except (OSError, ValueError, KeyError, yaml.YAMLError, ConflictError, Forbidden) as exc:
-            return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 5
+            return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 6
         message = f"Loaded {pack.ref} ({pack.status}) from {filename}."
         colour = "green"
         org = ctx.organisation()
@@ -1887,10 +1895,10 @@ def register(app: dash.Dash) -> None:
     def version_action(clicks, tab, list_tab):
         trigger = dash_ctx.triggered_id
         if not isinstance(trigger, dict) or not any(n for n in (clicks or []) if n):
-            return (no_update,) * 10
+            return (no_update,) * 11
         ctx = get_context()
         action, ref = trigger.get("action"), trigger.get("ref")
-        quiet = (no_update,) * 6
+        quiet = (no_update,) * 7
         try:
             if action == "show":
                 return rerender(ctx, ref, tab, list_tab) + (no_update, no_update, no_update, no_update)
@@ -1931,8 +1939,8 @@ def register(app: dash.Dash) -> None:
                 )
                 return quiet + (True, dmc.Text(what, size="sm"), {"action": action, "ref": ref}, no_update)
         except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 9
-        return (no_update,) * 10
+            return (alert(str(exc), "red"),) + (no_update,) * 10
+        return (no_update,) * 11
 
     @app.callback(
         *body_outputs,
@@ -1946,12 +1954,12 @@ def register(app: dash.Dash) -> None:
     )
     def confirmed(n, pending, shown, tab, list_tab):
         if not n or not pending:
-            return (no_update,) * 7
+            return (no_update,) * 8
         ctx = get_context()
         action, ref = pending.get("action"), pending.get("ref")
         if action not in ("retire", "delete"):
             # Anything else is a dialog nobody wrote: never fall through to deleting a version.
-            return (no_update,) * 6 + (False,)
+            return (no_update,) * 7 + (False,)
         try:
             if action == "retire":
                 ctx.metamodels.retire(ref, ctx.actor)
@@ -1961,7 +1969,7 @@ def register(app: dash.Dash) -> None:
                 message = f"{ref} deleted."
             ctx.reload_registry()
         except (ConflictError, Forbidden, NotFoundError) as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 5 + (False,)
+            return (alert(str(exc), "red"),) + (no_update,) * 6 + (False,)
         show = shown if not (action == "delete" and shown == ref) else ctx.registry.pack.ref
         return rerender(ctx, show, tab, list_tab, alert(message, "green")) + (False,)
 

@@ -206,6 +206,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                                     ),
                                     dmc.Select(
                                         id=ids.ORGS_NEW_VERSION,
+                                        allowDeselect=False,
                                         label="Metamodel version it applies",
                                         data=versions,
                                         value=preselected or (default.pack_ref if default else None),
@@ -214,6 +215,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                                     ),
                                     dmc.Select(
                                         id=ids.ORGS_NEW_COPY,
+                                        allowDeselect=False,
                                         label="Copy the content of",
                                         data=[{"value": "", "label": "Nobody: start empty"}]
                                         + _org_options(ctx),
@@ -255,6 +257,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                                 [
                                     dmc.Select(
                                         id=ids.ORGS_APPLY_ORG,
+                                        allowDeselect=False,
                                         label="Organisation",
                                         data=_org_options(ctx),
                                         value=ctx.org(),
@@ -262,6 +265,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                                     ),
                                     dmc.Select(
                                         id=ids.ORGS_APPLY_VERSION,
+                                        allowDeselect=False,
                                         label="Version",
                                         data=versions,
                                         value=preselected or ctx.registry.pack.ref,

@@ -315,7 +315,9 @@ def test_apply_a_version(ui, record):
     applied = ui.text("orgs-apply-result")
     feedback = ui.text("orgs-feedback")
     ui.must(
-        "the version was applied", f"{SANDBOX} now applies {ref}" in feedback, feedback or "(no feedback)"
+        "the version was applied",
+        f"{SANDBOX} now applies {ref}" in feedback,
+        feedback or applied or "(nothing said anywhere)",
     )
     ui.check("the report says it was applied", applied.startswith("Applied."), applied[:200])
     ui.check(
