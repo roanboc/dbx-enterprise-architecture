@@ -3,8 +3,8 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** not yet built — this document is what is put to the Requester
-at the **Understanding** gate.
+**Delivered as:** branch `claude/import-module-improvements-wgrfgm`, restarted
+from `main` after initiative 17 merged.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 17.
 **Target plateau:** `PLAT3` — the roadmap's step 3, provenance and feeds.
@@ -87,15 +87,18 @@ is an ordinary initiative at the **Understanding** gate.
 | 2_business | **One change to assess.** Review before merge is a business rule, and a feed configured onto `main` writes without a human. The rule is not removed — it is made a property of the feed, and `BPROC1` **Load content from a source** gains an unattended path. The information architect should see this row before anything is built. |
 | 3_information | Two objects added under `DOBJ3` **Exchange and audit**: `DOBJ3.7` Import run and `DOBJ3.8` Source feed. `DOBJ3.4` Change log is re-worded: it records a bulk import as a summary today, and would record before-images for a run that may be reversed. |
 | 4_application | `ASVC12` and `ACMP14` added; `ASVC3` and `ACMP4` re-worded for the deletion indicator they would read. `ACMP6`'s page list gains a Feeds page; `ACMP7`'s command list gains `ea feed …`. |
-| 5_technology | **One open question, not a change.** The store's connection is Lakebase (Postgres); a catalogue table is a different access path. Whether the deployed application can read one, and under which identity, is **not verified** and is the first thing to settle. |
+| 5_technology | **No change, and the open question is closed.** The application cannot read a catalogue table and will not learn how: decision [0020](../decisions/0020-landing-tables-live-in-the-store.md) puts a landing table in the store's own database, in a schema of its own, reached over the connection the store already holds. No warehouse, no new dependency, no new identity. `NODE2` gains a clause naming the landing schema. |
 | Transition | `GAP4` **No source feeds** closes. `GAP19` opens and closes with this initiative. Roadmap step 3 moves from waiting to in flight — but only for the part that does not depend on the per-type source-of-record table agreed outside the repository, which still gates the rest. |
 
 ## What is not settled, and would be before building
 
-1. **Can the deployed application read a catalogue table at all?** Unverified.
-   If it cannot, the landing tables must live in Lakebase and a platform job
-   must write them there — which changes the shape of the whole item, not a
-   detail of it. **This is the first thing to establish.**
+1. ~~Can the deployed application read a catalogue table at all?~~ **Settled,
+   and it cannot.** Decision 0013 retired the warehouse, and a catalogue read
+   needs one under any name. Decision
+   [0020](../decisions/0020-landing-tables-live-in-the-store.md) puts the
+   landing table in the store's own database instead, which costs no dependency,
+   resource, identity or grant — and lets the unit suite cover a feed on both
+   engines, because the boundary is a table shape rather than a platform API.
 2. **The clone-and-drop window.** The Requester's design — clone the landing
    table, drop the landing table, import from the clone, so the landing table
    only ever holds pending rows — is sound and gives a clear pending set. What
@@ -126,5 +129,6 @@ would have to cover the feed runner.
 
 ## Approvals
 
-Understanding has not been granted. This document is what is put to the
-Requester for it; a row is written here when it is.
+| Gate | Approved by | Date | What was approved |
+| ---- | ----------- | ---- | ----------------- |
+| **Understanding** | The product owner (the Requester), in the session | 2026-09-20 | This document, presented with the three findings that shaped it — deletion needs no new mechanism, reversal is impossible from what is logged today, and the catalogue read was unverified — and with the three calls recorded above. Granted after initiative 17 merged |

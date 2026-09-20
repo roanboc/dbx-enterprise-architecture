@@ -26,6 +26,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `target_work_package` | the id of the work package (initiative) that carries the change |
 | `target_note` | why, and into what for `merge` |
 | `source_ref`, `origin`, `source_system` | optional provenance overrides; `source_system` overrides `--source` for that row |
+| `operation` | `upsert` (default) loads the row; `delete` says the source no longer holds it |
 | anything else | an attribute; declared attributes are typed from the pack, others are kept as text |
 
 **relationships.csv**
@@ -38,6 +39,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `current_state`, `target_state`, `target_work_package`, `target_note` | the same state columns as elements, optional |
 | `status`, `source_ref` | optional |
 | `source_system` | which source declared the edge; optional, and it overrides `--source` for that row. A relationship's identity is derived from it, so a file that carries it updates the edge instead of creating a second one |
+| `operation` | `upsert` (default) loads the row; `delete` retires the edge |
 | anything else | an attribute of the relationship |
 
 **links.csv**: `element_id`, `url`, `label`.
@@ -147,6 +149,30 @@ Two things avoid all of it. Format the identifier columns as text before saving,
 both the scientific notation and the lost zeros. And set `id_prefix`, which makes every
 identifier non-numeric (`CMDB-007`) so a spreadsheet has nothing to reinterpret — worth doing
 for the identity reasons below anyway.
+
+## Saying that something is gone
+
+A row whose `operation` is `delete` says the source no longer holds what it names. The row
+need carry nothing else — a source deleting something says it is gone, it does not describe it
+again — so `id,operation` with `E1,delete` is a complete deletion row. A relationship's row
+still carries its two ends and its type, because that is what its identity is derived from.
+
+**What `delete` does is retire, not remove.** The element keeps its relationships, its history
+and its place in every view; its `status` becomes `retired`. Three things follow, and they are
+why this is the only mode today:
+
+- **It is reversible.** Loading the row again without the indicator brings it back. A feed that
+  deletes half an estate by mistake is a re-run away from correct.
+- **Nothing is left pointing at nothing.** Removing an element would leave every relationship
+  that ended on it dangling, and what should happen to those is not yet settled.
+- **A re-sent deletion is not work.** Retiring what is already retired writes nothing and is
+  not counted, so a feed re-sending its deletions every night stays quiet.
+
+`deletion_mode` in the mapping names what a source may do. It takes `retire` today; a source
+naming anything else is refused with the reason rather than quietly retiring instead.
+
+Deleting something the model does not hold is a `delete_unknown` warning, not an error: a
+source is allowed to be sure about what it no longer has.
 
 ## Which column is the identity
 

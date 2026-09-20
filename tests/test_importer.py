@@ -416,3 +416,109 @@ def test_an_ordinary_identifier_is_not_called_suspect(backend, registry, tmp_pat
         assert not spreadsheet_damaged(good), good
     for bad in ("1.23457E+14", "4.5e-3", "-2.5E+10", "1E+20"):
         assert spreadsheet_damaged(bad), bad
+
+
+def test_a_delete_row_retires_and_need_carry_only_the_identifier(backend, registry, tmp_path):
+    """A source deleting a row says the thing is gone; it does not describe it again. Requiring
+    a type and a name would refuse the one row shape a deletion naturally has."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\nE2,data_entity,Two\n")
+    import_directory(backend, registry, d, "s", actor="t")
+
+    (d / "elements.csv").write_text("id,operation\nE1,delete\n")
+    report = import_directory(backend, registry, d, "s", actor="t")
+    assert report.ok and report.elements_retired == 1
+    assert "1 retired" in report.summary()
+
+    e1 = backend.get_element("E1")
+    assert e1 is not None and e1.status == "retired"  # retired, not removed
+    assert backend.count_elements() == 2
+    assert backend.get_element("E2").status == "approved"  # nothing else touched
+
+
+def test_retiring_is_undone_by_loading_the_row_again(backend, registry, tmp_path):
+    """Which is the point of retiring rather than removing: a feed glitch is recoverable."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\n")
+    import_directory(backend, registry, d, "s", actor="t")
+    (d / "elements.csv").write_text("id,operation\nE1,delete\n")
+    import_directory(backend, registry, d, "s", actor="t")
+    assert backend.get_element("E1").status == "retired"
+
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\n")
+    import_directory(backend, registry, d, "s", actor="t")
+    assert backend.get_element("E1").status == "approved"
+
+
+def test_a_delete_row_keeps_the_relationships_of_what_it_retires(backend, registry, tmp_path):
+    """The reason retiring is the only mode today: removing the element would leave this edge
+    pointing at nothing, and what should happen to it is not yet settled."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\nE2,data_entity,Two\n")
+    (d / "relationships.csv").write_text("src_id,rel_type,dst_id\nE1,encapsulates,E2\n")
+    import_directory(backend, registry, d, "s", actor="t")
+
+    (d / "elements.csv").write_text("id,operation\nE1,delete\n")
+    (d / "relationships.csv").write_text("src_id,rel_type,dst_id\n")
+    import_directory(backend, registry, d, "s", actor="t")
+    assert backend.count_relationships() == 1
+
+
+def test_a_relationship_can_be_deleted_by_its_ends(backend, registry, tmp_path):
+    """An edge's identity is derived from its ends and its type, so a delete row carries them
+    anyway — there is nothing to look up, only a state to set."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\nE2,data_entity,Two\n")
+    (d / "relationships.csv").write_text("src_id,rel_type,dst_id\nE1,encapsulates,E2\n")
+    import_directory(backend, registry, d, "s", actor="t")
+
+    (d / "relationships.csv").write_text("src_id,rel_type,dst_id,operation\nE1,encapsulates,E2,delete\n")
+    report = import_directory(backend, registry, d, "s", actor="t")
+    assert report.relationships_retired == 1
+    assert backend.find_relationships(limit=5)[0].status == "retired"
+    assert backend.count_relationships() == 1  # kept, as the element is
+
+
+def test_deleting_something_the_model_does_not_hold_is_reported(backend, registry, tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,operation\nGHOST,delete\n")
+    report = import_directory(backend, registry, d, "s", actor="t")
+    assert [i.code for i in report.issues] == ["delete_unknown"]
+    assert report.ok and report.elements_retired == 0
+
+
+def test_deleting_what_is_already_retired_changes_nothing(backend, registry, tmp_path):
+    """A feed re-sending its deletions every night must not report them as work every night."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,logical_data_component,One\n")
+    import_directory(backend, registry, d, "s", actor="t")
+    (d / "elements.csv").write_text("id,operation\nE1,delete\n")
+    first = import_directory(backend, registry, d, "s", actor="t")
+    again = import_directory(backend, registry, d, "s", actor="t")
+    assert (first.elements_retired, again.elements_retired) == (1, 0)
+    assert backend.get_element("E1").version == 2  # not bumped by the second run
+
+
+def test_an_unknown_operation_loads_the_row_and_says_so(backend, registry, tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name,operation\nE1,data_entity,One,remove\n")
+    report = import_directory(backend, registry, d, "s", actor="t")
+    assert [i.code for i in report.issues] == ["unknown_operation"]
+    assert backend.get_element("E1").status == "approved"
+
+
+def test_a_deletion_mode_that_removes_is_refused_with_the_reason(backend, registry, tmp_path):
+    import pytest
+
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,data_entity,One\n")
+    with pytest.raises(ValueError, match="endpoint went with it"):
+        import_directory(backend, registry, d, "s", Mapping(deletion_mode="delete"), actor="t")

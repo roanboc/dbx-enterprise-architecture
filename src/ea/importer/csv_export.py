@@ -24,7 +24,7 @@ from typing import Any, TextIO
 
 from ea import capacity
 from ea.backend.base import DatabaseBackend
-from ea.importer.mapping import CORE_LINK_COLUMNS
+from ea.importer.mapping import CORE_LINK_COLUMNS, OPERATIONS
 from ea.metamodel.registry import Registry
 from ea.models import CURRENT_STATES, ELEMENT_STATUSES, TARGET_STATES, Element, Relationship
 
@@ -106,6 +106,7 @@ CONTRACT_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
     ("elements.csv", "source_system", "string", "Which source declared the row; overrides --source"),
     ("elements.csv", "source_ref", "string", "The source's own reference, kept unprefixed"),
     ("elements.csv", "origin", "string", "Provenance override"),
+    ("elements.csv", "operation", "enum", "upsert (default) loads the row; delete retires what it names"),
     ("relationships.csv", "src_id", "string", "Element id, or key when the mapping merges on the key"),
     ("relationships.csv", "rel_type", "string", "Relationship type id, or its name as the pack writes it"),
     ("relationships.csv", "dst_id", "string", "Element id, or key when the mapping merges on the key"),
@@ -117,6 +118,7 @@ CONTRACT_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
     ("relationships.csv", "target_note", "string", "As on an element"),
     ("relationships.csv", "source_system", "string", "A relationship's identity is derived from it"),
     ("relationships.csv", "source_ref", "string", "The source's own reference"),
+    ("relationships.csv", "operation", "enum", "upsert (default) loads the row; delete retires the edge"),
     ("links.csv", "element_id", "string", "The element the link belongs to"),
     ("links.csv", "url", "string", "http, https or mailto"),
     ("links.csv", "label", "string", "What the link is called"),
@@ -124,6 +126,7 @@ CONTRACT_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
 
 #: The vocabularies the engine fixes, named per column rather than repeated in prose.
 CONTRACT_VOCABULARY = {
+    "operation": OPERATIONS,
     "status": ELEMENT_STATUSES,
     "current_state": CURRENT_STATES,
     "target_state": TARGET_STATES,

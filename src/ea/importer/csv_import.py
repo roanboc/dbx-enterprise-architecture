@@ -19,6 +19,8 @@ from ea.backend.branching import MAIN, current_branch
 from ea.importer.mapping import (
     CORE_ELEMENT_COLUMNS,
     CORE_RELATIONSHIP_COLUMNS,
+    DELETION_MODES,
+    OPERATIONS,
     Mapping,
     derive_current_state,
 )
@@ -277,6 +279,24 @@ def keys_in(frames: dict[str, list[tuple[str, pd.DataFrame]]], mapping: Mapping)
     return out
 
 
+def _operation(rec: dict, report: ImportReport, row: int, fname: str, entity: str) -> str:
+    """What the row says it is doing: `upsert` (the default) or `delete`."""
+    op = (rec.get("operation") or "upsert").strip().lower()
+    if op not in OPERATIONS:
+        report.add_issue(
+            Issue(
+                "warning",
+                "unknown_operation",
+                f"operation {op!r} not recognised; the row was loaded as content",
+                row=row,
+                entity=entity,
+                file=fname,
+            )
+        )
+        return "upsert"
+    return op
+
+
 def _resolve_type(registry: Registry, mapping: Mapping, label: str):
     if label in mapping.type_names:
         return registry.get_type(mapping.type_names[label])
@@ -290,10 +310,11 @@ def build_elements(
     source_system: str,
     report: ImportReport,
     by_key: dict[str, str] | None = None,
-) -> tuple[list[Element], list[Link]]:
+) -> tuple[list[Element], list[Link], list[tuple[str, int, str]]]:
     by_key = by_key or {}
     elements: dict[str, Element] = {}
     links: list[Link] = []
+    deletions: list[tuple[str, int, str]] = []
     for fname, raw in frames:
         df = _rename(raw, mapping.element_columns)
         if mapping.type_from_filename and "type" not in df.columns:
@@ -339,6 +360,12 @@ def build_elements(
                     )
                 )
                 report.elements_skipped += 1
+                continue
+            if _operation(rec, report, i, fname, eid) == "delete":
+                # A source deleting a row sends the identifier and little else — it is saying
+                # the thing is gone, not describing it. Requiring a type and a name here would
+                # refuse the one row shape a deletion naturally has.
+                deletions.append((eid, i, fname))
                 continue
             t = _resolve_type(registry, mapping, rec.get("type", ""))
             if t is None:
@@ -411,7 +438,7 @@ def build_elements(
             for j, url in enumerate(u for u in _SPLIT_LINKS.split(rec.get("links") or "") if u):
                 report.links_read += 1
                 links.append(Link(element_id=eid, url=url, label="", sort_order=j))
-    return list(elements.values()), links
+    return list(elements.values()), links, deletions
 
 
 def build_relationships(
@@ -456,6 +483,11 @@ def build_relationships(
             label = mapping.rel_names.get(label, label)
             rt = registry.resolve_rel_type(label, known[src], known[dst])
             status = (rec.get("status") or "approved").lower()
+            if _operation(rec, report, i, fname, f"{src}->{dst}") == "delete":
+                # An edge's identity is derived from its ends and its type, so a delete row
+                # has to carry them anyway — there is nothing to look up, only a state to set.
+                status = "retired"
+                report.relationships_retired += 1
             attrs = {
                 k: v for k, v in rec.items() if k not in CORE_RELATIONSHIP_COLUMNS and v not in ("", None)
             }
@@ -668,6 +700,43 @@ def _identities_by_key(
     return out
 
 
+def _retire(
+    backend: DatabaseBackend, deletions: list[tuple[str, int, str]], report: ImportReport
+) -> list[Element]:
+    """The elements a source said are gone, read back and marked retired.
+
+    Retiring rather than removing is what a source is allowed to do today: the element, its
+    relationships and its history stay, and loading the row again undoes it. The rows go back
+    through the same upsert as everything else, so they are versioned and logged like any
+    other change rather than through a path of their own.
+    """
+    if not deletions:
+        return []
+    wanted = {eid for eid, _row, _file in deletions}
+    held = {e.element_id: e for e in backend.elements_by_ids(sorted(wanted))}
+    out: list[Element] = []
+    for eid, row, fname in deletions:
+        existing = held.get(eid)
+        if existing is None:
+            report.add_issue(
+                Issue(
+                    "warning",
+                    "delete_unknown",
+                    f"the row says {eid!r} is deleted, but the model does not hold it",
+                    row=row,
+                    entity=eid,
+                    file=fname,
+                )
+            )
+            continue
+        if existing.status == "retired":
+            continue  # already gone; nothing to write, and nothing to report as a change
+        existing.status = "retired"
+        out.append(existing)
+        report.elements_retired += 1
+    return out
+
+
 def import_frames(
     backend: DatabaseBackend,
     registry: Registry,
@@ -682,10 +751,17 @@ def import_frames(
     report = ImportReport(source_system=source_system, dry_run=dry_run)
     if mapping.match_on not in MATCH_KEYS:
         raise ValueError(f"match_on must be one of {MATCH_KEYS}, not {mapping.match_on!r}")
+    if mapping.deletion_mode not in DELETION_MODES:
+        raise ValueError(
+            f"deletion_mode must be one of {DELETION_MODES}, not {mapping.deletion_mode!r}: "
+            "removing a row outright waits on what should happen to a relationship whose "
+            "endpoint went with it"
+        )
     by_key = _identities_by_key(backend, frames, mapping, report)
-    elements, inline_links = build_elements(
+    elements, inline_links, deletions = build_elements(
         registry, frames.get("elements", []), mapping, source_system, report, by_key
     )
+    elements += _retire(backend, deletions, report)
     known = {e.element_id: e.type_id for e in elements}
     # Endpoints may already be in the store from an earlier import. Every one of them is asked
     # for in one read rather than one apiece (decision 0019).
