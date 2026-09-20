@@ -55,7 +55,7 @@ organisations with the same identifiers apart to prove it.
 | 2_business | No change. The same roles and the same review before merge; managing organisations and applying a version are Admin actions, which needs no new role. |
 | 3_information | Two data objects added: `DOBJ1.6` Metamodel version and `DOBJ2.8` Organisation. The metamodel objects gain a properties bag, an attribute gains its group and its rules, an element type may be abstract and a relationship type may carry attributes; the persistence section says that every content table carries `org_id` and that the metamodel tables are keyed by pack and version. See [1_data-objects.md](../3_information/1_data-objects.md). Two documents added beside it, defining no element: [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md) reads the same objects as entities with their cardinalities, and [3_logical-data-model.md](../3_information/3_logical-data-model.md) as the seventeen tables with their keys and references — the layer had the enterprise view of what it holds and not the application's own. |
 | 4_application | One service added, `ASVC11` Organisation management, and the metamodel service extended with the version lifecycle, the difference between two versions and the compatibility check; one component added, `ACMP13` Metamodel lifecycle and organisation services. The store, the metamodel module, the screens, the command line and the views module keep their rows, re-worded where the change made them untrue. See [1_application-services.md](../4_application/1_application-services.md) and [2_application-components.md](../4_application/2_application-components.md). |
-| 5_technology | No change. The same store, the same engines, the same deployment; an organisation is rows in the tables that already exist. |
+| 5_technology | The store's tables are made in a schema per group of them rather than one (`TSVC6`, decision 0018), and the bundle's `schema` variable names the prefix; otherwise no change — the same store, the same engines, the same deployment; an organisation is rows in the tables that already exist. |
 | Transition | `GAP17` A metamodel change cannot be tried without changing what everybody reads is opened against `PLAT1` and closed in code by this initiative. See [1_target-state.md](../6_transition/1_target-state.md) and [2_sequence.md](../6_transition/2_sequence.md). |
 
 ## Approvals
@@ -184,7 +184,8 @@ is a canvas to rework, where a group is easy to move and easy to delete.
 | 4 | The screens | The Metamodel page rebuilt around one version with six tabs and row deletion; the new Organisations page; the header's organisation selector and version badge; the element page's attribute groups and relationship attributes | Built 2026-09-19 |
 | 5 | The generated views, flat | `src/ea/views/mermaid.py` and, above every diagram in the application and in the exported Markdown, a chip per layer drawn in that layer's own colour; the arrange script without its cluster handling | Built 2026-09-19 |
 | 6 | The suite and the round | `tests/test_organisations.py`, `tests/test_metamodel_versions.py`, `tests/test_metamodel_page.py`, `tests/test_element_page.py` and the additions to the existing tests; scenario groups J (rewritten, 25) and Q (new, 7), the command-line scenarios M65 to M70, the screen audit P30 | Built 2026-09-19 |
-| 7 | The model kept true | The layer rows named above, the roadmap, decisions 0014 and 0015, this document, the README, `AGENTS.md` and `packs/README.md`; the information layer's conceptual and logical data models | Built 2026-09-19, the two data models 2026-09-20 |
+| 7 | The model kept true | The layer rows named above, the roadmap, decisions 0014 and 0015, this document, the README, `AGENTS.md` and `packs/README.md`; the information layer's conceptual and logical data models, and decisions 0016, 0017 and 0018 for the calls the store work took | Built 2026-09-19, the documents and decisions of 2026-09-20 |
+| 8 | The store as the model grows | Every write naming its columns; `INDEXES` in `src/ea/backend/sql.py` — a unique index on every logical key, both ends of a relationship, the rows that hang off an element; the traversal rewritten as a walk that carries the edge that reached each element; `NOT EXISTS` past a branch; the tables grouped into a schema per group, with the move an older store makes on its next start; `tests/test_store_schemas.py` and the additions to `tests/test_backend.py` and `tests/test_lakebase_backend.py`; decisions 0016, 0017 and 0018 | Built 2026-09-20 |
 
 ## In scope / out of scope
 
@@ -223,6 +224,21 @@ is a canvas to rework, where a group is easy to move and easy to delete.
   it writes to the default organisation. There is one place that sets it per
   request, per command and per test, and the tests prove the isolation; a new
   entry point has to do the same.
+- **An impact answer is not bounded.** The walk now answers in milliseconds, and
+  at a hundred thousand elements a hub that everything depends on reaches the
+  whole model — about five seconds, and every row rendered into the page's
+  tables. The diagram is capped at sixty nodes; the tables are not. Bounding
+  what is asked for and shown is the next piece of work, and it belongs with
+  the assessment below.
+- **`ASM6` no longer matches what the Requester expects.** It reads "content is
+  small … about 4,600 elements", and the answer it draws from that is an
+  in-process graph and no traversal in the warehouse. The Requester has since
+  named a hundred thousand elements and several hundred thousand relationships.
+  The store now holds that comfortably; the in-process graph (about 470 MB and
+  seven seconds to build at that size, against a default of 6 GB for an app on
+  the platform) does not. Restating the assessment is a change to what the
+  model claims, so it needs its own initiative and its own **Understanding**
+  gate — it is not in this one.
 - **Nothing here has run on the platform.** The Lakebase engine carries the new
   columns and the tests run on a real Postgres, but the workspace run of
   initiatives 13 and 14 is still pending, and this initiative did not change
@@ -234,6 +250,8 @@ Built on 2026-09-19 on the branch: the pack format extended, the store
 partitioned by organisation and keyed by version, the services and the command
 line, the two screens, the flat generated views, the grouped attributes, the
 unit suite and the browser round; on 2026-09-20 the information layer's
-conceptual and logical data models, which the layer did not have. Presented for
-**Understanding** on the pull request, with the layer documents and the two
-decisions.
+conceptual and logical data models, which the layer did not have, and the store
+work the Requester's question about scale called for — the keys indexed, the
+traversal made a walk, and the tables grouped into schemas, measured on 100,000
+elements and 600,000 relationships. Presented for **Understanding** on the pull
+request, with the layer documents and decisions 0014 to 0018.

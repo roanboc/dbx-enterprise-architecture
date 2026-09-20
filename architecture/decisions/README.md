@@ -26,3 +26,6 @@ alternative?".
 | [0013](./0013-lakebase-not-the-lakehouse.md) | Lakebase, not the lakehouse, is the store on Databricks | Accepted 2026-09-11 (the Requester's instruction) | `ACMP2.3`, `TSVC6`, `NODE2`, `ART6`, `PLAT2`, `GAP16` |
 | [0014](./0014-organisations-as-a-partition.md) | An organisation is a partition of the one store, not a second store | Adopted 2026-09-19, for the Requester to confirm | `DOBJ2.8`, `ASVC11`, `ACMP2`, `ACMP13` |
 | [0015](./0015-metamodel-versions.md) | The metamodel is kept in versions, and a published version is frozen | Adopted 2026-09-19, for the Requester to confirm | `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP13` |
+| [0016](./0016-a-walk-not-an-enumeration.md) | A traversal is a walk over the graph, not an enumeration of its paths | Adopted 2026-09-20, for the Requester to confirm | `ASVC4`, `ACMP2`, `DOBJ2.2` |
+| [0017](./0017-keys-indexed-references-not.md) | The database holds the keys, and the references stay in the services | Adopted 2026-09-20, for the Requester to confirm | `ACMP2`, `DOBJ1.6`, `DOBJ2.1` |
+| [0018](./0018-a-schema-per-group.md) | A schema per group of tables | Adopted 2026-09-20, for the Requester to confirm | `ACMP2`, `ACMP2.1`, `ACMP2.3`, `DOBJ1`, `DOBJ2`, `DOBJ3` |

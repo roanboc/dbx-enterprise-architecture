@@ -34,7 +34,7 @@ erDiagram
 | `FK` | a logical reference to another table's key |
 | `\|\|`, `\|o`, `o{`, `\|{` | exactly one, none or one, none or many, one or many |
 
-**The database holds the keys; it does not hold the references.** Every key
+**The database holds the keys; it does not hold the references** (decision 0017). Every key
 below is a unique index (`INDEXES` in `src/ea/backend/sql.py`), created on
 start-up and each one on its own: a store that already holds a duplicate keeps
 the row and logs the refusal rather than failing to open. The store enforced
@@ -65,7 +65,7 @@ erDiagram
 ```
 
 The groups below are not a way of reading the document: they are the schemas the
-store creates. `EA_SCHEMA` names the prefix (`ea` by default) and each group is a
+store creates (decision 0018). `EA_SCHEMA` names the prefix (`ea` by default) and each group is a
 schema of its own, so two deployments can share one database and a grant can be
 given per group.
 
@@ -384,7 +384,7 @@ Two kinds, both in `INDEXES` in `src/ea/backend/sql.py`.
 | `meta_attribute (pack_id, pack_version)` | the attributes of a version | the one metamodel table with no unique key: its key holds `type_id` or `rel_type_id` and never both, and the two engines do not agree on whether two NULLs are the same value |
 
 The two traversal indexes are what decides whether the graph stays usable as the
-model grows. Measured on Postgres with 100,000 elements and 600,000
+model grows (decision 0016). Measured on Postgres with 100,000 elements and 600,000
 relationships, a five-hop walk out of an ordinary element took 608 ms without
 them and 44 ms with them; the walk the store runs today, which carries the edge
 that reached each node instead of enumerating paths, takes 9 ms, and 27 ms out
