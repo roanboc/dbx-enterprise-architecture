@@ -19,6 +19,7 @@ from ea.models import (
     Proposal,
     Relationship,
     Review,
+    SourceFeed,
 )
 
 
@@ -246,6 +247,20 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]: ...
+
+    # ---------------------------------------------------------------- feeds
+    @abstractmethod
+    def save_feed(self, feed: SourceFeed, actor: str) -> SourceFeed:
+        """Store a feed's configuration, by feed_id, in the current organisation."""
+
+    @abstractmethod
+    def list_feeds(self) -> list[SourceFeed]: ...
+
+    @abstractmethod
+    def get_feed(self, feed_id: str) -> SourceFeed | None: ...
+
+    @abstractmethod
+    def delete_feed(self, feed_id: str, actor: str) -> None: ...
 
     # -------------------------------------------------------------- landing
     @abstractmethod

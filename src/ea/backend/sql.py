@@ -46,7 +46,9 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     "metamodel": list(META_TABLES),
     "content": ["organisation", "element", "relationship", "element_link"],
     "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
-    "governance": ["branch_review", "reviewer_assignment", "proposal"],
+    # A feed's configuration sits with the other things that govern how content arrives
+    # and is reviewed, rather than with the content itself.
+    "governance": ["branch_review", "reviewer_assignment", "proposal", "source_feed"],
     "audit": ["change_log"],
     # The store creates the schema and never a table in it. What lands here is put there
     # from outside — a platform job writing Postgres, or a catalogue table replicated into
@@ -405,6 +407,29 @@ DDL: dict[str, str] = {
             created_at TIMESTAMP,
             org_id VARCHAR
         )""",
+    "source_feed": """
+        CREATE TABLE IF NOT EXISTS source_feed (
+            feed_id VARCHAR NOT NULL,
+            name VARCHAR,
+            source_system VARCHAR,
+            elements_table VARCHAR,
+            relationships_table VARCHAR,
+            links_table VARCHAR,
+            mapping_yaml VARCHAR,
+            target_branch VARCHAR,
+            clear_after BOOLEAN,
+            enabled BOOLEAN,
+            schedule VARCHAR,
+            schedule_timezone VARCHAR,
+            last_run_at TIMESTAMP,
+            last_run_status VARCHAR,
+            last_run_summary VARCHAR,
+            created_at TIMESTAMP,
+            created_by VARCHAR,
+            updated_at TIMESTAMP,
+            updated_by VARCHAR,
+            org_id VARCHAR
+        )""",
 }
 
 ELEMENT_COLUMNS = [
@@ -536,6 +561,7 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("relationship_dst", "relationship", False, "(org_id, dst_id)"),
     ("element_link_key", "element_link", True, "(org_id, link_id)"),
     ("element_link_element", "element_link", False, "(org_id, element_id)"),
+    ("source_feed_key", "source_feed", True, "(org_id, feed_id)"),
     ("change_log_key", "change_log", True, "(org_id, change_id)"),
     ("change_log_entity", "change_log", False, "(org_id, entity_id)"),
     ("branch_key", "branch", True, "(org_id, branch_id)"),

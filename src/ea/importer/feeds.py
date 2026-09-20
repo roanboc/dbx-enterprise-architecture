@@ -17,15 +17,25 @@ a clear and a load would have lost them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
 from ea import capacity
 from ea.backend.base import DatabaseBackend
+from ea.backend.branching import MAIN, use_branch
 from ea.importer.csv_import import import_frames
-from ea.importer.mapping import Mapping
+from ea.importer.mapping import Mapping, mapping_from_text
 from ea.metamodel.registry import Registry
-from ea.models import ImportReport, Issue
+from ea.models import ImportReport, Issue, NotFoundError, SourceFeed
+
+
+def _utc_now() -> datetime:
+    """The instant a run happened, kept in UTC. Only what a person reads is converted."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
 
 KINDS = ("elements", "relationships", "links")
 
@@ -134,3 +144,104 @@ def run_feed(
             if table and frames.get(kind):
                 backend.clear_landing(table)
     return loaded
+
+
+def feed_from_config(stored: SourceFeed) -> Feed:
+    """The runnable feed a stored configuration describes.
+
+    The mapping travels with the feed as YAML rather than as a path, so what a source's columns
+    mean cannot change underneath it between one run and the next.
+    """
+    mapping = mapping_from_text(stored.mapping_yaml) if stored.mapping_yaml else Mapping()
+    tables = {
+        "elements": stored.elements_table,
+        "relationships": stored.relationships_table,
+        "links": stored.links_table,
+    }
+    return Feed(
+        source_system=stored.source_system or stored.name,
+        tables={k: v for k, v in tables.items() if v},
+        mapping=mapping,
+        clear_after=stored.clear_after,
+    )
+
+
+def run_configured_feed(
+    backend: DatabaseBackend,
+    registry: Registry,
+    feed_id: str,
+    actor: str = "feed",
+    dry_run: bool = False,
+) -> ImportReport:
+    """Run a stored feed, on the branch it names, and record how it went.
+
+    The branch is the feed's own: a feed configured onto a branch writes there and is reviewed
+    before it reaches main, and one configured onto main writes directly. That is the choice the
+    Requester made per source, and it is honoured here rather than by whoever presses the button.
+    """
+    stored = backend.get_feed(feed_id)
+    if stored is None:
+        raise NotFoundError(feed_id, "feed")
+    with use_branch(stored.target_branch or MAIN):
+        report = run_feed(backend, registry, feed_from_config(stored), actor, dry_run)
+    if not dry_run:
+        stored.last_run_at = _utc_now()
+        stored.last_run_status = "ok" if report.ok else "errors"
+        stored.last_run_summary = report.summary()
+        backend.save_feed(stored, actor)
+    return report
+
+
+def in_zone(moment: Any, zone: str) -> str:
+    """An instant kept in UTC, written where the reader is.
+
+    Times are stored in UTC and read in a zone, because an instant is the same everywhere and
+    only its name changes. The zone is named in the text, so nobody has to remember which one
+    a screen is using.
+    """
+    if moment is None:
+        return ""
+    name = zone or "UTC"
+    try:
+        here = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return f"{moment:%Y-%m-%d %H:%M} UTC (the zone {name!r} is not one this system knows)"
+    aware = moment if getattr(moment, "tzinfo", None) else moment.replace(tzinfo=UTC)
+    return f"{aware.astimezone(here):%Y-%m-%d %H:%M} {name}"
+
+
+def schedule_in_words(feed: SourceFeed, fallback_zone: str = "UTC") -> str:
+    """What a feed's schedule says, and the zone it says it in.
+
+    The expression is kept in the zone it was written in rather than converted to UTC, because
+    a person who says half past two means half past two where they are — and a platform
+    scheduler takes a zone alongside its expression for that reason. So there is nothing to
+    convert to show it correctly, and nothing drifts when a zone's offset changes.
+
+    The application does not fire it. What fires it is outside (decision 0020); this is what a
+    trigger honours and what the screen shows beside `Run now`.
+    """
+    if not feed.schedule:
+        return "No schedule — this feed runs when somebody runs it"
+    zone = feed.schedule_timezone or fallback_zone or "UTC"
+    daily = _daily_at(feed.schedule)
+    when = f"{feed.schedule} ({daily} {zone})" if daily else f"{feed.schedule} ({zone})"
+    return when if feed.enabled else f"{when} — disabled"
+
+
+def _daily_at(cron: str) -> str:
+    """`30 2 * * *` as `02:30`, when the expression is a plain daily one; else empty.
+
+    Deliberately narrow. A five-field expression whose day, month and weekday are all `*` is a
+    time of day and can be read as one; anything else is shown as written rather than guessed
+    at, because a wrong rendering of a schedule is worse than none.
+    """
+    parts = cron.split()
+    if len(parts) != 5:
+        return ""
+    minute, hour, day, month, weekday = parts
+    if (day, month, weekday) != ("*", "*", "*") or not (minute.isdigit() and hour.isdigit()):
+        return ""
+    if not (0 <= int(minute) < 60 and 0 <= int(hour) < 24):
+        return ""
+    return f"{int(hour):02d}:{int(minute):02d} daily"

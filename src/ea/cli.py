@@ -980,3 +980,99 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
+
+
+feed_app = typer.Typer(
+    help="Source feeds: the landing tables a source writes to, and running one of them.",
+    no_args_is_help=True,
+)
+app.add_typer(feed_app, name="feed")
+
+
+@feed_app.command("list")
+def feed_list():
+    """Every configured feed, with its schedule and when it last ran, in the configured zone."""
+    from ea.importer.feeds import in_zone, schedule_in_words
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    feeds = backend.list_feeds()
+    if not feeds:
+        typer.echo("No feeds configured. `ea feed save` adds one.")
+        return
+    for f in feeds:
+        where = f.target_branch or "main"
+        typer.echo(f"{f.feed_id:22s} {f.name or f.source_system}  -> {where}")
+        typer.echo(f"    schedule: {schedule_in_words(f, settings.timezone)}")
+        tables = ", ".join(t for t in (f.elements_table, f.relationships_table, f.links_table) if t)
+        typer.echo(f"    landing : {tables or 'none named'}")
+        if f.last_run_at:
+            typer.echo(f"    last run: {in_zone(f.last_run_at, settings.timezone)} — {f.last_run_status}")
+
+
+@feed_app.command("save")
+def feed_save(
+    name: str,
+    source: str = typer.Option("", help="source system recorded on every row it loads"),
+    elements: str = typer.Option("", help="the landing table holding its elements"),
+    relationships: str = typer.Option("", help="the landing table holding its relationships"),
+    links: str = typer.Option("", help="the landing table holding its links"),
+    mapping: Path = typer.Option(None, help="mapping YAML, stored with the feed"),
+    branch: str = typer.Option("", help="the branch it writes to; empty writes to main"),
+    schedule: str = typer.Option("", help="a cron expression, as whatever triggers it writes them"),
+    timezone: str = typer.Option("", help="the zone the schedule is written in; EA_TIMEZONE by default"),
+    clear_after: bool = typer.Option(True, help="empty the landing tables once they are loaded"),
+    feed_id: str = typer.Option("", help="an existing feed to update; a new one by default"),
+):
+    """Configure a feed, or update one."""
+    from ea.models import SourceFeed
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    saved = backend.save_feed(
+        SourceFeed(
+            feed_id=feed_id,
+            name=name,
+            source_system=source or name,
+            elements_table=elements,
+            relationships_table=relationships,
+            links_table=links,
+            mapping_yaml=mapping.read_text(encoding="utf-8") if mapping else "",
+            target_branch=branch,
+            clear_after=clear_after,
+            schedule=schedule,
+            schedule_timezone=timezone or settings.timezone,
+        ),
+        actor="cli",
+    )
+    typer.echo(f"{saved.feed_id}  {saved.name}")
+
+
+@feed_app.command("run")
+def feed_run(
+    feed_id: str,
+    dry_run: bool = typer.Option(False, help="read and validate, load nothing"),
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
+):
+    """Run one configured feed now, on the branch it names."""
+    from ea.importer.feeds import run_configured_feed
+
+    _, backend, registry, *_ = _ctx()
+    report = run_configured_feed(backend, registry, feed_id, actor="cli", dry_run=dry_run)
+    typer.echo(report.summary())
+    shown = report.issues if issues <= 0 else report.issues[:issues]
+    for iss in shown:
+        typer.echo("  " + str(iss))
+    found = sum(report.counts.values())
+    if found > len(shown):
+        by_code = ", ".join(f"{c} {n}" for c, n in sorted(report.counts.items(), key=lambda kv: -kv[1]))
+        typer.echo(f"  … {found - len(shown)} more not shown ({by_code})")
+    raise typer.Exit(code=0 if report.ok else 1)
+
+
+@feed_app.command("delete")
+def feed_delete(feed_id: str):
+    """Forget a feed's configuration. Nothing it loaded is touched."""
+    _, backend, *_ = _ctx()
+    backend.delete_feed(feed_id, actor="cli")
+    typer.echo(f"{feed_id} deleted")

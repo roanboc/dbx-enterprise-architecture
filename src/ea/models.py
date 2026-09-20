@@ -515,6 +515,52 @@ MAX_IMPORT_ISSUES = 2_000
 
 
 @dataclass
+class SourceFeed:
+    """A configured source: which landing tables are its, how they are read, and when it runs.
+
+    The schedule is kept **in the zone it is written in** rather than converted to UTC. A person
+    who says a feed runs at half past two means half past two where they are, and a platform
+    scheduler takes a timezone alongside its expression for the same reason. Storing the zone
+    means nothing has to be converted to be shown correctly, and nothing drifts when a zone's
+    offset changes.
+
+    The application does not fire the schedule — what fires it is outside, as decision 0020 has
+    it. The schedule is what a trigger honours and what the screen shows; `Run now` is what the
+    application itself does.
+    """
+
+    feed_id: str = ""
+    name: str = ""
+    source_system: str = ""
+    elements_table: str = ""
+    relationships_table: str = ""
+    links_table: str = ""
+    #: The mapping, inline, so a feed is self-contained: its columns, identity rule, prefix and
+    #: deletion mode travel with it rather than pointing at a file that may change underneath.
+    mapping_yaml: str = ""
+    #: Where the feed writes. Empty is `main`, which is a feed nobody reviews before it lands.
+    target_branch: str = ""
+    #: Whether the landing tables are emptied once loaded. False for a table something else
+    #: maintains, such as one replicated from a catalogue.
+    clear_after: bool = True
+    enabled: bool = True
+    #: A cron expression as whatever triggers this feed writes them, and the zone it is in.
+    schedule: str = ""
+    schedule_timezone: str = ""
+    last_run_at: Any = None
+    last_run_status: str = ""
+    last_run_summary: str = ""
+    created_at: Any = None
+    created_by: str = ""
+    updated_at: Any = None
+    updated_by: str = ""
+
+    @property
+    def writes_to_main(self) -> bool:
+        return not self.target_branch
+
+
+@dataclass
 class ImportReport:
     source_system: str
     elements_read: int = 0

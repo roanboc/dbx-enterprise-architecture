@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from ea.backend.branching import use_branch
 from ea.backend.sql import landing_schema
 from ea.importer import Feed, Mapping, run_feed
 from ea.importer.feeds import frames_from_landing
@@ -133,3 +134,134 @@ def test_the_landing_schema_exists_and_the_store_puts_nothing_in_it(backend):
     """The store creates the schema and never a table in it: what lands there comes from
     outside the application entirely."""
     assert backend.landing_tables() == []
+
+
+# --------------------------------------------------------- configured feeds
+
+
+def test_a_feed_configuration_is_stored_and_read_back(backend):
+    from ea.models import SourceFeed
+
+    saved = backend.save_feed(
+        SourceFeed(
+            name="CMDB nightly",
+            source_system="cmdb",
+            elements_table="cmdb_elements",
+            schedule="30 2 * * *",
+            schedule_timezone="Australia/Brisbane",
+        ),
+        "me",
+    )
+    assert saved.feed_id and saved.created_by == "me"
+    read = backend.get_feed(saved.feed_id)
+    assert read.name == "CMDB nightly" and read.schedule_timezone == "Australia/Brisbane"
+    assert read.writes_to_main  # no branch named
+
+    read.name = "renamed"
+    backend.save_feed(read, "someone else")
+    again = backend.get_feed(saved.feed_id)
+    assert again.name == "renamed"
+    assert again.created_by == "me" and again.updated_by == "someone else"
+
+    backend.delete_feed(saved.feed_id, "me")
+    assert backend.list_feeds() == []
+
+
+def test_running_a_configured_feed_writes_to_the_branch_it_names(backend, registry):
+    """The branch is the feed's own, not the caller's: a feed configured onto a branch is
+    reviewed before it reaches main, whoever presses the button."""
+    from ea.backend.branching import MAIN, current_branch
+    from ea.importer.feeds import run_configured_feed
+    from ea.models import Branch, SourceFeed
+
+    backend.create_branch(Branch(branch_id="wip", name="Work in progress"), "t")
+    _land(backend, "src_elements", "id VARCHAR, type VARCHAR, name VARCHAR", "'E1','data_entity','One'")
+    feed = backend.save_feed(
+        SourceFeed(name="src", source_system="src", elements_table="src_elements", target_branch="wip"),
+        "t",
+    )
+
+    assert current_branch() == MAIN
+    report = run_configured_feed(backend, registry, feed.feed_id, actor="t")
+    assert report.ok and report.elements_loaded == 1
+    assert current_branch() == MAIN  # the caller is left where they were
+
+    assert backend.get_element("E1") is None  # main did not gain it
+    with use_branch("wip"):
+        assert backend.get_element("E1").name == "One"
+
+
+def test_a_run_records_how_it_went_on_the_feed(backend, registry):
+    from ea.importer.feeds import run_configured_feed
+    from ea.models import SourceFeed
+
+    _land(backend, "src_elements", "id VARCHAR, type VARCHAR, name VARCHAR", "'E1','data_entity','One'")
+    feed = backend.save_feed(SourceFeed(name="src", source_system="src", elements_table="src_elements"), "t")
+    run_configured_feed(backend, registry, feed.feed_id, actor="t")
+    after = backend.get_feed(feed.feed_id)
+    assert after.last_run_status == "ok"
+    assert after.last_run_at is not None and "elements 1/1 loaded" in after.last_run_summary
+
+
+def test_running_a_feed_that_is_not_configured_says_so(backend, registry):
+    from ea.importer.feeds import run_configured_feed
+    from ea.models import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        run_configured_feed(backend, registry, "feed-nobody-made", actor="t")
+
+
+# ------------------------------------------------------- times, where you are
+
+
+def test_a_schedule_is_shown_in_the_zone_it_was_written_in():
+    """A person who says half past two means half past two where they are, so the zone is kept
+    with the expression rather than converted away from it."""
+    from ea.importer.feeds import schedule_in_words
+    from ea.models import SourceFeed
+
+    daily = SourceFeed(name="n", schedule="30 2 * * *", schedule_timezone="Australia/Brisbane")
+    assert schedule_in_words(daily) == "30 2 * * * (02:30 daily Australia/Brisbane)"
+
+    # anything that is not a plain daily expression is shown as written, never guessed at
+    odd = SourceFeed(name="n", schedule="0 */4 * * 1-5", schedule_timezone="Australia/Brisbane")
+    assert schedule_in_words(odd) == "0 */4 * * 1-5 (Australia/Brisbane)"
+
+    assert "runs when somebody runs it" in schedule_in_words(SourceFeed(name="n"))
+    assert schedule_in_words(
+        SourceFeed(name="n", schedule="30 2 * * *", schedule_timezone="UTC", enabled=False)
+    ).endswith("— disabled")
+
+
+def test_a_stored_instant_is_read_where_the_reader_is():
+    from datetime import datetime
+
+    from ea.importer.feeds import in_zone
+
+    # 16:30 UTC is half past two the next morning in Brisbane
+    assert (
+        in_zone(datetime(2026, 9, 20, 16, 30), "Australia/Brisbane") == "2026-09-21 02:30 Australia/Brisbane"
+    )
+    assert in_zone(datetime(2026, 9, 20, 16, 30), "UTC") == "2026-09-20 16:30 UTC"
+    assert in_zone(None, "Australia/Brisbane") == ""
+    # a zone this system does not know is said plainly rather than crashing a page
+    assert "not one this system knows" in in_zone(datetime(2026, 9, 20, 16, 30), "Mars/Olympus")
+
+
+def test_the_timezone_is_a_setting_and_not_a_place_in_the_code():
+    """The repository is generic: where its readers are is configuration, not source."""
+    import subprocess
+
+    from ea.config import Settings
+
+    assert Settings().timezone == "UTC"
+    # A zone may be named in a comment as an example of what the setting takes; what must not
+    # happen is one being used as a value, which is what would make the repository local to a
+    # place rather than configured for one.
+    found = subprocess.run(
+        ["grep", "-rn", "Australia/", "--include=*.py", "src/"], capture_output=True, text=True
+    )
+    in_code = [
+        line for line in found.stdout.splitlines() if not line.split(":", 2)[-1].lstrip().startswith("#")
+    ]
+    assert in_code == [], "a zone is used as a value in the source:\n" + "\n".join(in_code)

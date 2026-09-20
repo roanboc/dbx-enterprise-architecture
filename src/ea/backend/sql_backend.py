@@ -69,6 +69,7 @@ from ea.models import (
     Proposal,
     Relationship,
     Review,
+    SourceFeed,
     validate_identifier,
     validate_version,
 )
@@ -2269,6 +2270,110 @@ class SqlBackend(DatabaseBackend):
                 for t in META_TABLES[1:]
             ]
         return ", ".join(ctes)
+
+    # ----------------------------------------------------------------- feeds
+    _FEED_COLUMNS = (
+        "feed_id",
+        "name",
+        "source_system",
+        "elements_table",
+        "relationships_table",
+        "links_table",
+        "mapping_yaml",
+        "target_branch",
+        "clear_after",
+        "enabled",
+        "schedule",
+        "schedule_timezone",
+        "last_run_at",
+        "last_run_status",
+        "last_run_summary",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "updated_by",
+    )
+
+    def save_feed(self, feed: SourceFeed, actor: str) -> SourceFeed:
+        feed.feed_id = feed.feed_id or new_id("feed")
+        now, org = _now(), self._org()
+        with self._lock:
+            existing = self.get_feed(feed.feed_id)
+            feed.created_at = existing.created_at if existing else now
+            feed.created_by = existing.created_by if existing else actor
+            feed.updated_at, feed.updated_by = now, actor
+            self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed.feed_id])
+            self._insert_rows("source_feed", [self._feed_values(feed) + [org]])
+            self._log("source_feed", feed.feed_id, "save", actor, None, self._public(feed), None)
+        return feed
+
+    def _feed_values(self, f: SourceFeed) -> list[Any]:
+        return [
+            f.feed_id,
+            f.name or None,
+            f.source_system or None,
+            f.elements_table or None,
+            f.relationships_table or None,
+            f.links_table or None,
+            f.mapping_yaml or None,
+            f.target_branch or None,
+            bool(f.clear_after),
+            bool(f.enabled),
+            f.schedule or None,
+            f.schedule_timezone or None,
+            f.last_run_at,
+            f.last_run_status or None,
+            f.last_run_summary or None,
+            f.created_at,
+            f.created_by or None,
+            f.updated_at,
+            f.updated_by or None,
+        ]
+
+    def _row_to_feed(self, r: tuple) -> SourceFeed:
+        return SourceFeed(
+            feed_id=r[0],
+            name=r[1] or "",
+            source_system=r[2] or "",
+            elements_table=r[3] or "",
+            relationships_table=r[4] or "",
+            links_table=r[5] or "",
+            mapping_yaml=r[6] or "",
+            target_branch=r[7] or "",
+            clear_after=bool(r[8]),
+            enabled=bool(r[9]),
+            schedule=r[10] or "",
+            schedule_timezone=r[11] or "",
+            last_run_at=r[12],
+            last_run_status=r[13] or "",
+            last_run_summary=r[14] or "",
+            created_at=r[15],
+            created_by=r[16] or "",
+            updated_at=r[17],
+            updated_by=r[18] or "",
+        )
+
+    def list_feeds(self) -> list[SourceFeed]:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._FEED_COLUMNS)} FROM source_feed WHERE org_id = ? ORDER BY name, feed_id",
+            [self._org()],
+        )
+        return [self._row_to_feed(r) for r in rows]
+
+    def get_feed(self, feed_id: str) -> SourceFeed | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._FEED_COLUMNS)} FROM source_feed WHERE org_id = ? AND feed_id = ?",
+            [self._org(), feed_id],
+        )
+        return self._row_to_feed(rows[0]) if rows else None
+
+    def delete_feed(self, feed_id: str, actor: str) -> None:
+        org = self._org()
+        with self._lock:
+            before = self.get_feed(feed_id)
+            self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed_id])
+            if before is not None:
+                self._log("source_feed", feed_id, "delete", actor, self._public(before), None, None)
 
     # ------------------------------------------------------------- landing
     def _landing(self, table: str) -> str:
