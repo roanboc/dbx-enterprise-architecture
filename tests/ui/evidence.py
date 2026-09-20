@@ -26,6 +26,7 @@ GROUPS: dict[str, str] = {
     "I": "Branches",
     "J": "Metamodel",
     "Q": "Organisations",
+    "R": "Feeds",
     "K": "Health",
     "L": "Roles and permissions",
     "M": "Command line",
