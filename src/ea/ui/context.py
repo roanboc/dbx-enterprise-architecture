@@ -183,9 +183,19 @@ class AppContext:
         return [{"value": o.org_id, "label": o.name} for o in self.orgs.list()]
 
     def pack_label(self) -> str:
-        """What the header says of the metamodel: the pack, its version and, unless published, its state."""
+        """What the header says of the metamodel: the version and, unless published, its state.
+
+        The pack is named only where the store holds more than one, as the version selector
+        does: repeating one pack's name in the header costs the width the organisation's own
+        name needs, and says nothing the page does not.
+        """
         p = self.registry.pack
-        return f"{p.id} · {p.version}" + ("" if p.status == "published" else f" · {p.status}")
+        several = len({v.pack_id for v in self.metamodels.versions()}) > 1
+        return (
+            (f"{p.id} · " if several else "")
+            + p.version
+            + ("" if p.status == "published" else f" · {p.status}")
+        )
 
     # ------------------------------------------------------------ branch
     def branch(self) -> str:

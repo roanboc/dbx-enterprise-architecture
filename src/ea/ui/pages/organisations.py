@@ -131,7 +131,8 @@ def organisations_table(ctx: AppContext) -> Any:
 def report_view(report: CompatibilityReport, applied: bool) -> Any:
     counts = report.by_code()
     verdict = (
-        f"{report.pack_id}@{report.version} fits {report.org_id}: nothing would be left invalid."
+        f"{report.pack_id}@{report.version} fits {report.org_id}: {report.elements} elements and "
+        f"{report.relationships} relationships checked, nothing would be left invalid."
         if not report.issues
         else report.summary()
     )

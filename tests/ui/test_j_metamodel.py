@@ -960,7 +960,7 @@ def test_save_on_the_published_version_creates_a_draft(ui, record):
     ui.check("the save button now saves in place", ui.text("mm-save") == "Save changes", ui.text("mm-save"))
     ui.check(
         "the header still names the published version",
-        _pack_badge(ui) == f"{PACK} · {PUBLISHED_VERSION}",
+        _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
     ui.must("the Data Entity row is in the draft's grid", _reveal(ui, "mm-types-grid", TYPE))
@@ -2310,7 +2310,7 @@ def test_load_a_yaml_file(ui, record):
     )
     ui.check(
         "the header still names the published version",
-        _pack_badge(ui) == f"{PACK} · {PUBLISHED_VERSION}",
+        _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
     trial = _pack_file(ui.run_dir, FILE_VERSION, "J: loaded from a file")
@@ -2327,7 +2327,7 @@ def test_load_a_yaml_file(ui, record):
     )
     ui.check(
         "the header names the loaded version",
-        _pack_badge(ui) == f"{PACK} · {FILE_VERSION} · draft",
+        _pack_badge(ui) == f"{FILE_VERSION} · draft",
         _pack_badge(ui),
     )
     ui.check(
@@ -2359,7 +2359,7 @@ def test_load_a_yaml_file(ui, record):
     )
     ui.check(
         "the header names the shipped version again",
-        _pack_badge(ui) == f"{PACK} · {PUBLISHED_VERSION}",
+        _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
     _versions(ui)

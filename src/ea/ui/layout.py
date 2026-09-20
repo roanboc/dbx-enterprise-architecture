@@ -150,7 +150,7 @@ def org_selector(org_options: list[dict[str, str]], current_org: str) -> dmc.Sel
         **{"aria-label": "The organisation you are working in"},
         data=org_options,
         value=current_org,
-        w=190,
+        w=230,
         size="sm",
         allowDeselect=False,
         leftSection=icon("tabler:building", 14),

@@ -148,9 +148,7 @@ def test_the_list(ui, record):
     ui.check("and that the version is published", "published" in row, row)
     ui.check("it counts what the organisation holds", re.search(r"\b47\b", row) is not None, row)
     ui.check("the header names the organisation", _org_badge(ui) == DEFAULT_NAME, _org_badge(ui))
-    ui.check(
-        "and the version it applies", _pack_badge(ui) == f"{PACK} · {PUBLISHED_VERSION}", _pack_badge(ui)
-    )
+    ui.check("and the version it applies", _pack_badge(ui) == PUBLISHED_VERSION, _pack_badge(ui))
     ui.check("Switch to is off for the organisation the reader is in", ui.disabled(_switch_button(DEFAULT)))
     ui.check("the default organisation cannot be deleted", ui.disabled(_action("delete", DEFAULT)))
     ui.check("and cannot be made the default again", ui.disabled(_action("default", DEFAULT)))
@@ -181,7 +179,7 @@ def test_create_a_sandbox(ui, record):
     ui.check("the row says what it holds", "47" in row and "99" in row, row)
     ui.check(
         "the row says what it was copied from and what it is for",
-        "copied from default" in row and "group Q tries" in row,
+        "copied from default" in row and "group q tries" in row,  # the row is read without case
         row,
     )
     ui.check("it is not the default", not ui.disabled(_action("default", SANDBOX_ID)), row)
@@ -345,7 +343,7 @@ def test_apply_a_version(ui, record):
     _switch(ui, DEFAULT_NAME)
     ui.check(
         "back in the default organisation the header names the published version",
-        _pack_badge(ui) == f"{PACK} · {PUBLISHED_VERSION}",
+        _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
 
@@ -371,7 +369,10 @@ def test_default_and_delete(ui, record):
     said = ui.text("orgs-feedback")
     ui.must("the default moved", f"{SANDBOX} is the default organisation" in said, said or "(no feedback)")
     ui.check("the sandbox's row says it is the default", "default" in _row(ui, SANDBOX), _row(ui, SANDBOX))
-    ui.check("and the old default may now be deleted", not ui.disabled(_action("delete", DEFAULT)))
+    ui.check(
+        "the old default is still not deletable, because the reader is standing in it",
+        ui.disabled(_action("delete", DEFAULT)),
+    )
     ui.shot("The default moved to the sandbox")
     ui.click(_action("default", DEFAULT))
     ui.page.wait_for_timeout(400)
