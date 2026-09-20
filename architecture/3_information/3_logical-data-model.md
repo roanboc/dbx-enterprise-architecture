@@ -34,18 +34,25 @@ erDiagram
 | `FK` | a logical reference to another table's key |
 | `\|\|`, `\|o`, `o{`, `\|{` | exactly one, none or one, none or many, one or many |
 
-**Logical, because nothing is declared.** The DDL creates columns and no
-constraints: no primary key, no foreign key, no unique index. Every key below is
-enforced by `src/ea/backend/sql_backend.py`, the only writer: it reads by the
-key before it writes, carries the whole key in the `WHERE` clause of an update
-or a delete, and replaces a set of rows — a version's types, an element's links
-— by deleting on the key and inserting. Every reference is checked by the
-services before the write. The reason is the one schema on two engines
-(decision 0011): tables are created with `CREATE TABLE IF NOT EXISTS` and grown
-with `ADD COLUMN IF NOT EXISTS`, both of which read the same on DuckDB and on
-Postgres, while a constraint added to a live table does not. The cost is that a
-second writer — a hand-written `INSERT` against the file — would not be caught;
-the store is single-writer today, so nothing holds one.
+**The database holds the keys; it does not hold the references.** Every key
+below is a unique index (`INDEXES` in `src/ea/backend/sql.py`), created on
+start-up and each one on its own: a store that already holds a duplicate keeps
+the row and logs the refusal rather than failing to open. The store enforced
+these keys in Python long before the database knew them —
+`src/ea/backend/sql_backend.py` is the only writer, it reads by the key before
+it writes and carries the whole key in every update and delete — so the index is
+a second lock on the same door, and it is what a second writer would meet.
+
+**Foreign keys are deliberately absent.** An element points at the element type
+of the version its organisation applies, and a version may be retired or a type
+deleted while the content that used it stays exactly where it is; the
+compatibility check reports it instead (decision 0015). A foreign key would
+forbid that, and the metamodel would stop being data. References are checked by
+the services on the way in, which is where a person can be told what is wrong.
+
+Everything here is created the same way on both engines (decision 0011):
+`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` and
+`CREATE INDEX IF NOT EXISTS` all read the same on DuckDB and on Postgres.
 
 ## The tables at a glance
 
@@ -73,7 +80,7 @@ organisation and keyed by pack and version, and so is the `organisation` table
 itself; the eleven others carry `org_id` and belong to exactly one organisation
 (decision 0014).
 
-| Table | Holds | Logical key | Scoped by |
+| Table | Holds | Key (a unique index) | Scoped by |
 | ----- | ----- | ----------- | --------- |
 | `meta_pack` | one version of one metamodel, with its lifecycle | `pack_id`, `version` | the version itself |
 | `meta_domain` | the domains of that version | `pack_id`, `pack_version`, `domain_id` | `pack_id`, `pack_version` |
@@ -319,8 +326,40 @@ SQL client (principle `P4`).
 
 A column added after a table first shipped is listed in `MIGRATIONS` in
 `src/ea/backend/sql.py` and applied on start-up with `ADD COLUMN IF NOT EXISTS`,
-so an older store keeps working. New columns go at the end, because the inserts
-are positional — that is the one rule to remember when the schema grows.
+so an older store keeps working. It may be declared anywhere in the DDL: a store
+that gained it by migration holds it physically last, and every write names its
+columns rather than counting on their order.
+
+## The indexes
+
+```mermaid
+erDiagram
+  relationship {
+    varchar org_id "with relationship_id, unique"
+    varchar src_id "with org_id: the walk outward"
+    varchar dst_id "with org_id: the walk inward"
+    varchar rel_type_id
+  }
+```
+
+Two kinds, both in `INDEXES` in `src/ea/backend/sql.py`.
+
+| Index | On | Why |
+| ----- | -- | --- |
+| the key of each table | every table above | what tells one row from another, now held by the database as well as by the store |
+| `relationship (org_id, src_id)`, `(org_id, dst_id)` | both ends of an edge | a traversal follows one end per hop; without them every hop reads the whole table |
+| `branch_relationship (org_id, branch_id, src_id)`, `(… dst_id)` | the same on a branch | a walk on a branch reads the overlay the same way |
+| `element (org_id, type_id)` | the elements of a type | the counts per type, and browsing by type |
+| `element_link (org_id, element_id)`, `branch_link (org_id, branch_id, element_id)` | the links of an element | read and rewritten whole, per element |
+| `change_log (org_id, entity_id)` | the history of one thing | the log grows without bound and is read one element at a time |
+| `meta_attribute (pack_id, pack_version)` | the attributes of a version | the one metamodel table with no unique key: its key holds `type_id` or `rel_type_id` and never both, and the two engines do not agree on whether two NULLs are the same value |
+
+The two traversal indexes are what decides whether the graph stays usable as the
+model grows. Measured on Postgres with 100,000 elements and 600,000
+relationships, a five-hop walk out of an ordinary element took 608 ms without
+them and 44 ms with them; the walk the store runs today, which carries the edge
+that reached each node instead of enumerating paths, takes 9 ms, and 27 ms out
+of a hub that every element depends on.
 
 ## From entity to table
 

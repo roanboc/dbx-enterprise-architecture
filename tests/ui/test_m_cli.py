@@ -2325,7 +2325,7 @@ def test_m45_unknown_direction(cli, record, finding):
             "defect",
             "An unrecognised `--direction` is neither refused nor reported: trace answers it with the inward walk — the opposite of its documented default — and neighbours with both ways.",
             f"`ea trace {ASSET} --direction sideways` returns exactly what `--direction in` returns, because "
-            "the store chooses `TRACE_OUT_SQL if direction == 'out' else TRACE_IN_SQL`; `ea neighbours "
+            "the store reads any direction that is not `out` as `in` (`TRACE_ENDS`); `ea neighbours "
             f"{ASSET} --direction sideways` returns what `--direction both` returns. A typo in the flag gives "
             "a plausible answer to the opposite question, and the two commands do not even fall back the same "
             f"way. The help says the option is 'out … or in'. ({both_ev})",

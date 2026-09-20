@@ -18,6 +18,7 @@ read names the organisation itself.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import uuid
@@ -34,12 +35,13 @@ from ea.backend.organisations import DEFAULT_ORG, current_org, validate_org_id
 from ea.backend.sql import (
     DDL,
     ELEMENT_COLUMNS,
+    INDEXES,
     META_TABLES,
     MIGRATIONS,
     ORG_TABLES,
     RELATIONSHIP_COLUMNS,
-    TRACE_IN_SQL,
-    TRACE_OUT_SQL,
+    TRACE_ENDS,
+    TRACE_SQL,
     table_columns,
 )
 from ea.metamodel.loader import pack_from_dict, pack_to_dict
@@ -109,6 +111,9 @@ def pack_content(pack: Pack) -> dict[str, Any]:
     return d
 
 
+log = logging.getLogger(__name__)
+
+
 class SqlBackend(DatabaseBackend):
     """The repository contract on any SQL engine that runs the portable DDL.
 
@@ -170,7 +175,9 @@ class SqlBackend(DatabaseBackend):
         org: str | None = None,
     ) -> None:
         self._execute(
-            "INSERT INTO change_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO change_log (change_id, entity_kind, entity_id, op, actor, changed_at, "
+            "before_json, after_json, version, branch_id, org_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 new_id("chg"),
                 kind,
@@ -219,8 +226,9 @@ class SqlBackend(DatabaseBackend):
         if b == MAIN:
             return f"(SELECT {cols} FROM element WHERE org_id = {o})"
         return (
-            f"(SELECT {cols} FROM element WHERE org_id = {o} AND element_id NOT IN "
-            f"(SELECT element_id FROM branch_element WHERE org_id = {o} AND branch_id = {self._q(b)}) "
+            f"(SELECT {cols} FROM element AS m WHERE m.org_id = {o} AND NOT EXISTS "
+            f"(SELECT 1 FROM branch_element AS v WHERE v.org_id = {o} AND v.branch_id = {self._q(b)} "
+            f"AND v.element_id = m.element_id) "
             f"UNION ALL SELECT {cols} FROM branch_element WHERE org_id = {o} AND branch_id = {self._q(b)} "
             f"AND op = 'upsert')"
         )
@@ -232,8 +240,9 @@ class SqlBackend(DatabaseBackend):
         if b == MAIN:
             return f"(SELECT {cols} FROM relationship WHERE org_id = {o})"
         return (
-            f"(SELECT {cols} FROM relationship WHERE org_id = {o} AND relationship_id NOT IN "
-            f"(SELECT relationship_id FROM branch_relationship WHERE org_id = {o} AND branch_id = {self._q(b)}) "
+            f"(SELECT {cols} FROM relationship AS m WHERE m.org_id = {o} AND NOT EXISTS "
+            f"(SELECT 1 FROM branch_relationship AS v WHERE v.org_id = {o} AND v.branch_id = {self._q(b)} "
+            f"AND v.relationship_id = m.relationship_id) "
             f"UNION ALL SELECT {cols} FROM branch_relationship WHERE org_id = {o} AND branch_id = {self._q(b)} "
             f"AND op = 'upsert')"
         )
@@ -308,6 +317,18 @@ class SqlBackend(DatabaseBackend):
                 self._create_table(ddl)
             self._add_missing_columns()
             self._migrate_organisations()
+            self._create_indexes()
+
+    def _create_indexes(self) -> None:
+        """The indexes of `INDEXES`, each on its own: a store that already holds a duplicate
+        refuses its unique index, and that is a thing to report rather than a store that
+        will not open. The store enforced these keys in Python long before the database
+        knew them, so a refusal names a row that was already wrong."""
+        for name, ddl in INDEXES.items():
+            try:
+                self._execute(ddl)
+            except Exception as exc:  # noqa: BLE001 - an engine raises its own type here
+                log.warning("could not create the index %s (%s)", name, exc)
 
     def _migrate_organisations(self) -> None:
         """A store from before organisations and versions: its rows belong to the default
@@ -1492,24 +1513,38 @@ class SqlBackend(DatabaseBackend):
 
     # -------------------------------------------------------------- graph
     def _trace_sql(self, direction: str) -> str:
-        template = TRACE_OUT_SQL if direction == "out" else TRACE_IN_SQL
-        return template.replace("{rel}", self._rel())
+        step, take = TRACE_ENDS["out" if direction == "out" else "in"]
+        return TRACE_SQL.replace("{rel}", self._rel()).replace("{step}", step).replace("{take}", take)
 
-    def _trace_frame(self, element_id: str, direction: str, max_depth: int) -> pd.DataFrame:
-        """The reachable nodes with depth, node path and relationship-type path, as the engine computes them."""
-        return self._fetch_df(self._trace_sql(direction), [element_id, element_id, element_id, max_depth])
+    def _reached(self, element_id: str, direction: str, max_depth: int) -> list[tuple[Any, ...]]:
+        """(node, depth, the node one step nearer, the relationship type between them)."""
+        return self._fetch_all(self._trace_sql(direction), [element_id, max_depth, element_id])
 
     def trace(self, element_id: str, direction: str = "out", max_depth: int = 5) -> list[dict[str, Any]]:
-        df = self._trace_frame(element_id, direction, max_depth)
-        sep = ">" if direction == "out" else "<"
+        """Every element reachable within the depth, each with one shortest path to it.
+
+        The walk returns a node once, with the edge that reached it first; a path is
+        rebuilt here by following those edges back to the start, which is a step per hop
+        rather than a row per path (decision: a walk, not an enumeration)."""
+        rows = self._reached(element_id, direction, max_depth)
+        via = {str(node): (str(parent), str(rel)) for node, _depth, parent, rel in rows}
         out = []
-        for row in df.itertuples(index=False):
+        for node, depth, _parent, _rel in rows:
+            chain, rels, cur = [str(node)], [], str(node)
+            # `via` steps one level nearer each time, so this ends at the start; the depth is
+            # held against it all the same, because a path that walked in circles would be a
+            # loop here rather than a wrong answer on the page.
+            while cur in via and len(chain) <= max_depth:
+                parent, rel = via[cur]
+                chain.append(parent)
+                rels.append(rel)
+                cur = parent
             out.append(
                 {
-                    "element_id": row.node_id,
-                    "depth": int(row.depth),
-                    "path": row.path.split(sep),
-                    "rel_path": row.rel_path.split(sep) if row.rel_path else [],
+                    "element_id": str(node),
+                    "depth": int(depth),
+                    "path": list(reversed(chain)),
+                    "rel_path": list(reversed(rels)),
                     "direction": direction,
                 }
             )

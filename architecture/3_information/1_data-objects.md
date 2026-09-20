@@ -156,9 +156,11 @@ scope. The metamodel tables are shared by every organisation and keyed by the
 pack identifier and the version, so each version stands beside the others and
 the one an organisation applies is loaded by name.
 
-Traversals (`neighbours`, `trace`, `impact`) are recursive queries over
-`relationship` with a cycle guard, plus an in-process cache of the graph for
-the app; the whole institutional graph fits in memory (assessment `ASM6`).
+Traversals (`neighbours`, `trace`, `impact`) are one recursive query over
+`relationship` that visits a node once rather than once per path that reaches
+it — so a cycle ends of itself and a hub does not multiply — over both ends of
+an edge indexed, plus an in-process cache of the graph for the app; the whole
+institutional graph fits in memory (assessment `ASM6`).
 
 ## Classification and retention
 
