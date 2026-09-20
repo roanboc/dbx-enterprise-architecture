@@ -16,6 +16,7 @@ from dash import Input, Output, State, dcc, html, no_update
 
 from ea.config import ROOT
 from ea.importer import Mapping, export_archive, import_frames, load_mapping, mapping_from_text
+from ea.importer.csv_export import SCHEMA_FILE
 from ea.importer.csv_import import CsvShapeError, read_csv_text
 from ea.models import Forbidden, Issue
 from ea.services.roles import a_role
@@ -223,8 +224,14 @@ def _text(raw: str, encoding: str = "utf-8-sig") -> str:
 def _frames(store: dict, mapping: Mapping):
     frames = {"elements": [], "relationships": [], "links": []}
     unclassified: list[str] = []
+    reference: list[str] = []
     malformed: list[CsvShapeError] = []
     for name, raw in (store or {}).items():
+        if name.lower() == SCHEMA_FILE:
+            # The export writes it and it describes the other three rather than holding
+            # content. Calling it 'ignored' would read as a problem with the upload.
+            reference.append(name)
+            continue
         kind = _classify(name, mapping)
         if kind is None:
             unclassified.append(name)
@@ -233,7 +240,7 @@ def _frames(store: dict, mapping: Mapping):
             frames[kind].append((name, read_csv_text(_text(raw, mapping.encoding), name, mapping.delimiter)))
         except CsvShapeError as exc:
             malformed.append(exc)
-    return frames, unclassified, malformed
+    return frames, unclassified, reference, malformed
 
 
 def _row_count(raw: str) -> int:
@@ -309,7 +316,7 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
         mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml")
     else:
         mapping = Mapping()
-    frames, unclassified, malformed = _frames(store, mapping)
+    frames, unclassified, reference, malformed = _frames(store, mapping)
     if not any(frames.values()) and not malformed:
         return alert(
             "None of the files matched the element/relationship/link file patterns of the mapping.", "red"
@@ -365,6 +372,13 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
             _malformed_alert(malformed),
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified
+            else None,
+            alert(
+                f"{', '.join(reference)} describes the other files rather than holding content, "
+                "so it was not imported.",
+                "blue",
+            )
+            if reference
             else None,
             dmc.Title(f"Issues ({found})", order=2, size="h5", my="sm"),
             issues_table(report.issues[:ISSUE_LIMIT]),

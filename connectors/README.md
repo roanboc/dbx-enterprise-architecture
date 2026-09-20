@@ -114,6 +114,17 @@ A file read with the wrong separator parses as a single column, so every row loo
 though it has no `id`. The importer recognises that shape and names the separator the
 file was really written with instead of blaming the id column.
 
+**`delimiter` must be a single character.** A tab (`"\t"`) and the ASCII unit separator
+(`"\u001f"`) both work and neither appears in ordinary text, so either is a good choice for a
+source whose values are full of commas. A two-character separator such as `||` cannot be
+supported and is not a matter of effort: Python's CSV writer refuses a delimiter longer than one
+character, so the export could not write it; a multi-character separator makes the reader fall
+back to a mode that **stops honouring quotes**, so every description holding a newline — every
+fenced Mermaid diagram — would break apart into several broken rows; and `|` already separates
+the values of `links` and of a multi-valued attribute, so the two meanings would collide. The
+problem `||` is reaching for — commas inside a description — is the problem quoting already
+solves, which is why a description with commas, quotes and newlines round-trips today.
+
 The Import page takes a mapping YAML of your own as well as the two that ship with the
 repository; an uploaded mapping overrides the choice in the dropdown.
 
@@ -146,6 +157,13 @@ and the Import page has **Download current content** beside the template. What c
 back in: an export re-imported lands on the same elements and the same edges rather than beside
 them, so the cheapest way to correct a thousand rows is to export them, fix the column in a
 spreadsheet, and import the file again.
+
+Beside the three content files it writes **`schema.csv`**, the reference an adopter builds
+a feed from: every column the three may carry, the type or file that is its parent, the data
+type the value is read as, whether it takes many values, the vocabulary where one is fixed, the
+attribute group, and what the pack says the column means. It is written from the metamodel
+version the organisation applies, so it describes the columns *this* import will accept. It is
+a reference and is not imported back — the Import page says so rather than calling it ignored.
 
 `elements.csv` is written as **one wide file** — the core columns above, then a column for every
 attribute any exported element carries, whether the pack declares it or not. A row leaves the
