@@ -386,3 +386,33 @@ def test_an_unknown_match_on_is_refused_rather_than_ignored(backend, registry, t
     (d / "elements.csv").write_text("id,type,name\nE1,data_entity,One\n")
     with pytest.raises(ValueError, match="match_on"):
         import_directory(backend, registry, d, "s", Mapping(match_on="name"), actor="t")
+
+
+def test_an_identifier_a_spreadsheet_mangled_is_named(backend, registry, tmp_path):
+    """A long numeric id opened in a spreadsheet comes back as scientific notation. The row is
+    otherwise perfectly well formed, so nothing else in the pipeline would say a word — and it
+    would load under an identifier its source never issued, leaving the real element untouched."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text(
+        "id,type,name\n"
+        "1.23457E+14,logical_data_component,Mangled\n"
+        "4.5e-3,logical_data_component,Also mangled\n"
+        "E3,logical_data_component,Fine\n"
+        "007,logical_data_component,Also fine — zeros survived because it is text\n"
+    )
+    report = import_directory(backend, registry, d, "s", actor="t", dry_run=True)
+    suspect = [i for i in report.issues if i.code == "suspect_identifier"]
+    assert [i.entity for i in suspect] == ["1.23457E+14", "4.5e-3"]
+    assert "format the column as text" in suspect[0].message.lower()
+    assert report.ok  # a warning, never a refusal: only the source can say what it meant
+
+
+def test_an_ordinary_identifier_is_not_called_suspect(backend, registry, tmp_path):
+    """The check is narrow on purpose: a plain number, a version and a prefixed id are all normal."""
+    from ea.importer.csv_import import spreadsheet_damaged
+
+    for good in ("7", "007", "E3", "CMDB-1001", "DT007", "1.2.3", "v1.2", "2024-12-31", ""):
+        assert not spreadsheet_damaged(good), good
+    for bad in ("1.23457E+14", "4.5e-3", "-2.5E+10", "1E+20"):
+        assert spreadsheet_damaged(bad), bad

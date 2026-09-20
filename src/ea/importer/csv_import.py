@@ -222,6 +222,23 @@ def _states(
     }
 
 
+#: What a long number looks like after a spreadsheet has opened and saved a file: an
+#: identifier turned into scientific notation. It is the one spreadsheet damage that can be
+#: recognised for certain, because no source issues an identifier in this shape.
+_SCIENTIFIC = re.compile(r"^-?\d+(\.\d+)?[eE][+-]?\d+$")
+
+
+def spreadsheet_damaged(identifier: str) -> bool:
+    """Whether an identifier carries the mark of having been through a spreadsheet.
+
+    Loading it would create an element under a name its source never issued, and quietly
+    leave the real one untouched — so it is worth a word even though the row is otherwise
+    perfectly well formed. Leading zeros lost from an identifier cannot be recognised this
+    way: `7` is a legitimate identifier, and nothing in the file says it was once `007`.
+    """
+    return bool(_SCIENTIFIC.match((identifier or "").strip()))
+
+
 MATCH_KEYS = ("id", "key")
 
 
@@ -295,6 +312,19 @@ def build_elements(
             source_ident = (
                 rec.get("key") or "" if mapping.match_on == "key" else rec.get("id") or rec.get("key") or ""
             )
+            if spreadsheet_damaged(source_ident):
+                report.add_issue(
+                    Issue(
+                        "warning",
+                        "suspect_identifier",
+                        f"identifier {source_ident!r} is in scientific notation, which is what a "
+                        "spreadsheet does to a long number: the row would load under an identifier "
+                        "its source never issued. Format the column as text before saving",
+                        row=i,
+                        entity=source_ident,
+                        file=fname,
+                    )
+                )
             eid = element_ref(source_ident, mapping, by_key)
             if not eid:
                 report.add_issue(

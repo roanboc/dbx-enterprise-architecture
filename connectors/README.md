@@ -128,6 +128,26 @@ solves, which is why a description with commas, quotes and newlines round-trips 
 The Import page takes a mapping YAML of your own as well as the two that ship with the
 repository; an uploaded mapping overrides the choice in the dropdown.
 
+## Editing an export in a spreadsheet
+
+The comma is the right separator and quoting handles everything a description can hold —
+commas, quotes, and the newlines of a fenced diagram. The risk in a CSV round trip is not the
+separator; it is what a spreadsheet does to the file when it saves it, and only some of it can
+be recognised afterwards:
+
+| What a spreadsheet does | What happens here |
+| ----------------------- | ----------------- |
+| Reformats a date (`2024-12-31` → `31/12/2024`) | **Caught** — a `wrong_type` warning naming the attribute, and the raw value is kept rather than guessed at |
+| Turns a long numeric identifier into scientific notation (`1.23457E+14`) | **Caught** — a `suspect_identifier` warning, because no source issues an identifier in that shape |
+| Strips leading zeros from an identifier (`007` → `7`) | **Not caught, and cannot be.** `7` is a legitimate identifier and nothing in the file records that it was once `007` |
+| Re-saves with the machine's list separator | **Caught** — the file parses as one column and is refused by naming the separator it was really written with |
+| Truncates a cell past 32,767 characters | **Not caught.** Only a very long description reaches it |
+
+Two things avoid all of it. Format the identifier columns as text before saving, which stops
+both the scientific notation and the lost zeros. And set `id_prefix`, which makes every
+identifier non-numeric (`CMDB-007`) so a spreadsheet has nothing to reinterpret — worth doing
+for the identity reasons below anyway.
+
 ## Which column is the identity
 
 Every identifier a source brings — the elements it declares, the endpoints of its
