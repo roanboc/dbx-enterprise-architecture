@@ -1172,9 +1172,9 @@ class SqlBackend(DatabaseBackend):
                 out[row_id] = int(v)
         return out
 
-    def upsert_elements(self, elements: list[Element], actor: str) -> tuple[int, int]:
+    def upsert_elements(self, elements: list[Element], actor: str) -> tuple[int, int, int]:
         if not elements:
-            return 0, 0
+            return 0, 0, 0
         now = _now()
         branch, org = current_branch(), self._org()
         ids = [e.element_id for e in elements]
@@ -1193,7 +1193,7 @@ class SqlBackend(DatabaseBackend):
             rows.append(self._element_values(e))
         inserted = len(elements) - len(existing)
         if not rows:
-            return inserted, len(existing)
+            return inserted, 0, len(unchanged)
         elements = [e for e in elements if e.element_id not in unchanged]
         ids = [e.element_id for e in elements]
         with self._lock:
@@ -1231,7 +1231,7 @@ class SqlBackend(DatabaseBackend):
                 },
                 None,
             )
-        return inserted, len(existing)
+        return inserted, len(existing) - len(unchanged), len(unchanged)
 
     _AUDIT_FIELDS = ("version", "created_at", "created_by", "updated_at", "updated_by")
 
@@ -1513,9 +1513,9 @@ class SqlBackend(DatabaseBackend):
                 "relationship", relationship_id, "delete", actor, self._public(current), None, current.version
             )
 
-    def upsert_relationships(self, rels: list[Relationship], actor: str) -> tuple[int, int]:
+    def upsert_relationships(self, rels: list[Relationship], actor: str) -> tuple[int, int, int]:
         if not rels:
-            return 0, 0
+            return 0, 0, 0
         now = _now()
         branch, org = current_branch(), self._org()
         ids = [r.relationship_id for r in rels]
@@ -1534,7 +1534,7 @@ class SqlBackend(DatabaseBackend):
             rows.append(self._rel_values(r))
         inserted = len(rels) - len(existing)
         if not rows:
-            return inserted, len(existing)
+            return inserted, 0, len(unchanged)
         rels = [r for r in rels if r.relationship_id not in unchanged]
         ids = [r.relationship_id for r in rels]
         with self._lock:
@@ -1578,7 +1578,7 @@ class SqlBackend(DatabaseBackend):
                 },
                 None,
             )
-        return inserted, len(existing)
+        return inserted, len(existing) - len(unchanged), len(unchanged)
 
     # -------------------------------------------------------------- graph
     def _trace_sql(self, direction: str) -> str:

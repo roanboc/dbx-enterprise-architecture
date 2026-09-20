@@ -529,8 +529,13 @@ class ImportReport:
     #: know how many rows are new and how many overwrite something that is already there.
     elements_created: int = 0
     elements_updated: int = 0
+    #: Rows identical to what the branch already held, so nothing was written for them. A feed
+    #: that re-sends its whole source every night is almost all of this, and saying 'updated'
+    #: would make a quiet night look like a busy one.
+    elements_unchanged: int = 0
     relationships_created: int = 0
     relationships_updated: int = 0
+    relationships_unchanged: int = 0
     issues: list[Issue] = field(default_factory=list)
     #: Every issue found, counted by code, whether or not it was kept in `issues`.
     counts: dict[str, int] = field(default_factory=dict)
@@ -588,10 +593,10 @@ class ImportReport:
         return (
             f"source={self.source_system} elements {self.elements_loaded}/{self.elements_read} loaded"
             f" ({self.elements_created} new, {self.elements_updated} updated,"
-            f" {self.elements_skipped} skipped), relationships"
+            f" {self.elements_unchanged} unchanged, {self.elements_skipped} skipped), relationships"
             f" {self.relationships_loaded}/{self.relationships_read} loaded"
             f" ({self.relationships_created} new, {self.relationships_updated} updated,"
-            f" {self.relationships_skipped} skipped), links {self.links_loaded}/{self.links_read};"
+            f" {self.relationships_unchanged} unchanged, {self.relationships_skipped} skipped), links {self.links_loaded}/{self.links_read};"
             f" {self._tally()}"
         )
 

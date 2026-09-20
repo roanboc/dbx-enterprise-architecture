@@ -589,10 +589,18 @@ def import_frames(
         raise Forbidden(
             f"branch {b.branch_id} is {b.status.replace('_', ' ')}: frozen until the review is decided"
         )
-    report.elements_created, report.elements_updated = backend.upsert_elements(elements, actor)
-    report.elements_loaded = report.elements_created + report.elements_updated
-    report.relationships_created, report.relationships_updated = backend.upsert_relationships(rels, actor)
-    report.relationships_loaded = report.relationships_created + report.relationships_updated
+    report.elements_created, report.elements_updated, report.elements_unchanged = backend.upsert_elements(
+        elements, actor
+    )
+    report.elements_loaded = report.elements_created + report.elements_updated + report.elements_unchanged
+    (
+        report.relationships_created,
+        report.relationships_updated,
+        report.relationships_unchanged,
+    ) = backend.upsert_relationships(rels, actor)
+    report.relationships_loaded = (
+        report.relationships_created + report.relationships_updated + report.relationships_unchanged
+    )
     _write_links(backend, links, set(known) & {e.element_id for e in elements}, actor, report)
     return report
 

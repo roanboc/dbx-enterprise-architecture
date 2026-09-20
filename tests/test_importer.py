@@ -268,3 +268,24 @@ def test_issues_are_counted_in_full_and_kept_in_part(backend, registry, tmp_path
     assert report.error_count == rows
     assert not report.ok
     assert f"{rows} errors" in report.summary()
+
+
+def test_a_refresh_that_changes_nothing_says_so(backend, registry, tmp_path):
+    """A feed re-sending its whole source every night must not read as having rewritten it.
+
+    `upsert_elements` counts a row identical to what the branch holds as unchanged, not as
+    updated, and writes nothing for it — which is also why the version does not move.
+    """
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text(
+        "id,type,name\nE1,logical_data_component,One\nE2,logical_data_component,Two\n"
+    )
+    first = import_directory(backend, registry, d, "src", actor="t")
+    assert (first.elements_created, first.elements_updated, first.elements_unchanged) == (2, 0, 0)
+
+    again = import_directory(backend, registry, d, "src", actor="t")
+    assert (again.elements_created, again.elements_updated, again.elements_unchanged) == (0, 0, 2)
+    assert again.elements_loaded == 2  # every row accounted for, none of them written
+    assert "0 new, 0 updated, 2 unchanged" in again.summary()
+    assert backend.get_element("E1").version == 1
