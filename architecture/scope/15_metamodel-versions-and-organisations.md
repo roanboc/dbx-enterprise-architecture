@@ -53,7 +53,7 @@ organisations with the same identifiers apart to prove it.
 | 0_business-design | Not used — this is a Depth 1 application project. |
 | 1_strategy | No new stakeholder, driver, goal or principle. One assessment added: `ASM9` A metamodel change cannot wait for an environment, the reading behind the Requester's instruction (adopted). See [1_motivation.md](../1_strategy/1_motivation.md). |
 | 2_business | No change. The same roles and the same review before merge; managing organisations and applying a version are Admin actions, which needs no new role. |
-| 3_information | Two data objects added: `DOBJ1.6` Metamodel version and `DOBJ2.8` Organisation. The metamodel objects gain a properties bag, an attribute gains its group and its rules, an element type may be abstract and a relationship type may carry attributes; the persistence section says that every content table carries `org_id` and that the metamodel tables are keyed by pack and version. See [1_data-objects.md](../3_information/1_data-objects.md). |
+| 3_information | Two data objects added: `DOBJ1.6` Metamodel version and `DOBJ2.8` Organisation. The metamodel objects gain a properties bag, an attribute gains its group and its rules, an element type may be abstract and a relationship type may carry attributes; the persistence section says that every content table carries `org_id` and that the metamodel tables are keyed by pack and version. See [1_data-objects.md](../3_information/1_data-objects.md). Two documents added beside it, defining no element: [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md) reads the same objects as entities with their cardinalities, and [3_logical-data-model.md](../3_information/3_logical-data-model.md) as the seventeen tables with their keys and references — the layer had the enterprise view of what it holds and not the application's own. |
 | 4_application | One service added, `ASVC11` Organisation management, and the metamodel service extended with the version lifecycle, the difference between two versions and the compatibility check; one component added, `ACMP13` Metamodel lifecycle and organisation services. The store, the metamodel module, the screens, the command line and the views module keep their rows, re-worded where the change made them untrue. See [1_application-services.md](../4_application/1_application-services.md) and [2_application-components.md](../4_application/2_application-components.md). |
 | 5_technology | No change. The same store, the same engines, the same deployment; an organisation is rows in the tables that already exist. |
 | Transition | `GAP17` A metamodel change cannot be tried without changing what everybody reads is opened against `PLAT1` and closed in code by this initiative. See [1_target-state.md](../6_transition/1_target-state.md) and [2_sequence.md](../6_transition/2_sequence.md). |
@@ -182,9 +182,9 @@ is a canvas to rework, where a group is easy to move and easy to delete.
 | 2 | The store partitioned and versioned | `org_id` on every content table and the `organisation` table in `src/ea/backend/sql.py`; `src/ea/backend/organisations.py`; the scoped sources, the pack per version and the migration of an older store in `src/ea/backend/sql_backend.py`; both engines | Built 2026-09-19 |
 | 3 | The services, the roles and the command line | `src/ea/services/metamodel.py`, `src/ea/services/organisations.py`, the two new actions in `roles.py`, the defaults and coercion in `repository.py`; `--org` and the `org` and `metamodel` groups in `src/ea/cli.py` | Built 2026-09-19 |
 | 4 | The screens | The Metamodel page rebuilt around one version with six tabs and row deletion; the new Organisations page; the header's organisation selector and version badge; the element page's attribute groups and relationship attributes | Built 2026-09-19 |
-| 5 | The generated views, flat | `src/ea/views/mermaid.py` and the colour legend above every diagram in the application and in the exported Markdown; the arrange script without its cluster handling | Built 2026-09-19 |
+| 5 | The generated views, flat | `src/ea/views/mermaid.py` and, above every diagram in the application and in the exported Markdown, a chip per layer drawn in that layer's own colour; the arrange script without its cluster handling | Built 2026-09-19 |
 | 6 | The suite and the round | `tests/test_organisations.py`, `tests/test_metamodel_versions.py`, `tests/test_metamodel_page.py`, `tests/test_element_page.py` and the additions to the existing tests; scenario groups J (rewritten, 25) and Q (new, 7), the command-line scenarios M65 to M70, the screen audit P30 | Built 2026-09-19 |
-| 7 | The model kept true | The layer rows named above, the roadmap, decisions 0014 and 0015, this document, the README, `AGENTS.md` and `packs/README.md` | Built 2026-09-19 |
+| 7 | The model kept true | The layer rows named above, the roadmap, decisions 0014 and 0015, this document, the README, `AGENTS.md` and `packs/README.md`; the information layer's conceptual and logical data models | Built 2026-09-19, the two data models 2026-09-20 |
 
 ## In scope / out of scope
 
@@ -233,5 +233,7 @@ is a canvas to rework, where a group is easy to move and easy to delete.
 Built on 2026-09-19 on the branch: the pack format extended, the store
 partitioned by organisation and keyed by version, the services and the command
 line, the two screens, the flat generated views, the grouped attributes, the
-unit suite and the browser round. Presented for **Understanding** on the pull
-request, with the layer documents and the two decisions.
+unit suite and the browser round; on 2026-09-20 the information layer's
+conceptual and logical data models, which the layer did not have. Presented for
+**Understanding** on the pull request, with the layer documents and the two
+decisions.

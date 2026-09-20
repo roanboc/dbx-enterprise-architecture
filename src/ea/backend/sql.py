@@ -6,6 +6,10 @@ metamodel row to one version of a pack (`pack_version`, decision 0015).
 Types are kept to the four both engines read as written (`VARCHAR`, `INTEGER`,
 `BOOLEAN`, `TIMESTAMP`). JSON is stored as text and parsed in Python, which
 keeps the DDL identical and the rows readable from any SQL client.
+
+These tables are modelled in `architecture/3_information/3_logical-data-model.md`
+— keys, references and what each column carries. A change here changes that page
+in the same commit.
 """
 
 import re
