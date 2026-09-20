@@ -19,7 +19,7 @@ _SKIP = {"sort_order", "attributes", "type_id", "rel_type_id"}
 
 @dataclass
 class DiffEntry:
-    kind: str  # pack | domain | element_type | relationship_type | attribute
+    kind: str  # pack | domain | attribute_group | element_type | relationship_type | attribute
     id: str
     label: str
     change: str  # added | removed | changed
@@ -96,7 +96,7 @@ def _compare(
 
 
 def diff_packs(before: Pack, after: Pack) -> PackDiff:
-    """The difference from `before` to `after`, in the order a reader looks: the header, domains, types, relationship types, attributes."""
+    """The difference from `before` to `after`, in the order a reader looks: the header, domains, attribute groups, types, relationship types, attributes."""
     out = PackDiff(a=before.ref, b=after.ref)
     header_fields = ("name", "description", "source", "provenance_values", "notes", "properties")
     changed = [
@@ -110,6 +110,11 @@ def diff_packs(before: Pack, after: Pack) -> PackDiff:
         "domain",
         {d.id: (d.name, d) for d in before.domains},
         {d.id: (d.name, d) for d in after.domains},
+    )
+    out.entries += _compare(
+        "attribute_group",
+        {g.id: (g.name, g) for g in before.attribute_groups},
+        {g.id: (g.name, g) for g in after.attribute_groups},
     )
     out.entries += _compare(
         "element_type",

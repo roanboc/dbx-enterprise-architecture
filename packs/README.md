@@ -16,9 +16,34 @@ by a check of that organisation's content against it (decision
 the metamodel is a new version, tried where it can do no harm, and published
 when it is right.
 
-`higher_education/` is an anonymised university metamodel, the first configuration. Further packs
-(`archimate-3.2`, a generic university pack) land beside it with the same
-shape.
+## The two packs that ship
+
+| Pack | What it is | Why it is here |
+| ---- | ---------- | -------------- |
+| `higher_education/` | An anonymised university's TOGAF-based metamodel: 59 element types and 54 relationship types, with the endpoint pairs the source document allows | The first configuration, and what the sample content is typed against |
+| `archimate_core/` | The ArchiMate 3.2 core: six layers as domains, 28 element types, and the standard's relationships declared once against `ANY` | The second worked pack. Principle `P5` says no framework lives in `src/`, and one pack cannot show that — whatever the engine assumed about the first would just look like the engine working. Loading a framework with different layers, different types and relationships that are not declared per pair is what tests the claim |
+
+Both live in one store, each applied by an organisation of its own
+(decision [0014](../architecture/decisions/0014-organisations-as-a-partition.md)):
+
+```bash
+uv run ea load-pack packs/archimate_core/metamodel.yaml
+uv run ea org create "ArchiMate trial" --metamodel archimate_core@3.2
+uv run ea --org archimate-trial summary
+```
+
+A further pack lands beside them with the same shape.
+
+**Watch the commas.** A `description:` inside a `{...}` flow mapping ends at
+the first comma, and the rest becomes a key of its own that the engine keeps in
+`properties` without a word. Quote any description that carries one —
+`description: 'A, B'`.
+
+Loading a file says so when it sees the shape — an empty property whose key
+reads like prose — on `ea load-pack`, in the log, and on the Metamodel page's
+**Load YAML file…**. It is a warning, not a refusal: only the author can say
+whether the key was meant. `tests/test_second_pack.py` fails a **shipped** pack
+that does it.
 
 ## File shape (`metamodel.yaml`)
 
@@ -35,6 +60,8 @@ pack:
   provenance_values: [TOGAF, CORE_EA, LOCAL]
   properties: {}              # optional: anything the framework wants kept here
 domains:
+  - {id, name, description, properties: {}}
+attribute_groups:             # the sections an element's attributes are read in, in this order
   - {id, name, description, properties: {}}
 common_attributes:            # every element may carry these
   - {name, label, type, required, enum, group, default, multiple, unit,
@@ -96,7 +123,7 @@ the row.
 | `unit` | Shown after the label: `Cost (AUD)` |
 | `pattern` | A regular expression the value must match |
 | `min`, `max` | Bounds for a number, or the first and last date |
-| `group` | The section the attribute belongs to. An element's attributes are read and edited in these groups, so a long list is a page rather than a wall |
+| `group` | The `id` of an entry in `attribute_groups`. An element's attributes are read and edited in these sections, in the order the pack declares them, so a long list is a page rather than a wall. The Metamodel screen offers the declared groups rather than a text box, because a typo used to make a section of its own that nobody could see was a mistake. A group written as a label (`group: Governance`) still resolves by name, and one that nothing declares is **added** to the pack rather than dropped |
 | `help` | One line under the control, where the description is too long |
 | `sensitivity` | Marks the value restricted wherever it is shown |
 | `properties` | Anything else the framework keeps with the attribute |

@@ -1,0 +1,371 @@
+# ArchiMate Core: the second worked pack.
+#
+# The first pack (packs/higher_education) is a university's TOGAF-based metamodel. This one
+# is a different framework entirely — ArchiMate's own layers, its own element types, and its
+# generic relationships that apply between almost anything — and it is loaded by the same
+# engine, with no code that knows either of them. That is the point of it: principle P5 says
+# nothing framework-specific lives in src/, and a single worked pack cannot show whether
+# that is true.
+#
+# It is a *core* pack, not the whole specification: the elements an architect reaches for
+# most, across the six layers. Extend it in a draft of its own rather than editing a
+# published version (decision 0015).
+#
+# ArchiMate is an Open Group standard. The names below are the standard's; nothing here
+# belongs to any institution.
+
+pack:
+  id: archimate_core
+  name: ArchiMate Core
+  version: "3.2"
+  status: published
+  description: >-
+    The most used elements and relationships of the ArchiMate 3.2 core, as a metamodel pack:
+    six layers as domains, the structural and dependency relationships that the standard
+    allows between almost any pair of elements, and the notation each element is drawn in.
+  source: The ArchiMate 3.2 Specification (The Open Group), core elements only
+  provenance_values: [ARCHIMATE]
+
+# ArchiMate's layers are this pack's domains, drawn in the layer colours the view generator
+# already knows (src/ea/views/mermaid.py); nothing here sets a colour the engine invents.
+domains:
+  - id: motivation
+    name: Motivation
+    description: Why the architecture changes — who cares, what presses on them, and what must become true.
+    notation: {colour: violet, hex: '#7e57c2', layer: motivation, glyph: '◎', stereotype: Goal, archimate: Goal, shape: round}
+  - id: strategy
+    name: Strategy
+    description: What the enterprise is able to do, and with what.
+    notation: {colour: orange, hex: '#c8a24a', layer: strategy, glyph: '✦', stereotype: Capability, archimate: Capability, shape: rect}
+  - id: business
+    name: Business
+    description: The actors, roles, processes and services the enterprise offers.
+    notation: {colour: yellow, hex: '#b8a200', layer: business, glyph: '⬭', stereotype: Business Service, archimate: BusinessService, shape: round}
+  - id: application
+    name: Application
+    description: The software components and the services and data they provide.
+    notation: {colour: blue, hex: '#0288d1', layer: application, glyph: '▭', stereotype: Application Component, archimate: ApplicationComponent, shape: rect}
+  - id: technology
+    name: Technology
+    description: The nodes, software and networks the applications run on.
+    notation: {colour: green, hex: '#558b2f', layer: technology, glyph: '⬒', stereotype: Node, archimate: Node, shape: rect}
+  - id: implementation
+    name: Implementation and migration
+    description: The work that changes the architecture, and the states it passes through.
+    notation: {colour: red, hex: '#c0392b', layer: implementation, glyph: '≡', stereotype: Work Package, archimate: WorkPackage, shape: rect}
+
+attribute_groups:
+  - {id: identification, name: Identification, description: 'What the element is called elsewhere, and where it came from.'}
+  - {id: governance, name: Governance, description: Who owns it and how far it has been agreed.}
+  - {id: analysis, name: Analysis, description: What an architect records about it when assessing change.}
+
+common_attributes:
+  - {name: alias, group: identification, label: Alias, type: string, help: Another name the element is known by.}
+  - {name: external_id, group: identification, label: External identifier, type: string, help: Its identifier in the tool this element was mirrored from.}
+  - {name: owner, group: governance, label: Owner, type: string}
+  - {name: review_date, group: governance, label: Next review, type: date}
+  - {name: maturity, group: analysis, label: Maturity, type: string, enum: [initial, managed, defined, measured, optimising]}
+  - {name: criticality, group: analysis, label: Criticality, type: string, enum: [low, medium, high]}
+
+element_types:
+  # ------------------------------------------------------------------ motivation
+  - id: stakeholder
+    name: Stakeholder
+    plural: Stakeholders
+    domain: motivation
+    notation: {layer: motivation, glyph: '◍', stereotype: Stakeholder, archimate: Stakeholder, shape: round}
+    provenance: ARCHIMATE
+    prefix: STK
+    description: The role of an individual, team or organisation that represents their interests in the architecture.
+    examples: [Chief Information Officer, Regulator, Product owner]
+
+  - id: driver
+    name: Driver
+    plural: Drivers
+    domain: motivation
+    notation: {layer: motivation, glyph: '✳', stereotype: Driver, archimate: Driver, shape: hex}
+    provenance: ARCHIMATE
+    prefix: DRV
+    description: An external or internal condition that motivates an organisation to define its goals and change.
+    examples: [Regulatory change, Cost pressure, Customer satisfaction]
+
+  - id: assessment
+    name: Assessment
+    plural: Assessments
+    domain: motivation
+    notation: {layer: motivation, glyph: '⌕', stereotype: Assessment, archimate: Assessment, shape: round}
+    provenance: ARCHIMATE
+    prefix: ASM
+    description: The outcome of an analysis of the state of affairs with respect to some driver.
+    examples: [Legacy platform is out of support, Data quality is unmeasured]
+
+  - id: goal
+    name: Goal
+    plural: Goals
+    domain: motivation
+    notation: {layer: motivation, glyph: '◎', stereotype: Goal, archimate: Goal, shape: round}
+    provenance: ARCHIMATE
+    prefix: GOAL
+    description: A high-level statement of intent, direction or desired end state.
+    examples: [Reduce time to onboard a supplier, One record per customer]
+
+  - id: requirement
+    name: Requirement
+    plural: Requirements
+    domain: motivation
+    notation: {layer: motivation, glyph: '▣', stereotype: Requirement, archimate: Requirement, shape: rect}
+    provenance: ARCHIMATE
+    prefix: REQ
+    description: A statement of need defining a property that applies to a specific system as described by the architecture.
+    examples: [Single sign-on for every internal application]
+
+  - id: principle
+    name: Principle
+    plural: Principles
+    domain: motivation
+    notation: {layer: motivation, glyph: '⚑', stereotype: Principle, archimate: Principle, shape: rect}
+    provenance: ARCHIMATE
+    prefix: PRIN
+    description: A statement of intent defining a general property that applies to any system in a certain context.
+    examples: [Buy before build, Data is mastered once]
+
+  # -------------------------------------------------------------------- strategy
+  - id: capability
+    name: Capability
+    plural: Capabilities
+    domain: strategy
+    notation: {layer: strategy, glyph: '✦', stereotype: Capability, archimate: Capability, shape: rect}
+    provenance: ARCHIMATE
+    prefix: CAP
+    description: An ability that an active structure element, such as an organisation, person or system, possesses.
+    examples: [Customer relationship management, Financial reporting]
+
+  - id: value_stream
+    name: Value stream
+    plural: Value streams
+    domain: strategy
+    notation: {layer: strategy, glyph: '⇉', stereotype: Value Stream, archimate: ValueStream, shape: round}
+    provenance: ARCHIMATE
+    prefix: VS
+    description: A sequence of activities that creates an overall result for a customer, stakeholder or end user.
+    examples: [Quote to cash, Idea to product]
+
+  - id: resource
+    name: Resource
+    plural: Resources
+    domain: strategy
+    notation: {layer: strategy, glyph: '▦', stereotype: Resource, archimate: Resource, shape: rect}
+    provenance: ARCHIMATE
+    prefix: RES
+    description: An asset owned or controlled by an individual or organisation.
+    examples: [Engineering team, Data centre lease]
+
+  - id: course_of_action
+    name: Course of action
+    plural: Courses of action
+    domain: strategy
+    notation: {layer: strategy, glyph: '➜', stereotype: Course of Action, archimate: CourseOfAction, shape: round}
+    provenance: ARCHIMATE
+    prefix: COA
+    description: An approach or plan for configuring some capabilities and resources of the enterprise, undertaken to achieve a goal.
+    examples: [Consolidate the reporting estate]
+
+  # -------------------------------------------------------------------- business
+  - id: business_actor
+    name: Business actor
+    plural: Business actors
+    domain: business
+    notation: {layer: business, glyph: '◍', stereotype: Business Actor, archimate: BusinessActor, shape: rect}
+    provenance: ARCHIMATE
+    prefix: BACT
+    description: A business entity that is capable of performing behaviour.
+    examples: [Finance department, Supplier]
+
+  - id: business_role
+    name: Business role
+    plural: Business roles
+    domain: business
+    notation: {layer: business, glyph: '⚉', stereotype: Business Role, archimate: BusinessRole, shape: rect}
+    provenance: ARCHIMATE
+    prefix: BROLE
+    description: The responsibility for performing specific behaviour, to which an actor can be assigned.
+    examples: [Approver, Data steward]
+
+  - id: business_process
+    name: Business process
+    plural: Business processes
+    domain: business
+    notation: {layer: business, glyph: '⚙', stereotype: Business Process, archimate: BusinessProcess, shape: round}
+    provenance: ARCHIMATE
+    prefix: BPROC
+    description: A sequence of business behaviours that achieves a specific result.
+    examples: [Onboard an employee, Raise an invoice]
+
+  - id: business_service
+    name: Business service
+    plural: Business services
+    domain: business
+    notation: {layer: business, glyph: '⬭', stereotype: Business Service, archimate: BusinessService, shape: round}
+    provenance: ARCHIMATE
+    prefix: BSVC
+    description: Explicitly defined behaviour that a business role, actor or collaboration exposes to its environment.
+    examples: [Payroll service, Student enrolment]
+
+  - id: business_object
+    name: Business object
+    plural: Business objects
+    domain: business
+    notation: {layer: business, glyph: '▤', stereotype: Business Object, archimate: BusinessObject, shape: rect}
+    provenance: ARCHIMATE
+    prefix: BOBJ
+    description: A concept used within a particular business domain.
+    examples: [Invoice, Enrolment]
+
+  - id: product
+    name: Product
+    plural: Products
+    domain: business
+    notation: {layer: business, glyph: '◈', stereotype: Product, archimate: Product, shape: rect}
+    provenance: ARCHIMATE
+    prefix: PROD
+    description: A coherent collection of services and/or passive structure elements, accompanied by a contract, offered as a whole.
+    examples: [Business current account]
+
+  # ----------------------------------------------------------------- application
+  - id: application_component
+    name: Application component
+    plural: Application components
+    domain: application
+    notation: {layer: application, glyph: '▭', stereotype: Application Component, archimate: ApplicationComponent, shape: rect}
+    provenance: ARCHIMATE
+    prefix: ACMP
+    description: An encapsulation of application functionality, aligned to implementation structure, which is modular and replaceable.
+    examples: [Billing system, Identity provider]
+
+  - id: application_service
+    name: Application service
+    plural: Application services
+    domain: application
+    notation: {layer: application, glyph: '⬮', stereotype: Application Service, archimate: ApplicationService, shape: round}
+    provenance: ARCHIMATE
+    prefix: ASVC
+    description: Explicitly defined behaviour that an application component exposes to its environment.
+    examples: [Address lookup, Payment authorisation]
+
+  - id: application_interface
+    name: Application interface
+    plural: Application interfaces
+    domain: application
+    notation: {layer: application, glyph: '⊸', stereotype: Application Interface, archimate: ApplicationInterface, shape: rect}
+    provenance: ARCHIMATE
+    prefix: AIF
+    description: A point of access where application services are made available.
+    examples: [Payments REST API]
+
+  - id: data_object
+    name: Data object
+    plural: Data objects
+    domain: application
+    notation: {layer: application, glyph: '▦', stereotype: Data Object, archimate: DataObject, shape: rect}
+    provenance: ARCHIMATE
+    prefix: DOBJ
+    description: Data structured for automated processing.
+    examples: [Customer record, Transaction log]
+
+  # ------------------------------------------------------------------ technology
+  - id: node
+    name: Node
+    plural: Nodes
+    domain: technology
+    notation: {layer: technology, glyph: '⬒', stereotype: Node, archimate: Node, shape: rect}
+    provenance: ARCHIMATE
+    prefix: NODE
+    description: A computational or physical resource that hosts, manipulates or interacts with other computational or physical resources.
+    examples: [Kubernetes cluster, Database server]
+
+  - id: system_software
+    name: System software
+    plural: System software
+    domain: technology
+    notation: {layer: technology, glyph: '⬡', stereotype: System Software, archimate: SystemSoftware, shape: rect}
+    provenance: ARCHIMATE
+    prefix: SSW
+    description: Software that provides or contributes to an environment for storing, executing and using software or data.
+    examples: [PostgreSQL, Linux]
+
+  - id: technology_service
+    name: Technology service
+    plural: Technology services
+    domain: technology
+    notation: {layer: technology, glyph: '⬯', stereotype: Technology Service, archimate: TechnologyService, shape: round}
+    provenance: ARCHIMATE
+    prefix: TSVC
+    description: Explicitly defined behaviour that a node exposes to its environment.
+    examples: [Object storage, Message queue]
+
+  - id: artifact
+    name: Artifact
+    plural: Artifacts
+    domain: technology
+    notation: {layer: technology, glyph: '▪', stereotype: Artifact, archimate: Artifact, shape: rect}
+    provenance: ARCHIMATE
+    prefix: ART
+    description: A piece of data used or produced in a software development process, or by deployment and operation of a system.
+    examples: [Container image, Deployment bundle]
+
+  # ------------------------------------------------ implementation and migration
+  - id: work_package
+    name: Work package
+    plural: Work packages
+    domain: implementation
+    notation: {layer: implementation, glyph: '≡', stereotype: Work Package, archimate: WorkPackage, shape: rect}
+    provenance: ARCHIMATE
+    prefix: WP
+    description: A series of actions identified and designed to achieve specific results within specified time and resource constraints.
+    examples: [Migrate reporting to the platform]
+
+  - id: deliverable
+    name: Deliverable
+    plural: Deliverables
+    domain: implementation
+    notation: {layer: implementation, glyph: '▥', stereotype: Deliverable, archimate: Deliverable, shape: rect}
+    provenance: ARCHIMATE
+    prefix: DLV
+    description: A precisely defined result of a work package.
+    examples: [Migration runbook, Decommission plan]
+
+  - id: plateau
+    name: Plateau
+    plural: Plateaus
+    domain: implementation
+    notation: {layer: implementation, glyph: '≣', stereotype: Plateau, archimate: Plateau, shape: rect}
+    provenance: ARCHIMATE
+    prefix: PLAT
+    description: A relatively stable state of the architecture that exists during a limited period of time.
+    examples: [Reporting consolidated]
+
+  - id: gap
+    name: Gap
+    plural: Gaps
+    domain: implementation
+    notation: {layer: implementation, glyph: '⊘', stereotype: Gap, archimate: Gap, shape: round}
+    provenance: ARCHIMATE
+    prefix: GAP
+    description: A statement of difference between two plateaus.
+    examples: [No single customer identifier]
+
+# ArchiMate's relationships are generic: the standard allows most of them between most
+# elements, so these are declared once against ANY rather than per pair of types. A pack
+# that wants them narrowed declares the pairs instead — the engine reads both.
+relationship_types:
+  - {id: composition, name: composes, inverse: is composed in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole is made of the part, and the part cannot exist without it.'}
+  - {id: aggregation, name: aggregates, inverse: is aggregated in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole groups the part, which can exist on its own.'}
+  - {id: assignment, name: is assigned to, inverse: is performed by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An active element is allocated to the behaviour it performs.}
+  - {id: realization, name: realises, inverse: is realised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: A more concrete element fulfils a more abstract one.}
+  - {id: serving, name: serves, inverse: is served by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element provides its functionality to another.}
+  - {id: access, name: accesses, inverse: is accessed by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: [read, write, read/write], description: Behaviour reads or writes a passive element.}
+  - {id: influence, name: influences, inverse: is influenced by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: ['+', '-', '0'], description: An element affects the implementation or achievement of a motivation element.}
+  - {id: triggering, name: triggers, inverse: is triggered by, source: ANY, target: ANY, provenance: ARCHIMATE, description: One behaviour follows another in time.}
+  - {id: flow, name: flows to, inverse: receives flow from, source: ANY, target: ANY, provenance: ARCHIMATE, description: Something is transferred from one element to another.}
+  - {id: specialization, name: specialises, inverse: is specialised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element is a particular kind of another.}
+  - {id: association, name: is associated with, inverse: is associated with, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'An unspecified relationship, where nothing more precise applies.'}

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from ea import capacity
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, use_branch
 from ea.backend.organisations import use_org
@@ -20,6 +21,7 @@ from ea.metamodel.registry import Registry
 from ea.models import (
     CompatibilityReport,
     ConflictError,
+    Issue,
     NotFoundError,
     Pack,
     PackVersion,
@@ -28,7 +30,10 @@ from ea.models import (
 )
 from ea.services.roles import require
 
-EVERYTHING = 10_000_000  # every row of main, in one read: an EA repository is thousands of rows
+#: The most issues one compatibility report keeps. Past it the report counts rather than
+#: lists: a reader deciding whether to apply a version needs the shape of the damage, and
+#: `by_code()` still totals every issue found (decision 0019).
+MAX_ISSUES = 2_000
 
 
 class MetamodelService:
@@ -148,24 +153,53 @@ class MetamodelService:
         """
         registry = Registry(pack)
         report = CompatibilityReport(org_id=org_id, pack_id=pack.id, version=pack.version)
+
+        def keep(issue: Issue) -> None:
+            # what a pack does not declare is kept, as the importer keeps it
+            if issue.code == "extra_attribute":
+                return
+            report.counts[issue.code] = report.counts.get(issue.code, 0) + 1
+            if issue.level == "error":
+                report.error_count += 1
+            if len(report.issues) < MAX_ISSUES:
+                report.issues.append(issue)
+            else:
+                report.truncated = True
+
+        # Paged rather than read whole: the check runs over an organisation's entire main, and
+        # the application is assessed for a hundred thousand elements (decision 0019). Only the
+        # type of each element is carried forward, because that is all the relationship pass
+        # needs — not the elements themselves.
         with use_org(org_id), use_branch(MAIN):
-            elements = self.backend.find_elements(limit=EVERYTHING)
-            types = {e.element_id: e.type_id for e in elements}
-            for e in elements:
-                report.elements += 1
-                for issue in registry.validate_element(e.type_id, e.attrs, entity=e.element_id):
-                    if issue.code == "extra_attribute":
-                        continue  # what a pack does not declare is kept, as the importer keeps it
-                    report.issues.append(issue)
-            for r in self.backend.find_relationships(limit=EVERYTHING):
-                report.relationships += 1
-                src, dst = types.get(r.src_id), types.get(r.dst_id)
-                if src is None or dst is None:
-                    continue  # a dangling edge is the content's problem, not the version's
-                for issue in registry.validate_relationship(
-                    r.rel_type_id, src, dst, r.qualifier, entity=r.relationship_id, attrs=r.attrs
-                ):
-                    if issue.code == "extra_attribute":
-                        continue
-                    report.issues.append(issue)
+            types: dict[str, str] = {}
+            offset = 0
+            while True:
+                page = self.backend.find_elements(limit=capacity.READ_CHUNK, offset=offset)
+                if not page:
+                    break
+                for e in page:
+                    report.elements += 1
+                    types[e.element_id] = e.type_id
+                    for issue in registry.validate_element(e.type_id, e.attrs, entity=e.element_id):
+                        keep(issue)
+                offset += len(page)
+                if len(page) < capacity.READ_CHUNK:
+                    break
+            offset = 0
+            while True:
+                page = self.backend.find_relationships(limit=capacity.READ_CHUNK, offset=offset)
+                if not page:
+                    break
+                for r in page:
+                    report.relationships += 1
+                    src, dst = types.get(r.src_id), types.get(r.dst_id)
+                    if src is None or dst is None:
+                        continue  # a dangling edge is the content's problem, not the version's
+                    for issue in registry.validate_relationship(
+                        r.rel_type_id, src, dst, r.qualifier, entity=r.relationship_id, attrs=r.attrs
+                    ):
+                        keep(issue)
+                offset += len(page)
+                if len(page) < capacity.READ_CHUNK:
+                    break
         return report

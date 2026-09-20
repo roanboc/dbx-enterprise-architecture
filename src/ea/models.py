@@ -85,7 +85,7 @@ class AttributeDef:
     pattern: str = ""  # a regular expression a string value must match in full
     min: float | str | None = None  # a number, or an ISO date, the value may not go under
     max: float | str | None = None
-    group: str = ""  # the section of the form the attribute is shown in
+    group: str = ""  # the id of the AttributeGroup the attribute is read and edited under
     help: str = ""  # a sentence shown beside the control
     properties: dict[str, Any] = field(default_factory=dict)  # anything the framework adds; kept, never read
 
@@ -109,6 +109,27 @@ class AttributeDef:
     def title(self) -> str:
         """The label with its unit, the way a form heads the control."""
         return f"{self.label} ({self.unit})" if self.unit else self.label
+
+
+@dataclass
+class AttributeGroup:
+    """A section an element's attributes are read and edited in.
+
+    The group was free text on the attribute, so a typo made a section of its own that
+    nobody could see was a mistake. A framework declares its groups here instead; an
+    attribute names one by its identifier, the element page reads them in this order, and
+    the metamodel screen offers the list rather than a text box.
+    """
+
+    id: str
+    name: str = ""
+    description: str = ""
+    sort_order: int = 0
+    properties: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.id, "attribute group id")
+        self.name = self.name or self.id.replace("_", " ").capitalize()
 
 
 @dataclass
@@ -196,6 +217,7 @@ class Pack:
     source: str = ""
     provenance_values: list[str] = field(default_factory=list)
     domains: list[Domain] = field(default_factory=list)
+    attribute_groups: list[AttributeGroup] = field(default_factory=list)
     common_attributes: list[AttributeDef] = field(default_factory=list)
     element_types: list[ElementType] = field(default_factory=list)
     relationship_types: list[RelationshipType] = field(default_factory=list)
@@ -541,6 +563,12 @@ class CompatibilityReport:
     elements: int = 0
     relationships: int = 0
     issues: list[Issue] = field(default_factory=list)
+    #: Every issue found, counted by code, whether or not it was kept in `issues`.
+    counts: dict[str, int] = field(default_factory=dict)
+    #: How many of them were errors. `ok` reads this, not the kept list.
+    error_count: int = 0
+    #: True when more issues were found than the report keeps (`services.metamodel.MAX_ISSUES`).
+    truncated: bool = False
 
     @property
     def errors(self) -> list[Issue]:
@@ -552,19 +580,31 @@ class CompatibilityReport:
 
     @property
     def ok(self) -> bool:
-        return not self.errors
+        """No errors anywhere — counted over everything found, not over what was kept."""
+        return not self.error_count and not self.errors
 
     def by_code(self) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for i in self.issues:
-            out[i.code] = out.get(i.code, 0) + 1
+        out = dict(self.counts) if self.counts else {}
+        if not out:
+            for i in self.issues:
+                out[i.code] = out.get(i.code, 0) + 1
         return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
 
     def summary(self) -> str:
         return (
             f"{self.pack_id}@{self.version} on {self.org_id}: {self.elements} elements and "
-            f"{self.relationships} relationships checked; {len(self.errors)} errors, {len(self.warnings)} warnings"
-        )
+            f"{self.relationships} relationships checked; {self.total_errors} errors, "
+            f"{self.total_warnings} warnings"
+        ) + (f" ({len(self.issues)} listed)" if self.truncated else "")
+
+    @property
+    def total_errors(self) -> int:
+        """Errors found, whether or not the report kept them."""
+        return self.error_count or len(self.errors)
+
+    @property
+    def total_warnings(self) -> int:
+        return (sum(self.counts.values()) - self.total_errors) if self.counts else len(self.warnings)
 
 
 class ConflictError(Exception):

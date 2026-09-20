@@ -115,7 +115,7 @@ is a stated fact — `Out of scope`, `External`, or a named `Gap` — not a sile
 
 Depth is about the subject, not the effort. The repository *manages* an
 enterprise model; it is itself one application, so it is modeled at Depth 1.
-The content it holds (the institution's ~4,600 elements) is data inside the application,
+The content it holds (the curriculum slice's ~4,600 elements today) is data inside the application,
 not this model.
 
 ## How far a document has been validated

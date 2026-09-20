@@ -36,33 +36,33 @@ def _texts(parts: list) -> list[str]:
 
 def test_attributes_are_grouped_with_the_ungrouped_ones_first(registry):
     attrs = registry.attributes_for("information_asset")
-    groups = list(_by_group(attrs))
+    groups = list(_by_group(attrs, registry))
     assert groups[0] == ""  # what the metamodel puts in no group comes first, unheaded
     assert groups[1:] == ["Identification", "Governance", "Classification", "Standard dates", "Risk ratings"]
-    assert [a.name for a in _by_group(attrs)["Risk ratings"]] == [
+    assert [a.name for a in _by_group(attrs, registry)["Risk ratings"]] == [
         "confidentiality_risk_rating",
         "integrity_risk_rating",
         "availability_risk_rating",
     ]
-    assert sum(len(v) for v in _by_group(attrs).values()) == len(attrs)
+    assert sum(len(v) for v in _by_group(attrs, registry).values()) == len(attrs)
 
 
 def test_only_the_attributes_that_carry_a_value_are_read_back(registry):
     attrs = registry.attributes_for("information_asset")
     values = {"alias": "CC", "owner": "Ada", "confidentiality_risk_rating": "High", "loose": "kept"}
-    said = _texts(_attr_values(attrs, values))
+    said = _texts(_attr_values(attrs, values, registry))
     assert "Identification" in said and "Governance" in said and "Risk ratings" in said
     assert "Classification" not in said  # nothing in it carries a value, so it is not headed
     assert "Standard dates" not in said
     assert "Alias" in said and "Owner" in said
     assert "Confidentiality Risk Rating (restricted)" in said  # a restricted value is marked
     assert "Not in the metamodel" in said and "loose" in said
-    assert _attr_values(attrs, {}) == []
+    assert _attr_values(attrs, {}, registry) == []
 
 
 def test_the_edit_form_is_grouped_the_same_way(registry):
     attrs = registry.attributes_for("information_asset")
-    headings = _texts(_attr_sections(attrs, {}, "Type attributes"))
+    headings = _texts(_attr_sections(attrs, {}, "Type attributes", registry))
     assert headings[0] == "Type attributes"  # the ungrouped ones, under the form's own heading
     assert headings[1:6] == [
         "Identification",
@@ -75,4 +75,4 @@ def test_the_edit_form_is_grouped_the_same_way(registry):
 
 def test_an_element_with_no_attributes_says_nothing_rather_than_showing_empty_groups(registry):
     e = Element("X-1", "information_asset", "X")
-    assert _attr_values(registry.attributes_for(e.type_id), e.attrs) == []
+    assert _attr_values(registry.attributes_for(e.type_id), e.attrs, registry) == []

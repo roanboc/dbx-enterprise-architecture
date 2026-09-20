@@ -251,9 +251,71 @@ def _completeness(ctx: AppContext) -> html.Div:
     )
 
 
+def _capacity(ctx: AppContext) -> html.Div:
+    """How large the model is against what the application is assessed for (decision 0019)."""
+    size = ctx.graph.size()
+
+    def gauge(label: str, held: int, assessed: int, pct: float):
+        colour = "green" if pct < 60 else "orange" if pct < 90 else "red"
+        return dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        dmc.Text(label, size="sm", fw=500),
+                        dmc.Text(f"{held:,} of {assessed:,} ({pct}%)", size="xs", c="dimmed"),
+                    ],
+                    justify="space-between",
+                ),
+                dmc.Progress(
+                    value=min(100.0, pct),
+                    color=colour,
+                    size="sm",
+                    **{"aria-label": f"{label}: {pct}% of the assessed capacity"},
+                ),
+            ],
+            gap=4,
+        )
+
+    note = (
+        f"The in-process graph is held for this model ({size['graph_limit']:,} elements is the most it is "
+        "built for); above that every answer still comes from the store."
+        if size["graph_held"]
+        else (
+            f"This model is past the {size['graph_limit']:,} elements the in-process graph is built for, so it "
+            "is not held: traversals, views and answers come from the store."
+        )
+    )
+    return html.Div(
+        [
+            dmc.Title("Size · against the assessed capacity", order=2, className="ea-section-title"),
+            dmc.Text(
+                "What this application has been measured to hold and answer. The figure is assessed capacity, "
+                "not a forecast, and it is held by the test suite rather than remembered.",
+                size="xs",
+                c="dimmed",
+                mb="sm",
+            ),
+            dmc.SimpleGrid(
+                [
+                    gauge("elements", size["elements"], size["assessed_elements"], size["elements_pct"]),
+                    gauge(
+                        "relationships",
+                        size["relationships"],
+                        size["assessed_relationships"],
+                        size["relationships_pct"],
+                    ),
+                ],
+                cols={"base": 1, "md": 2},
+            ),
+            dmc.Text(note, size="xs", c="dimmed", mt="sm"),
+        ]
+    )
+
+
 def body(ctx: AppContext) -> html.Div:
     return html.Div(
         [
+            dmc.Paper(_capacity(ctx), p="md", withBorder=True, className="ea-card", mb="md"),
             dmc.Paper(_freshness(ctx), p="md", withBorder=True, className="ea-card", mb="md"),
             dmc.Paper(_completeness(ctx), p="md", withBorder=True, className="ea-card"),
         ]

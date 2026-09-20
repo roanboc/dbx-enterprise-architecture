@@ -33,6 +33,7 @@ flowchart LR
   dom["▦ Domain [DOBJ1.4]"]:::application
   nota["▦ Notation [DOBJ1.5]"]:::application
   ver["▦ Metamodel version [DOBJ1.6]"]:::application
+  grp["▦ Attribute group [DOBJ1.7]"]:::application
   pack -->|loaded into| ver
   ver -->|holds| et
   ver -->|holds| rt
@@ -50,8 +51,8 @@ flowchart LR
 
 | ID | Domain | Owner | Holds |
 | -- | ------ | ----- | ----- |
-| `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; `higher_education` today |
-| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements once the institution's full export is loaded; 47 in the sample |
+| `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; two ship — `higher_education` and `archimate_core`, a second framework carried by the same engine |
+| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements in the curriculum slice and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
 | `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log |
 
 ## Objects
@@ -68,6 +69,7 @@ flowchart LR
   et["▦ Element type [DOBJ1.1]"]:::application
   org["▦ Organisation [DOBJ2.8]"]:::application
   ver["▦ Metamodel version [DOBJ1.6]"]:::application
+  grp["▦ Attribute group [DOBJ1.7]"]:::application
   rel -->|connects| el
   ln -->|attached to| el
   el -->|typed by| et
@@ -91,10 +93,11 @@ a relationship type and an attribute each have one.
 | -- | ------ | ---- | ------------ | -------------- |
 | `DOBJ1.1` | **Element type** — id, name, plural, supertype, active flag and deactivation reason, domain, provenance (TOGAF, CORE_EA, LOCAL), identifier prefix, source of record, type and instance owner, attributes, and an abstract flag for a type that only groups its sub-types and that no element may be | `ElementType` in `src/ea/models.py`; loaded by `src/ea/metamodel/loader.py` | table `meta_element_type` | internal |
 | `DOBJ1.2` | **Relationship type** — id `<source>__<verb>__<target>`, name and inverse, source and target type or `ANY`, qualifiers (for role-qualified edges such as stewardship), cardinality hints, provenance, the diagrams it appears on, and attributes of its own that every relationship of the type may carry | `RelationshipType` in `src/ea/models.py` | table `meta_relationship_type` | internal |
-| `DOBJ1.3` | **Attribute definition** — name, label, type (`string`, `text`, `integer`, `number`, `boolean`, `date`, `url`, `json`), required flag, enum values, sensitivity, the element type it belongs to (`common` for every type, or a relationship type instead), the group it is read and edited in, and the rules a value is held to: a default, one value or several, a unit, a pattern, a minimum and a maximum | `AttributeDef` in `src/ea/models.py`; a value checked against the rules by `Registry` in `src/ea/metamodel/registry.py` | table `meta_attribute`; the rules in its `extra` JSON column | internal |
+| `DOBJ1.3` | **Attribute definition** — name, label, type (`string`, `text`, `integer`, `number`, `boolean`, `date`, `url`, `json`), required flag, enum values, sensitivity, the element type it belongs to (`common` for every type, or a relationship type instead), the attribute group it is read and edited under (`DOBJ1.7`), and the rules a value is held to: a default, one value or several, a unit, a pattern, a minimum and a maximum | `AttributeDef` in `src/ea/models.py`; a value checked against the rules by `Registry` in `src/ea/metamodel/registry.py` | table `meta_attribute`; the rules in its `extra` JSON column | internal |
 | `DOBJ1.4` | **Domain** — a grouping of element types for colouring and filtering (information, process, integration, enterprise) | `Domain` in `src/ea/models.py` | table `meta_domain`; the pack header in `meta_pack` | internal |
 | `DOBJ1.5` | **Notation** — per element type, how it is drawn: glyph, stereotype, ArchiMate element, shape; a type without one inherits its domain's default; a domain also declares the colour the app uses for its badges and graphs | `notation` block in the pack schema (`packs/README.md`), `Registry.notation()` in `src/ea/metamodel/registry.py` | table `meta_element_type` and `meta_domain` (`notation` JSON column) | internal |
 | `DOBJ1.6` | **Metamodel version** — one stored definition of a pack, named `<pack id>@<version>`: its status (`draft`, `published`, `retired`), the version it was derived from, notes, who created it and when, who published it and when. A draft is edited in place, a published version is frozen and changes only by being copied into a new draft, and a retired one stays readable for whoever applied it | `Pack` and `PackVersion` in `src/ea/models.py`; `MetamodelService` in `src/ea/services/metamodel.py`; the difference between two versions in `src/ea/metamodel/diff.py` | table `meta_pack`; the domains, types and attributes of the version in the other `meta_` tables | internal |
+| `DOBJ1.7` | **Attribute group** — id, name, description and the order it is read in: the section an element's attributes are shown and edited under. An attribute names one by its identifier, so a version carries the vocabulary of its own sections; a group written as a label still resolves by name, and one nothing declares is added to the version rather than dropped, which turns a typo into a visible row instead of an invisible section | `AttributeGroup` in `src/ea/models.py`; `resolve_attribute_groups()` in `src/ea/metamodel/loader.py`; `Registry.groups_in_order()` | table `meta_attribute_group` | internal |
 | `DOBJ2.1` | **Element** — identifier, type, name, key, Markdown description, status (`draft`, `approved`, `retired`), lifecycle status, source system and reference, external ids, typed attributes as JSON, origin, version and audit fields; a current state (`proposed`, `planned`, `in_implementation`, `live`, `retired`, `non_existent`), a target state (`undecided`, `keep`, `new`, `change`, `decommission`, `merge`), the target work package and a note (decision 0007) | `Element` in `src/ea/models.py`; `RepositoryService` in `src/ea/services/repository.py` | table `element`; `_version` for optimistic concurrency | internal; attributes flagged `sensitivity: restricted` in the pack (Information Asset CIA ratings) and PII flags (Data Entity) are restricted |
 | `DOBJ2.2` | **Relationship** — deterministic identifier from source system, type, ends and qualifier; source and target element, qualifier, attributes, status, origin, provenance, version; the same current state, target state, work package and note as an element | `Relationship` in `src/ea/models.py`; `relationship_key()` in `src/ea/services/repository.py` | table `relationship` | internal |
 | `DOBJ2.3` | **Element link** — a URL with a label attached to an element (the current tool's "Links" column, documents, catalogues) | `Link` in `src/ea/models.py` | table `element_link` | internal |
@@ -161,8 +164,10 @@ the one an organisation applies is loaded by name.
 Traversals (`neighbours`, `trace`, `impact`) are one recursive query over
 `relationship` that visits a node once rather than once per path that reaches
 it — so a cycle ends of itself and a hub does not multiply — over both ends of
-an edge indexed, plus an in-process cache of the graph for the app; the whole
-institutional graph fits in memory (assessment `ASM6`).
+an edge indexed; no traversal builds the in-process graph. The app still keeps
+one for the callers that want the whole model at once, and builds it only below
+the size it is assessed to hold in one request, refusing past it rather than
+spending the memory (assessment `ASM6`, decision 0019).
 
 ## Classification and retention
 

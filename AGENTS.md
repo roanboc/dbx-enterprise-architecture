@@ -98,11 +98,14 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
 - `architecture/reference/` — says what the model was built from (the owner's
   business case and the institution's metamodel document), which are held
   privately and are not in this public repository.
-- `packs/` — metamodels as data (`higher_education` today). `connectors/` — the
+- `packs/` — metamodels as data: `higher_education` (the first configuration) and
+  `archimate_core` (the ArchiMate 3.2 core, the second worked pack, which is what
+  tests principle `P5` rather than one pack's good behaviour). An attribute names an
+  attribute group the pack declares, never free text. `connectors/` — the
   CSV contract and per-tool column mappings (`tool-export`). `data/sample/` — a
   fictional university's curriculum slice so the demo works without real data.
 - `src/ea/` — `models` → `metamodel` → `backend` → `services` → `views`,
-  `importer`, `agent` → `ui`, plus `cli.py`. `backend/` is the store written
+  `importer`, `agent` → `ui`, plus `cli.py` and `capacity.py`. `backend/` is the store written
   once on SQL (`sql_backend.py`) with two engines, DuckDB and Lakebase (the
   platform's Postgres, `lakebase_backend.py`), that add only how they connect,
   run a statement and land rows (decisions 0011 and 0013); the unit suite runs
@@ -133,6 +136,16 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   (`services/metamodel.py`, `services/organisations.py`, `metamodel/diff.py`).
   A change to the metamodel is a new version tried in an organisation of its
   own, never an edit of what everybody reads.
+- **The size the application is built for.** `src/ea/capacity.py` holds the two
+  figures the application has been assessed for — what the store holds and
+  answers, and the smaller size below which the in-process graph may be built at
+  all (decision 0019). **Never read the whole model into one request.** A
+  service that has to see every row pages it with `capacity.pages()` and folds
+  each page into its answer; one that genuinely needs everything at once says so
+  in its docstring, with what it costs at the assessed capacity. No traversal
+  builds the in-process graph: `neighbours`, `trace` and `impact` are answered
+  by the store and labelled from it. `tests/test_capacity.py` fails a new
+  unbounded read.
 - **Branches and states.** `main` is the model; a branch is an overlay on the
   same tables (decision 0006), and the current branch is a context variable
   (`backend/branching.py`) that every read and write honours: the app sets it

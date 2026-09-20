@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from ea import capacity
 from ea.backend.base import DatabaseBackend
 from ea.metamodel.registry import Registry
 from ea.models import Element, Relationship
@@ -55,17 +56,23 @@ class HealthService:
     # ------------------------------------------------------------ freshness
     def freshness(self) -> dict[str, Any]:
         """Per source system: counts, last load, rows not updated in 30/90/180 days, never-updated rows; plus weekly activity."""
-        elements = self.backend.find_elements(limit=1_000_000)
-        rels = self.backend.find_relationships(limit=1_000_000)
+        # Paged: the answer is one row per source system however large the model is, so the
+        # model is folded into it a page at a time rather than held (decision 0019).
         by_source: dict[str, dict[str, Any]] = {}
-        for e in elements:
-            src = e.source_system or "(authored)"
-            row = by_source.setdefault(src, self._empty_source(src))
-            self._count(row, e, e.element_id)
-        for r in rels:
-            src = r.source_system or "(authored)"
-            row = by_source.setdefault(src, self._empty_source(src))
-            row["relationships"] += 1
+        for page in capacity.pages(
+            lambda limit, offset: self.backend.find_elements(limit=limit, offset=offset)
+        ):
+            for e in page:
+                src = e.source_system or "(authored)"
+                row = by_source.setdefault(src, self._empty_source(src))
+                self._count(row, e, e.element_id)
+        for page in capacity.pages(
+            lambda limit, offset: self.backend.find_relationships(limit=limit, offset=offset)
+        ):
+            for r in page:
+                src = r.source_system or "(authored)"
+                row = by_source.setdefault(src, self._empty_source(src))
+                row["relationships"] += 1
         rows = sorted(by_source.values(), key=lambda r: -r["elements"])
         for row in rows:
             row["last_updated"] = str(row["last_updated"])[:16] if row["last_updated"] else ""
@@ -129,15 +136,17 @@ class HealthService:
     # --------------------------------------------------------- completeness
     def completeness(self) -> dict[str, Any]:
         """Per element type: how many have a description, a link, a relationship, every required attribute, a decided target."""
-        elements = self.backend.find_elements(limit=1_000_000)
         linked = set(self.backend.linked_element_ids())
         related: set[str] = set()
         for row in self.backend.edges_frame().itertuples(index=False):
             related.add(row.src_id)
             related.add(row.dst_id)
         by_type: dict[str, list[Element]] = defaultdict(list)
-        for e in elements:
-            by_type[e.type_id].append(e)
+        for page in capacity.pages(
+            lambda limit, offset: self.backend.find_elements(limit=limit, offset=offset)
+        ):
+            for e in page:
+                by_type[e.type_id].append(e)
         rows = []
         for type_id, els in sorted(by_type.items(), key=lambda kv: -len(kv[1])):
             t = self.registry.get_type(type_id)
@@ -168,7 +177,7 @@ class HealthService:
                 row[f"{k}_ids"] = missing[k]
             rows.append(row)
         totals = {k: sum(r[f"{k}_missing"] for r in rows) for k in COMPLETENESS_FACETS}
-        return {"types": rows, "elements": len(elements), "missing": totals}
+        return {"types": rows, "elements": sum(len(v) for v in by_type.values()), "missing": totals}
 
     def relationship_coverage(self) -> list[dict[str, Any]]:
         """Declared relationship types with no instance at all, per element type with content."""

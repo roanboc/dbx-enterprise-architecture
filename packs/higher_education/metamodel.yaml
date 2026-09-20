@@ -44,25 +44,36 @@ domains:
     description: Strategy, portfolio and organisation objects that do not fall into a single architect's domain but are of global concern.
     notation: {colour: gray, hex: '#adb5bd', layer: strategy, glyph: '✦', stereotype: Capability, archimate: Capability, shape: rect}
 
+# The sections an element's attributes are read and edited in, in this order. An attribute
+# names one of these by its identifier; the metamodel screen offers the list rather than a
+# text box, so a typo cannot make a section of its own.
+attribute_groups:
+  - {id: identification, name: Identification, description: What the element is called and where it came from.}
+  - {id: governance, name: Governance, description: Who owns it and how far it has been approved.}
+  - {id: classification, name: Classification, description: The categories and standards it is filed under.}
+  - {id: standard_dates, name: Standard dates, description: 'When the standard was created, reviewed and retired.'}
+  - {id: data_platform, name: Data platform, description: What the analytics platform holds about it.}
+  - {id: risk_ratings, name: Risk ratings, description: 'Confidentiality, integrity and availability ratings.'}
+
 # Attributes every element may carry in addition to the core fields
 # (name, description, status, lifecycle_status, key, source_system, links).
 # They come from the export of the current repository. `group` is the section of the
 # source metamodel's own document the attribute is listed under; the application reads
 # an element's attributes in those groups, on the form and on the page that only reads.
 common_attributes:
-  - {name: alias, group: Identification, label: Alias, type: string}
-  - {name: architectural_status, group: Governance, label: Architectural Status, type: string}
-  - {name: approval_status, group: Governance, label: Approval Status, type: string, enum: [Approved, Not Approved]}
-  - {name: version_flag, group: Governance, label: Version Flag, type: string}
-  - {name: source, group: Identification, label: Source, type: string, description: Where the element was sourced from, e.g. a reference data model, the CMDB product catalogue.}
-  - {name: owner, group: Governance, label: Owner, type: string}
-  - {name: categories, group: Classification, label: Categories, type: string}
-  - {name: category_general, group: Classification, label: Category (General), type: string}
-  - {name: standards_class, group: Classification, label: Standards Class, type: string}
-  - {name: standard_creation_date, group: Standard dates, label: Standard Creation Date, type: date}
-  - {name: last_standard_review_date, group: Standard dates, label: Last Standard Review Date, type: date}
-  - {name: next_standard_review_date, group: Standard dates, label: Next Standard Review Date, type: date}
-  - {name: standard_retire_date, group: Standard dates, label: Standard Retire Date, type: date}
+  - {name: alias, group: identification, label: Alias, type: string}
+  - {name: architectural_status, group: governance, label: Architectural Status, type: string}
+  - {name: approval_status, group: governance, label: Approval Status, type: string, enum: [Approved, Not Approved]}
+  - {name: version_flag, group: governance, label: Version Flag, type: string}
+  - {name: source, group: identification, label: Source, type: string, description: 'Where the element was sourced from, e.g. a reference data model, the CMDB product catalogue.'}
+  - {name: owner, group: governance, label: Owner, type: string}
+  - {name: categories, group: classification, label: Categories, type: string}
+  - {name: category_general, group: classification, label: Category (General), type: string}
+  - {name: standards_class, group: classification, label: Standards Class, type: string}
+  - {name: standard_creation_date, group: standard_dates, label: Standard Creation Date, type: date}
+  - {name: last_standard_review_date, group: standard_dates, label: Last Standard Review Date, type: date}
+  - {name: next_standard_review_date, group: standard_dates, label: Next Standard Review Date, type: date}
+  - {name: standard_retire_date, group: standard_dates, label: Standard Retire Date, type: date}
 
 element_types:
   # ---------------------------------------------------------------- active
@@ -161,8 +172,8 @@ element_types:
     type_owner: Information Domain Architect
     instance_owner: Information Domain Architect
     attributes:
-      - {name: available_in_analytics_platform, group: Data platform, label: Available in analytics platform, type: boolean}
-      - {name: includes_pii, group: Data platform, label: Includes PII, type: boolean}
+      - {name: available_in_analytics_platform, group: data_platform, label: Available in analytics platform, type: boolean}
+      - {name: includes_pii, group: data_platform, label: Includes PII, type: boolean}
 
   - id: data_product
     name: Data Product
@@ -223,9 +234,9 @@ element_types:
     instance_owner: Information Domain Architect
     attributes:
       - {name: information_category_description, label: Information Category Description, type: text}
-      - {name: confidentiality_risk_rating, group: Risk ratings, label: Confidentiality Risk Rating, type: string, sensitivity: restricted}
-      - {name: integrity_risk_rating, group: Risk ratings, label: Integrity Risk Rating, type: string, sensitivity: restricted}
-      - {name: availability_risk_rating, group: Risk ratings, label: Availability Risk Rating, type: string, sensitivity: restricted}
+      - {name: confidentiality_risk_rating, group: risk_ratings, label: Confidentiality Risk Rating, type: string, sensitivity: restricted}
+      - {name: integrity_risk_rating, group: risk_ratings, label: Integrity Risk Rating, type: string, sensitivity: restricted}
+      - {name: availability_risk_rating, group: risk_ratings, label: Availability Risk Rating, type: string, sensitivity: restricted}
 
   - id: integration
     name: Integration

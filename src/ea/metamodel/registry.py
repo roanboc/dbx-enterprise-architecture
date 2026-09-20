@@ -11,7 +11,17 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
-from ea.models import ANY, LINK_SCHEMES, AttributeDef, ElementType, Issue, Pack, RelationshipType, split_multi
+from ea.models import (
+    ANY,
+    LINK_SCHEMES,
+    AttributeDef,
+    AttributeGroup,
+    ElementType,
+    Issue,
+    Pack,
+    RelationshipType,
+    split_multi,
+)
 
 
 class Registry:
@@ -20,6 +30,7 @@ class Registry:
         self.types: dict[str, ElementType] = {t.id: t for t in pack.element_types}
         self.rel_types: dict[str, RelationshipType] = {r.id: r for r in pack.relationship_types}
         self.domains = {d.id: d for d in pack.domains}
+        self.attribute_groups = {g.id: g for g in pack.attribute_groups}
         self._by_name: dict[str, ElementType] = {}
         for t in pack.element_types:
             self._by_name[t.name.strip().lower()] = t
@@ -40,6 +51,9 @@ class Registry:
                 if i in seen_ids:
                     problems.append(f"{what} {i}: defined twice")
                 seen_ids.add(i)
+        for a in self._all_attributes():
+            if a.group and a.group not in self.attribute_groups:
+                problems.append(f"attribute {a.name}: unknown attribute group {a.group}")
         for t in self.pack.element_types:
             if t.supertype and t.supertype not in self.types:
                 problems.append(f"element type {t.id}: unknown supertype {t.supertype}")
@@ -60,6 +74,24 @@ class Registry:
                 cur = self.types[cur].supertype if cur in self.types else None
         if problems:
             raise ValueError("invalid pack: " + "; ".join(problems))
+
+    def _all_attributes(self) -> list[AttributeDef]:
+        out = list(self.pack.common_attributes)
+        for t in self.pack.element_types:
+            out.extend(t.attributes)
+        for r in self.pack.relationship_types:
+            out.extend(r.attributes)
+        return out
+
+    # -------------------------------------------------------- attribute groups
+    def group_name(self, group_id: str) -> str:
+        """What the element page heads the section with; the identifier itself if nothing declares it."""
+        g = self.attribute_groups.get(group_id or "")
+        return g.name if g else (group_id or "")
+
+    def groups_in_order(self) -> list[AttributeGroup]:
+        """The groups a version declares, in the order it declares them."""
+        return sorted(self.pack.attribute_groups, key=lambda g: (g.sort_order, g.id))
 
     # ------------------------------------------------------------- lookups
     def get_type(self, type_id: str) -> ElementType | None:

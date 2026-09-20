@@ -141,9 +141,9 @@ class OrganisationService:
         if pack.status == "retired":
             raise ConflictError(f"{pack.ref} is retired")
         report = self.metamodels.compatibility(org.org_id, pack)
-        if report.errors and not force:
+        if report.total_errors and not force:
             raise ConflictError(
-                f"{pack.ref} leaves {len(report.errors)} error(s) on {org.org_id}: {report.summary()}; "
+                f"{pack.ref} leaves {report.total_errors} error(s) on {org.org_id}: {report.summary()}; "
                 "fix the content or the version, or apply with force"
             )
         org.pack_id, org.pack_version = pack.id, pack.version
