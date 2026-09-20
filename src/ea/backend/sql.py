@@ -30,6 +30,36 @@ BRANCH_TABLES = [
 # the metamodel tables are shared by every organisation.
 ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES
 
+# The tables are grouped the way `architecture/3_information/3_logical-data-model.md` groups
+# them, and each group is a schema of its own, named `<prefix>_<group>`. Someone who opens the
+# database with a SQL client meets the model rather than seventeen tables in a heap, and a
+# grant can be given per group — the audit trail read by more people than may write content.
+# The prefix is `EA_SCHEMA` (`ea` by default), so two deployments can share one database.
+SCHEMA_GROUPS: dict[str, list[str]] = {
+    "metamodel": list(META_TABLES),
+    "content": ["organisation", "element", "relationship", "element_link"],
+    "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
+    "governance": ["branch_review", "reviewer_assignment", "proposal"],
+    "audit": ["change_log"],
+}
+TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t in tables}
+
+
+def schemas(prefix: str) -> list[str]:
+    """Every schema of a store, in the order the search path reads them."""
+    return [f"{prefix}_{group}" for group in SCHEMA_GROUPS]
+
+
+def schema_of(table: str, prefix: str) -> str:
+    return f"{prefix}_{TABLE_GROUP[table]}"
+
+
+def qualified(table: str, prefix: str) -> str:
+    """`<schema>.<table>`. Every statement that makes or alters a table names it this way: an
+    unqualified one would land in whichever schema the search path reads first."""
+    return f"{schema_of(table, prefix)}.{table}"
+
+
 # Columns added after a table first shipped. The store applies them to an existing
 # one on start-up (ADD COLUMN IF NOT EXISTS, which both engines read), so an older
 # store keeps working. A column may be declared anywhere in the DDL: a store that
@@ -433,40 +463,54 @@ TRACE_ENDS: dict[str, tuple[str, str]] = {"out": ("src_id", "dst_id"), "in": ("d
 # Indexes, created on start-up and never assumed to exist: a store that already holds a
 # duplicate refuses the unique one, and the store logs it rather than failing to open.
 #
-# The unique ones are the logical keys of `3_logical-data-model.md`, which the store has
-# always enforced in Python and nothing enforced in the database. `meta_attribute` has
-# none: its key holds `type_id` or `rel_type_id` and never both, and the two engines do
-# not agree on whether two NULLs are the same value.
+# The unique ones are the logical keys of `3_logical-data-model.md`, which the store has always
+# enforced in Python and nothing enforced in the database. `meta_attribute` has none: its key
+# holds `type_id` or `rel_type_id` and never both, and the two engines do not agree on whether
+# two NULLs are the same value.
 #
-# The rest are the read paths that grow with the model: the two ends of a walk, the rows
-# that hang off an element, and the log of one element's changes.
-INDEXES: dict[str, str] = {
-    "meta_pack_key": "CREATE UNIQUE INDEX IF NOT EXISTS meta_pack_key ON meta_pack (pack_id, version)",
-    "meta_domain_key": "CREATE UNIQUE INDEX IF NOT EXISTS meta_domain_key ON meta_domain (pack_id, pack_version, domain_id)",
-    "meta_element_type_key": "CREATE UNIQUE INDEX IF NOT EXISTS meta_element_type_key ON meta_element_type (pack_id, pack_version, type_id)",
-    "meta_relationship_type_key": "CREATE UNIQUE INDEX IF NOT EXISTS meta_relationship_type_key ON meta_relationship_type (pack_id, pack_version, rel_type_id)",
-    "meta_attribute_version": "CREATE INDEX IF NOT EXISTS meta_attribute_version ON meta_attribute (pack_id, pack_version)",
-    "organisation_key": "CREATE UNIQUE INDEX IF NOT EXISTS organisation_key ON organisation (org_id)",
-    "element_key": "CREATE UNIQUE INDEX IF NOT EXISTS element_key ON element (org_id, element_id)",
-    "element_type": "CREATE INDEX IF NOT EXISTS element_type ON element (org_id, type_id)",
-    "relationship_key": "CREATE UNIQUE INDEX IF NOT EXISTS relationship_key ON relationship (org_id, relationship_id)",
-    "relationship_src": "CREATE INDEX IF NOT EXISTS relationship_src ON relationship (org_id, src_id)",
-    "relationship_dst": "CREATE INDEX IF NOT EXISTS relationship_dst ON relationship (org_id, dst_id)",
-    "element_link_key": "CREATE UNIQUE INDEX IF NOT EXISTS element_link_key ON element_link (org_id, link_id)",
-    "element_link_element": "CREATE INDEX IF NOT EXISTS element_link_element ON element_link (org_id, element_id)",
-    "change_log_key": "CREATE UNIQUE INDEX IF NOT EXISTS change_log_key ON change_log (org_id, change_id)",
-    "change_log_entity": "CREATE INDEX IF NOT EXISTS change_log_entity ON change_log (org_id, entity_id)",
-    "branch_key": "CREATE UNIQUE INDEX IF NOT EXISTS branch_key ON branch (org_id, branch_id)",
-    "branch_element_key": "CREATE UNIQUE INDEX IF NOT EXISTS branch_element_key ON branch_element (org_id, branch_id, element_id)",
-    "branch_relationship_key": "CREATE UNIQUE INDEX IF NOT EXISTS branch_relationship_key ON branch_relationship (org_id, branch_id, relationship_id)",
-    "branch_relationship_src": "CREATE INDEX IF NOT EXISTS branch_relationship_src ON branch_relationship (org_id, branch_id, src_id)",
-    "branch_relationship_dst": "CREATE INDEX IF NOT EXISTS branch_relationship_dst ON branch_relationship (org_id, branch_id, dst_id)",
-    "branch_link_key": "CREATE UNIQUE INDEX IF NOT EXISTS branch_link_key ON branch_link (org_id, branch_id, link_id)",
-    "branch_link_element": "CREATE INDEX IF NOT EXISTS branch_link_element ON branch_link (org_id, branch_id, element_id)",
-    "branch_review_key": "CREATE UNIQUE INDEX IF NOT EXISTS branch_review_key ON branch_review (org_id, review_id)",
-    "reviewer_assignment_key": "CREATE UNIQUE INDEX IF NOT EXISTS reviewer_assignment_key ON reviewer_assignment (org_id, type_id, reviewer)",
-    "proposal_key": "CREATE UNIQUE INDEX IF NOT EXISTS proposal_key ON proposal (org_id, proposal_id)",
-}
+# The rest are the read paths that grow with the model: the two ends of a walk, the rows that
+# hang off an element, and the log of one element's changes.
+INDEXES: list[tuple[str, str, bool, str]] = [
+    ("meta_pack_key", "meta_pack", True, "(pack_id, version)"),
+    ("meta_domain_key", "meta_domain", True, "(pack_id, pack_version, domain_id)"),
+    ("meta_element_type_key", "meta_element_type", True, "(pack_id, pack_version, type_id)"),
+    ("meta_relationship_type_key", "meta_relationship_type", True, "(pack_id, pack_version, rel_type_id)"),
+    ("meta_attribute_version", "meta_attribute", False, "(pack_id, pack_version)"),
+    ("organisation_key", "organisation", True, "(org_id)"),
+    ("element_key", "element", True, "(org_id, element_id)"),
+    ("element_type", "element", False, "(org_id, type_id)"),
+    ("relationship_key", "relationship", True, "(org_id, relationship_id)"),
+    ("relationship_src", "relationship", False, "(org_id, src_id)"),
+    ("relationship_dst", "relationship", False, "(org_id, dst_id)"),
+    ("element_link_key", "element_link", True, "(org_id, link_id)"),
+    ("element_link_element", "element_link", False, "(org_id, element_id)"),
+    ("change_log_key", "change_log", True, "(org_id, change_id)"),
+    ("change_log_entity", "change_log", False, "(org_id, entity_id)"),
+    ("branch_key", "branch", True, "(org_id, branch_id)"),
+    ("branch_element_key", "branch_element", True, "(org_id, branch_id, element_id)"),
+    ("branch_relationship_key", "branch_relationship", True, "(org_id, branch_id, relationship_id)"),
+    ("branch_relationship_src", "branch_relationship", False, "(org_id, branch_id, src_id)"),
+    ("branch_relationship_dst", "branch_relationship", False, "(org_id, branch_id, dst_id)"),
+    ("branch_link_key", "branch_link", True, "(org_id, branch_id, link_id)"),
+    ("branch_link_element", "branch_link", False, "(org_id, branch_id, element_id)"),
+    ("branch_review_key", "branch_review", True, "(org_id, review_id)"),
+    ("reviewer_assignment_key", "reviewer_assignment", True, "(org_id, type_id, reviewer)"),
+    ("proposal_key", "proposal", True, "(org_id, proposal_id)"),
+]
+
+
+def index_sql(name: str, table: str, unique: bool, columns: str, prefix: str) -> str:
+    return (
+        f"CREATE {'UNIQUE ' if unique else ''}INDEX IF NOT EXISTS {name} "
+        f"ON {qualified(table, prefix)} {columns}"
+    )
+
+
+def create_table_sql(table: str, prefix: str) -> str:
+    """The table's DDL, in the schema of its group."""
+    head = f"CREATE TABLE IF NOT EXISTS {table}"
+    return DDL[table].replace(head, f"CREATE TABLE IF NOT EXISTS {qualified(table, prefix)}", 1)
+
 
 _COLUMN_RE = re.compile(r"^\s*(\w+)\s+(VARCHAR|INTEGER|BOOLEAN|TIMESTAMP)\b", re.MULTILINE)
 

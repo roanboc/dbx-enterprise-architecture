@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ea.backend.organisations import DEFAULT_ORG
-from ea.backend.sql import column_types
+from ea.backend.sql import column_types, qualified
 from ea.models import ConflictError, Element, Relationship
 
 
@@ -95,8 +95,9 @@ def test_a_write_names_its_columns_rather_than_counting_on_their_order(backend):
     counted on position would land the actor in the operation's column and say nothing."""
     types = column_types("change_log")
     reordered = ", ".join(f"{name} {types[name]}" for name in reversed(list(types)))
-    backend._execute("DROP TABLE change_log")
-    backend._execute(f"CREATE TABLE change_log ({reordered})")
+    where = qualified("change_log", backend.schema_prefix)  # an unqualified CREATE would land elsewhere
+    backend._execute(f"DROP TABLE {where}")
+    backend._execute(f"CREATE TABLE {where} ({reordered})")
 
     backend.insert_element(Element("X1", "capability", "Cap"), "ada")
     (entry,) = backend.history("X1")

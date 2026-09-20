@@ -23,9 +23,10 @@ class Settings:
     agent_model: str = "claude-opus-5"
     max_rows: int = 5000
     admin_contact: str = ""
-    # On lakebase: the schema the tables live in; the instance the platform's identity signs in to
-    # (the SDK issues the token); or any Postgres instead, as libpq reads a URL or a key=value
-    # string; and libpq's own PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE, honoured either way.
+    # On lakebase: the prefix of the store's schemas, one per group of tables; the instance the
+    # platform's identity signs in to (the SDK issues the token); or any Postgres instead, as
+    # libpq reads a URL or a key=value string; and libpq's own PGHOST, PGPORT, PGDATABASE,
+    # PGUSER and PGSSLMODE, honoured either way.
     store_schema: str = "ea"
     lakebase_instance: str = ""
     pg_dsn: str = ""

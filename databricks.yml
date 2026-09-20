@@ -27,7 +27,7 @@ variables:
     description: The Postgres database inside the instance; every instance is created with this one.
     default: databricks_postgres
   schema:
-    description: The schema the store's tables live in; the app creates it on its first start.
+    description: The prefix of the store's schemas, one per group of tables; the app creates them on its first start.
     default: ea
   role_groups:
     description: Which workspace groups grant which role (decision 0008); nobody listed is a Reader.

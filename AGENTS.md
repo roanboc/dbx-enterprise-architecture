@@ -137,7 +137,8 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   same tables (decision 0006), and the current branch is a context variable
   (`backend/branching.py`) that every read and write honours: the app sets it
   from the session, the CLI from `--branch`, a service from `use_branch()`.
-  On Databricks the same tables live in a schema of a Lakebase database;
+  On Databricks the same tables live in a Lakebase database, one schema per group
+  of tables (`sql.py`'s `SCHEMA_GROUPS`, prefixed by `EA_SCHEMA`);
   `databricks.yml` deploys the instance and the app, whose database resource
   grants the app's service principal what the store needs.
   Never write to `branch_*` tables directly and never bypass it. Every element

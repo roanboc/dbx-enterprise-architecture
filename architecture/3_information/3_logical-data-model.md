@@ -54,6 +54,35 @@ Everything here is created the same way on both engines (decision 0011):
 `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` and
 `CREATE INDEX IF NOT EXISTS` all read the same on DuckDB and on Postgres.
 
+## The schemas
+
+```mermaid
+erDiagram
+  ea_metamodel ||--o{ ea_content : "types what it holds"
+  ea_content ||--o{ ea_branch : "is changed on"
+  ea_branch ||--o{ ea_governance : "is decided in"
+  ea_content ||--o{ ea_audit : "is recorded in"
+```
+
+The groups below are not a way of reading the document: they are the schemas the
+store creates. `EA_SCHEMA` names the prefix (`ea` by default) and each group is a
+schema of its own, so two deployments can share one database and a grant can be
+given per group.
+
+| Schema | Holds | Read by |
+| ------ | ----- | ------- |
+| `ea_metamodel` | the five `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
+| `ea_content` | the organisations and their elements, relationships and links | everyone |
+| `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
+| `ea_governance` | reviews, reviewer assignments and proposals | reviewers and admins |
+| `ea_audit` | the change log | anyone who may read the content; never updated, only appended |
+
+Every statement that makes or alters a table names its schema; everything else
+names the table alone and lets the search path find it, which is why the rest of
+this document — and the store's own SQL — reads the same as it did when there
+was one schema. A store made before the split keeps its tables in one schema,
+and the first start moves each one, with its rows, into the schema of its group.
+
 ## The tables at a glance
 
 ```mermaid

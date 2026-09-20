@@ -138,7 +138,9 @@ flowchart LR
 One schema, two engines (principle `P4`). The DDL in `src/ea/backend/sql.py`
 uses four types both engines read as written; JSON is stored as text. Locally
 the schema lives in one DuckDB file (`data/ea.duckdb`). On Databricks the same
-tables live in one schema (`EA_SCHEMA`) of a Lakebase database — the
+tables live in a Lakebase database — one schema per group of tables, named from
+`EA_SCHEMA` (`ea_metamodel`, `ea_content`, `ea_branch`, `ea_governance`,
+`ea_audit`) — the
 platform's Postgres, reached over the Postgres protocol with the app's own
 identity — in an instance the deployment bundle creates (decision 0013). The
 lakehouse reads that database through Unity Catalog once it is registered

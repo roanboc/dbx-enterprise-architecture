@@ -42,6 +42,11 @@ from ea.backend.sql import (
     RELATIONSHIP_COLUMNS,
     TRACE_ENDS,
     TRACE_SQL,
+    create_table_sql,
+    index_sql,
+    qualified,
+    schema_of,
+    schemas,
     table_columns,
 )
 from ea.metamodel.loader import pack_from_dict, pack_to_dict
@@ -124,8 +129,10 @@ class SqlBackend(DatabaseBackend):
     #: how many identifiers one `IN (...)` list may carry (a parameter marker each)
     IN_CHUNK = 500
 
-    def __init__(self) -> None:
+    def __init__(self, schema_prefix: str = "ea") -> None:
         self._lock = threading.RLock()
+        #: the tables are grouped into `<prefix>_<group>` schemas; `EA_SCHEMA` names the prefix
+        self.schema_prefix = schema_prefix
 
     # ------------------------------------------------------------ engine hooks
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
@@ -148,6 +155,24 @@ class SqlBackend(DatabaseBackend):
     def _create_table(self, ddl: str) -> None:
         self._execute(ddl)
 
+    def _create_schema(self, name: str) -> None:
+        raise NotImplementedError
+
+    def _set_search_path(self, names: list[str]) -> None:
+        """So every other statement in this module can name a table without its schema."""
+        raise NotImplementedError
+
+    def _table_exists(self, schema: str, table: str) -> bool:
+        raise NotImplementedError
+
+    def _move_table(self, table: str, source: str, target: str) -> None:
+        """Move a table, with its rows, from one schema to another."""
+        raise NotImplementedError
+
+    def _one_schema_store(self) -> str:
+        """Where a store made before the tables were grouped keeps all of them."""
+        raise NotImplementedError
+
     def _bind(self, values: list[Any]) -> tuple[list[str], list[Any]]:
         """Values the reader chose (search words, type filters) as SQL: markers and parameters here;
         an engine with a marker budget would render them as literals instead."""
@@ -156,7 +181,10 @@ class SqlBackend(DatabaseBackend):
     def _add_missing_columns(self) -> None:
         """Bring a store created by an earlier version up to the DDL (the MIGRATIONS list)."""
         for table, column, dtype in MIGRATIONS:
-            self._execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}")
+            self._execute(
+                f"ALTER TABLE {qualified(table, self.schema_prefix)} "
+                f"ADD COLUMN IF NOT EXISTS {column} {dtype}"
+            )
 
     def close(self) -> None:
         raise NotImplementedError
@@ -313,20 +341,36 @@ class SqlBackend(DatabaseBackend):
     # ---------------------------------------------------------- lifecycle
     def init_schema(self) -> None:
         with self._lock:
-            for ddl in DDL.values():
-                self._create_table(ddl)
+            for schema in schemas(self.schema_prefix):
+                self._create_schema(schema)
+            self._set_search_path(schemas(self.schema_prefix))
+            self._group_existing_tables()
+            for table in DDL:
+                self._create_table(create_table_sql(table, self.schema_prefix))
             self._add_missing_columns()
             self._migrate_organisations()
             self._create_indexes()
+
+    def _group_existing_tables(self) -> None:
+        """A store made before the tables were grouped keeps them all in one schema. Each moves,
+        with its rows, to the schema of its group — before the DDL runs, because otherwise the
+        DDL makes an empty table in the new place and leaves the rows behind in the old one."""
+        home = self._one_schema_store()
+        for table in DDL:
+            target = schema_of(table, self.schema_prefix)
+            if target == home or not self._table_exists(home, table) or self._table_exists(target, table):
+                continue
+            self._move_table(table, home, target)
+            log.info("moved %s from %s to %s", table, home, target)
 
     def _create_indexes(self) -> None:
         """The indexes of `INDEXES`, each on its own: a store that already holds a duplicate
         refuses its unique index, and that is a thing to report rather than a store that
         will not open. The store enforced these keys in Python long before the database
         knew them, so a refusal names a row that was already wrong."""
-        for name, ddl in INDEXES.items():
+        for name, table, unique, columns in INDEXES:
             try:
-                self._execute(ddl)
+                self._execute(index_sql(name, table, unique, columns, self.schema_prefix))
             except Exception as exc:  # noqa: BLE001 - an engine raises its own type here
                 log.warning("could not create the index %s (%s)", name, exc)
 
