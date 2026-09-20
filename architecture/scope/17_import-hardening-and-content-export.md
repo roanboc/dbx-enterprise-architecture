@@ -52,6 +52,33 @@ The same URL reaching an element twice — inline in the elements file and again
 the links file, which is what an export writes — now lands once, keeping the
 labelled one.
 
+## What a row is called
+
+Reading the export back, the Requester named the case the contract had no answer
+for: several systems are about to be loaded, and **nothing namespaced an
+identifier**. Two sources that both number their rows from one made `1001` the
+same element, and the second load overwrote the first without a word. And what
+many of those systems know a row by is not a surrogate id at all but the human
+key — `DT007` — which the contract carried and never merged on.
+
+Both are settled in the mapping, which is where a source's shape belongs:
+`id_prefix` goes in front of every identifier a source brings, and `match_on`
+chooses between the `id` column and the `key` column as the identity the source
+is merged on. Merging on the key, an element the repository already holds under
+that key keeps the identity it was given, so a reload updates it however the
+source has renumbered its own ids — and an element created in the application is
+found the same way, rather than gaining a parallel copy beside it.
+
+One function resolves all four kinds of reference — an element row, a
+relationship endpoint, a link owner, a named work package — so the files cannot
+disagree about what a row is called. A prefix reaching only elements would leave
+every endpoint dangling, which is what the test for it caught while it was being
+written.
+
+This is an import format for a service that already exists, so it was coded
+directly; it is recorded here because it shipped on this branch, not because it
+needed a gate of its own.
+
 ## EA alignment (assessed top-down before implementing)
 
 **Depth 1 — Application**, as `AGENTS.md` declares. The change widens one
