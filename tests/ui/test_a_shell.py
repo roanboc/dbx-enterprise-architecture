@@ -32,7 +32,7 @@ NAVBAR = ".mantine-AppShell-navbar"
 
 # label, path, the id layout.py gives the link, and the heading the page answers with
 NAV = [
-    ("Home", "/", "nav-home", "Higher Education EA Metamodel"),
+    ("Home", "/", "nav-home", "Default organisation"),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
     ("Impact", "/impact", "nav-impact", "Impact"),
@@ -41,6 +41,7 @@ NAV = [
     ("Import", "/import", "nav-import", "Import"),
     ("Branches", "/branches", "nav-branches", "Branches"),
     ("Metamodel", "/metamodel", "nav-metamodel", "Metamodel"),
+    ("Organisations", "/organisations", "nav-organisations", "Organisations"),
     ("Health", "/health", "nav-health", "Health"),
 ]
 

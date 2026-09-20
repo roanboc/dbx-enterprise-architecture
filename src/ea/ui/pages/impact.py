@@ -16,6 +16,7 @@ from ea.ui.components import (
     element_anchor,
     icon,
     keep_selected_option,
+    layer_chips,
     mermaid_block,
     page_title,
     simple_table,
@@ -41,13 +42,13 @@ GRAPH_HOPS = 2  # the picture stays readable at two hops however far the tables 
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset = (parse_qs((search or "").lstrip("?")).get("element") or [None])[0]
     data = [_option(ctx, e) for e in ctx.repo.search(limit=50)]
-    result, elements, mermaid = None, gp.EMPTY, ""
+    result, elements, mermaid, legend = None, gp.EMPTY, "", None
     if preset:
         e = ctx.backend.get_element(preset)
         if e:
             if not any(o["value"] == preset for o in data):
                 data = [_option(ctx, e), *data]
-            result, elements, mermaid = _result(ctx, preset, 3)
+            result, elements, mermaid, legend = _result(ctx, preset, 3)
         else:
             # An address naming an element that is not here is refused rather than answered
             # with an empty page, and the selector is left empty because there is nothing
@@ -107,12 +108,13 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 [
                     dmc.Title("Architecture view", order=2, size="h5", mb="xs"),
                     dmc.Text(
-                        "The impact as an architecture diagram, generated from the model: layers top to bottom, every shape an element.",
+                        "The impact as an architecture diagram, generated from the model: every shape is an "
+                        "element, filled by the architecture layer it belongs to.",
                         size="sm",
                         c="dimmed",
                         mb="xs",
                     ),
-                    mermaid_block("imp-view", mermaid),
+                    mermaid_block("imp-view", mermaid, legend=legend),
                     view_toolbar(
                         ids.IMP_VIEW_MD,
                         ids.IMP_VIEW_DRAWIO,
@@ -167,11 +169,11 @@ def _unknown(element_id: str) -> dmc.Alert:
 
 
 def _result(ctx: AppContext, element_id: str, depth: int):
-    """(summary and tables, cytoscape elements, mermaid code) for one impact run."""
+    """(summary and tables, cytoscape elements, mermaid code, colour legend) for one impact run."""
     try:
         res = ctx.graph.impact(element_id, depth)
     except NotFoundError:
-        return _unknown(element_id), gp.EMPTY, ""
+        return _unknown(element_id), gp.EMPTY, "", None
     e, c = res["element"], res["completeness"]
     summary = dmc.Paper(
         dmc.Stack(
@@ -235,11 +237,8 @@ def _result(ctx: AppContext, element_id: str, depth: int):
     elements = gp.raw_from_subgraph(
         ctx.registry, ctx.graph.neighbours(element_id, min(int(depth or 3), GRAPH_HOPS))
     )
-    return (
-        html.Div([summary, tables]),
-        elements,
-        to_mermaid(view_from_impact(ctx.registry, ctx.graph, res)),
-    )
+    view = view_from_impact(ctx.registry, ctx.graph, res)
+    return html.Div([summary, tables]), elements, to_mermaid(view), layer_chips(view)
 
 
 def _graph_note(depth: int) -> str:
@@ -284,6 +283,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.IMP_VIEW_NOTE, "children"),
         Output(gp.store_id("imp"), "data"),
         Output({"type": ids.MERMAID_SRC, "id": "imp-view"}, "children"),
+        Output({"type": ids.MERMAID_LEGEND, "id": "imp-view"}, "children"),
         Output(ids.IMP_GRAPH_NOTE, "children"),
         Input(ids.IMP_RUN, "n_clicks"),
         Input(ids.IMP_ELEMENT, "value"),
@@ -297,12 +297,21 @@ def register(app: dash.Dash) -> None:
             # reads as broken; say what is missing instead.
             if dash.ctx.triggered_id == ids.IMP_RUN:
                 blocked = dmc.Text(NOTHING_TO_EXPORT, size="xs", c="dimmed")
-                return alert(NOTHING_CHOSEN, "yellow"), True, True, blocked, gp.EMPTY, "", ""
+                return alert(NOTHING_CHOSEN, "yellow"), True, True, blocked, gp.EMPTY, "", "", ""
             return (no_update,) * 7
-        result, nodes, mermaid = _result(get_context(), element_id, int(depth or 3))
+        result, nodes, mermaid, legend = _result(get_context(), element_id, int(depth or 3))
         blocked = "" if mermaid else NOTHING_TO_EXPORT
         note = dmc.Text(blocked, size="xs", c="dimmed") if blocked else None
-        return result, bool(blocked), bool(blocked), note, nodes, mermaid, _graph_note(int(depth or 3))
+        return (
+            result,
+            bool(blocked),
+            bool(blocked),
+            note,
+            nodes,
+            mermaid,
+            legend,
+            _graph_note(int(depth or 3)),
+        )
 
     @app.callback(
         Output(ids.IMP_DEPTH, "value"),

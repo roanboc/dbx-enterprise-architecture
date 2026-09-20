@@ -40,14 +40,17 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     "merge": ("architect", "admin"),  # an architect only an approved branch
     "merge_without_review": ("admin",),
     "propose": ("architect", "admin"),
-    "edit_metamodel": ("admin",),
+    "edit_metamodel": ("admin",),  # a draft version: save, load a file, start a draft, delete a draft
+    "publish_metamodel": ("admin",),  # publish or retire a version
+    "apply_metamodel": ("admin",),  # apply a version to an organisation
+    "manage_organisations": ("admin",),  # create, rename, copy, delete an organisation, name the default
     "assign_reviewers": ("admin",),
 }
 DESCRIPTIONS = {
     "reader": "Browse, search, analyse, ask and download. Changes nothing.",
     "reviewer": "A reader who approves or sends back branches for the element types assigned to them.",
     "architect": "A reader who drafts on branches, imports, proposes, requests reviews and merges approved branches.",
-    "admin": "Everything, including the metamodel, main, reviewer assignments and merging without a review.",
+    "admin": "Everything, including the metamodel and its versions, the organisations, main, reviewer assignments and merging without a review.",
     "agent": "The assistant: reads through tools and drafts what an architect will tick.",
 }
 

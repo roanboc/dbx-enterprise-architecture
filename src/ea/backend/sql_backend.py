@@ -2,15 +2,23 @@
 
 One schema, two engines (decision 0002). Everything the repository asks of a
 SQL store — the overlay a branch lays over `main`, the optimistic concurrency,
-the change log, the diff and the merge — is written here against the portable
-DDL of `sql.py`. An engine (`duckdb_backend.py`, `lakebase_backend.py`) adds
-only what differs: how to connect, how to run a statement and how to land many
-rows at once.
+the change log, the diff and the merge, the organisations every row belongs to
+and the versions the metamodel is kept in — is written here against the
+portable DDL of `sql.py`. An engine (`duckdb_backend.py`, `lakebase_backend.py`)
+adds only what differs: how to connect, how to run a statement and how to land
+many rows at once.
+
+Every content row carries the organisation it belongs to (decision 0014). The
+two element and relationship *sources* (`_el`, `_rel`) read only the current
+organisation's rows, on `main` or through the branch overlay, so every query
+built on them is scoped without saying so; every write and every direct table
+read names the organisation itself.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import uuid
@@ -23,18 +31,28 @@ import pandas as pd
 
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch, validate_branch_id
+from ea.backend.organisations import DEFAULT_ORG, current_org, validate_org_id
 from ea.backend.sql import (
     DDL,
     ELEMENT_COLUMNS,
+    INDEXES,
+    META_TABLES,
     MIGRATIONS,
+    ORG_TABLES,
     RELATIONSHIP_COLUMNS,
-    TRACE_IN_SQL,
-    TRACE_OUT_SQL,
+    TRACE_ENDS,
+    TRACE_SQL,
+    create_table_sql,
+    index_sql,
+    qualified,
+    schema_of,
+    schemas,
     table_columns,
 )
-from ea.metamodel.loader import pack_from_dict
+from ea.metamodel.loader import pack_from_dict, pack_to_dict
 from ea.models import (
     OPEN_STATUSES,
+    PACK_STATUSES,
     Branch,
     ChangeItem,
     ChangeSet,
@@ -43,18 +61,25 @@ from ea.models import (
     Link,
     MergeResult,
     NotFoundError,
+    Organisation,
     Pack,
+    PackVersion,
     Proposal,
     Relationship,
     Review,
+    validate_identifier,
+    validate_version,
 )
 
 _READ_ONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
+_WITH_RE = re.compile(r"^\s*with\s+(recursive\s+)?", re.IGNORECASE)
 _FORBIDDEN_RE = re.compile(
     r"\b(insert|update|delete|merge|drop|alter|create|truncate|attach|copy|export|import|pragma|call|"
     r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck)\b",
     re.IGNORECASE,
 )
+# The keys of an attribute definition kept in the `extra` JSON column of meta_attribute.
+_ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", "help", "properties")
 
 
 def _now() -> datetime:
@@ -84,6 +109,16 @@ def chunks(items: list[Any], size: int) -> Iterator[list[Any]]:
         yield items[i : i + size]
 
 
+def pack_content(pack: Pack) -> dict[str, Any]:
+    """What a version defines, without its lifecycle: the part a frozen version must keep."""
+    d = pack_to_dict(pack)
+    d["pack"] = {k: v for k, v in d["pack"].items() if k not in ("status", "derived_from", "notes")}
+    return d
+
+
+log = logging.getLogger(__name__)
+
+
 class SqlBackend(DatabaseBackend):
     """The repository contract on any SQL engine that runs the portable DDL.
 
@@ -94,8 +129,10 @@ class SqlBackend(DatabaseBackend):
     #: how many identifiers one `IN (...)` list may carry (a parameter marker each)
     IN_CHUNK = 500
 
-    def __init__(self) -> None:
+    def __init__(self, schema_prefix: str = "ea") -> None:
         self._lock = threading.RLock()
+        #: the tables are grouped into `<prefix>_<group>` schemas; `EA_SCHEMA` names the prefix
+        self.schema_prefix = schema_prefix
 
     # ------------------------------------------------------------ engine hooks
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
@@ -118,6 +155,24 @@ class SqlBackend(DatabaseBackend):
     def _create_table(self, ddl: str) -> None:
         self._execute(ddl)
 
+    def _create_schema(self, name: str) -> None:
+        raise NotImplementedError
+
+    def _set_search_path(self, names: list[str]) -> None:
+        """So every other statement in this module can name a table without its schema."""
+        raise NotImplementedError
+
+    def _table_exists(self, schema: str, table: str) -> bool:
+        raise NotImplementedError
+
+    def _move_table(self, table: str, source: str, target: str) -> None:
+        """Move a table, with its rows, from one schema to another."""
+        raise NotImplementedError
+
+    def _one_schema_store(self) -> str:
+        """Where a store made before the tables were grouped keeps all of them."""
+        raise NotImplementedError
+
     def _bind(self, values: list[Any]) -> tuple[list[str], list[Any]]:
         """Values the reader chose (search words, type filters) as SQL: markers and parameters here;
         an engine with a marker budget would render them as literals instead."""
@@ -126,7 +181,10 @@ class SqlBackend(DatabaseBackend):
     def _add_missing_columns(self) -> None:
         """Bring a store created by an earlier version up to the DDL (the MIGRATIONS list)."""
         for table, column, dtype in MIGRATIONS:
-            self._execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}")
+            self._execute(
+                f"ALTER TABLE {qualified(table, self.schema_prefix)} "
+                f"ADD COLUMN IF NOT EXISTS {column} {dtype}"
+            )
 
     def close(self) -> None:
         raise NotImplementedError
@@ -142,9 +200,12 @@ class SqlBackend(DatabaseBackend):
         after: Any,
         version: int | None,
         branch: str | None = None,
+        org: str | None = None,
     ) -> None:
         self._execute(
-            "INSERT INTO change_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO change_log (change_id, entity_kind, entity_id, op, actor, changed_at, "
+            "before_json, after_json, version, branch_id, org_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 new_id("chg"),
                 kind,
@@ -156,6 +217,7 @@ class SqlBackend(DatabaseBackend):
                 _dumps(after) if after else None,
                 version,
                 branch if branch is not None else current_branch(),
+                org or current_org(),
             ],
         )
 
@@ -168,6 +230,16 @@ class SqlBackend(DatabaseBackend):
         """LIMIT and OFFSET inline: integers the code chose, never the reader's text."""
         return f" LIMIT {int(limit)}" + (f" OFFSET {int(offset)}" if offset else "")
 
+    # ------------------------------------------------------- organisation scope
+    @staticmethod
+    def _org() -> str:
+        return current_org()
+
+    @staticmethod
+    def _qo(org: str | None = None) -> str:
+        """The organisation id as a SQL literal; ids are validated so this is safe."""
+        return "'" + validate_org_id(org or current_org()) + "'"
+
     # ------------------------------------------------------------ branch overlay
     @staticmethod
     def _q(branch: str) -> str:
@@ -175,49 +247,58 @@ class SqlBackend(DatabaseBackend):
         return "'" + validate_branch_id(branch).replace("'", "''") + "'"
 
     def _el(self, branch: str | None = None) -> str:
-        """The element source for the branch: the table on main, the overlay elsewhere."""
+        """The element source: the organisation's main, with the branch's overlay laid over it elsewhere."""
         b = branch or current_branch()
-        if b == MAIN:
-            return "element"
+        o = self._qo()
         cols = ", ".join(ELEMENT_COLUMNS)
+        if b == MAIN:
+            return f"(SELECT {cols} FROM element WHERE org_id = {o})"
         return (
-            f"(SELECT {cols} FROM element WHERE element_id NOT IN "
-            f"(SELECT element_id FROM branch_element WHERE branch_id = {self._q(b)}) "
-            f"UNION ALL SELECT {cols} FROM branch_element WHERE branch_id = {self._q(b)} AND op = 'upsert')"
+            f"(SELECT {cols} FROM element AS m WHERE m.org_id = {o} AND NOT EXISTS "
+            f"(SELECT 1 FROM branch_element AS v WHERE v.org_id = {o} AND v.branch_id = {self._q(b)} "
+            f"AND v.element_id = m.element_id) "
+            f"UNION ALL SELECT {cols} FROM branch_element WHERE org_id = {o} AND branch_id = {self._q(b)} "
+            f"AND op = 'upsert')"
         )
 
     def _rel(self, branch: str | None = None) -> str:
         b = branch or current_branch()
-        if b == MAIN:
-            return "relationship"
+        o = self._qo()
         cols = ", ".join(RELATIONSHIP_COLUMNS)
+        if b == MAIN:
+            return f"(SELECT {cols} FROM relationship WHERE org_id = {o})"
         return (
-            f"(SELECT {cols} FROM relationship WHERE relationship_id NOT IN "
-            f"(SELECT relationship_id FROM branch_relationship WHERE branch_id = {self._q(b)}) "
-            f"UNION ALL SELECT {cols} FROM branch_relationship WHERE branch_id = {self._q(b)} AND op = 'upsert')"
+            f"(SELECT {cols} FROM relationship AS m WHERE m.org_id = {o} AND NOT EXISTS "
+            f"(SELECT 1 FROM branch_relationship AS v WHERE v.org_id = {o} AND v.branch_id = {self._q(b)} "
+            f"AND v.relationship_id = m.relationship_id) "
+            f"UNION ALL SELECT {cols} FROM branch_relationship WHERE org_id = {o} AND branch_id = {self._q(b)} "
+            f"AND op = 'upsert')"
         )
 
     def _branch_element_row(self, branch: str, element_id: str) -> tuple[int, str] | None:
         rows = self._fetch_all(
-            "SELECT base_version, op FROM branch_element WHERE branch_id = ? AND element_id = ?",
-            [branch, element_id],
+            "SELECT base_version, op FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+            [self._org(), branch, element_id],
         )
         return (int(rows[0][0]), rows[0][1]) if rows else None
 
     def _branch_rel_row(self, branch: str, relationship_id: str) -> tuple[int, str] | None:
         rows = self._fetch_all(
-            "SELECT base_version, op FROM branch_relationship WHERE branch_id = ? AND relationship_id = ?",
-            [branch, relationship_id],
+            "SELECT base_version, op FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
+            [self._org(), branch, relationship_id],
         )
         return (int(rows[0][0]), rows[0][1]) if rows else None
 
     def _main_element_version(self, element_id: str) -> int | None:
-        rows = self._fetch_all("SELECT _version FROM element WHERE element_id = ?", [element_id])
+        rows = self._fetch_all(
+            "SELECT _version FROM element WHERE org_id = ? AND element_id = ?", [self._org(), element_id]
+        )
         return int(rows[0][0]) if rows else None
 
     def _main_rel_version(self, relationship_id: str) -> int | None:
         rows = self._fetch_all(
-            "SELECT _version FROM relationship WHERE relationship_id = ?", [relationship_id]
+            "SELECT _version FROM relationship WHERE org_id = ? AND relationship_id = ?",
+            [self._org(), relationship_id],
         )
         return int(rows[0][0]) if rows else None
 
@@ -225,56 +306,139 @@ class SqlBackend(DatabaseBackend):
         with self._lock:
             first_time = self._branch_element_row(branch, e.element_id) is None
             self._execute(
-                "DELETE FROM branch_element WHERE branch_id = ? AND element_id = ?", [branch, e.element_id]
+                "DELETE FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+                [self._org(), branch, e.element_id],
             )
-            self._insert_rows("branch_element", [self._element_values(e) + [branch, base_version, op]])
+            self._insert_rows(
+                "branch_element", [self._element_values(e) + [branch, base_version, op, self._org()]]
+            )
             if first_time and base_version > 0:
                 self._copy_main_links(branch, [e.element_id])
 
     def _copy_main_links(self, branch: str, element_ids: list[str]) -> None:
         """An element's links follow it onto the branch the first time it is written there, so a
         change to the element alone never reads as a change to its links."""
+        org = self._org()
         for chunk in chunks(element_ids, self.IN_CHUNK):
             self._execute(
-                f"INSERT INTO branch_link SELECT link_id, element_id, url, label, sort_order, ? FROM element_link "
-                f"WHERE element_id IN ({self._marks(chunk)}) AND element_id NOT IN "
-                f"(SELECT element_id FROM branch_link WHERE branch_id = ?)",
-                [branch, *chunk, branch],
+                f"INSERT INTO branch_link (link_id, element_id, url, label, sort_order, branch_id, org_id) "
+                f"SELECT link_id, element_id, url, label, sort_order, ?, org_id "
+                f"FROM element_link WHERE org_id = ? AND element_id IN ({self._marks(chunk)}) "
+                f"AND element_id NOT IN (SELECT element_id FROM branch_link WHERE org_id = ? AND branch_id = ?)",
+                [branch, org, *chunk, org, branch],
             )
 
     def _write_branch_rel(self, branch: str, r: Relationship, base_version: int, op: str = "upsert") -> None:
         with self._lock:
             self._execute(
-                "DELETE FROM branch_relationship WHERE branch_id = ? AND relationship_id = ?",
-                [branch, r.relationship_id],
+                "DELETE FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
+                [self._org(), branch, r.relationship_id],
             )
-            self._insert_rows("branch_relationship", [self._rel_values(r) + [branch, base_version, op]])
+            self._insert_rows(
+                "branch_relationship", [self._rel_values(r) + [branch, base_version, op, self._org()]]
+            )
 
     # ---------------------------------------------------------- lifecycle
     def init_schema(self) -> None:
         with self._lock:
-            for ddl in DDL.values():
-                self._create_table(ddl)
+            for schema in schemas(self.schema_prefix):
+                self._create_schema(schema)
+            self._set_search_path(schemas(self.schema_prefix))
+            self._group_existing_tables()
+            for table in DDL:
+                self._create_table(create_table_sql(table, self.schema_prefix))
             self._add_missing_columns()
+            self._migrate_organisations()
+            self._create_indexes()
+
+    def _group_existing_tables(self) -> None:
+        """A store made before the tables were grouped keeps them all in one schema. Each moves,
+        with its rows, to the schema of its group — before the DDL runs, because otherwise the
+        DDL makes an empty table in the new place and leaves the rows behind in the old one."""
+        home = self._one_schema_store()
+        for table in DDL:
+            target = schema_of(table, self.schema_prefix)
+            if target == home or not self._table_exists(home, table) or self._table_exists(target, table):
+                continue
+            self._move_table(table, home, target)
+            log.info("moved %s from %s to %s", table, home, target)
+
+    def _create_indexes(self) -> None:
+        """The indexes of `INDEXES`, each on its own: a store that already holds a duplicate
+        refuses its unique index, and that is a thing to report rather than a store that
+        will not open. The store enforced these keys in Python long before the database
+        knew them, so a refusal names a row that was already wrong."""
+        for name, table, unique, columns in INDEXES:
+            try:
+                self._execute(index_sql(name, table, unique, columns, self.schema_prefix))
+            except Exception as exc:  # noqa: BLE001 - an engine raises its own type here
+                log.warning("could not create the index %s (%s)", name, exc)
+
+    def _migrate_organisations(self) -> None:
+        """A store from before organisations and versions: its rows belong to the default
+        organisation, its packs are one version each, and the default organisation applies
+        the pack most recently loaded. On a store that already has them, nothing moves."""
+        for table in ORG_TABLES:
+            self._execute(f"UPDATE {table} SET org_id = ? WHERE org_id IS NULL", [DEFAULT_ORG])
+        self._execute("UPDATE meta_pack SET version = '1' WHERE version IS NULL OR version = ''")
+        self._execute("UPDATE meta_pack SET status = 'draft' WHERE status IS NULL OR status = ''")
+        for table in META_TABLES[1:]:
+            self._execute(
+                f"UPDATE {table} SET pack_version = (SELECT p.version FROM meta_pack p WHERE p.pack_id = {table}.pack_id) "
+                f"WHERE pack_version IS NULL"
+            )
+        self._execute("UPDATE meta_element_type SET abstract = FALSE WHERE abstract IS NULL")
+        if not self._fetch_all("SELECT org_id FROM organisation"):
+            packs = self._fetch_all("SELECT pack_id, version FROM meta_pack ORDER BY loaded_at DESC")
+            if packs:
+                pack_id, version = packs[0]
+                self._insert_rows(
+                    "organisation",
+                    [
+                        [
+                            DEFAULT_ORG,
+                            "Default organisation",
+                            None,
+                            pack_id,
+                            version,
+                            True,
+                            None,
+                            "migration",
+                            _now(),
+                            _now(),
+                        ]
+                    ],
+                )
 
     # ---------------------------------------------------------- metamodel
-    def save_pack(self, pack: Pack) -> None:
-        attribute_rows: list[list[Any]] = []
-        for i, a in enumerate(pack.common_attributes):
-            attribute_rows.append(
-                [
-                    pack.id,
-                    None,
-                    a.name,
-                    a.label,
-                    a.type,
-                    a.required,
-                    json.dumps(a.enum) if a.enum else None,
-                    a.description,
-                    a.sensitivity,
-                    i,
-                ]
-            )
+    def _pack_rows(self, pack: Pack) -> dict[str, list[list[Any]]]:
+        """Every meta_* row of one version, positionally, in the tables' column order."""
+
+        def keep(k: str, v: Any) -> bool:
+            """What the extra JSON carries: a zero and a False are values, an empty one is not."""
+            if v is None or (isinstance(v, (str, dict)) and not v):
+                return False
+            return not (k == "multiple" and v is False)
+
+        def attr_row(a, type_id: str | None, rel_type_id: str | None, i: int) -> list[Any]:
+            extra = {k: getattr(a, k) for k in _ATTR_EXTRA if keep(k, getattr(a, k))}
+            return [
+                pack.id,
+                type_id,
+                a.name,
+                a.label,
+                a.type,
+                a.required,
+                json.dumps(a.enum) if a.enum else None,
+                a.description,
+                a.sensitivity,
+                i,
+                pack.version,
+                rel_type_id,
+                json.dumps(extra, ensure_ascii=False, default=str) if extra else None,
+            ]
+
+        attribute_rows = [attr_row(a, None, None, i) for i, a in enumerate(pack.common_attributes)]
         type_rows: list[list[Any]] = []
         for t in pack.element_types:
             type_rows.append(
@@ -296,53 +460,89 @@ class SqlBackend(DatabaseBackend):
                     t.instance_owner,
                     t.sort_order,
                     json.dumps(t.notation),
+                    pack.version,
+                    t.abstract,
+                    json.dumps(t.properties, ensure_ascii=False, default=str) if t.properties else None,
                 ]
             )
-            for i, a in enumerate(t.attributes):
-                attribute_rows.append(
-                    [
-                        pack.id,
-                        t.id,
-                        a.name,
-                        a.label,
-                        a.type,
-                        a.required,
-                        json.dumps(a.enum) if a.enum else None,
-                        a.description,
-                        a.sensitivity,
-                        i,
-                    ]
-                )
-        rel_rows = [
+            attribute_rows += [attr_row(a, t.id, None, i) for i, a in enumerate(t.attributes)]
+        rel_rows = []
+        for r in pack.relationship_types:
+            rel_rows.append(
+                [
+                    pack.id,
+                    r.id,
+                    r.name,
+                    r.inverse,
+                    r.source,
+                    r.target,
+                    r.provenance,
+                    json.dumps(r.qualifiers),
+                    json.dumps(r.diagrams),
+                    r.description,
+                    r.src_max,
+                    r.dst_max,
+                    r.sort_order,
+                    pack.version,
+                    json.dumps(r.properties, ensure_ascii=False, default=str) if r.properties else None,
+                ]
+            )
+            attribute_rows += [attr_row(a, None, r.id, i) for i, a in enumerate(r.attributes)]
+        domain_rows = [
             [
                 pack.id,
-                r.id,
-                r.name,
-                r.inverse,
-                r.source,
-                r.target,
-                r.provenance,
-                json.dumps(r.qualifiers),
-                json.dumps(r.diagrams),
-                r.description,
-                r.src_max,
-                r.dst_max,
-                r.sort_order,
+                d.id,
+                d.name,
+                d.description,
+                d.sort_order,
+                json.dumps(d.notation),
+                pack.version,
+                json.dumps(d.properties, ensure_ascii=False, default=str) if d.properties else None,
             ]
-            for r in pack.relationship_types
+            for d in pack.domains
         ]
-        domain_rows = [
-            [pack.id, d.id, d.name, d.description, d.sort_order, json.dumps(d.notation)] for d in pack.domains
-        ]
+        return {
+            "meta_domain": domain_rows,
+            "meta_element_type": type_rows,
+            "meta_attribute": attribute_rows,
+            "meta_relationship_type": rel_rows,
+        }
+
+    def _pack_header(self, pack_id: str, version: str) -> tuple | None:
+        rows = self._fetch_all(
+            "SELECT pack_id, version, status, created_by, created_at, published_by, published_at, loaded_at, name, "
+            "derived_from, notes FROM meta_pack WHERE pack_id = ? AND version = ?",
+            [pack_id, version],
+        )
+        return rows[0] if rows else None
+
+    def save_pack(self, pack: Pack, actor: str = "") -> None:
+        validate_identifier(pack.id, "pack id")
+        validate_version(pack.version, "pack version")
+        now = _now()
         with self._lock:
-            for t in (
-                "meta_pack",
-                "meta_domain",
-                "meta_element_type",
-                "meta_attribute",
-                "meta_relationship_type",
-            ):
-                self._execute(f"DELETE FROM {t} WHERE pack_id = ?", [pack.id])
+            header = self._pack_header(pack.id, pack.version)
+            created_by, created_at, published_by, published_at = actor or None, now, None, None
+            if header is not None:
+                _, _, status, created_by, created_at, published_by, published_at, *_ = header
+                if status in ("published", "retired"):
+                    stored = self.load_pack(pack.id, pack.version)
+                    if stored is not None and pack_content(stored) == pack_content(pack):
+                        return  # the same definition again: nothing to store
+                    raise ConflictError(
+                        f"version {pack.version} of pack {pack.id} is {status} and frozen; "
+                        "load the definition under another version, or start a draft from it"
+                    )
+            if pack.status == "published" and not published_at:
+                published_by, published_at = actor or None, now
+            rows = self._pack_rows(pack)
+            for t in META_TABLES:
+                self._execute(
+                    f"DELETE FROM {t} WHERE pack_id = ? AND version = ?"
+                    if t == "meta_pack"
+                    else f"DELETE FROM {t} WHERE pack_id = ? AND pack_version = ?",
+                    [pack.id, pack.version],
+                )
             self._insert_rows(
                 "meta_pack",
                 [
@@ -353,37 +553,75 @@ class SqlBackend(DatabaseBackend):
                         pack.description,
                         pack.source,
                         json.dumps(pack.provenance_values),
-                        _now(),
+                        now,
+                        pack.status,
+                        pack.derived_from or None,
+                        pack.notes or None,
+                        json.dumps(pack.properties, ensure_ascii=False, default=str)
+                        if pack.properties
+                        else None,
+                        created_by,
+                        created_at,
+                        published_by,
+                        published_at,
                     ]
                 ],
             )
-            self._insert_rows("meta_domain", domain_rows)
-            self._insert_rows("meta_element_type", type_rows)
-            self._insert_rows("meta_attribute", attribute_rows)
-            self._insert_rows("meta_relationship_type", rel_rows)
+            for table, table_rows in rows.items():
+                self._insert_rows(table, table_rows)
+            self._log(
+                "metamodel",
+                pack.ref,
+                "save" if header is None else "replace",
+                actor or "system",
+                None,
+                {
+                    "status": pack.status,
+                    "types": len(pack.element_types),
+                    "relationship_types": len(pack.relationship_types),
+                },
+                None,
+                MAIN,
+            )
 
-    def load_pack(self, pack_id: str) -> Pack | None:
+    def load_pack(self, pack_id: str, version: str | None = None) -> Pack | None:
+        if version is None:
+            rows = self._fetch_all(
+                "SELECT version FROM meta_pack WHERE pack_id = ? ORDER BY loaded_at DESC", [pack_id]
+            )
+            if not rows:
+                return None
+            version = rows[0][0]
         rows = self._fetch_all(
-            "SELECT pack_id, name, version, description, source, provenance_values FROM meta_pack WHERE pack_id = ?",
-            [pack_id],
+            "SELECT pack_id, name, version, description, source, provenance_values, status, derived_from, notes, properties "
+            "FROM meta_pack WHERE pack_id = ? AND version = ?",
+            [pack_id, version],
         )
         if not rows:
             return None
-        pid, name, version, description, source, prov = rows[0]
+        pid, name, version, description, source, prov, status, derived_from, notes, properties = rows[0]
         domains = [
-            {"id": d, "name": n, "description": desc, "notation": json.loads(notation or "{}")}
-            for d, n, desc, notation in self._fetch_all(
-                "SELECT domain_id, name, description, notation FROM meta_domain WHERE pack_id = ? ORDER BY sort_order",
-                [pid],
+            {
+                "id": d,
+                "name": n,
+                "description": desc,
+                "notation": json.loads(notation or "{}"),
+                "properties": _loads(props),
+            }
+            for d, n, desc, notation, props in self._fetch_all(
+                "SELECT domain_id, name, description, notation, properties FROM meta_domain "
+                "WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+                [pid, version],
             )
         ]
         attrs = self._fetch_all(
-            "SELECT type_id, name, label, datatype, required, enum_values, description, sensitivity FROM meta_attribute WHERE pack_id = ? ORDER BY sort_order",
-            [pid],
+            "SELECT type_id, name, label, datatype, required, enum_values, description, sensitivity, rel_type_id, extra "
+            "FROM meta_attribute WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+            [pid, version],
         )
 
         def attr_dict(row: tuple) -> dict[str, Any]:
-            _, aname, label, dtype, required, enum_values, adesc, sens = row
+            _, aname, label, dtype, required, enum_values, adesc, sens, _, extra = row
             d: dict[str, Any] = {
                 "name": aname,
                 "label": label,
@@ -394,13 +632,16 @@ class SqlBackend(DatabaseBackend):
             }
             if enum_values:
                 d["enum"] = json.loads(enum_values)
+            d.update(_loads(extra))
             return d
 
-        common = [attr_dict(a) for a in attrs if a[0] is None]
+        common = [attr_dict(a) for a in attrs if a[0] is None and a[8] is None]
         element_types = []
         for row in self._fetch_all(
-            "SELECT type_id, name, plural, supertype_id, active, deactivation_reason, domain_id, provenance, prefix, description, examples, source_of_record, type_owner, instance_owner, notation FROM meta_element_type WHERE pack_id = ? ORDER BY sort_order",
-            [pid],
+            "SELECT type_id, name, plural, supertype_id, active, deactivation_reason, domain_id, provenance, prefix, "
+            "description, examples, source_of_record, type_owner, instance_owner, notation, abstract, properties "
+            "FROM meta_element_type WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+            [pid, version],
         ):
             tid = row[0]
             element_types.append(
@@ -420,6 +661,8 @@ class SqlBackend(DatabaseBackend):
                     "type_owner": row[12],
                     "instance_owner": row[13],
                     "notation": json.loads(row[14] or "{}"),
+                    "abstract": bool(row[15]),
+                    "properties": _loads(row[16]),
                     "attributes": [attr_dict(a) for a in attrs if a[0] == tid],
                 }
             )
@@ -436,10 +679,14 @@ class SqlBackend(DatabaseBackend):
                 "description": r[8],
                 "src_max": r[9],
                 "dst_max": r[10],
+                "properties": _loads(r[11]),
+                "attributes": [attr_dict(a) for a in attrs if a[8] == r[0]],
             }
             for r in self._fetch_all(
-                "SELECT rel_type_id, name, inverse_name, source_type_id, target_type_id, provenance, qualifiers, diagrams, description, src_max, dst_max FROM meta_relationship_type WHERE pack_id = ? ORDER BY sort_order",
-                [pid],
+                "SELECT rel_type_id, name, inverse_name, source_type_id, target_type_id, provenance, qualifiers, "
+                "diagrams, description, src_max, dst_max, properties FROM meta_relationship_type "
+                "WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+                [pid, version],
             )
         ]
         return pack_from_dict(
@@ -451,6 +698,10 @@ class SqlBackend(DatabaseBackend):
                     "description": description,
                     "source": source,
                     "provenance_values": json.loads(prov or "[]"),
+                    "status": status or "draft",
+                    "derived_from": derived_from or "",
+                    "notes": notes or "",
+                    "properties": _loads(properties),
                 },
                 "domains": domains,
                 "common_attributes": common,
@@ -459,9 +710,210 @@ class SqlBackend(DatabaseBackend):
             }
         )
 
-    def list_packs(self) -> list[dict[str, Any]]:
-        df = self._fetch_df("SELECT pack_id, name, version, loaded_at FROM meta_pack ORDER BY loaded_at DESC")
-        return df.to_dict("records")
+    def list_pack_versions(self, pack_id: str | None = None) -> list[PackVersion]:
+        where = " WHERE pack_id = ?" if pack_id else ""
+        applied: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for org_id, pid, version in self._fetch_all(
+            "SELECT org_id, pack_id, pack_version FROM organisation ORDER BY org_id"
+        ):
+            applied[(pid, version)].append(org_id)
+        out = []
+        for row in self._fetch_all(
+            "SELECT pack_id, version, name, status, derived_from, notes, loaded_at, created_by, created_at, "
+            f"published_by, published_at FROM meta_pack{where} ORDER BY loaded_at DESC",
+            [pack_id] if pack_id else [],
+        ):
+            out.append(
+                PackVersion(
+                    pack_id=row[0],
+                    version=row[1],
+                    name=row[2] or "",
+                    status=row[3] or "draft",
+                    derived_from=row[4] or "",
+                    notes=row[5] or "",
+                    loaded_at=row[6],
+                    created_by=row[7] or "",
+                    created_at=row[8],
+                    published_by=row[9] or "",
+                    published_at=row[10],
+                    applied_by=applied.get((row[0], row[1]), []),
+                )
+            )
+        return out
+
+    def set_pack_status(self, pack_id: str, version: str, status: str, actor: str) -> PackVersion:
+        if status not in PACK_STATUSES:
+            raise ValueError(f"status must be one of {PACK_STATUSES}")
+        if self._pack_header(pack_id, version) is None:
+            raise NotFoundError(f"{pack_id}@{version}", "metamodel version")
+        with self._lock:
+            if status == "published":
+                self._execute(
+                    "UPDATE meta_pack SET status = ?, published_by = ?, published_at = ? WHERE pack_id = ? AND version = ?",
+                    [status, actor, _now(), pack_id, version],
+                )
+            else:
+                self._execute(
+                    "UPDATE meta_pack SET status = ? WHERE pack_id = ? AND version = ?",
+                    [status, pack_id, version],
+                )
+            self._log(
+                "metamodel",
+                f"{pack_id}@{version}",
+                f"status:{status}",
+                actor,
+                None,
+                {"status": status},
+                None,
+                MAIN,
+            )
+        return next(v for v in self.list_pack_versions(pack_id) if v.version == version)
+
+    def delete_pack_version(self, pack_id: str, version: str, actor: str) -> None:
+        if self._pack_header(pack_id, version) is None:
+            raise NotFoundError(f"{pack_id}@{version}", "metamodel version")
+        with self._lock:
+            self._execute("DELETE FROM meta_pack WHERE pack_id = ? AND version = ?", [pack_id, version])
+            for t in META_TABLES[1:]:
+                self._execute(f"DELETE FROM {t} WHERE pack_id = ? AND pack_version = ?", [pack_id, version])
+            self._log("metamodel", f"{pack_id}@{version}", "delete", actor, None, None, None, MAIN)
+
+    # ------------------------------------------------------- organisations
+    _ORG_COLS = "org_id, name, description, pack_id, pack_version, is_default, copied_from, created_by, created_at, updated_at"
+
+    @staticmethod
+    def _row_to_org(row: tuple) -> Organisation:
+        return Organisation(
+            org_id=row[0],
+            name=row[1],
+            description=row[2] or "",
+            pack_id=row[3] or "",
+            pack_version=row[4] or "",
+            is_default=bool(row[5]),
+            copied_from=row[6] or "",
+            created_by=row[7] or "",
+            created_at=row[8],
+            updated_at=row[9],
+        )
+
+    def _org_counts(self) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"elements": 0, "relationships": 0, "branches": 0}
+        )
+        for org, n in self._fetch_all("SELECT org_id, COUNT(*) FROM element GROUP BY org_id"):
+            out[org]["elements"] = int(n)
+        for org, n in self._fetch_all("SELECT org_id, COUNT(*) FROM relationship GROUP BY org_id"):
+            out[org]["relationships"] = int(n)
+        for org, n in self._fetch_all(
+            "SELECT org_id, COUNT(*) FROM branch WHERE status IN ('open', 'in_review', 'approved') GROUP BY org_id"
+        ):
+            out[org]["branches"] = int(n)
+        return out
+
+    def list_organisations(self) -> list[Organisation]:
+        counts = self._org_counts()
+        out = []
+        for row in self._fetch_all(
+            f"SELECT {self._ORG_COLS} FROM organisation ORDER BY is_default DESC, created_at, org_id"
+        ):
+            org = self._row_to_org(row)
+            c = counts.get(org.org_id, {})
+            org.elements, org.relationships, org.branches = (
+                c.get("elements", 0),
+                c.get("relationships", 0),
+                c.get("branches", 0),
+            )
+            out.append(org)
+        return out
+
+    def get_organisation(self, org_id: str) -> Organisation | None:
+        rows = self._fetch_all(f"SELECT {self._ORG_COLS} FROM organisation WHERE org_id = ?", [org_id])
+        return self._row_to_org(rows[0]) if rows else None
+
+    def default_organisation(self) -> Organisation | None:
+        rows = self._fetch_all(
+            f"SELECT {self._ORG_COLS} FROM organisation WHERE is_default ORDER BY created_at"
+        )
+        return self._row_to_org(rows[0]) if rows else None
+
+    def save_organisation(self, org: Organisation, actor: str) -> Organisation:
+        validate_org_id(org.org_id)
+        now = _now()
+        with self._lock:
+            existing = self.get_organisation(org.org_id)
+            org.created_by = existing.created_by if existing else (org.created_by or actor)
+            org.created_at = existing.created_at if existing else (org.created_at or now)
+            org.updated_at = now
+            if org.is_default:
+                self._execute("UPDATE organisation SET is_default = FALSE WHERE org_id <> ?", [org.org_id])
+            self._replace_rows(
+                "organisation",
+                table_columns("organisation"),
+                [
+                    [
+                        org.org_id,
+                        org.name,
+                        org.description or None,
+                        org.pack_id or None,
+                        org.pack_version or None,
+                        bool(org.is_default),
+                        org.copied_from or None,
+                        org.created_by or None,
+                        org.created_at,
+                        org.updated_at,
+                    ]
+                ],
+                ["org_id"],
+            )
+            self._log(
+                "organisation",
+                org.org_id,
+                "create" if existing is None else "update",
+                actor,
+                {"name": existing.name, "metamodel": existing.pack_ref, "default": existing.is_default}
+                if existing
+                else None,
+                {"name": org.name, "metamodel": org.pack_ref, "default": org.is_default},
+                None,
+                MAIN,
+                org.org_id,
+            )
+        return org
+
+    def delete_organisation(self, org_id: str, actor: str) -> None:
+        if self.get_organisation(org_id) is None:
+            raise NotFoundError(org_id, "organisation")
+        with self._lock:
+            for table in ORG_TABLES:
+                if table != "change_log":
+                    self._execute(f"DELETE FROM {table} WHERE org_id = ?", [org_id])
+            self._execute("DELETE FROM organisation WHERE org_id = ?", [org_id])
+            self._log("organisation", org_id, "delete", actor, None, None, None, MAIN, org_id)
+
+    def copy_organisation_content(self, src_org: str, dst_org: str, actor: str) -> dict[str, int]:
+        validate_org_id(src_org)
+        validate_org_id(dst_org)
+        if self.get_organisation(dst_org) is None:
+            raise NotFoundError(dst_org, "organisation")
+        counts = self._org_counts().get(dst_org, {})
+        if counts.get("elements") or counts.get("relationships"):
+            raise ConflictError(f"organisation {dst_org} already holds content; a copy needs an empty one")
+        copied: dict[str, int] = {}
+        with self._lock:
+            for table in ("element", "relationship", "element_link", "reviewer_assignment"):
+                cols = [c for c in table_columns(table) if c != "org_id"]
+                col_list = ", ".join(cols)
+                self._execute(
+                    f"INSERT INTO {table} ({col_list}, org_id) SELECT {col_list}, ? FROM {table} WHERE org_id = ?",
+                    [dst_org, src_org],
+                )
+                copied[table] = int(
+                    self._fetch_all(f"SELECT COUNT(*) FROM {table} WHERE org_id = ?", [dst_org])[0][0]
+                )
+            self._log(
+                "organisation", dst_org, "copy", actor, None, {"from": src_org, **copied}, None, MAIN, dst_org
+            )
+        return copied
 
     # ----------------------------------------------------------- elements
     @staticmethod
@@ -564,15 +1016,15 @@ class SqlBackend(DatabaseBackend):
 
     def linked_element_ids(self) -> list[str]:
         """Ids of the elements that carry at least one link, on the current branch."""
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         if branch == MAIN:
-            rows = self._fetch_all("SELECT DISTINCT element_id FROM element_link")
+            rows = self._fetch_all("SELECT DISTINCT element_id FROM element_link WHERE org_id = ?", [org])
         else:
             rows = self._fetch_all(
-                "SELECT DISTINCT element_id FROM element_link WHERE element_id NOT IN "
-                "(SELECT element_id FROM branch_element WHERE branch_id = ?) "
-                "UNION SELECT DISTINCT element_id FROM branch_link WHERE branch_id = ?",
-                [branch, branch],
+                "SELECT DISTINCT element_id FROM element_link WHERE org_id = ? AND element_id NOT IN "
+                "(SELECT element_id FROM branch_element WHERE org_id = ? AND branch_id = ?) "
+                "UNION SELECT DISTINCT element_id FROM branch_link WHERE org_id = ? AND branch_id = ?",
+                [org, org, branch, org, branch],
             )
         return [r[0] for r in rows]
 
@@ -598,7 +1050,7 @@ class SqlBackend(DatabaseBackend):
         branch = current_branch()
         with self._lock:
             if branch == MAIN:
-                self._insert_rows("element", [self._element_values(element)])
+                self._insert_rows("element", [self._element_values(element) + [self._org()]])
             else:
                 self._write_branch_element(branch, element, base_version=0)
             self._log("element", element.element_id, "insert", actor, None, self._public(element), 1)
@@ -625,7 +1077,8 @@ class SqlBackend(DatabaseBackend):
                 self._execute(
                     "UPDATE element SET type_id=?, key=?, name=?, description_md=?, status=?, lifecycle_status=?, source_system=?, "
                     "source_ref=?, external_ids=?, attrs=?, origin=?, _version=?, updated_at=?, updated_by=?, "
-                    "current_state=?, target_state=?, target_work_package=?, target_note=? WHERE element_id=? AND _version=?",
+                    "current_state=?, target_state=?, target_work_package=?, target_note=? "
+                    "WHERE org_id=? AND element_id=? AND _version=?",
                     [
                         element.type_id,
                         element.key or None,
@@ -645,6 +1098,7 @@ class SqlBackend(DatabaseBackend):
                         element.target_state,
                         element.target_work_package or None,
                         element.target_note or None,
+                        self._org(),
                         element.element_id,
                         current.version,
                     ],
@@ -686,11 +1140,11 @@ class SqlBackend(DatabaseBackend):
     def _versions(self, table: str, key: str, column: str, ids: list[str], branch: str | None = None) -> dict:
         out: dict[str, int] = {}
         for chunk in chunks(ids, self.IN_CHUNK):
-            where = f"{key} IN ({self._marks(chunk)})"
-            params: list[Any] = list(chunk)
+            where = f"org_id = ? AND {key} IN ({self._marks(chunk)})"
+            params: list[Any] = [self._org(), *chunk]
             if branch is not None:
                 where = f"branch_id = ? AND {where}"
-                params = [branch, *chunk]
+                params = [branch, *params]
             for row_id, v in self._fetch_all(f"SELECT {key}, {column} FROM {table} WHERE {where}", params):
                 out[row_id] = int(v)
         return out
@@ -699,7 +1153,7 @@ class SqlBackend(DatabaseBackend):
         if not elements:
             return 0, 0
         now = _now()
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         ids = [e.element_id for e in elements]
         existing = self._existing_rows(self._el(), "element_id", ids)
         unchanged = self._unchanged_elements(elements, list(existing))
@@ -721,19 +1175,24 @@ class SqlBackend(DatabaseBackend):
         ids = [e.element_id for e in elements]
         with self._lock:
             if branch == MAIN:
-                self._replace_rows("element", ELEMENT_COLUMNS, rows, ["element_id"])
+                self._replace_rows(
+                    "element",
+                    ELEMENT_COLUMNS + ["org_id"],
+                    [r + [org] for r in rows],
+                    ["org_id", "element_id"],
+                )
             else:
                 branch_rows = self._versions("branch_element", "element_id", "base_version", ids, branch)
                 main_versions = self._versions("element", "element_id", "_version", ids)
                 extra = [
-                    [branch, branch_rows.get(e.element_id, main_versions.get(e.element_id, 0)), "upsert"]
+                    [branch, branch_rows.get(e.element_id, main_versions.get(e.element_id, 0)), "upsert", org]
                     for e in elements
                 ]
                 self._replace_rows(
                     "branch_element",
-                    ELEMENT_COLUMNS + ["branch_id", "base_version", "op"],
+                    ELEMENT_COLUMNS + ["branch_id", "base_version", "op", "org_id"],
                     [r + x for r, x in zip(rows, extra, strict=True)],
-                    ["branch_id", "element_id"],
+                    ["org_id", "branch_id", "element_id"],
                 )
                 self._copy_main_links(branch, [eid for eid in main_versions if eid not in branch_rows])
             self._log(
@@ -787,11 +1246,13 @@ class SqlBackend(DatabaseBackend):
         return d
 
     def set_links(self, element_id: str, links: list[Link], actor: str) -> list[Link]:
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         with self._lock:
             if branch == MAIN:
-                table, extra = "element_link", []
-                self._execute("DELETE FROM element_link WHERE element_id = ?", [element_id])
+                table, extra = "element_link", [org]
+                self._execute(
+                    "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, element_id]
+                )
             else:
                 if self._branch_element_row(branch, element_id) is None:
                     main = self.get_element(element_id)  # links alone still need the element on the branch
@@ -802,9 +1263,10 @@ class SqlBackend(DatabaseBackend):
                     ]:
                         return self._main_links(element_id)  # nothing changes: nothing lands on the branch
                     self._write_branch_element(branch, main, base_version=main.version)
-                table, extra = "branch_link", [branch]
+                table, extra = "branch_link", [branch, org]
                 self._execute(
-                    "DELETE FROM branch_link WHERE branch_id = ? AND element_id = ?", [branch, element_id]
+                    "DELETE FROM branch_link WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+                    [org, branch, element_id],
                 )
             out, rows = [], []
             for i, ln in enumerate(links):
@@ -816,16 +1278,18 @@ class SqlBackend(DatabaseBackend):
         return out
 
     def get_links(self, element_id: str) -> list[Link]:
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         if branch != MAIN and self._branch_element_row(branch, element_id) is not None:
             rows = self._fetch_all(
-                "SELECT link_id, url, label, sort_order FROM branch_link WHERE branch_id = ? AND element_id = ? ORDER BY sort_order",
-                [branch, element_id],
+                "SELECT link_id, url, label, sort_order FROM branch_link WHERE org_id = ? AND branch_id = ? "
+                "AND element_id = ? ORDER BY sort_order",
+                [org, branch, element_id],
             )
         else:
             rows = self._fetch_all(
-                "SELECT link_id, url, label, sort_order FROM element_link WHERE element_id = ? ORDER BY sort_order",
-                [element_id],
+                "SELECT link_id, url, label, sort_order FROM element_link WHERE org_id = ? AND element_id = ? "
+                "ORDER BY sort_order",
+                [org, element_id],
             )
         return [
             Link(element_id=element_id, url=u, label=lb or "", link_id=lid, sort_order=so)
@@ -932,7 +1396,7 @@ class SqlBackend(DatabaseBackend):
         branch = current_branch()
         with self._lock:
             if branch == MAIN:
-                self._insert_rows("relationship", [self._rel_values(rel)])
+                self._insert_rows("relationship", [self._rel_values(rel) + [self._org()]])
             else:
                 self._write_branch_rel(branch, rel, base_version=0)
             self._log("relationship", rel.relationship_id, "insert", actor, None, self._public(rel), 1)
@@ -959,7 +1423,7 @@ class SqlBackend(DatabaseBackend):
                 self._execute(
                     "UPDATE relationship SET rel_type_id=?, src_id=?, dst_id=?, qualifier=?, attrs=?, status=?, origin=?, source_system=?, "
                     "source_ref=?, _version=?, updated_at=?, updated_by=?, current_state=?, target_state=?, target_work_package=?, target_note=? "
-                    "WHERE relationship_id=? AND _version=?",
+                    "WHERE org_id=? AND relationship_id=? AND _version=?",
                     [
                         rel.rel_type_id,
                         rel.src_id,
@@ -977,6 +1441,7 @@ class SqlBackend(DatabaseBackend):
                         rel.target_state,
                         rel.target_work_package or None,
                         rel.target_note or None,
+                        self._org(),
                         rel.relationship_id,
                         current.version,
                     ],
@@ -1000,16 +1465,19 @@ class SqlBackend(DatabaseBackend):
         current = self.get_relationship(relationship_id)
         if current is None:
             raise NotFoundError(relationship_id, "relationship")
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         with self._lock:
             if branch == MAIN:
-                self._execute("DELETE FROM relationship WHERE relationship_id = ?", [relationship_id])
+                self._execute(
+                    "DELETE FROM relationship WHERE org_id = ? AND relationship_id = ?",
+                    [org, relationship_id],
+                )
             else:
                 main_version = self._main_rel_version(relationship_id)
                 if main_version is None:  # only ever existed on the branch: just drop it
                     self._execute(
-                        "DELETE FROM branch_relationship WHERE branch_id = ? AND relationship_id = ?",
-                        [branch, relationship_id],
+                        "DELETE FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
+                        [org, branch, relationship_id],
                     )
                 else:
                     existing = self._branch_rel_row(branch, relationship_id)
@@ -1024,7 +1492,7 @@ class SqlBackend(DatabaseBackend):
         if not rels:
             return 0, 0
         now = _now()
-        branch = current_branch()
+        branch, org = current_branch(), self._org()
         ids = [r.relationship_id for r in rels]
         existing = self._existing_rows(self._rel(), "relationship_id", ids)
         unchanged = self._unchanged_rels(rels, list(existing))
@@ -1046,7 +1514,12 @@ class SqlBackend(DatabaseBackend):
         ids = [r.relationship_id for r in rels]
         with self._lock:
             if branch == MAIN:
-                self._replace_rows("relationship", RELATIONSHIP_COLUMNS, rows, ["relationship_id"])
+                self._replace_rows(
+                    "relationship",
+                    RELATIONSHIP_COLUMNS + ["org_id"],
+                    [r + [org] for r in rows],
+                    ["org_id", "relationship_id"],
+                )
             else:
                 branch_rows = self._versions(
                     "branch_relationship", "relationship_id", "base_version", ids, branch
@@ -1057,14 +1530,15 @@ class SqlBackend(DatabaseBackend):
                         branch,
                         branch_rows.get(r.relationship_id, main_versions.get(r.relationship_id, 0)),
                         "upsert",
+                        org,
                     ]
                     for r in rels
                 ]
                 self._replace_rows(
                     "branch_relationship",
-                    RELATIONSHIP_COLUMNS + ["branch_id", "base_version", "op"],
+                    RELATIONSHIP_COLUMNS + ["branch_id", "base_version", "op", "org_id"],
                     [r + x for r, x in zip(rows, extra, strict=True)],
-                    ["branch_id", "relationship_id"],
+                    ["org_id", "branch_id", "relationship_id"],
                 )
             self._log(
                 "import",
@@ -1083,24 +1557,38 @@ class SqlBackend(DatabaseBackend):
 
     # -------------------------------------------------------------- graph
     def _trace_sql(self, direction: str) -> str:
-        template = TRACE_OUT_SQL if direction == "out" else TRACE_IN_SQL
-        return template.replace("{rel}", self._rel())
+        step, take = TRACE_ENDS["out" if direction == "out" else "in"]
+        return TRACE_SQL.replace("{rel}", self._rel()).replace("{step}", step).replace("{take}", take)
 
-    def _trace_frame(self, element_id: str, direction: str, max_depth: int) -> pd.DataFrame:
-        """The reachable nodes with depth, node path and relationship-type path, as the engine computes them."""
-        return self._fetch_df(self._trace_sql(direction), [element_id, element_id, element_id, max_depth])
+    def _reached(self, element_id: str, direction: str, max_depth: int) -> list[tuple[Any, ...]]:
+        """(node, depth, the node one step nearer, the relationship type between them)."""
+        return self._fetch_all(self._trace_sql(direction), [element_id, max_depth, element_id])
 
     def trace(self, element_id: str, direction: str = "out", max_depth: int = 5) -> list[dict[str, Any]]:
-        df = self._trace_frame(element_id, direction, max_depth)
-        sep = ">" if direction == "out" else "<"
+        """Every element reachable within the depth, each with one shortest path to it.
+
+        The walk returns a node once, with the edge that reached it first; a path is
+        rebuilt here by following those edges back to the start, which is a step per hop
+        rather than a row per path (decision: a walk, not an enumeration)."""
+        rows = self._reached(element_id, direction, max_depth)
+        via = {str(node): (str(parent), str(rel)) for node, _depth, parent, rel in rows}
         out = []
-        for row in df.itertuples(index=False):
+        for node, depth, _parent, _rel in rows:
+            chain, rels, cur = [str(node)], [], str(node)
+            # `via` steps one level nearer each time, so this ends at the start; the depth is
+            # held against it all the same, because a path that walked in circles would be a
+            # loop here rather than a wrong answer on the page.
+            while cur in via and len(chain) <= max_depth:
+                parent, rel = via[cur]
+                chain.append(parent)
+                rels.append(rel)
+                cur = parent
             out.append(
                 {
-                    "element_id": row.node_id,
-                    "depth": int(row.depth),
-                    "path": row.path.split(sep),
-                    "rel_path": row.rel_path.split(sep) if row.rel_path else [],
+                    "element_id": str(node),
+                    "depth": int(depth),
+                    "path": list(reversed(chain)),
+                    "rel_path": list(reversed(rels)),
                     "direction": direction,
                 }
             )
@@ -1113,11 +1601,11 @@ class SqlBackend(DatabaseBackend):
 
     # -------------------------------------------------------------- audit
     def history(self, entity_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        where = " WHERE entity_id = ?" if entity_id else ""
+        where = " WHERE org_id = ?" + (" AND entity_id = ?" if entity_id else "")
         df = self._fetch_df(
             f"SELECT change_id, entity_kind, entity_id, op, actor, changed_at, before_json, after_json, version, branch_id FROM change_log{where} ORDER BY changed_at DESC"
             + self._page(limit),
-            [entity_id] if entity_id else [],
+            [self._org(), entity_id] if entity_id else [self._org()],
         )
         return df.to_dict("records")
 
@@ -1159,6 +1647,7 @@ class SqlBackend(DatabaseBackend):
                         branch.created_at,
                         None,
                         None,
+                        self._org(),
                     ]
                 ],
             )
@@ -1166,7 +1655,10 @@ class SqlBackend(DatabaseBackend):
         return branch
 
     def get_branch(self, branch_id: str) -> Branch | None:
-        rows = self._fetch_all(f"SELECT {self._BRANCH_COLS} FROM branch WHERE branch_id = ?", [branch_id])
+        rows = self._fetch_all(
+            f"SELECT {self._BRANCH_COLS} FROM branch WHERE org_id = ? AND branch_id = ?",
+            [self._org(), branch_id],
+        )
         if not rows:
             return None
         b = self._row_to_branch(rows[0])
@@ -1174,10 +1666,10 @@ class SqlBackend(DatabaseBackend):
         return b
 
     def list_branches(self, status: str | None = None) -> list[Branch]:
-        where = " WHERE status = ?" if status else ""
+        where = " AND status = ?" if status else ""
         rows = self._fetch_all(
-            f"SELECT {self._BRANCH_COLS} FROM branch{where} ORDER BY created_at DESC",
-            [status] if status else [],
+            f"SELECT {self._BRANCH_COLS} FROM branch WHERE org_id = ?{where} ORDER BY created_at DESC",
+            [self._org(), status] if status else [self._org()],
         )
         out = []
         for r in rows:
@@ -1187,16 +1679,19 @@ class SqlBackend(DatabaseBackend):
         return out
 
     def _branch_row_count(self, branch_id: str) -> int:
-        n1 = self._fetch_all("SELECT COUNT(*) FROM branch_element WHERE branch_id = ?", [branch_id])[0][0]
-        n2 = self._fetch_all("SELECT COUNT(*) FROM branch_relationship WHERE branch_id = ?", [branch_id])[0][
-            0
-        ]
+        org = self._org()
+        n1 = self._fetch_all(
+            "SELECT COUNT(*) FROM branch_element WHERE org_id = ? AND branch_id = ?", [org, branch_id]
+        )[0][0]
+        n2 = self._fetch_all(
+            "SELECT COUNT(*) FROM branch_relationship WHERE org_id = ? AND branch_id = ?", [org, branch_id]
+        )[0][0]
         return int(n1) + int(n2)
 
     def _close_branch(self, branch_id: str, status: str, actor: str) -> None:
         self._execute(
-            "UPDATE branch SET status = ?, closed_by = ?, closed_at = ? WHERE branch_id = ?",
-            [status, actor, _now(), branch_id],
+            "UPDATE branch SET status = ?, closed_by = ?, closed_at = ? WHERE org_id = ? AND branch_id = ?",
+            [status, actor, _now(), self._org(), branch_id],
         )
 
     @staticmethod
@@ -1210,8 +1705,8 @@ class SqlBackend(DatabaseBackend):
         out: dict[str, Element] = {}
         for chunk in chunks(ids, self.IN_CHUNK):
             for row in self._fetch_all(
-                f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM element WHERE element_id IN ({self._marks(chunk)})",
-                chunk,
+                f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM element WHERE org_id = ? AND element_id IN ({self._marks(chunk)})",
+                [self._org(), *chunk],
             ):
                 e = self._row_to_element(row)
                 out[e.element_id] = e
@@ -1221,8 +1716,8 @@ class SqlBackend(DatabaseBackend):
         out: dict[str, Relationship] = {}
         for chunk in chunks(ids, self.IN_CHUNK):
             for row in self._fetch_all(
-                f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM relationship WHERE relationship_id IN ({self._marks(chunk)})",
-                chunk,
+                f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM relationship WHERE org_id = ? AND relationship_id IN ({self._marks(chunk)})",
+                [self._org(), *chunk],
             ):
                 r = self._row_to_rel(row)
                 out[r.relationship_id] = r
@@ -1231,13 +1726,20 @@ class SqlBackend(DatabaseBackend):
     def _links_of(self, ids: list[str], branch_id: str | None = None) -> dict[str, list[Link]]:
         """The links of many elements at once: main's, or a branch's overlay rows."""
         out: dict[str, list[Link]] = defaultdict(list)
+        org = self._org()
         for chunk in chunks(ids, self.IN_CHUNK):
             if branch_id is None:
-                sql = f"SELECT element_id, link_id, url, label, sort_order FROM element_link WHERE element_id IN ({self._marks(chunk)}) ORDER BY element_id, sort_order"
-                params: list[Any] = list(chunk)
+                sql = (
+                    f"SELECT element_id, link_id, url, label, sort_order FROM element_link WHERE org_id = ? "
+                    f"AND element_id IN ({self._marks(chunk)}) ORDER BY element_id, sort_order"
+                )
+                params: list[Any] = [org, *chunk]
             else:
-                sql = f"SELECT element_id, link_id, url, label, sort_order FROM branch_link WHERE branch_id = ? AND element_id IN ({self._marks(chunk)}) ORDER BY element_id, sort_order"
-                params = [branch_id, *chunk]
+                sql = (
+                    f"SELECT element_id, link_id, url, label, sort_order FROM branch_link WHERE org_id = ? "
+                    f"AND branch_id = ? AND element_id IN ({self._marks(chunk)}) ORDER BY element_id, sort_order"
+                )
+                params = [org, branch_id, *chunk]
             for eid, lid, u, lb, so in self._fetch_all(sql, params):
                 out[eid].append(Link(element_id=eid, url=u, label=lb or "", link_id=lid, sort_order=so))
         return out
@@ -1247,10 +1749,12 @@ class SqlBackend(DatabaseBackend):
         branch = self.get_branch(branch_id)
         if branch is None:
             raise NotFoundError(branch_id, "branch")
+        org = self._org()
         items: list[ChangeItem] = []
         element_rows = self._fetch_all(
-            f"SELECT {', '.join(ELEMENT_COLUMNS)}, base_version, op FROM branch_element WHERE branch_id = ? ORDER BY element_id",
-            [branch_id],
+            f"SELECT {', '.join(ELEMENT_COLUMNS)}, base_version, op FROM branch_element "
+            f"WHERE org_id = ? AND branch_id = ? ORDER BY element_id",
+            [org, branch_id],
         )
         element_ids = [row[0] for row in element_rows]
         mains = self._main_elements(element_ids)
@@ -1287,8 +1791,9 @@ class SqlBackend(DatabaseBackend):
                 )
             )
         rel_rows = self._fetch_all(
-            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)}, base_version, op FROM branch_relationship WHERE branch_id = ? ORDER BY relationship_id",
-            [branch_id],
+            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)}, base_version, op FROM branch_relationship "
+            f"WHERE org_id = ? AND branch_id = ? ORDER BY relationship_id",
+            [org, branch_id],
         )
         main_rels = self._main_rels([row[0] for row in rel_rows])
         for row in rel_rows:
@@ -1380,14 +1885,19 @@ class SqlBackend(DatabaseBackend):
 
     def _apply_item(self, branch_id: str, item: ChangeItem, actor: str, now: datetime) -> None:
         origin_log = f"branch:{branch_id}"
+        org = self._org()
         if item.kind == "element":
             rows = self._fetch_all(
-                f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM branch_element WHERE branch_id = ? AND element_id = ?",
-                [branch_id, item.entity_id],
+                f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+                [org, branch_id, item.entity_id],
             )
             if item.change == "deleted":
-                self._execute("DELETE FROM element WHERE element_id = ?", [item.entity_id])
-                self._execute("DELETE FROM element_link WHERE element_id = ?", [item.entity_id])
+                self._execute(
+                    "DELETE FROM element WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
+                )
+                self._execute(
+                    "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
+                )
                 self._log(
                     "element",
                     item.entity_id,
@@ -1404,13 +1914,15 @@ class SqlBackend(DatabaseBackend):
             e.updated_at, e.updated_by = now, actor
             if item.main_version is None:
                 e.created_at, e.created_by = e.created_at or now, e.created_by or actor
-            self._execute("DELETE FROM element WHERE element_id = ?", [item.entity_id])
-            self._insert_rows("element", [self._element_values(e)])
-            self._execute("DELETE FROM element_link WHERE element_id = ?", [item.entity_id])
+            self._execute("DELETE FROM element WHERE org_id = ? AND element_id = ?", [org, item.entity_id])
+            self._insert_rows("element", [self._element_values(e) + [org]])
+            self._execute(
+                "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
+            )
             self._insert_rows(
                 "element_link",
                 [
-                    [ln.link_id, item.entity_id, ln.url, ln.label or None, ln.sort_order]
+                    [ln.link_id, item.entity_id, ln.url, ln.label or None, ln.sort_order, org]
                     for ln in self._branch_links(branch_id, item.entity_id)
                 ],
             )
@@ -1426,11 +1938,13 @@ class SqlBackend(DatabaseBackend):
             )
         else:
             rows = self._fetch_all(
-                f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM branch_relationship WHERE branch_id = ? AND relationship_id = ?",
-                [branch_id, item.entity_id],
+                f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
+                [org, branch_id, item.entity_id],
             )
             if item.change == "deleted":
-                self._execute("DELETE FROM relationship WHERE relationship_id = ?", [item.entity_id])
+                self._execute(
+                    "DELETE FROM relationship WHERE org_id = ? AND relationship_id = ?", [org, item.entity_id]
+                )
                 self._log(
                     "relationship",
                     item.entity_id,
@@ -1445,8 +1959,10 @@ class SqlBackend(DatabaseBackend):
             r = self._row_to_rel(rows[0])
             r.version = (item.main_version or 0) + 1
             r.updated_at, r.updated_by = now, actor
-            self._execute("DELETE FROM relationship WHERE relationship_id = ?", [item.entity_id])
-            self._insert_rows("relationship", [self._rel_values(r)])
+            self._execute(
+                "DELETE FROM relationship WHERE org_id = ? AND relationship_id = ?", [org, item.entity_id]
+            )
+            self._insert_rows("relationship", [self._rel_values(r) + [org]])
             self._log(
                 "relationship",
                 item.entity_id,
@@ -1459,18 +1975,20 @@ class SqlBackend(DatabaseBackend):
             )
 
     def _drop_branch_row(self, branch_id: str, item: ChangeItem) -> None:
+        org = self._org()
         if item.kind == "element":
             self._execute(
-                "DELETE FROM branch_element WHERE branch_id = ? AND element_id = ?",
-                [branch_id, item.entity_id],
+                "DELETE FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+                [org, branch_id, item.entity_id],
             )
             self._execute(
-                "DELETE FROM branch_link WHERE branch_id = ? AND element_id = ?", [branch_id, item.entity_id]
+                "DELETE FROM branch_link WHERE org_id = ? AND branch_id = ? AND element_id = ?",
+                [org, branch_id, item.entity_id],
             )
         else:
             self._execute(
-                "DELETE FROM branch_relationship WHERE branch_id = ? AND relationship_id = ?",
-                [branch_id, item.entity_id],
+                "DELETE FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
+                [org, branch_id, item.entity_id],
             )
 
     def abandon_branch(self, branch_id: str, actor: str) -> Branch:
@@ -1479,7 +1997,9 @@ class SqlBackend(DatabaseBackend):
             raise NotFoundError(branch_id, "branch")
         with self._lock:
             for table in ("branch_element", "branch_relationship", "branch_link"):
-                self._execute(f"DELETE FROM {table} WHERE branch_id = ?", [branch_id])
+                self._execute(
+                    f"DELETE FROM {table} WHERE org_id = ? AND branch_id = ?", [self._org(), branch_id]
+                )
             self._close_branch(branch_id, "abandoned", actor)
             self._log("branch", branch_id, "abandon", actor, None, None, None, MAIN)
         return self.get_branch(branch_id)  # type: ignore[return-value]
@@ -1492,8 +2012,8 @@ class SqlBackend(DatabaseBackend):
                 self._close_branch(branch_id, status, actor)
             else:
                 self._execute(
-                    "UPDATE branch SET status = ?, closed_by = NULL, closed_at = NULL WHERE branch_id = ?",
-                    [status, branch_id],
+                    "UPDATE branch SET status = ?, closed_by = NULL, closed_at = NULL WHERE org_id = ? AND branch_id = ?",
+                    [status, self._org(), branch_id],
                 )
             self._log("branch", branch_id, f"status:{status}", actor, None, {"status": status}, None, MAIN)
         return self.get_branch(branch_id)  # type: ignore[return-value]
@@ -1514,6 +2034,7 @@ class SqlBackend(DatabaseBackend):
                         json.dumps(review.type_ids),
                         review.comment or None,
                         review.decided_at,
+                        self._org(),
                     ]
                 ],
             )
@@ -1532,8 +2053,8 @@ class SqlBackend(DatabaseBackend):
     def list_reviews(self, branch_id: str) -> list[Review]:
         rows = self._fetch_all(
             "SELECT review_id, branch_id, reviewer, decision, type_ids, comment, decided_at FROM branch_review "
-            "WHERE branch_id = ? ORDER BY decided_at",
-            [branch_id],
+            "WHERE org_id = ? AND branch_id = ? ORDER BY decided_at",
+            [self._org(), branch_id],
         )
         return [
             Review(
@@ -1551,19 +2072,21 @@ class SqlBackend(DatabaseBackend):
     def list_reviewer_assignments(self) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {}
         for type_id, reviewer in self._fetch_all(
-            "SELECT type_id, reviewer FROM reviewer_assignment ORDER BY type_id, reviewer"
+            "SELECT type_id, reviewer FROM reviewer_assignment WHERE org_id = ? ORDER BY type_id, reviewer",
+            [self._org()],
         ):
             out.setdefault(type_id, []).append(reviewer)
         return out
 
     def set_reviewer_assignment(self, type_id: str, reviewers: list[str], actor: str) -> None:
+        org = self._org()
         with self._lock:
-            self._execute("DELETE FROM reviewer_assignment WHERE type_id = ?", [type_id])
+            self._execute("DELETE FROM reviewer_assignment WHERE org_id = ? AND type_id = ?", [org, type_id])
             now = _now()
             self._insert_rows(
                 "reviewer_assignment",
                 [
-                    [type_id, r, actor, now]
+                    [type_id, r, actor, now, org]
                     for r in dict.fromkeys(x.strip() for x in reviewers if x and x.strip())
                 ],
             )
@@ -1573,8 +2096,9 @@ class SqlBackend(DatabaseBackend):
     def save_proposal(self, p: Proposal) -> Proposal:
         p.proposal_id = p.proposal_id or new_id("prp")
         p.created_at = p.created_at or _now()
+        org = self._org()
         with self._lock:
-            self._execute("DELETE FROM proposal WHERE proposal_id = ?", [p.proposal_id])
+            self._execute("DELETE FROM proposal WHERE org_id = ? AND proposal_id = ?", [org, p.proposal_id])
             self._insert_rows(
                 "proposal",
                 [
@@ -1588,16 +2112,17 @@ class SqlBackend(DatabaseBackend):
                         p.status,
                         p.created_by or None,
                         p.created_at,
+                        org,
                     ]
                 ],
             )
         return p
 
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
-        where = " WHERE branch_id = ?" if branch_id else ""
+        where = " WHERE org_id = ?" + (" AND branch_id = ?" if branch_id else "")
         rows = self._fetch_all(
             f"SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, created_by, created_at FROM proposal{where} ORDER BY created_at DESC",
-            [branch_id] if branch_id else [],
+            [self._org(), branch_id] if branch_id else [self._org()],
         )
         out = []
         for r in rows:
@@ -1617,13 +2142,42 @@ class SqlBackend(DatabaseBackend):
         return out
 
     # ---------------------------------------------------------------- sql
-    def query(self, sql: str, params: list[Any] | None = None, limit: int = 1000) -> pd.DataFrame:
+    def _scope_ctes(self) -> str:
+        """Common table expressions that shadow the content tables with the current organisation's
+        main and the metamodel tables with the version it applies, so a reader's own SQL answers
+        for where the reader is."""
+        org = self._qo()
+        ctes = [f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})" for t in ORG_TABLES]
+        current = self.get_organisation(current_org())
+        if current is not None and current.pack_id:
+            pid = validate_identifier(current.pack_id, "pack id")
+            ver = validate_version(current.pack_version or "1", "pack version")
+            ctes.append(
+                f"meta_pack AS (SELECT * FROM meta_pack WHERE pack_id = '{pid}' AND version = '{ver}')"
+            )
+            ctes += [
+                f"{t} AS (SELECT * FROM {t} WHERE pack_id = '{pid}' AND pack_version = '{ver}')"
+                for t in META_TABLES[1:]
+            ]
+        return ", ".join(ctes)
+
+    def query(
+        self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
+    ) -> pd.DataFrame:
         stripped = re.sub(r"--[^\n]*", "", sql).strip().rstrip(";").strip()
         # A word inside a string literal is a value ('merge' is a target state), not a statement.
         bare = re.sub(r"'(?:[^']|'')*'", "''", stripped)
         if ";" in bare or not _READ_ONLY_RE.match(bare) or _FORBIDDEN_RE.search(bare):
             raise ValueError("only a single read-only SELECT/WITH statement is allowed")
+        if scoped:
+            ctes = self._scope_ctes()
+            m = _WITH_RE.match(stripped)
+            if m:
+                recursive = "RECURSIVE " if m.group(1) else ""
+                stripped = f"WITH {recursive}{ctes}, {stripped[m.end() :]}"
+            else:
+                stripped = f"WITH {ctes} {stripped}"
         return self._fetch_df(f"SELECT * FROM ({stripped}) AS q LIMIT {int(limit)}", params)
 
 
-__all__ = ["SqlBackend", "chunks", "new_id", "table_columns"]
+__all__ = ["SqlBackend", "chunks", "new_id", "pack_content", "table_columns"]

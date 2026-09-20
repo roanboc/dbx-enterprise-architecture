@@ -26,6 +26,7 @@ other group touches — and then only on the branch, never on main.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from tests.ui.evidence import Finding
@@ -151,6 +152,27 @@ def _el_tab(ui, label: str) -> None:
 def _mm_tab(ui, label: str) -> None:
     ui.click(f'[role="tab"]:has-text("{label}")')
     ui.page.wait_for_timeout(250)
+    ui.settle()
+
+
+def _opens_editor(ui, grid_id: str, row: int = 0, col: str = "name") -> bool:
+    """Whether a cell of a grid may be typed into at all — what a read-only role must be told."""
+    cell = ui.page.locator(f"#{grid_id} .ag-row[row-index='{row}'] .ag-cell[col-id='{col}']").first
+    if not cell.count():
+        return False
+    cell.dblclick()
+    ui.page.wait_for_timeout(300)
+    open_ = bool(ui.page.locator(f"#{grid_id} .ag-cell-editor").count())
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    return open_
+
+
+def _upload_pack(ui) -> None:
+    """Hand the Load YAML control the shipped pack, the way a reader's file dialog does."""
+    path = Path(__file__).resolve().parents[2] / "packs" / "higher_education" / "metamodel.yaml"
+    ui.page.locator("#mm-reload input[type=file]").first.set_input_files(str(path))
+    ui.page.wait_for_timeout(500)
     ui.settle()
 
 
@@ -847,8 +869,8 @@ def test_branches_as_admin(ui, record):
     title="An Architect may read the metamodel but save neither it nor the reviewers",
     feature="Metamodel · role gating",
     expected=(
-        "The type graph, the grids and Export YAML are open to an Architect, while Save changes and "
-        "Save reviewers are disabled — both are Admin actions."
+        "The type graph, the grids and Export YAML are open to an Architect, while Save changes, the "
+        "Add and Delete buttons of every list and Save reviewers are disabled — all Admin actions."
     ),
     role="architect",
 )
@@ -857,6 +879,8 @@ def test_metamodel_as_architect(ui, record, finding):
     ui.goto("/metamodel")
     ui.check("the metamodel is readable", ui.visible("mm-types-grid"))
     ui.check("an Architect may not save the metamodel", _blocked(ui, "mm-save"))
+    ui.check("nor add a row to a list", _blocked(ui, "mm-add-type"))
+    ui.check("nor delete one", _blocked(ui, "mm-del-type"))
     ui.check("an Architect may still export the pack", _usable(ui, "mm-export"))
     _mm_tab(ui, "Reviewers")
     ui.check("the reviewers grid is readable", ui.visible("mm-reviewers-grid"))
@@ -903,12 +927,16 @@ def test_metamodel_per_persona(ui, record):
     for persona in (READER, REVIEWER):
         _as(ui, persona)
         ui.check(f"{_a(persona)} may not save the metamodel", _blocked(ui, "mm-save"))
+        ui.check(f"{_a(persona)} may not delete a row from a list", _blocked(ui, "mm-del-type"))
         ui.check(f"{_a(persona)} may still export the pack", _usable(ui, "mm-export"))
         _mm_tab(ui, "Reviewers")
         ui.check(f"{_a(persona)} may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
         ui.shot(f"The Metamodel as {_a(persona)}: both Save buttons refused")
     _as(ui, ADMIN)
     ui.check("an Admin may save the metamodel", _usable(ui, "mm-save"))
+    ui.check(
+        "an Admin may add a row and delete one", _usable(ui, "mm-add-type") and _usable(ui, "mm-del-type")
+    )
     _mm_tab(ui, "Reviewers")
     ui.check("an Admin may save reviewer assignments", _usable(ui, "mm-reviewers-save"))
     ui.shot("The Metamodel as an Admin: both Save buttons open")
@@ -1001,23 +1029,6 @@ def _branch_list(ui) -> str:
 def _rel_rows(ui) -> int:
     """How many relationships the Relationships tab is listing, incoming and outgoing."""
     return ui.page.locator("#el-rel-tables tbody tr").count()
-
-
-def _mm_row(ui, row_id: str) -> int:
-    """Whether a row is on the metamodel's type grid, which renders only what is in view."""
-    body = ui.page.locator("#mm-types-grid .ag-body-viewport").first
-    if body.count():
-        body.evaluate("el => { el.scrollTop = el.scrollHeight; }")
-        ui.page.wait_for_timeout(400)
-    return ui.page.locator(f"#mm-types-grid .ag-row[row-id={json.dumps(row_id)}]").count()
-
-
-def _mm_row_ids(ui) -> list[str]:
-    """The last few row ids the type grid is rendering, for a failure to be readable."""
-    ids = ui.page.locator("#mm-types-grid .ag-center-cols-container .ag-row").evaluate_all(
-        "rows => rows.map(r => r.getAttribute('row-id'))"
-    )
-    return ids[-5:]
 
 
 @pytest.mark.scenario(
@@ -1179,12 +1190,12 @@ def test_new_element_forced_by_a_reader(ui, record):
 @pytest.mark.scenario(
     scenario_id="L28",
     group="L",
-    title="The Metamodel lets a Reader fill the grid, and refuses what they save",
+    title="The Metamodel's lists are read-only for a Reader, and every write behind them is refused",
     feature="Metamodel · role gating",
     expected=(
-        "Add type is offered to a Reader and puts a row on the grid; the save behind the disabled "
-        "button is refused by the server, naming the role; and Reload from file, which replaces the "
-        "stored pack for everybody, is refused for the same reason."
+        "A Reader reads all four lists and can open none of their cells; Add, Delete and Save are "
+        "disabled with the reason beside them; and the save and the deletion forced past the disabled "
+        "buttons, and the file a Load would store, are each refused by the server, naming the role."
     ),
     role="reader",
 )
@@ -1192,17 +1203,24 @@ def test_metamodel_write_paths_as_reader(ui, record, finding):
     _as(ui, READER)
     ui.goto("/metamodel")
     ui.must("the type grid is on the page", ui.visible("mm-types-grid"))
-    ui.check("a Reader is offered Add type", _usable(ui, "mm-add-type"))
-    _mm_tab(ui, "Relationship types")
-    ui.check("a Reader is offered Add relationship type", _usable(ui, "mm-add-rel"))
-    _mm_tab(ui, "Attributes")
-    ui.check("a Reader is offered Add attribute", _usable(ui, "mm-add-attr"))
+    # The whole tab is read-only, not half of it: a cell that takes an edit nobody may store
+    # is a dead end, so the controls that write are off and the cells do not open.
+    for label, add, delete in (
+        ("Element types", "mm-add-type", "mm-del-type"),
+        ("Relationship types", "mm-add-rel", "mm-del-rel"),
+        ("Attributes", "mm-add-attr", "mm-del-attr"),
+        ("Domains", "mm-add-domain", "mm-del-domain"),
+    ):
+        _mm_tab(ui, label)
+        ui.check(f"a Reader may not add a row to {label}", _blocked(ui, add))
+        ui.check(f"a Reader may not delete a row from {label}", _blocked(ui, delete))
     _mm_tab(ui, "Element types")
-    ui.click("mm-add-type")
+    ui.check("a Reader may not type into a cell", not _opens_editor(ui, "mm-types-grid"))
+    why = ui.text("mm-save-why")
     ui.check(
-        "the row a Reader added is on the grid",
-        _mm_row(ui, "new_type_1") > 0,
-        f"the grid ends {_mm_row_ids(ui)}",
+        "the page says why, naming the role",
+        "Reader" in why and "may not change the metamodel" in why,
+        why or "(nothing beside the button)",
     )
     ui.must("Save changes is disabled for a Reader", _blocked(ui, "mm-save"))
     _force_click(ui, "mm-save")
@@ -1211,32 +1229,41 @@ def test_metamodel_write_paths_as_reader(ui, record, finding):
         "the server refuses the save", "may not edit the metamodel" in feedback, feedback or "no feedback"
     )
     ui.check("the refusal names the role", "Reader" in feedback, feedback or "no feedback")
-    ui.shot("The Metamodel as a Reader: a row typed in, and the save refused by the server")
-    # Reload from file is the page's other write: it reads the pack off disk and stores it,
-    # discarding whatever an admin saved. It is offered to every role, with no reason beside it.
-    ui.check("Reload from file is offered to a Reader", _usable(ui, "mm-reload"))
-    ui.check("and it says nothing about who may press it", not _tooltip(ui, "#mm-reload"), "no tooltip")
-    ui.click("mm-reload")
+    ui.shot("The Metamodel as a Reader: the lists read-only, and the save refused by the server")
+    # The deletion is the newest write on this page, and the one that would cost the most.
+    _force_click(ui, "mm-del-type")
+    deleted_said = ui.text("mm-feedback")
+    ui.check(
+        "the server refuses a deletion forced past the disabled button",
+        "may not edit the metamodel" in deleted_said,
+        deleted_said or "no feedback",
+    )
+    ui.check(
+        "and nothing left the grid",
+        "Taken out of the grids" not in deleted_said,
+        deleted_said or "no feedback",
+    )
+    # Load YAML file is the page's other write: it stores a version for everybody.
+    ui.check("Load YAML file is disabled for a Reader", ui.visible("mm-reload"))
+    _upload_pack(ui)
     reload_said = ui.text("mm-feedback")
     ui.check(
-        "a Reader may not rewrite the stored metamodel from the pack file",
+        "a Reader may not store a version from a file",
         "may not" in reload_said.lower(),
         reload_said or "no feedback",
     )
-    ui.shot("Reload from file, pressed by a Reader, and what the page said about it")
-    if "Reloaded" in reload_said:
+    ui.shot("Load YAML file, forced by a Reader, and what the page said about it")
+    if "Loaded" in reload_said:
         finding.append(
             _f(
                 "L-6",
                 "src/ea/ui/pages/metamodel.py — the `reload` callback (ids.MM_RELOAD)",
                 "defect",
-                "Reload from file rewrites the stored metamodel for every role, with no permission check",
+                "Load YAML file stores a metamodel version for every role, with no permission check",
                 "`save` refuses a non-admin twice — the button is disabled and the callback checks "
-                "`ctx.can('edit_metamodel')` — but `reload` beside it calls `load_pack` and then "
-                "`ctx.backend.save_pack(pack)` with no `require()` and no disabled state, so any role, "
-                f"a Reader included, can replace the stored pack: the page answered {reload_said!r}. "
-                "That discards whatever an admin has saved into the metamodel since the file was "
-                "written, for everybody. Gate it on `edit_metamodel` the way the save is gated.",
+                "`ctx.can('edit_metamodel')`. If `reload` beside it stores the file without the same "
+                f"`require()`, any role can replace what the organisation applies: the page answered "
+                f"{reload_said!r}. Gate it on `edit_metamodel` the way the save is gated.",
             )
         )
 

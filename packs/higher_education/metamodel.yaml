@@ -15,6 +15,7 @@ pack:
   id: higher_education
   name: Higher Education EA Metamodel
   version: "2026-08-11"
+  status: published
   description: >-
     The object types and relationships that appear in a university's enterprise
     architecture models, giving a consistent shared language for architectural
@@ -45,21 +46,23 @@ domains:
 
 # Attributes every element may carry in addition to the core fields
 # (name, description, status, lifecycle_status, key, source_system, links).
-# They come from the export of the current repository.
+# They come from the export of the current repository. `group` is the section of the
+# source metamodel's own document the attribute is listed under; the application reads
+# an element's attributes in those groups, on the form and on the page that only reads.
 common_attributes:
-  - {name: alias, label: Alias, type: string}
-  - {name: architectural_status, label: Architectural Status, type: string}
-  - {name: approval_status, label: Approval Status, type: string, enum: [Approved, Not Approved]}
-  - {name: version_flag, label: Version Flag, type: string}
-  - {name: source, label: Source, type: string, description: Where the element was sourced from, e.g. a reference data model, the CMDB product catalogue.}
-  - {name: owner, label: Owner, type: string}
-  - {name: categories, label: Categories, type: string}
-  - {name: category_general, label: Category (General), type: string}
-  - {name: standards_class, label: Standards Class, type: string}
-  - {name: standard_creation_date, label: Standard Creation Date, type: date}
-  - {name: last_standard_review_date, label: Last Standard Review Date, type: date}
-  - {name: next_standard_review_date, label: Next Standard Review Date, type: date}
-  - {name: standard_retire_date, label: Standard Retire Date, type: date}
+  - {name: alias, group: Identification, label: Alias, type: string}
+  - {name: architectural_status, group: Governance, label: Architectural Status, type: string}
+  - {name: approval_status, group: Governance, label: Approval Status, type: string, enum: [Approved, Not Approved]}
+  - {name: version_flag, group: Governance, label: Version Flag, type: string}
+  - {name: source, group: Identification, label: Source, type: string, description: Where the element was sourced from, e.g. a reference data model, the CMDB product catalogue.}
+  - {name: owner, group: Governance, label: Owner, type: string}
+  - {name: categories, group: Classification, label: Categories, type: string}
+  - {name: category_general, group: Classification, label: Category (General), type: string}
+  - {name: standards_class, group: Classification, label: Standards Class, type: string}
+  - {name: standard_creation_date, group: Standard dates, label: Standard Creation Date, type: date}
+  - {name: last_standard_review_date, group: Standard dates, label: Last Standard Review Date, type: date}
+  - {name: next_standard_review_date, group: Standard dates, label: Next Standard Review Date, type: date}
+  - {name: standard_retire_date, group: Standard dates, label: Standard Retire Date, type: date}
 
 element_types:
   # ---------------------------------------------------------------- active
@@ -158,8 +161,8 @@ element_types:
     type_owner: Information Domain Architect
     instance_owner: Information Domain Architect
     attributes:
-      - {name: available_in_analytics_platform, label: Available in analytics platform, type: boolean}
-      - {name: includes_pii, label: Includes PII, type: boolean}
+      - {name: available_in_analytics_platform, group: Data platform, label: Available in analytics platform, type: boolean}
+      - {name: includes_pii, group: Data platform, label: Includes PII, type: boolean}
 
   - id: data_product
     name: Data Product
@@ -220,9 +223,9 @@ element_types:
     instance_owner: Information Domain Architect
     attributes:
       - {name: information_category_description, label: Information Category Description, type: text}
-      - {name: confidentiality_risk_rating, label: Confidentiality Risk Rating, type: string, sensitivity: restricted}
-      - {name: integrity_risk_rating, label: Integrity Risk Rating, type: string, sensitivity: restricted}
-      - {name: availability_risk_rating, label: Availability Risk Rating, type: string, sensitivity: restricted}
+      - {name: confidentiality_risk_rating, group: Risk ratings, label: Confidentiality Risk Rating, type: string, sensitivity: restricted}
+      - {name: integrity_risk_rating, group: Risk ratings, label: Integrity Risk Rating, type: string, sensitivity: restricted}
+      - {name: availability_risk_rating, group: Risk ratings, label: Availability Risk Rating, type: string, sensitivity: restricted}
 
   - id: integration
     name: Integration

@@ -377,6 +377,7 @@ NAV_FOR = {
     "/import": "nav-import",
     "/branches": "nav-branches",
     "/metamodel": "nav-metamodel",
+    "/organisations": "nav-organisations",
     "/health": "nav-health",
 }
 NAV_IDS = sorted(set(NAV_FOR.values()))
@@ -880,6 +881,18 @@ def test_branches_audit(ui, record, finding):
 )
 def test_metamodel_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Metamodel", "/metamodel", "src/ea/ui/pages/metamodel.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P30",
+    group="P",
+    title="Organisations against the usability checklist",
+    feature="Screen audit · Organisations",
+    expected="Organisations loads with the list, the New organisation form and the Apply card, and the "
+    "seven automated checkpoints are applied to it.",
+)
+def test_organisations_audit(ui, record, finding):
+    audit_screen(ui, record, finding, "Organisations", "/organisations", "src/ea/ui/pages/organisations.py")
 
 
 @pytest.mark.scenario(

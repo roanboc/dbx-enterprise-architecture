@@ -16,6 +16,7 @@ from ea.ui.components import (
     element_anchor,
     element_href,
     icon,
+    layer_chips,
     markdown,
     mermaid_block,
     page_title,
@@ -189,10 +190,10 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
         views.append(
             _section(
                 v.title,
-                mermaid_block(f"ask-view-{i}", to_mermaid(v)),
+                mermaid_block(f"ask-view-{i}", to_mermaid(v), legend=layer_chips(v)),
                 v.note
                 or (
-                    "Generated from the model: layers top to bottom, every shape an element you can open."
+                    "Generated from the model: every shape is an element you can open, filled by its layer."
                     if i == 0
                     else None
                 ),

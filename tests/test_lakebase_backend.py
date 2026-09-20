@@ -18,7 +18,7 @@ import pytest
 from tests.conftest import SAMPLE, new_schema_name
 
 from ea.backend.lakebase_backend import BATCH_ROWS, LakebaseBackend, to_pg
-from ea.backend.sql import DDL
+from ea.backend.sql import DDL, schema_of, schemas
 from ea.config import Settings
 from ea.importer import import_directory
 from ea.models import Element
@@ -30,7 +30,8 @@ def schema(postgres_dsn):
     name = new_schema_name()
     yield name
     with psycopg.connect(postgres_dsn, autocommit=True) as conn:
-        conn.execute(f"DROP SCHEMA IF EXISTS {name} CASCADE")
+        for schema in [name, *schemas(name)]:
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 @pytest.fixture
@@ -85,21 +86,23 @@ def test_bulk_loads_are_multi_row_inserts_in_batches(store, registry):
     assert store.get_element(ids[-1]).name == ids[-1] + " again"
 
 
-def test_the_session_enters_its_own_schema_and_sets_utc(store, postgres_dsn):
-    assert store._fetch_all("SHOW search_path")[0][0] == store.schema
+def test_the_session_enters_the_store_s_schemas_and_sets_utc(store, postgres_dsn):
+    """One schema per group of tables, all of them on the search path, in the DDL's order."""
+    assert store._fetch_all("SHOW search_path")[0][0] == ", ".join(schemas(store.schema_prefix))
     assert store._fetch_all("SHOW timezone")[0][0] == "UTC"
-    tables = {
-        r[0]
+    found = {
+        (r[0], r[1])
         for r in store._fetch_all(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = ?", [store.schema]
+            "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = ANY(?)",
+            [schemas(store.schema_prefix)],
         )
     }
-    assert tables == set(DDL)
+    assert found == {(schema_of(table, store.schema_prefix), table) for table in DDL}
     with psycopg.connect(postgres_dsn, autocommit=True) as other:
         public = other.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
         ).fetchall()
-    assert not set(DDL) & {r[0] for r in public}, "nothing lands outside the store's schema"
+    assert not set(DDL) & {r[0] for r in public}, "nothing lands outside the store's schemas"
 
 
 def test_timestamps_come_back_naive_in_utc(store):
@@ -125,7 +128,9 @@ def test_a_connection_the_server_closed_is_reopened_once_and_the_statement_retri
         other.execute("SELECT pg_terminate_backend(%s)", [store._conn.info.backend_pid])
     assert store.count_elements() == 0, "answered by the new connection"
     assert opened == [1]
-    assert store._fetch_all("SHOW search_path")[0][0] == store.schema, "prepared like the first"
+    assert store._fetch_all("SHOW search_path")[0][0] == ", ".join(schemas(store.schema_prefix)), (
+        "prepared like the first"
+    )
     assert store._fetch_all("SHOW timezone")[0][0] == "UTC"
     store.count_elements()
     assert opened == [1], "no further reconnect"
@@ -148,20 +153,34 @@ def test_a_readers_query_runs_read_only_on_the_server(store):
     assert len(store.query("select 1 as one")) == 1, "and the connection is usable afterwards"
 
 
-def test_an_older_store_gains_the_columns_that_shipped_later(postgres_dsn, schema, pack):
+def test_an_older_store_is_grouped_into_schemas_and_gains_the_columns_that_shipped_later(
+    postgres_dsn, schema, pack
+):
+    """A store from before either change: every table in one schema, and a column short.
+
+    Opening it moves each table into the schema of its group, with its rows, and then adds
+    what the DDL has gained. Neither step may lose a row."""
     with psycopg.connect(postgres_dsn, autocommit=True) as conn:
         conn.execute(f"CREATE SCHEMA {schema}")
         conn.execute(f"SET search_path TO {schema}")
         conn.execute(DDL["element"].replace(",\n            target_note VARCHAR", ""))
+        conn.execute(
+            "INSERT INTO element (element_id, type_id, name, status, _version, org_id) "
+            "VALUES ('OLD1', 'capability', 'From before', 'approved', 1, 'default')"
+        )
     b = LakebaseBackend.from_dsn(postgres_dsn, schema)
+    where = f"{schema}_content"
     columns = {
         r[0]
         for r in b._fetch_all(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = 'element'",
-            [schema],
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = ? AND table_name = 'element'",
+            [where],
         )
     }
     assert "target_note" in columns
+    assert not b._table_exists(schema, "element"), "the old home is left empty"
+    assert b.get_element("OLD1").name == "From before", "the rows came with it"
     b.save_pack(pack)
     b.insert_element(Element("X1", "capability", "Cap", target_note="later"), "a")
     assert b.get_element("X1").target_note == "later"
@@ -228,7 +247,7 @@ def test_the_platform_sign_in_uses_the_instance_host_and_a_fresh_token(monkeypat
     ]
     with real_connect(postgres_dsn, autocommit=True) as other:  # the platform closes the connection
         other.execute("SELECT pg_terminate_backend(%s)", [b._conn.info.backend_pid])
-    assert b.list_packs() == []
+    assert b.list_pack_versions() == []
     assert [c["password"] for c in connections] == ["token-1", "token-2"], (
         "signed in again with a fresh token"
     )

@@ -33,7 +33,8 @@ from typing import Any
 import pandas as pd
 import psycopg
 
-from ea.backend.sql_backend import SqlBackend, chunks
+from ea.backend.sql import schemas
+from ea.backend.sql_backend import SqlBackend, chunks, table_columns
 
 log = logging.getLogger(__name__)
 
@@ -102,10 +103,13 @@ def connect_to_instance(settings: Any, workspace: Callable[[], Any] | None = Non
 class LakebaseBackend(SqlBackend):
     def __init__(self, connect: Callable[[], psycopg.Connection[Any]], schema: str = "ea"):
         """`connect` opens a psycopg connection in autocommit mode; the session is prepared the same
-        way whichever Postgres it reaches (the schema, the search path, the time zone)."""
-        super().__init__()
+        way whichever Postgres it reaches (the schemas, the search path, the time zone).
+
+        `schema` is the prefix of the store's schemas, one per group of tables — `ea` gives
+        `ea_metamodel`, `ea_content`, `ea_branch`, `ea_governance` and `ea_audit`."""
         if not _IDENTIFIER.fullmatch(schema or ""):
             raise ValueError(f"the schema name {schema!r} must be a plain SQL identifier")
+        super().__init__(schema)
         self.schema = schema
         self._open = connect
         self._conn = self._connect()
@@ -135,14 +139,40 @@ class LakebaseBackend(SqlBackend):
         return conn
 
     def _prepare_session(self, conn: psycopg.Connection[Any]) -> None:
-        """The schema if it can be made, then the search path and the time zone; on every connection."""
+        """The schemas if they can be made, then the search path and the time zone; on every connection."""
+        names = schemas(self.schema_prefix)
         with conn.cursor() as cur:
-            try:  # the app's principal may create in its database; another principal works in what exists
-                cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
-            except psycopg.Error as exc:
-                log.debug("could not create schema %s (%s); using it as it is", self.schema, exc)
-            cur.execute(f"SET search_path TO {self.schema}")
+            for name in names:
+                try:  # the app's principal may create in its database; another works in what exists
+                    cur.execute(f"CREATE SCHEMA IF NOT EXISTS {name}")
+                except psycopg.Error as exc:
+                    log.debug("could not create schema %s (%s); using it as it is", name, exc)
+            cur.execute("SET search_path TO " + ", ".join(names))
             cur.execute("SET TIME ZONE 'UTC'")
+
+    # ------------------------------------------------------------ engine hooks
+    def _create_schema(self, name: str) -> None:
+        try:
+            self._execute(f"CREATE SCHEMA IF NOT EXISTS {name}")
+        except psycopg.Error as exc:
+            log.debug("could not create schema %s (%s); using it as it is", name, exc)
+
+    def _set_search_path(self, names: list[str]) -> None:
+        self._execute("SET search_path TO " + ", ".join(names))
+
+    def _table_exists(self, schema: str, table: str) -> bool:
+        return bool(
+            self._fetch_all(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
+                [schema, table],
+            )
+        )
+
+    def _move_table(self, table: str, source: str, target: str) -> None:
+        self._execute(f"ALTER TABLE {source}.{table} SET SCHEMA {target}")
+
+    def _one_schema_store(self) -> str:
+        return self.schema_prefix
 
     def _connection_gone(self, exc: Exception) -> bool:
         """The connection is closed or broken, or the error says the server or the network dropped it."""
@@ -186,9 +216,10 @@ class LakebaseBackend(SqlBackend):
         return ", ".join(one for _ in rows), [v for row in rows for v in row]
 
     def _insert_rows(self, table: str, rows: list[list[Any]]) -> None:
+        cols = ", ".join(table_columns(table))
         for batch in chunks(rows, BATCH_ROWS):
             values, params = self._values(batch)
-            self._execute(f"INSERT INTO {table} VALUES {values}", params)
+            self._execute(f"INSERT INTO {table} ({cols}) VALUES {values}", params)
 
     def _replace_rows(self, table: str, columns: list[str], rows: list[list[Any]], keys: list[str]) -> None:
         """The keyed rows deleted and the incoming rows inserted, in one transaction per call."""
@@ -211,11 +242,13 @@ class LakebaseBackend(SqlBackend):
                 pass
 
     # ---------------------------------------------------------------- sql
-    def query(self, sql: str, params: list[Any] | None = None, limit: int = 1000) -> pd.DataFrame:
+    def query(
+        self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
+    ) -> pd.DataFrame:
         """A reader's own SQL, in a transaction the server itself holds to reads."""
         with self._lock, self._conn.transaction():
             self._execute("SET LOCAL transaction_read_only = on")
-            return super().query(sql, params, limit)
+            return super().query(sql, params, limit, scoped)
 
 
 __all__ = ["BATCH_ROWS", "DEFAULT_DATABASE", "LakebaseBackend", "connect_to_instance", "to_pg"]

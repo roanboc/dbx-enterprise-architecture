@@ -57,7 +57,7 @@ _TICK = {
 
 
 def _type_names(ctx: AppContext) -> list[str]:
-    return [t.name for t in ctx.registry.active_types()]
+    return [t.name for t in ctx.registry.concrete_types()]
 
 
 def element_columns(ctx: AppContext) -> list[dict[str, Any]]:

@@ -58,22 +58,6 @@
     return edges;
   }
 
-  function clusterInfo(svg, nodes) {
-    const clusters = [];
-    svg.querySelectorAll('g.cluster').forEach(function (c) {
-      const rect = c.querySelector('rect');
-      if (!rect) { return; }
-      const x = parseFloat(rect.getAttribute('x')), y = parseFloat(rect.getAttribute('y'));
-      const w = parseFloat(rect.getAttribute('width')), h = parseFloat(rect.getAttribute('height'));
-      const members = Object.keys(nodes).filter(function (k) {
-        const n = nodes[k]; return n.cx >= x && n.cx <= x + w && n.cy >= y && n.cy <= y + h;
-      });
-      const label = c.querySelector('.cluster-label');
-      clusters.push({ rect: rect, label: label, members: members, pad: 12 });
-    });
-    return clusters;
-  }
-
   function borderPoint(n, tx, ty) {
     // where the segment from the node centre towards (tx, ty) leaves the node's rectangle
     const dx = tx - n.cx, dy = ty - n.cy;
@@ -96,28 +80,6 @@
     });
   }
 
-  function growClusters(clusters, nodes) {
-    clusters.forEach(function (c) {
-      if (!c.members.length) { return; }
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      c.members.forEach(function (k) {
-        const n = nodes[k];
-        x0 = Math.min(x0, n.cx - n.w / 2); y0 = Math.min(y0, n.cy - n.h / 2);
-        x1 = Math.max(x1, n.cx + n.w / 2); y1 = Math.max(y1, n.cy + n.h / 2);
-      });
-      const rx = parseFloat(c.rect.getAttribute('x')), ry = parseFloat(c.rect.getAttribute('y'));
-      const rw = parseFloat(c.rect.getAttribute('width')), rh = parseFloat(c.rect.getAttribute('height'));
-      const nx = Math.min(rx, x0 - c.pad), ny = Math.min(ry, y0 - c.pad - 24);
-      const nx1 = Math.max(rx + rw, x1 + c.pad), ny1 = Math.max(ry + rh, y1 + c.pad);
-      c.rect.setAttribute('x', nx); c.rect.setAttribute('y', ny);
-      c.rect.setAttribute('width', nx1 - nx); c.rect.setAttribute('height', ny1 - ny);
-      if (c.label) {
-        const t = /translate\(([-\d.]+),\s*([-\d.]+)\)/.exec(c.label.getAttribute('transform') || '');
-        if (t) { c.label.setAttribute('transform', 'translate(' + ((nx + nx1) / 2) + ', ' + ny + ')'); }
-      }
-    });
-  }
-
   function positionsOf(nodes) {
     const out = {};
     Object.keys(nodes).forEach(function (k) {
@@ -134,7 +96,6 @@
   function enableDrag(svg, onChange) {
     const nodes = nodeInfo(svg);
     let edges = edgeInfo(svg, nodes);
-    let clusters = clusterInfo(svg, nodes);
     let dragging = null, start = null, origin = null;
     function toSvg(evt) {
       const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
@@ -155,7 +116,6 @@
         n.cx = origin.cx + (p.x - start.x); n.cy = origin.cy + (p.y - start.y);
         n.el.setAttribute('transform', 'translate(' + n.cx + ', ' + n.cy + ')');
         reroute(edges, nodes, k);
-        growClusters(clusters, nodes);
       });
       const end = function (evt) {
         if (dragging !== k) { return; }
@@ -185,7 +145,6 @@
           nodes[k].cx = f.cx; nodes[k].cy = f.cy; nodes[k].w = f.w; nodes[k].h = f.h;
         });
         edges = edgeInfo(svg, nodes);
-        clusters = clusterInfo(svg, nodes);
         return positionsOf(nodes);
       },
     };

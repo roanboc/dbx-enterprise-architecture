@@ -43,7 +43,7 @@ flowchart LR
 
 | ID | Plateau | Status | What is true when it is reached |
 | -- | ------- | ------ | ------------------------------- |
-| `PLAT1` | **Local PoC on DuckDB** — the four deliverables (metamodel manager, element browse and edit, CSV ingestion, grounded agent) run on a DuckDB file with the higher-education pack and the curriculum export; extended by initiative 2 with generated architecture views and answer documents | In flight — initiatives 1 and 2 | The owner can show the app on the curriculum slice; the information architect has seen it |
+| `PLAT1` | **Local PoC on DuckDB** — the four deliverables (metamodel manager, element browse and edit, CSV ingestion, grounded agent) run on a DuckDB file with the higher-education pack and the curriculum export; extended by initiative 2 with generated architecture views and answer documents | In flight — initiatives 1 and 2, and initiative 15 (built 2026-09-19: organisations and metamodel versions, on DuckDB) | The owner can show the app on the curriculum slice; the information architect has seen it |
 | `PLAT2` | **Same application on Databricks** — the app runs on Databricks Apps, the store is a schema in a Lakebase database the bundle creates, identity comes from the workspace | In flight — initiative 13 (built 2026-09-09: the bundle, the workspace identity, an engine on a SQL warehouse) and initiative 14 (built 2026-09-11: the plateau restated on Lakebase, the engine and the bundle rebuilt on it; the run on a workspace pending) | Same tests pass against a Lakebase instance; one deployment bundle |
 | `PLAT3` | **Real content with provenance** — every type of the institution's metamodel is loaded, every type declares mirrored, authored or enriched semantics, and the mirrored ones are fed from their sources (the CMDB, the HR system, the project portfolio tool, the information asset register, the data platform's metadata catalogue) by scheduled jobs | Planned | A fact from the CMDB is never edited by hand in the repository; freshness is visible per source |
 | `PLAT4` | **Governed change** — proposals are change sets with a base version, an impact assessment and a recorded approval; stewards and owners review in the app; sensitive attributes are granted by role | In flight — initiatives 4 to 7 delivered the change sets, the roles and the review on DuckDB; the platform's identity and grants wait for `PLAT2` | No approved status is written without a recorded human decision |
@@ -96,6 +96,7 @@ flowchart LR
 | `GAP14` | **No roles, no review before merge** — every user could do everything and any author could merge their own branch; nothing recorded a second person's decision | `PLAT1` and `PLAT4` | Initiative 7 (built 2026-09-06): roles derived from groups (Admin, Architect, Reviewer, Reader, Agent) enforced in the app and the command line, a debug persona switcher locally, review requested and decided per element type before a merge |
 | `GAP15` | **Nothing tells the model's health** — no way to see which source went stale, which types lack descriptions or owners, or to fix many rows at once; search read names only | `PLAT1` and `PLAT3` | Initiative 6 (built 2026-09-06): full-text search over descriptions and attributes, bulk edit from Browse, the Health page with freshness per source and completeness per type |
 | `GAP16` | **No Lakebase engine** — the store's platform engine spoke to a SQL warehouse, not to the transactional database an application needs | `PLAT1` and `PLAT2` | Initiative 14 (built 2026-09-11): the Lakebase engine on the same DDL, proved on a Postgres the test run starts for itself in every run and on a Lakebase instance by `make test-live`, which waits for a workspace |
+| `GAP17` | **A metamodel change cannot be tried without changing what everybody reads** — one metamodel, edited in place: a trial rewrites the language every reader sees, the alternative is a second environment, and nothing records which definition a piece of content was validated against | `PLAT1` | Initiative 15 (built 2026-09-19): organisations as a partition of the one store, each holding its own content and applying one version of a pack; the pack kept in versions with a draft, published and retired lifecycle, compared as data and checked against an organisation's content before it is applied. Built and tested on DuckDB and on a local Postgres; none of it has run on the platform. Left open: nothing per organisation reaches the platform, where a catalogue, a row filter or a projection of its own belongs to `PLAT2` and `PLAT5`; and an attribute's group is free text, with no vocabulary behind it |
 
 ## Gaps closed so far, and by what
 
@@ -114,6 +115,7 @@ flowchart LR
   g13["⊘ No proposal intake [GAP13]"]:::implementation
   g14["⊘ No roles, no review before merge [GAP14]"]:::implementation
   g15["⊘ Nothing tells the model's health [GAP15]"]:::implementation
+  g17["⊘ A metamodel change cannot be tried without changing what everybody reads [GAP17]"]:::implementation
   g9 -->|closed, initiative 2| p1
   g11 -->|closed, initiative 3| p1
   g12 -->|closed, initiative 4| p4
@@ -124,6 +126,7 @@ flowchart LR
   g1 -->|closed in code, initiative 13, superseded| p2
   g2 -->|closed in code, initiatives 13 and 14| p2
   g16 -->|closed in code, initiative 14| p2
+  g17 -->|closed in code, initiative 15| p1
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```

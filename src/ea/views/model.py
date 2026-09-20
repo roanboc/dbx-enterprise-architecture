@@ -221,6 +221,63 @@ def view_from_impact(
     return view
 
 
+def view_from_metamodel(
+    registry: Registry, domain: str | None = None, include_inactive: bool = False
+) -> View:
+    """The metamodel itself as a view: one node per element type in the type's own notation,
+    one edge per relationship type, sub-types joined to their supertype; a diamond stands for
+    `ANY`. What the architecture documents call a notation diagram, drawn from the pack."""
+    from ea.models import ANY
+
+    types = [
+        t
+        for t in registry.pack.element_types
+        if (t.active or include_inactive) and (not domain or t.domain == domain)
+    ]
+    ids = {t.id for t in types}
+    title = registry.pack.name + (f" — {registry.domains[domain].name}" if domain in registry.domains else "")
+    view = View(title=f"{title} (version {registry.pack.version})")
+    for t in types:
+        n = registry.notation(t.id)
+        view.nodes.append(
+            ViewNode(
+                id=t.id,
+                name=t.name,
+                type_id=t.id,
+                type_name=t.name,
+                layer=n.get("layer", "other"),
+                glyph=n.get("glyph", ""),
+                stereotype=n.get("stereotype", ""),
+                shape=n.get("shape", "rect"),
+                archimate=n.get("archimate", ""),
+                status="active" if t.active else "inactive",
+            )
+        )
+    need_any = False
+    for r in registry.pack.relationship_types:
+        src, dst = r.source, r.target
+        if (src != ANY and src not in ids) or (dst != ANY and dst not in ids):
+            continue
+        need_any = need_any or src == ANY or dst == ANY
+        view.edges.append(ViewEdge(src=src, dst=dst, label=r.name, rel_type_id=r.id))
+    for t in types:
+        if t.supertype and t.supertype in ids:
+            view.edges.append(ViewEdge(src=t.id, dst=t.supertype, label="is a", rel_type_id=f"sub:{t.id}"))
+    if need_any:
+        view.nodes.append(
+            ViewNode(
+                id=ANY,
+                name="Any element",
+                type_id="",
+                type_name="",
+                layer="other",
+                glyph="◇",
+                shape="diamond",
+            )
+        )
+    return _finish(view)
+
+
 def view_to_dict(view: View) -> dict[str, Any]:
     return asdict(view)
 

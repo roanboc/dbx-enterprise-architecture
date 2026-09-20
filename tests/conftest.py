@@ -20,11 +20,11 @@ from tests.postgres_server import NO_POSTGRES, postgres_for_the_run
 
 from ea.backend.duckdb_backend import DuckDBBackend
 from ea.backend.lakebase_backend import LakebaseBackend
-from ea.backend.sql import DDL
+from ea.backend.sql import DDL, schemas
 from ea.config import Settings
 from ea.importer import import_directory
 from ea.metamodel import Registry, load_pack
-from ea.services import GraphService, RepositoryService
+from ea.services import GraphService, OrganisationService, RepositoryService
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "packs" / "higher_education" / "metamodel.yaml"
@@ -58,6 +58,12 @@ def postgres_dsn():
     let_go()
 
 
+def _drop_schemas(b) -> None:
+    """A store is a schema per group of tables now, so a test drops every one of them."""
+    for schema in schemas(b.schema_prefix):
+        b._execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
 @pytest.fixture(scope="session")
 def live_backend():
     """One connection to a Lakebase instance for the whole run, in a schema named for the run."""
@@ -68,7 +74,7 @@ def live_backend():
     settings.store_schema = f"ea_test_{uuid.uuid4().hex[:8]}"
     b = LakebaseBackend.from_settings(settings)
     yield b
-    b._execute(f"DROP SCHEMA IF EXISTS {b.schema} CASCADE")
+    _drop_schemas(b)
     b.close()
 
 
@@ -83,9 +89,10 @@ def backend(request, pack):
         for table in DDL:  # the schema is shared by the run: every test starts from empty tables
             b._execute(f"DELETE FROM {table}")
     b.save_pack(pack)
+    OrganisationService(b).ensure_default(pack)  # what the app does on its first start
     yield b
     if request.param == "lakebase":
-        b._execute(f"DROP SCHEMA {b.schema} CASCADE")
+        _drop_schemas(b)
     if request.param != "lakebase-live":
         b.close()
 

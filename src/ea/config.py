@@ -23,9 +23,10 @@ class Settings:
     agent_model: str = "claude-opus-5"
     max_rows: int = 5000
     admin_contact: str = ""
-    # On lakebase: the schema the tables live in; the instance the platform's identity signs in to
-    # (the SDK issues the token); or any Postgres instead, as libpq reads a URL or a key=value
-    # string; and libpq's own PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE, honoured either way.
+    # On lakebase: the prefix of the store's schemas, one per group of tables; the instance the
+    # platform's identity signs in to (the SDK issues the token); or any Postgres instead, as
+    # libpq reads a URL or a key=value string; and libpq's own PGHOST, PGPORT, PGDATABASE,
+    # PGUSER and PGSSLMODE, honoured either way.
     store_schema: str = "ea"
     lakebase_instance: str = ""
     pg_dsn: str = ""
@@ -34,6 +35,7 @@ class Settings:
     pg_database: str = ""
     pg_user: str = ""
     pg_sslmode: str = ""
+    org: str = ""  # the organisation the command line works on (EA_ORG); empty = the default one
     role_groups: str = ""  # admin=grp1,grp2;architect=grp3;reviewer=grp4 (decision 0008)
     trust_groups_header: bool = False  # only behind a proxy of ours that sets X-Forwarded-Groups
 
@@ -57,6 +59,7 @@ class Settings:
             pg_database=env.get("PGDATABASE", ""),
             pg_user=env.get("PGUSER", ""),
             pg_sslmode=env.get("PGSSLMODE", ""),
+            org=env.get("EA_ORG", ""),
             role_groups=env.get("EA_ROLE_GROUPS", ""),
             trust_groups_header=env.get("EA_TRUST_GROUPS_HEADER", "").strip().lower() in ("1", "true", "yes"),
         )

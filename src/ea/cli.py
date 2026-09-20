@@ -1,4 +1,4 @@
-"""Command line: initialise, load packs, import CSVs, ask graph questions, work on branches."""
+"""Command line: initialise, load packs, import CSVs, ask graph questions, work on branches, organisations and metamodel versions."""
 
 from __future__ import annotations
 
@@ -38,14 +38,50 @@ def main(
         envvar="EA_ROLE",
         help="Run as this role: reader, reviewer, architect, admin (default) or agent.",
     ),
+    org: str = typer.Option(
+        None,
+        "--org",
+        "-o",
+        envvar="EA_ORG",
+        help="Work in this organisation instead of the default one (every read and write honours it).",
+    ),
 ):
-    set_branch(branch or MAIN)
     set_role(role)
+    _scope["org"] = org or ""
+    set_branch(branch or MAIN)
     _require_branch_exists(branch)
 
 
+# The organisation named on the command line, resolved once a store is open (the default one
+# is a row of the store, so it cannot be known before).
+_scope: dict[str, str] = {"org": ""}
+
+
+def _enter_org(backend) -> str:
+    """Set the organisation the command works in: the one named, else the default; refused when unknown."""
+    from ea.backend.organisations import set_org
+    from ea.metamodel import load_pack
+    from ea.services import OrganisationService
+
+    orgs = OrganisationService(backend)
+    if orgs.default() is None:
+        orgs.ensure_default(load_pack(Settings.from_env().pack_path))
+    wanted = _scope.get("org") or ""
+    if wanted:
+        if backend.get_organisation(wanted) is None:
+            held = ", ".join(o.org_id for o in orgs.list()) or "none"
+            _refuse(f"no organisation with id {wanted!r}; the store holds: {held}")
+        set_org(wanted)
+        return wanted
+    default = orgs.default()
+    assert default is not None
+    set_org(default.org_id)
+    return default.org_id
+
+
 def _require_branch_exists(branch: str | None) -> None:
-    """A branch named on the command line has to be one that exists.
+    """A branch named on the command line has to be one that exists, in the organisation the
+    command works in.
 
     Writing to a branch nobody created used to be accepted: the rows went to an overlay no
     `branch list` mentions and no `branch diff` can read, and reappeared if somebody later
@@ -57,6 +93,7 @@ def _require_branch_exists(branch: str | None) -> None:
 
     backend = backend_from_settings(Settings.from_env())
     try:
+        _enter_org(backend)
         if backend.get_branch(branch) is None:
             _refuse(
                 f"no branch with id {branch!r}; `ea branch list` says which there are, "
@@ -87,18 +124,13 @@ def _refuse(message: str) -> None:
 
 def _ctx(settings: Settings | None = None):
     from ea.backend import backend_from_settings
-    from ea.metamodel import Registry, load_pack
-    from ea.services import GraphService, RepositoryService
+    from ea.metamodel import Registry
+    from ea.services import GraphService, OrganisationService, RepositoryService
 
     settings = settings or Settings.from_env()
     backend = backend_from_settings(settings)
-    packs = backend.list_packs()
-    if packs:
-        pack = backend.load_pack(packs[0]["pack_id"])
-    else:
-        pack = load_pack(settings.pack_path)
-        backend.save_pack(pack)
-    registry = Registry(pack)
+    org = _enter_org(backend)
+    registry = Registry(OrganisationService(backend).applied_pack(org))
     return settings, backend, registry, RepositoryService(backend, registry), GraphService(backend, registry)
 
 
@@ -113,9 +145,13 @@ def _branches():
 def init(
     pack: Path = typer.Option(None, help="metamodel pack to load (default: EA_PACK)"),
     db: Path = typer.Option(None, help="DuckDB file (default: EA_DB_PATH)"),
+    org_name: str = typer.Option(
+        "", "--org-name", help="what to call the default organisation, when the store is new"
+    ),
 ):
-    """Create the database and load a metamodel pack."""
+    """Create the database, load a metamodel pack and give the default organisation the version it applies."""
     from ea.metamodel import load_pack
+    from ea.services import OrganisationService
 
     require("edit_metamodel", what="load a metamodel pack")
     settings = Settings.from_env()
@@ -128,7 +164,17 @@ def init(
     try:
         _, backend, registry, *_ = _ctx(settings)
         p = load_pack(settings.pack_path)
-        backend.save_pack(p)
+        backend.save_pack(p, "cli")
+        orgs = OrganisationService(backend)
+        default = orgs.default()
+        assert default is not None
+        if org_name and (fresh or default.name == "Default organisation"):
+            orgs.update(default.org_id, "cli", name=org_name)
+        if default.pack_ref != p.ref and not default.elements and not backend.count_elements():
+            orgs.apply(
+                default.org_id, p.ref, "cli", force=True
+            )  # an empty organisation takes the file's version
+        default = orgs.get(default.org_id)
     except Exception:
         # The store is created before the pack is read, so a pack that cannot be loaded would
         # otherwise leave a database behind that looks like a repository and holds nothing.
@@ -138,36 +184,70 @@ def init(
             Path(settings.db_path).unlink(missing_ok=True)
         raise
     typer.echo(
-        f"database {settings.db_path}: pack '{p.id}' loaded ({len(p.element_types)} element types, {len(p.relationship_types)} relationship types)"
+        f"database {settings.db_path}: pack '{p.id}' version {p.version} loaded "
+        f"({len(p.element_types)} element types, {len(p.relationship_types)} relationship types); "
+        f"organisation '{default.org_id}' ({default.name}) applies {default.pack_ref}"
     )
 
 
 @app.command("load-pack")
-def load_pack_cmd(path: Path):
-    """(Re)load a metamodel pack from YAML."""
+def load_pack_cmd(
+    path: Path,
+    apply: bool = typer.Option(
+        True, "--apply/--no-apply", help="apply the loaded version to the organisation the command works in"
+    ),
+    force: bool = typer.Option(False, help="apply it even when the compatibility check finds errors"),
+):
+    """Load a metamodel pack from YAML as the version the file names, and apply it here.
+
+    A version the store holds as a draft is replaced; one it holds published is left as it
+    is, and a file that differs from it is refused: give the file a new version.
+    """
     from ea.metamodel import load_pack
+    from ea.services import MetamodelService, OrganisationService
 
     require("edit_metamodel", what="load a metamodel pack")
     _, backend, *_ = _ctx()
-    p = load_pack(path)
-    backend.save_pack(p)
-    typer.echo(f"pack '{p.id}' version {p.version} loaded")
+    p = MetamodelService(backend).save(load_pack(path), "cli")
+    typer.echo(f"pack '{p.id}' version {p.version} loaded ({p.status})")
+    if apply:
+        orgs = OrganisationService(backend)
+        org = orgs.current()
+        if org.pack_ref == p.ref:
+            typer.echo(f"organisation '{org.org_id}' already applies {p.ref}")
+            return
+        report = orgs.apply(org.org_id, p.ref, "cli", force=force)
+        typer.echo(f"organisation '{org.org_id}' now applies {p.ref}: {report.summary()}")
+        for iss in report.issues[:20]:
+            typer.echo("  " + str(iss))
 
 
 @app.command("export-pack")
-def export_pack(out: Path, pack_id: str = typer.Option(None, help="pack id (default: the loaded pack)")):
-    """Write the stored metamodel back to YAML."""
+def export_pack(
+    out: Path,
+    pack_id: str = typer.Option(None, help="pack id (default: the version this organisation applies)"),
+    version: str = typer.Option(None, "--version", "-v", help="a stored version as pack@version"),
+):
+    """Write a stored metamodel version back to YAML."""
     from ea.metamodel import dump_pack
 
     _, backend, registry, *_ = _ctx()
-    p = backend.load_pack(pack_id) if pack_id else registry.pack
+    ref = version or pack_id
+    p = backend.load_pack(*_split_ref(ref)) if ref else registry.pack
     if p is None:
         # Refused before the destination is opened: a pack that cannot be found must not
         # cost the reader the file they were writing over.
-        held = ", ".join(sorted(x["pack_id"] for x in backend.list_packs())) or "none"
-        _refuse(f"no pack with id {pack_id!r} in this database; it holds: {held}")
+        held = ", ".join(v.ref for v in backend.list_pack_versions()) or "none"
+        _refuse(f"no metamodel version {ref!r} in this database; it holds: {held}")
     dump_pack(p, out)
-    typer.echo(f"pack '{p.id}' written to {out}")
+    typer.echo(f"pack '{p.id}' version {p.version} written to {out}")
+
+
+def _split_ref(ref: str) -> tuple[str, str | None]:
+    from ea.models import split_pack_ref
+
+    pack_id, version = split_pack_ref(ref)
+    return pack_id, version or None
 
 
 def _readable_directory(directory: Path) -> None:
@@ -651,6 +731,191 @@ def summary(types: str = typer.Option(None, help="comma-separated type ids to re
     """The metamodel as Markdown (what the agent is told)."""
     _, _, registry, *_ = _ctx()
     typer.echo(registry.summary_markdown(types.split(",") if types else None))
+
+
+# ------------------------------------------------------------- metamodel versions
+metamodel_app = typer.Typer(
+    help="The metamodel in versions: list, draft, publish, retire, compare, check against an organisation.",
+    no_args_is_help=True,
+)
+app.add_typer(metamodel_app, name="metamodel")
+
+
+def _metamodels():
+    from ea.services import MetamodelService, OrganisationService
+
+    _, backend, registry, *_ = _ctx()
+    return backend, registry, MetamodelService(backend), OrganisationService(backend)
+
+
+@metamodel_app.command("versions")
+def metamodel_versions(pack_id: str = typer.Option(None, help="one pack only")):
+    """Every stored version, newest first, with its state and the organisations that apply it."""
+    _, _, svc, _ = _metamodels()
+    rows = svc.versions(pack_id)
+    if not rows:
+        typer.echo("no metamodel versions")
+    for v in rows:
+        applied = ", ".join(v.applied_by) or "-"
+        typer.echo(
+            f"{v.ref:40s} {v.status:10s} applied by {applied:24s} {str(v.loaded_at)[:16]}  {v.name}"
+            + (f"  (from {v.derived_from})" if v.derived_from else "")
+        )
+
+
+@metamodel_app.command("draft")
+def metamodel_draft(
+    from_ref: str = typer.Argument(..., help="the version to copy, as pack@version"),
+    version: str = typer.Option(
+        None, "--version", "-v", help="the new version's name (default: today's date)"
+    ),
+    notes: str = typer.Option("", help="what the draft tries"),
+    actor: str = typer.Option("cli"),
+):
+    """Start a draft from a stored version; edit it in the app or as YAML, try it, then publish it."""
+    _, _, svc, _ = _metamodels()
+    p = svc.draft(from_ref, actor, version, notes)
+    typer.echo(f"draft {p.ref} created from {p.derived_from}")
+
+
+@metamodel_app.command("publish")
+def metamodel_publish(ref: str, actor: str = typer.Option("cli")):
+    """Freeze a draft: its content cannot change from now on."""
+    _, _, svc, _ = _metamodels()
+    v = svc.publish(ref, actor)
+    typer.echo(f"{v.ref} is {v.status}")
+
+
+@metamodel_app.command("retire")
+def metamodel_retire(ref: str, actor: str = typer.Option("cli")):
+    """Take a version out of use; refused while an organisation applies it."""
+    _, _, svc, _ = _metamodels()
+    v = svc.retire(ref, actor)
+    typer.echo(f"{v.ref} is {v.status}")
+
+
+@metamodel_app.command("delete")
+def metamodel_delete(ref: str, actor: str = typer.Option("cli")):
+    """Remove a draft nobody applies."""
+    _, _, svc, _ = _metamodels()
+    svc.delete(ref, actor)
+    typer.echo(f"{ref} deleted")
+
+
+@metamodel_app.command("diff")
+def metamodel_diff(ref_a: str, ref_b: str):
+    """What changes from one version to another: domains, types, relationship types, attributes."""
+    _, _, svc, _ = _metamodels()
+    d = svc.diff(ref_a, ref_b)
+    typer.echo(d.summary())
+    for e in d.entries:
+        detail = (
+            "" if e.change != "changed" else "  " + "; ".join(f"{f}: {b!r} -> {a!r}" for f, b, a in e.fields)
+        )
+        typer.echo(f"  {e.change:8s} {e.kind:18s} {e.id:48s} {e.label}{detail}")
+
+
+@metamodel_app.command("check")
+def metamodel_check(
+    ref: str,
+    org: str = typer.Option(
+        None, help="the organisation whose content is checked (default: the current one)"
+    ),
+    limit: int = typer.Option(50, help="how many findings to print"),
+):
+    """What an organisation's content would say under a version, without applying it."""
+    _, _, _, orgs = _metamodels()
+    report = orgs.check(org or orgs.current().org_id, ref)
+    typer.echo(report.summary())
+    for code, n in report.by_code().items():
+        typer.echo(f"  {n:6d}  {code}")
+    for iss in report.issues[:limit]:
+        typer.echo("  " + str(iss))
+    raise typer.Exit(code=0 if report.ok else 1)
+
+
+# ------------------------------------------------------------------ organisations
+org_app = typer.Typer(
+    help="The organisations the store holds: which is the default, which metamodel version each applies.",
+    no_args_is_help=True,
+)
+app.add_typer(org_app, name="org")
+
+
+@org_app.command("list")
+def org_list():
+    """Every organisation, the default first, with its content and the version it applies."""
+    _, _, _, orgs = _metamodels()
+    for o in orgs.list():
+        typer.echo(
+            f"{o.org_id:24s} {'default' if o.is_default else '':8s} {o.pack_ref:40s} "
+            f"{o.elements:6d} elements {o.relationships:6d} relationships {o.branches:3d} open branches  {o.name}"
+        )
+
+
+@org_app.command("create")
+def org_create(
+    name: str,
+    description: str = typer.Option("", help="what the organisation is for"),
+    metamodel: str = typer.Option(
+        "", help="the version it applies, as pack@version (default: the copied or the default organisation's)"
+    ),
+    copy_from: str = typer.Option(
+        None, "--copy-from", help="an organisation whose main content is copied in"
+    ),
+    org_id: str = typer.Option(None, "--id", help="the identifier (default: derived from the name)"),
+    actor: str = typer.Option("cli"),
+):
+    """A new organisation: a sandbox copied from the default to try a metamodel version, or an enterprise of its own."""
+    _, _, _, orgs = _metamodels()
+    o = orgs.create(name, actor, description, metamodel, copy_from, org_id)
+    typer.echo(
+        f"organisation '{o.org_id}' created, applying {o.pack_ref}; "
+        f"{o.elements} elements and {o.relationships} relationships"
+        + (f" copied from {o.copied_from}" if o.copied_from else "")
+        + f"; use --org {o.org_id} on other commands to work in it"
+    )
+
+
+@org_app.command("rename")
+def org_rename(
+    org_id: str, name: str, description: str = typer.Option(None), actor: str = typer.Option("cli")
+):
+    """Change an organisation's name or description."""
+    _, _, _, orgs = _metamodels()
+    o = orgs.update(org_id, actor, name, description)
+    typer.echo(f"organisation '{o.org_id}' is now {o.name!r}")
+
+
+@org_app.command("default")
+def org_default(org_id: str, actor: str = typer.Option("cli")):
+    """Name the organisation the application opens."""
+    _, _, _, orgs = _metamodels()
+    o = orgs.set_default(org_id, actor)
+    typer.echo(f"organisation '{o.org_id}' is the default")
+
+
+@org_app.command("apply")
+def org_apply(
+    org_id: str,
+    ref: str = typer.Argument(..., help="the version to apply, as pack@version"),
+    force: bool = typer.Option(False, help="apply it even when the compatibility check finds errors"),
+    actor: str = typer.Option("cli"),
+):
+    """Make an organisation apply a metamodel version, after checking its content against it."""
+    _, _, _, orgs = _metamodels()
+    report = orgs.apply(org_id, ref, actor, force=force)
+    typer.echo(f"organisation '{org_id}' now applies {ref}: {report.summary()}")
+    for iss in report.issues[:20]:
+        typer.echo("  " + str(iss))
+
+
+@org_app.command("delete")
+def org_delete(org_id: str, actor: str = typer.Option("cli")):
+    """Remove an organisation and everything in it; the default one stays."""
+    _, _, _, orgs = _metamodels()
+    orgs.delete(org_id, actor)
+    typer.echo(f"organisation '{org_id}' deleted")
 
 
 def run() -> None:

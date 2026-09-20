@@ -36,7 +36,7 @@ from ea.models import (
     Relationship,
     slugify,
 )
-from ea.services.repository import coerce_attrs, relationship_key
+from ea.services.repository import coerce_attrs, coerce_relationship_attrs, relationship_key
 from ea.services.roles import require
 
 _SPLIT_LINKS = re.compile(r"\s*[|;]\s*")
@@ -349,11 +349,14 @@ def build_relationships(
                 )
                 report.relationships_skipped += 1
                 continue
+            attrs = coerce_relationship_attrs(registry, rt.id, attrs)
             issues = registry.validate_relationship(
-                rt.id, known[src], known[dst], qualifier, entity=f"{src}->{dst}"
+                rt.id, known[src], known[dst], qualifier, entity=f"{src}->{dst}", attrs=attrs
             )
             for iss in issues:
                 iss.row, iss.file = i, fname
+                if iss.code == "extra_attribute":
+                    continue  # extras are kept on the edge as they are on an element
                 if iss.level == "error":
                     iss.level = "warning"
                     iss.message += " — imported as draft"

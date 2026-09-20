@@ -16,6 +16,8 @@ from dash import ctx as dash_ctx
 from ea.metamodel.registry import Registry
 from ea.models import Element, Issue
 from ea.ui import ids
+from ea.views.mermaid import LAYER_STYLE
+from ea.views.model import LAYER_TITLES, View
 
 # Colours come from the pack (a domain's `notation.colour` and `notation.hex`); these are the fallbacks.
 FALLBACK_COLOUR, FALLBACK_HEX = "gray", "#adb5bd"
@@ -280,6 +282,39 @@ def register_markdown(app) -> None:
         return markdown(value or "", f"md-preview-{editor_id}")
 
 
+def kv_sections(sections: list[tuple[str, list[tuple[str, Any]]]]) -> dmc.Table:
+    """One two-column table whose sections are headed, so every value lines up under one column.
+
+    A table per section would set its own column widths from its own longest label, and the
+    values would step sideways down the card. A heading row inside one table keeps the reading
+    line straight.
+    """
+    rows: list[Any] = []
+    for title, pairs in sections:
+        if title:
+            rows.append(
+                dmc.TableTr(
+                    # `html.Td` rather than Mantine's: the heading spans both columns, and
+                    # Mantine's table styles the element, not a component of its own.
+                    html.Td(
+                        dmc.Text(title, size="xs", fw=700, c="dimmed", tt="uppercase"),
+                        colSpan=2,
+                        style={"paddingTop": "0.6rem"},
+                    )
+                )
+            )
+        rows += [
+            dmc.TableTr(
+                [
+                    dmc.TableTd(dmc.Text(k, size="sm", c="dimmed")),
+                    dmc.TableTd(v if _is_component(v) else dmc.Text(_fmt(v), size="sm")),
+                ]
+            )
+            for k, v in pairs
+        ]
+    return dmc.Table([dmc.TableTbody(rows)], withRowBorders=False, verticalSpacing="xs")
+
+
 def kv_table(rows: list[tuple[str, Any]]) -> dmc.Table:
     return dmc.Table(
         [
@@ -412,10 +447,63 @@ def keep_selected_option(
     return [selected, *options] if selected else options
 
 
-def mermaid_block(block_id: str, code: str, arrangeable: bool = True) -> html.Div:
+SELECT_COLUMN = {
+    "field": "sel",
+    "headerName": "",
+    "checkboxSelection": True,
+    "headerCheckboxSelection": True,
+    "width": 46,
+    "pinned": "left",
+    "sortable": False,
+    "filter": False,
+    "resizable": False,
+    "editable": False,
+    "valueFormatter": {"function": "''"},
+}
+"""The tick column of a grid whose rows an action takes: Browse's bulk edit and the
+metamodel's four lists. One definition, so ticking means the same thing on both."""
+
+
+def layer_chips(view: View | None) -> Any:
+    """The legend above a generated diagram: one chip per layer it draws, in that layer's colour.
+
+    The shapes are filled by layer and no box is drawn around them
+    (`views.mermaid.to_mermaid`), so the names the boxes would have carried are here instead —
+    shown in the colour rather than described in words, because a reader matches a chip to a
+    shape at a glance and has to translate a sentence.
+    """
+    if view is None or not view.layers():
+        return None
+    return dmc.Group(
+        [
+            dmc.Badge(
+                LAYER_TITLES.get(layer, layer),
+                size="sm",
+                radius="sm",
+                variant="filled",
+                styles={
+                    "root": {
+                        "backgroundColor": LAYER_STYLE.get(layer, LAYER_STYLE["other"])[0],
+                        "border": f"1px solid {LAYER_STYLE.get(layer, LAYER_STYLE['other'])[1]}",
+                        "color": "#333",
+                    }
+                },
+            )
+            for layer in view.layers()
+        ],
+        gap=6,
+    )
+
+
+def mermaid_block(block_id: str, code: str, arrangeable: bool = True, legend: Any = None) -> html.Div:
     """A generated diagram: the Mermaid source (hidden), the rendered SVG in a pan-and-zoom viewport,
-    and, when arrangeable, a store of the shape positions that the draw.io export honours."""
+    and, when arrangeable, a store of the shape positions that the draw.io export honours.
+
+    `legend` is what stands above the diagram and says what its colours mean — the chips of
+    `layer_chips`. A callback that redraws the diagram redraws them with it.
+    """
     children: list[Any] = [
+        html.Div(legend, id={"type": "mermaid-legend", "id": block_id}, className="ea-mermaid-legend"),
         html.Pre(code, id={"type": "mermaid-src", "id": block_id}, hidden=True),
         dcc.Store(id={"type": "mermaid-pos", "id": block_id}, data=None),
         dcc.Store(id={"type": "mermaid-view", "id": block_id}, data=None),

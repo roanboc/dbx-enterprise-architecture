@@ -19,6 +19,7 @@ from ea.models import (
     Link,
     NotFoundError,
     ValidationError,
+    split_multi,
 )
 from ea.services.roles import a_role
 from ea.services.target import CURRENT_STYLE, TARGET_STYLE, state_label
@@ -29,7 +30,9 @@ from ea.ui.components import (
     element_anchor,
     icon,
     keep_selected_option,
+    kv_sections,
     kv_table,
+    layer_chips,
     markdown,
     markdown_editor,
     mermaid_block,
@@ -61,9 +64,27 @@ def _is_date(text: str) -> bool:
     return True
 
 
-def _attr_input(a, value: Any):
-    aid = {"type": ids.EL_ATTR, "name": a.name}
-    label = a.label + (" (restricted)" if a.sensitivity else "")
+def _attr_input(a, value: Any, kind: str = ids.EL_ATTR):
+    """The control an attribute definition asks for: what it declares decides the control, its
+    help text and its bounds; `kind` is the pattern the inputs of one form share."""
+    aid = {"type": kind, "name": a.name}
+    label = a.title + (" (restricted)" if a.sensitivity else "")
+    help_text = a.help or a.description or None
+    if a.multiple:
+        values = [str(v) for v in split_multi(value)]
+        if a.enum:
+            return dmc.MultiSelect(
+                id=aid,
+                label=label,
+                data=list(dict.fromkeys(list(a.enum) + values)),
+                value=values,
+                clearable=True,
+                searchable=True,
+                description=help_text,
+            )
+        return dmc.TagsInput(
+            id=aid, label=label, value=values, description=help_text or "Several values; Enter adds one"
+        )
     if a.type == "boolean":
         v = None if value in (None, "") else ("true" if value else "false")
         return dmc.Select(
@@ -72,6 +93,7 @@ def _attr_input(a, value: Any):
             data=[{"value": "true", "label": "yes"}, {"value": "false", "label": "no"}],
             value=v,
             clearable=True,
+            description=help_text,
         )
     if a.enum:
         return dmc.Select(
@@ -81,11 +103,24 @@ def _attr_input(a, value: Any):
             value=value if value in a.enum else None,
             clearable=True,
             searchable=True,
+            description=help_text,
         )
     if a.type in ("integer", "number"):
-        return dmc.NumberInput(id=aid, label=label, value=value, allowDecimal=a.type == "number")
+        bounds = {}
+        for k in ("min", "max"):
+            bound = getattr(a, k)
+            if bound not in (None, ""):
+                try:
+                    bounds[k] = float(bound) if a.type == "number" else int(float(bound))
+                except (TypeError, ValueError):
+                    pass
+        return dmc.NumberInput(
+            id=aid, label=label, value=value, allowDecimal=a.type == "number", description=help_text, **bounds
+        )
     if a.type == "text":
-        return dmc.Textarea(id=aid, label=label, value=value or "", autosize=True, minRows=2)
+        return dmc.Textarea(
+            id=aid, label=label, value=value or "", autosize=True, minRows=2, description=help_text
+        )
     if a.type == "date":
         # A date typed into a plain box has no picker and nothing to fail against. A value
         # already in the row that is not a date keeps its plain box, so an import's odd
@@ -98,7 +133,9 @@ def _attr_input(a, value: Any):
                 valueFormat="YYYY-MM-DD",
                 placeholder="YYYY-MM-DD",
                 clearable=True,
-                description=a.description or "as YYYY-MM-DD",
+                description=help_text or "as YYYY-MM-DD",
+                minDate=str(a.min) if a.min else None,
+                maxDate=str(a.max) if a.max else None,
             )
         return dmc.TextInput(
             id=aid,
@@ -106,9 +143,74 @@ def _attr_input(a, value: Any):
             value=str(value),
             description="expected YYYY-MM-DD; this row holds something else",
         )
+    if a.type == "url":
+        return dmc.TextInput(
+            id=aid,
+            label=label,
+            value="" if value is None else str(value),
+            placeholder="https://…",
+            description=help_text or "A web address",
+        )
     return dmc.TextInput(
-        id=aid, label=label, value="" if value is None else str(value), description=a.description or None
+        id=aid,
+        label=label,
+        value="" if value is None else str(value),
+        description=help_text,
+        placeholder=f"matches {a.pattern}" if a.pattern else None,
     )
+
+
+def _by_group(attrs: list) -> dict[str, list]:
+    """The attributes under the group the metamodel puts them in, ungrouped first.
+
+    A metamodel with twenty common attributes reads as a wall; the `group` an attribute
+    declares is how the source metamodel's own document sections it, and it is the same
+    grouping here, on the form and on the page that only reads.
+    """
+    groups: dict[str, list] = {"": []}
+    for a in attrs:
+        groups.setdefault(a.group or "", []).append(a)
+    if not groups[""]:
+        del groups[""]
+    return groups
+
+
+def _attr_sections(attrs: list, values: dict[str, Any], default_title: str) -> list[Any]:
+    """The inputs of a list of attributes, one grid per declared group; ungrouped ones first."""
+    out: list[Any] = []
+    for name, members in _by_group(attrs).items():
+        out.append(dmc.Title(name or default_title, order=2, size="h5"))
+        out.append(
+            dmc.SimpleGrid([_attr_input(a, values.get(a.name)) for a in members], cols={"base": 1, "md": 3})
+        )
+    return out
+
+
+def _attr_values(attrs: list, values: dict[str, Any]) -> list[Any]:
+    """What an element's attributes say, in the groups the metamodel declares.
+
+    Only what carries a value: a page that lists every attribute a type may take, empty,
+    says less than one that lists what this element actually holds. A value whose name the
+    metamodel does not know is kept and said to be unknown rather than dropped.
+    """
+    sections: list[tuple[str, list[tuple[str, Any]]]] = []
+    for name, members in _by_group(attrs).items():
+        rows = [
+            (a.title + (" (restricted)" if a.sensitivity else ""), _shown_value(values.get(a.name)))
+            for a in members
+            if values.get(a.name) not in (None, "", [])
+        ]
+        if rows:
+            sections.append((name, rows))
+    known = {a.name for a in attrs}
+    extra = [(k, _shown_value(v)) for k, v in values.items() if k not in known]
+    if extra:
+        sections.append(("Not in the metamodel", extra))
+    return [kv_sections(sections)] if sections else []
+
+
+def _shown_value(v: Any) -> Any:
+    return ", ".join(str(x) for x in v) if isinstance(v, list) else v
 
 
 def _rel_tab_label(ctx: AppContext, element_id: str) -> str:
@@ -133,6 +235,13 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
                     element_anchor(o) if o else dmc.Text(rel.src_id if incoming else rel.dst_id, size="sm"),
                     type_badge(ctx.registry, o.type_id, "xs") if o else "",
                     dmc.Badge(rel.origin or "", size="xs", variant="outline", color="gray"),
+                    dmc.Text(
+                        "; ".join(
+                            f"{k}: {_shown_value(v)}" for k, v in rel.attrs.items() if k != "validation"
+                        ),
+                        size="xs",
+                        c="dimmed",
+                    ),
                     dmc.ActionIcon(
                         icon("tabler:trash", 14),
                         id={"type": ids.EL_REL_DELETE, "id": rel.relationship_id},
@@ -153,11 +262,11 @@ def _rel_tables(ctx: AppContext, element_id: str) -> html.Div:
     return html.Div(
         [
             dmc.Title("Outgoing", order=2, size="h5", mt="sm"),
-            simple_table(["relationship", "to", "type", "origin", ""], out_rows)
+            simple_table(["relationship", "to", "type", "origin", "attributes", ""], out_rows)
             if out_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
             dmc.Title("Incoming", order=2, size="h5", mt="md"),
-            simple_table(["relationship", "from", "type", "origin", ""], in_rows)
+            simple_table(["relationship", "from", "type", "origin", "attributes", ""], in_rows)
             if in_rows
             else dmc.Text("None.", c="dimmed", size="sm"),
         ]
@@ -236,12 +345,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     own = [a for a in attrs if a.type_id == e.type_id or (a.type_id and a.type_id != e.type_id)]
     common = [a for a in attrs if a.type_id is None]
     # The Edit tab marks a restricted attribute; a reader who only reads has to be told too.
-    shown_attrs = [
-        (a.label + (" (restricted)" if a.sensitivity else ""), e.attrs.get(a.name))
-        for a in attrs
-        if e.attrs.get(a.name) not in (None, "")
-    ]
-    extra_attrs = [(k, v) for k, v in e.attrs.items() if k not in {a.name for a in attrs}]
+    attr_values = _attr_values(attrs, e.attrs)
     header = dmc.Group(
         [
             dmc.Stack(
@@ -297,8 +401,8 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             dmc.Paper(
                 [
                     dmc.Title("Attributes", order=2, size="h5", mb="xs"),
-                    kv_table(shown_attrs + extra_attrs)
-                    if (shown_attrs or extra_attrs)
+                    html.Div(attr_values, id=ids.EL_ATTR_VALUES)
+                    if attr_values
                     else dmc.Text("No attributes set.", c="dimmed", size="sm"),
                     dmc.Title("Links", order=2, size="h5", mt="md", mb="xs"),
                     dmc.Stack(
@@ -375,20 +479,14 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     ],
                     cols={"base": 1, "md": 4},
                 ),
-                dmc.Title("Type attributes", order=2, size="h5") if own else None,
-                dmc.SimpleGrid([_attr_input(a, e.attrs.get(a.name)) for a in own], cols={"base": 1, "md": 3})
-                if own
-                else None,
+                *(_attr_sections(own, e.attrs, "Type attributes") if own else []),
                 dmc.Accordion(
                     [
                         dmc.AccordionItem(
                             [
                                 dmc.AccordionControl("Common attributes"),
                                 dmc.AccordionPanel(
-                                    dmc.SimpleGrid(
-                                        [_attr_input(a, e.attrs.get(a.name)) for a in common],
-                                        cols={"base": 1, "md": 3},
-                                    )
+                                    dmc.Stack(_attr_sections(common, e.attrs, "Common attributes"), gap="xs")
                                 ),
                             ],
                             value="common",
@@ -491,6 +589,8 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                             gap="sm",
                             align="flex-end",
                         ),
+                        # The attributes the chosen relationship type declares, when it declares any.
+                        html.Div(id=ids.EL_REL_ATTRS),
                         html.Div(id=ids.EL_REL_FEEDBACK),
                     ]
                 ),
@@ -500,6 +600,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             html.Div(_rel_tables(ctx, element_id), id=ids.EL_REL_TABLES),
         ]
     )
+    neighbourhood = view_from_neighbourhood(ctx.registry, ctx.graph, element_id, 1)
     graph = dmc.Paper(
         [
             dmc.Group(
@@ -529,9 +630,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 height="70vh",
             ),
             dmc.Divider(my="md", label="Architecture view (generated from the model)", labelPosition="left"),
-            mermaid_block(
-                "el-view", to_mermaid(view_from_neighbourhood(ctx.registry, ctx.graph, element_id, 1))
-            ),
+            mermaid_block("el-view", to_mermaid(neighbourhood), legend=layer_chips(neighbourhood)),
             view_toolbar(
                 ids.EL_VIEW_MD,
                 ids.EL_VIEW_DRAWIO,
@@ -644,7 +743,7 @@ def register(app: dash.Dash) -> None:
         ctx = get_context()
         attrs = {}
         for aid, v in zip(attr_ids, attr_values, strict=True):
-            if v in (None, ""):
+            if v in (None, "", []):
                 continue
             attrs[aid["name"]] = {"true": True, "false": False}.get(v, v) if isinstance(v, str) else v
         links, refused_links = _parse_links(element_id, links_text)
@@ -723,6 +822,7 @@ def register(app: dash.Dash) -> None:
         Output(ids.EL_REL_QUALIFIER, "data"),
         Output(ids.EL_REL_QUALIFIER, "disabled"),
         Output(ids.EL_REL_QUALIFIER, "description"),
+        Output(ids.EL_REL_ATTRS, "children"),
         Input(ids.EL_REL_OTHER, "value"),
         Input(ids.EL_REL_DIRECTION, "value"),
         Input(ids.EL_REL_TYPE, "value"),
@@ -733,11 +833,11 @@ def register(app: dash.Dash) -> None:
         ctx = get_context()
         me = ctx.backend.get_element(element_id)
         if not me:
-            return [], "", [], True, QUALIFIER_HINT
+            return [], "", [], True, QUALIFIER_HINT, None
         if other_id:
             other = ctx.backend.get_element(other_id)
             if not other:
-                return [], "", [], True, QUALIFIER_HINT
+                return [], "", [], True, QUALIFIER_HINT, None
             src_t, dst_t = (me.type_id, other.type_id) if direction == "out" else (other.type_id, me.type_id)
             allowed = ctx.registry.allowed_rel_types(src_t, dst_t)
         else:
@@ -773,12 +873,21 @@ def register(app: dash.Dash) -> None:
             # by hand, so an empty one is always that second call — leave standing whatever
             # the first one said, or the sentence would be written and wiped in one move.
             note = no_update
+        rel_attrs = ctx.registry.attributes_for_relationship(chosen or "")
+        attr_inputs = (
+            dmc.SimpleGrid(
+                [_attr_input(a, None, ids.EL_REL_ATTR) for a in rel_attrs], cols={"base": 1, "md": 3}, mt="xs"
+            )
+            if rel_attrs
+            else None
+        )
         return (
             data,
             note,
             quals,
             not quals,
             "" if quals else QUALIFIER_HINT,
+            attr_inputs,
         )
 
     @app.callback(
@@ -792,9 +901,13 @@ def register(app: dash.Dash) -> None:
         State(ids.EL_REL_OTHER, "value"),
         State(ids.EL_REL_TYPE, "value"),
         State(ids.EL_REL_QUALIFIER, "value"),
+        State({"type": ids.EL_REL_ATTR, "name": ALL}, "value"),
+        State({"type": ids.EL_REL_ATTR, "name": ALL}, "id"),
         prevent_initial_call=True,
     )
-    def add_or_delete(n_add, n_del, element_id, direction, other_id, rel_type_id, qualifier):
+    def add_or_delete(
+        n_add, n_del, element_id, direction, other_id, rel_type_id, qualifier, attr_values, attr_ids
+    ):
         ctx = get_context()
         trig = dash_ctx.triggered_id
         if isinstance(trig, dict) and trig.get("type") == ids.EL_REL_DELETE:
@@ -815,8 +928,13 @@ def register(app: dash.Dash) -> None:
         if not other_id or not rel_type_id:
             return alert("Choose the other element and a relationship.", "yellow"), no_update, no_update
         src, dst = (element_id, other_id) if direction == "out" else (other_id, element_id)
+        attrs = {}
+        for aid, v in zip(attr_ids or [], attr_values or [], strict=True):
+            if v in (None, "", []):
+                continue
+            attrs[aid["name"]] = {"true": True, "false": False}.get(v, v) if isinstance(v, str) else v
         try:
-            ctx.repo.add_relationship(rel_type_id, src, dst, ctx.actor, qualifier or "")
+            ctx.repo.add_relationship(rel_type_id, src, dst, ctx.actor, qualifier or "", attrs=attrs)
         except ValidationError as exc:
             return alert("; ".join(str(i) for i in exc.issues), "red"), no_update, no_update
         except Forbidden as exc:
@@ -831,6 +949,7 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(gp.store_id("el"), "data"),
         Output({"type": ids.MERMAID_SRC, "id": "el-view"}, "children"),
+        Output({"type": ids.MERMAID_LEGEND, "id": "el-view"}, "children"),
         Input(ids.EL_GRAPH_DEPTH, "value"),
         Input(ids.EL_REL_TABLES, "children"),
         State(ids.EL_ID, "data"),
@@ -839,9 +958,11 @@ def register(app: dash.Dash) -> None:
     def graph_depth(depth, _tables, element_id):
         ctx = get_context()
         d = int(depth or 1)
+        view = view_from_neighbourhood(ctx.registry, ctx.graph, element_id, d)
         return (
             gp.raw_from_subgraph(ctx.registry, ctx.graph.neighbours(element_id, d)),
-            to_mermaid(view_from_neighbourhood(ctx.registry, ctx.graph, element_id, d)),
+            to_mermaid(view),
+            layer_chips(view),
         )
 
     app.clientside_callback(

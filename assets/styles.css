@@ -6,6 +6,13 @@
   position: relative;
   overflow: hidden;
 }
+.ea-mermaid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ea-mermaid-legend:empty { display: none; }
 .ea-mermaid-controls {
   position: absolute;
   top: 8px;
@@ -154,7 +161,7 @@ body { background: #e9ecef; }
     align-items: flex-start;
     flex-wrap: wrap;
     gap: 8px;
-    min-height: 204px;
+    min-height: 250px;
     padding-top: 8px;
     padding-bottom: 8px;
   }

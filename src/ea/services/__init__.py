@@ -1,6 +1,8 @@
 from ea.services.branches import BranchService
 from ea.services.graph import GraphService
 from ea.services.health import HealthService
+from ea.services.metamodel import MetamodelService
+from ea.services.organisations import OrganisationService
 from ea.services.repository import RepositoryService
 from ea.services.reviews import ReviewService
 from ea.services.roles import allowed, current_role, require, use_role
@@ -11,6 +13,8 @@ __all__ = [
     "BranchService",
     "GraphService",
     "HealthService",
+    "MetamodelService",
+    "OrganisationService",
     "RepositoryService",
     "ReviewService",
     "SearchService",

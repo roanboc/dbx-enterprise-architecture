@@ -184,9 +184,14 @@ class Ui:
         self.settle()
 
     def select(self, selector: str, label: str, exact: bool = False) -> None:
-        """A Mantine Select: click the input, then the option in its portal."""
+        """A Mantine Select: click the input, then the option in its portal.
+
+        Only a *visible* option counts. A Select that has been opened once leaves its options
+        in the page, and a Select rendered inside a hidden tab panel leaves them there too, so
+        matching on the text alone reaches an option nobody can click and waits for it forever.
+        """
         self.page.locator(self._sel(selector)).first.click()
-        option = self.page.locator("[role='option']").filter(
+        option = self.page.locator("[role='option']:visible").filter(
             has_text=re.compile(f"^{re.escape(label)}$") if exact else re.compile(re.escape(label))
         )
         option.first.click()

@@ -13,14 +13,14 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from ea.backend.sql_backend import SqlBackend, new_id
+from ea.backend.sql_backend import SqlBackend, new_id, table_columns
 
 __all__ = ["DuckDBBackend", "new_id"]
 
 
 class DuckDBBackend(SqlBackend):
-    def __init__(self, path: str | Path = ":memory:"):
-        super().__init__()
+    def __init__(self, path: str | Path = ":memory:", schema_prefix: str = "ea"):
+        super().__init__(schema_prefix)
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -28,6 +28,28 @@ class DuckDBBackend(SqlBackend):
         self.init_schema()
 
     # ------------------------------------------------------------ engine hooks
+    def _create_schema(self, name: str) -> None:
+        self._execute(f"CREATE SCHEMA IF NOT EXISTS {name}")
+
+    def _set_search_path(self, names: list[str]) -> None:
+        self._execute("SET search_path = '" + ",".join(names) + "'")
+
+    def _table_exists(self, schema: str, table: str) -> bool:
+        return bool(
+            self._fetch_all(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
+                [schema, table],
+            )
+        )
+
+    def _move_table(self, table: str, source: str, target: str) -> None:
+        """Copied and dropped rather than moved: this engine has no ALTER TABLE ... SET SCHEMA."""
+        self._execute(f"CREATE TABLE {target}.{table} AS SELECT * FROM {source}.{table}")
+        self._execute(f"DROP TABLE {source}.{table}")
+
+    def _one_schema_store(self) -> str:
+        return "main"
+
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
         with self._lock:
             self._conn.execute(sql, params or [])
@@ -41,11 +63,14 @@ class DuckDBBackend(SqlBackend):
             return self._conn.execute(sql, params or []).fetchall()
 
     def _insert_rows(self, table: str, rows: list[list[Any]]) -> None:
+        """Rows in the DDL's column order, inserted by name: a store migrated column by column may
+        hold them in another physical order."""
         if not rows:
             return
+        cols = ", ".join(table_columns(table))
         marks = ", ".join("?" for _ in rows[0])
         with self._lock:
-            self._conn.executemany(f"INSERT INTO {table} VALUES ({marks})", rows)
+            self._conn.executemany(f"INSERT INTO {table} ({cols}) VALUES ({marks})", rows)
 
     def _replace_rows(self, table: str, columns: list[str], rows: list[list[Any]], keys: list[str]) -> None:
         """A frame registered as a table, the keyed rows deleted, the frame appended: one round trip each."""
@@ -59,7 +84,9 @@ class DuckDBBackend(SqlBackend):
                 self._conn.execute(
                     f"DELETE FROM {table} WHERE EXISTS (SELECT 1 FROM {incoming} WHERE {match})"
                 )
-                self._conn.execute(f"INSERT INTO {table} SELECT {', '.join(columns)} FROM {incoming}")
+                self._conn.execute(
+                    f"INSERT INTO {table} ({', '.join(columns)}) SELECT {', '.join(columns)} FROM {incoming}"
+                )
             finally:
                 self._conn.unregister(incoming)
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ea.config import Settings
-from ea.metamodel import Registry
 from ea.services.identity import WorkspaceGroups, forwarded_identity
 from ea.ui.context import AppContext
 
@@ -75,13 +74,12 @@ def test_a_directory_that_fails_makes_a_reader_not_an_error():
     assert groups.groups("ada@example.edu") == []
 
 
-def test_the_role_on_the_platform_comes_from_the_workspace_groups(backend, pack):
+def test_the_role_on_the_platform_comes_from_the_workspace_groups(backend):
     ctx = AppContext(
         Settings(
             auth="databricks", role_groups="admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers"
         ),
         backend,
-        Registry(pack),
     )
     ctx.identity = WorkspaceGroups(lambda u, t: ["ea-architects"] if u == "arjun@example.edu" else [])
     user = ctx.user_from_headers({"X-Forwarded-Email": "arjun@example.edu", "X-Forwarded-Access-Token": "t"})

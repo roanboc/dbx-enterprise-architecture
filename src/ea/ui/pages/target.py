@@ -15,6 +15,7 @@ from ea.ui import ids
 from ea.ui.components import (
     element_anchor,
     icon,
+    layer_chips,
     mermaid_block,
     page_title,
     simple_table,
@@ -193,7 +194,7 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                             dmc.Text(
                                 legend or "Nothing changes in this scope.", size="xs", c="dimmed", mb="xs"
                             ),
-                            mermaid_block("tg-view", to_mermaid(view, marked=True)),
+                            mermaid_block("tg-view", to_mermaid(view, marked=True), legend=layer_chips(view)),
                             view_toolbar(
                                 ids.TG_VIEW_MD,
                                 ids.TG_VIEW_DRAWIO,
