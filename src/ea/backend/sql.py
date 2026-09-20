@@ -48,6 +48,11 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
     "governance": ["branch_review", "reviewer_assignment", "proposal"],
     "audit": ["change_log"],
+    # The store creates the schema and never a table in it. What lands here is put there
+    # from outside — a platform job writing Postgres, or a catalogue table replicated into
+    # it — and the application's contract with a source is the shape of the table, nothing
+    # more (decision 0020).
+    "landing": [],
 }
 TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t in tables}
 
@@ -55,6 +60,11 @@ TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t
 def schemas(prefix: str) -> list[str]:
     """Every schema of a store, in the order the search path reads them."""
     return [f"{prefix}_{group}" for group in SCHEMA_GROUPS]
+
+
+def landing_schema(prefix: str) -> str:
+    """Where a source's rows wait to be read. The one schema the store does not own."""
+    return f"{prefix}_landing"
 
 
 def schema_of(table: str, prefix: str) -> str:

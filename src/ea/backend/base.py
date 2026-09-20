@@ -247,6 +247,23 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]: ...
 
+    # -------------------------------------------------------------- landing
+    @abstractmethod
+    def landing_tables(self) -> list[str]:
+        """The tables waiting in the landing schema, which the store creates and never fills.
+
+        What puts rows there is outside the application — a platform job writing Postgres, or a
+        catalogue table replicated into it. The contract with a source is the shape of the
+        table and nothing else (decision 0020)."""
+
+    @abstractmethod
+    def read_landing(self, table: str, limit: int, offset: int) -> pd.DataFrame:
+        """One page of a landing table, in the order the source wrote it."""
+
+    @abstractmethod
+    def clear_landing(self, table: str) -> int:
+        """Empty a landing table once its rows are loaded. Returns how many rows went."""
+
     # ------------------------------------------------------------------ sql
     @abstractmethod
     def query(

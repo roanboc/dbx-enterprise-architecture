@@ -219,3 +219,25 @@ Markdown descriptions survive the trip, fenced Mermaid diagrams included: commas
 newlines inside a quoted cell are what CSV is for. Two things to know before editing the file in
 a spreadsheet — Excel caps a cell at 32,767 characters, and it re-saves using the list separator
 of the machine that saved it, which is where `delimiter` comes in.
+
+## Feeds: the same load, from a table
+
+A source that runs on a schedule does not upload a file. It leaves rows in the **landing
+schema** of the store's own database — `<EA_SCHEMA>_landing`, which the application creates and
+never fills — and the application loads them through the same validation, the same report, the
+same identity rules and the same branch targeting a file gets.
+
+What puts the rows there is outside the application: a platform job writing to Postgres, or a
+catalogue table replicated into it. **The contract with a source is the shape of the table**,
+which is this document's columns, and nothing else. The application never reaches into a
+catalogue, which is why a feed costs no new dependency, resource, identity or grant
+(decision 0020) — and why the same feed works against DuckDB locally.
+
+A feed names the landing table holding its elements, its relationships and its links, and
+carries the same mapping a file import would use, so `id_prefix`, `match_on`, `deletion_mode`
+and the column renames are said once whichever way the rows arrive.
+
+Rows are emptied **after** they are loaded, and only when the load succeeded. A run that stops
+between the two repeats itself next time, and repeating a load changes nothing the first did
+not already change; clearing first would have lost them. A feed reading a table something else
+maintains — a replicated catalogue table — is configured to leave it alone.
