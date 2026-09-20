@@ -37,8 +37,13 @@ A further pack lands beside them with the same shape.
 **Watch the commas.** A `description:` inside a `{...}` flow mapping ends at
 the first comma, and the rest becomes a key of its own that the engine keeps in
 `properties` without a word. Quote any description that carries one —
-`description: 'A, B'` — and `tests/test_second_pack.py` fails a shipped pack
-that does not.
+`description: 'A, B'`.
+
+Loading a file says so when it sees the shape — an empty property whose key
+reads like prose — on `ea load-pack`, in the log, and on the Metamodel page's
+**Load YAML file…**. It is a warning, not a refusal: only the author can say
+whether the key was meant. `tests/test_second_pack.py` fails a **shipped** pack
+that does it.
 
 ## File shape (`metamodel.yaml`)
 

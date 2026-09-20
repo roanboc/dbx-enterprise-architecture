@@ -131,3 +131,63 @@ def test_no_pack_ships_a_description_yaml_quietly_split_into_keys(pack, archimat
             if v is None and " " in str(k)
         ]
         assert not stray, f"{shipped.id}: a description was split at a comma: {stray}"
+
+
+def test_a_split_description_is_reported_rather_than_swallowed():
+    """The warning an adopter gets when their own pack does what both shipped packs did."""
+    from ea.metamodel.loader import suspect_split_descriptions
+
+    pack = pack_from_dict(
+        {
+            "pack": {"id": "p", "name": "P"},
+            "element_types": [
+                {
+                    "id": "thing",
+                    "name": "Thing",
+                    "description": "A thing",
+                    # what YAML makes of `description: A thing, and more` in a flow mapping
+                    "and more": None,
+                }
+            ],
+        }
+    )
+    (line,) = suspect_split_descriptions(pack)
+    assert "element type thing" in line and "'and more'" in line
+    assert "split at a comma" in line
+
+
+def test_a_property_the_engine_simply_does_not_know_is_not_reported():
+    """The engine keeps what it does not understand; only a key that reads like prose is suspect."""
+    from ea.metamodel.loader import suspect_split_descriptions
+
+    pack = pack_from_dict(
+        {
+            "pack": {"id": "p", "name": "P"},
+            "element_types": [{"id": "thing", "name": "Thing", "owner_team": "platform", "retired_on": None}],
+        }
+    )
+    assert suspect_split_descriptions(pack) == []
+
+
+def test_loading_a_file_logs_what_looks_mis_typed(tmp_path, caplog):
+    import logging
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        "pack: {id: p, name: P}\n"
+        "element_types:\n"
+        "  - {id: thing, name: Thing, description: A thing, and more}\n",
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.WARNING, logger="ea.metamodel.loader"):
+        load_pack(bad)
+    assert any("split at a comma" in r.getMessage() for r in caplog.records)
+
+
+def test_the_shipped_packs_load_without_a_warning(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="ea.metamodel.loader"):
+        load_pack(ARCHIMATE)
+        load_pack(ROOT / "packs" / "higher_education" / "metamodel.yaml")
+    assert [r for r in caplog.records] == []

@@ -26,7 +26,7 @@ from dash import ctx as dash_ctx
 
 from ea.metamodel import Registry, pack_to_dict, pack_yaml
 from ea.metamodel.diff import PackDiff
-from ea.metamodel.loader import pack_from_dict
+from ea.metamodel.loader import pack_from_dict, suspect_split_descriptions
 from ea.models import ANY, ATTRIBUTE_TYPES, ConflictError, Forbidden, NotFoundError, Pack, PackVersion
 from ea.services.roles import a_role
 from ea.ui import graph as gp
@@ -1965,11 +1965,18 @@ def register(app: dash.Dash) -> None:
         try:
             _, b64 = contents.split(",", 1)
             data = yaml.safe_load(base64.b64decode(b64).decode("utf-8")) or {}
-            pack = ctx.metamodels.save(pack_from_dict(data), ctx.actor)
+            read = pack_from_dict(data)
+            suspect = suspect_split_descriptions(read)
+            pack = ctx.metamodels.save(read, ctx.actor)
         except (OSError, ValueError, KeyError, yaml.YAMLError, ConflictError, Forbidden) as exc:
             return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 6
         message = f"Loaded {pack.ref} ({pack.status}) from {filename}."
         colour = "green"
+        if suspect:
+            # The file loaded; something in it looks mis-typed, and saying nothing would
+            # leave half a description in a property nobody reads.
+            message += f" {len(suspect)} value(s) look mis-typed: " + " ".join(suspect[:3])
+            colour = "yellow"
         org = ctx.organisation()
         if org.pack_ref != pack.ref:
             try:

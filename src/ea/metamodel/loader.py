@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import yaml
 
 from ea.models import ANY, AttributeDef, AttributeGroup, Domain, ElementType, Pack, RelationshipType, slugify
+
+log = logging.getLogger(__name__)
 
 # Keys of an attribute a pack may set and the engine reads; anything else under an attribute
 # is unknown to the engine and travels in `properties`, so a framework loses nothing by
@@ -261,10 +264,48 @@ def _every_attribute(pack: Pack) -> list[AttributeDef]:
     return out
 
 
+def suspect_split_descriptions(pack: Pack) -> list[str]:
+    """Properties that look like a description YAML split at a comma, one sentence each.
+
+    Inside a `{...}` flow mapping, `description: A, B` ends the value at the comma and makes
+    `B` a key of its own. The engine's rule that what it does not understand is kept in
+    `properties` then carries the rest of the sentence silently, so a pack loses half a
+    description and says nothing. Both shipped packs had one.
+
+    A property whose key reads like prose — it has a space in it — and whose value is empty
+    is what that looks like. Nothing else legitimately writes one, so it is worth a warning;
+    it stays a warning rather than an error because only the author can say whether the key
+    was meant.
+    """
+    out: list[str] = []
+    for what, name, props in _properties_by_owner(pack):
+        for key, value in (props or {}).items():
+            if value is None and " " in str(key):
+                out.append(
+                    f"{what} {name}: the property {key!r} has no value and reads like prose — "
+                    f"a description was probably split at a comma. Quote it: description: '…, …'"
+                )
+    return out
+
+
+def _properties_by_owner(pack: Pack) -> list[tuple[str, str, dict[str, Any]]]:
+    out: list[tuple[str, str, dict[str, Any]]] = [("pack", pack.id, pack.properties)]
+    out += [("domain", d.id, d.properties) for d in pack.domains]
+    out += [("attribute group", g.id, g.properties) for g in pack.attribute_groups]
+    out += [("element type", t.id, t.properties) for t in pack.element_types]
+    out += [("relationship type", r.id, r.properties) for r in pack.relationship_types]
+    out += [("attribute", a.name, a.properties) for a in _every_attribute(pack)]
+    return out
+
+
 def load_pack(path: str | Path) -> Pack:
+    """A pack read from a file, with anything that looks mis-typed logged rather than swallowed."""
     with open(path, encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    return pack_from_dict(data)
+    pack = pack_from_dict(data)
+    for line in suspect_split_descriptions(pack):
+        log.warning("%s: %s", path, line)
+    return pack
 
 
 def _clean(d: dict[str, Any], drop: tuple[str, ...] = ()) -> dict[str, Any]:

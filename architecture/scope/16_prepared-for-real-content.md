@@ -146,7 +146,8 @@ the same services, and that neither organisation sees the other's rows.
 | 4 | The other five reads bounded | `src/ea/services/metamodel.py` (and `CompatibilityReport`'s counts), `health.py`, `target.py`, `src/ea/agent/proposal.py`; `offset` on `find_relationships` | Built 2026-09-20 |
 | 5 | Attribute groups as a vocabulary | `AttributeGroup` in `src/ea/models.py`; `resolve_attribute_groups()` in the loader; `Registry.groups_in_order()`; `meta_attribute_group` in the store; the fifth list and the group select on the Metamodel page; the element page's order; the pack diff | Built 2026-09-20 |
 | 6 | The second worked pack | `packs/archimate_core/metamodel.yaml`; `packs/README.md` | Built 2026-09-20 |
-| 7 | The suite | `tests/test_capacity.py` (20), `tests/test_attribute_groups.py` (12), `tests/test_second_pack.py` (7); the updates to `test_element_page.py` and `test_metamodel_page.py` | Built 2026-09-20 |
+| 7 | The mis-typed description, reported | `suspect_split_descriptions()` in `src/ea/metamodel/loader.py`, logged by `load_pack()`, printed by `ea load-pack` and shown by the Metamodel page's YAML upload | Built 2026-09-20 |
+| 8 | The suite | `tests/test_capacity.py` (20), `tests/test_attribute_groups.py` (12), `tests/test_second_pack.py` (11); the updates to `test_element_page.py` and `test_metamodel_page.py` | Built 2026-09-20 |
 
 ## In scope / out of scope
 
@@ -158,6 +159,7 @@ the same services, and that neither organisation sees the other's rows.
 | A traversal answered by the store without building the graph | Precomputing what each element reaches — decision 0016 already refused it |
 | A declared vocabulary for attribute groups, edited and picked from a list | Grouping a **relationship's** attributes, which are still read as one list |
 | A second worked pack in a different framework | A third, and any content in the second: `archimate_core` ships empty |
+| A warning wherever a pack file is loaded, for a description YAML split at a comma | A general lint of a pack file: this reports one shape, the one that bit both shipped packs |
 | The Health page showing the model's size against the capacity | Bounding what the Impact page *shows* once the answer is bounded |
 
 ## Gap notes
@@ -187,9 +189,12 @@ the same services, and that neither organisation sees the other's rows.
   key the engine kept in `properties` without a word — the "keep what you do not
   understand" rule hiding a data defect. Five descriptions were affected across
   the two packs, one of them pre-existing in `higher_education`. All are quoted
-  now and `tests/test_second_pack.py` fails a shipped pack that does it again.
-  Nothing warns an **adopter** whose own pack does it; a loader warning would be
-  its own small piece of work.
+  now; `suspect_split_descriptions()` reports the shape wherever a file is
+  loaded, and `tests/test_second_pack.py` fails a shipped pack that does it
+  again. The check is deliberately narrow — an empty property whose key has a
+  space in it — so a pack that writes an empty flag the engine does not know is
+  left alone. A description split at a comma **inside** a quoted block, or one
+  whose tail happens to be a single word, still goes unnoticed.
 - **`ASM6`'s horizon is not a date.** "While this moves from prototype to real
   heavy work" is the Requester's phrase and is not something a validator can
   check. `GAP18` carried it; now that it is closed, the figures in

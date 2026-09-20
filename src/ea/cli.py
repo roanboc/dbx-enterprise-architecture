@@ -205,12 +205,16 @@ def load_pack_cmd(
     is, and a file that differs from it is refused: give the file a new version.
     """
     from ea.metamodel import load_pack
+    from ea.metamodel.loader import suspect_split_descriptions
     from ea.services import MetamodelService, OrganisationService
 
     require("edit_metamodel", what="load a metamodel pack")
     _, backend, *_ = _ctx()
-    p = MetamodelService(backend).save(load_pack(path), "cli")
+    loaded = load_pack(path)
+    p = MetamodelService(backend).save(loaded, "cli")
     typer.echo(f"pack '{p.id}' version {p.version} loaded ({p.status})")
+    for line in suspect_split_descriptions(loaded):
+        typer.echo(f"  warning: {line}")
     if apply:
         orgs = OrganisationService(backend)
         org = orgs.current()
