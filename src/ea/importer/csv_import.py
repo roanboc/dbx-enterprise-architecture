@@ -313,10 +313,10 @@ def build_elements(
                 description_md=rec.get("description") or "",
                 status=status,
                 lifecycle_status=rec.get("lifecycle_status") or "",
-                source_system=source_system,
+                source_system=rec.get("source_system") or source_system,
                 source_ref=rec.get("source_ref") or eid,
                 attrs=attrs,
-                origin=rec.get("origin") or f"import:{source_system}",
+                origin=rec.get("origin") or f"import:{rec.get('source_system') or source_system}",
                 **_states(rec, mapping, report, i, fname, eid),
             )
             for j, url in enumerate(u for u in _SPLIT_LINKS.split(rec.get("links") or "") if u):
@@ -398,7 +398,8 @@ def build_relationships(
                     status = "draft"
                     attrs["validation"] = iss.code
                 report.add_issue(iss)
-            rid = relationship_key(source_system, rt.id, src, dst, qualifier)
+            rsource = rec.get("source_system") or source_system
+            rid = relationship_key(rsource, rt.id, src, dst, qualifier)
             if rid in rels:
                 report.add_issue(
                     Issue(
@@ -419,8 +420,8 @@ def build_relationships(
                 qualifier=qualifier,
                 attrs=attrs,
                 status=status,
-                origin=f"import:{source_system}",
-                source_system=source_system,
+                origin=f"import:{rsource}",
+                source_system=rsource,
                 source_ref=rec.get("source_ref") or "",
                 **_states(rec, mapping, report, i, fname, f"{src}->{dst}"),
             )
@@ -487,6 +488,26 @@ def build_links(
     return links
 
 
+def _one_per_url(links: list[Link]) -> list[Link]:
+    """One link per URL, in the order they arrived, keeping the one that carries a label.
+
+    The same URL reaches an element twice whenever a source states it both in the elements
+    file's `links` column and in the links file — which is exactly what an export of this
+    repository's own content does, since it writes both. Two identical rows is never what
+    either file meant.
+    """
+    out: dict[str, Link] = {}
+    for ln in links:
+        kept = out.get(ln.url)
+        if kept is None:
+            out[ln.url] = ln
+        elif not (kept.label or "") and (ln.label or ""):
+            kept.label = ln.label
+    for i, ln in enumerate(out.values()):
+        ln.sort_order = i
+    return list(out.values())
+
+
 def _write_links(
     backend: DatabaseBackend, links: list[Link], imported: set[str], actor: str, report: ImportReport
 ) -> None:
@@ -502,6 +523,7 @@ def _write_links(
     for ln in links:
         by_el.setdefault(ln.element_id, []).append(ln)
     for eid, lns in by_el.items():
+        lns = _one_per_url(lns)
         to_write = lns
         if eid not in imported:
             fresh = {ln.url: ln for ln in lns}

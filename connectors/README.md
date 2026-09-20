@@ -25,7 +25,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `target_state` | what the organisation intends: `undecided` (default), `keep`, `new`, `change`, `decommission`, `merge` |
 | `target_work_package` | the id of the work package (initiative) that carries the change |
 | `target_note` | why, and into what for `merge` |
-| `source_ref`, `origin` | optional provenance overrides |
+| `source_ref`, `origin`, `source_system` | optional provenance overrides; `source_system` overrides `--source` for that row |
 | anything else | an attribute; declared attributes are typed from the pack, others are kept as text |
 
 **relationships.csv**
@@ -37,9 +37,13 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `qualifier` | role qualifier where the type declares one (`Data Steward`) |
 | `current_state`, `target_state`, `target_work_package`, `target_note` | the same state columns as elements, optional |
 | `status`, `source_ref` | optional |
+| `source_system` | which source declared the edge; optional, and it overrides `--source` for that row. A relationship's identity is derived from it, so a file that carries it updates the edge instead of creating a second one |
 | anything else | an attribute of the relationship |
 
 **links.csv**: `element_id`, `url`, `label`.
+
+The same URL stated twice for one element — inline in `links` and again in the links file —
+lands once, keeping the labelled one.
 
 A links file loaded on its own **adds** to what an element already has: what is stored
 stays, a URL sent again may carry a new label, and the rest is appended. An element
@@ -110,3 +114,20 @@ file was really written with instead of blaming the id column.
 
 The Import page takes a mapping YAML of your own as well as the two that ship with the
 repository; an uploaded mapping overrides the choice in the dropdown.
+
+## Getting content back out
+
+`uv run ea export <dir>` writes the current organisation and branch as the same three files,
+and the Import page has **Download current content** beside the template. What comes out goes
+back in: an export re-imported lands on the same elements and the same edges rather than beside
+them, so the cheapest way to correct a thousand rows is to export them, fix the column in a
+spreadsheet, and import the file again.
+
+`elements.csv` is written as **one wide file** — the core columns above, then a column for every
+attribute any exported element carries, whether the pack declares it or not. A row leaves the
+cells that do not apply to its type blank, which is what the importer already reads.
+
+Markdown descriptions survive the trip, fenced Mermaid diagrams included: commas, quotes and
+newlines inside a quoted cell are what CSV is for. Two things to know before editing the file in
+a spreadsheet — Excel caps a cell at 32,767 characters, and it re-saves using the list separator
+of the machine that saved it, which is where `delimiter` comes in.

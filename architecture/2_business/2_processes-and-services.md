@@ -97,7 +97,7 @@ flowchart LR
   p3("⚙ Answer an architecture question [BPROC3]"):::business
   p4("⚙ Analyse a work package [BPROC4]"):::business
   p6("⚙ Watch the model's health [BPROC6]"):::business
-  ingest(["⬮ CSV ingestion [ASVC3]"]):::application
+  ingest(["⬮ CSV ingestion and extraction [ASVC3]"]):::application
   branches(["⬮ Branches and merge [ASVC7]"]):::application
   propose(["⬮ Propose [ASVC9]"]):::application
   ask(["⬮ Grounded question answering [ASVC5]"]):::application
@@ -131,7 +131,7 @@ flowchart LR
 | `BPROC2.3` | ⚙ «Business Process» Request a review | `BPROC2.4` | ⚙ «Business Process» Review a branch | triggers | |
 | `BPROC2.4` | ⚙ «Business Process» Review a branch | `BPROC2.5` | ⚙ «Business Process» Merge to main | triggers | when approved |
 | `BPROC2.4` | ⚙ «Business Process» Review a branch | `BPROC2.1` | ⚙ «Business Process» Draft on a branch | triggers | when sent back |
-| `BPROC1` | ⚙ «Business Process» Load content from a source | `ASVC3` | ⚙ «Application Service» CSV ingestion | served by | |
+| `BPROC1` | ⚙ «Business Process» Load content from a source | `ASVC3` | ⚙ «Application Service» CSV ingestion and extraction | served by | |
 | `BPROC2` | ⚙ «Business Process» Change the model | `ASVC7` | ⚙ «Application Service» Branches and merge | served by | |
 | `BPROC2.2` | ⚙ «Business Process» Hand in a proposal | `ASVC9` | ⚙ «Application Service» Propose | served by | |
 | `BPROC2.4` | ⚙ «Business Process» Review a branch | `ASVC7` | ⚙ «Application Service» Branches and merge | served by | the review is part of the branch service |

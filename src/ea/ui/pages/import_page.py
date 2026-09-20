@@ -15,7 +15,7 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, dcc, html, no_update
 
 from ea.config import ROOT
-from ea.importer import Mapping, import_frames, load_mapping, mapping_from_text
+from ea.importer import Mapping, export_archive, import_frames, load_mapping, mapping_from_text
 from ea.importer.csv_import import CsvShapeError, read_csv_text
 from ea.models import Forbidden, Issue
 from ea.services.roles import a_role
@@ -110,8 +110,18 @@ def render(ctx: AppContext) -> html.Div:
                                     variant="light",
                                     leftSection=icon("tabler:download"),
                                 ),
+                                dmc.Button(
+                                    "Download current content",
+                                    id=ids.IM_EXPORT,
+                                    variant="light",
+                                    leftSection=icon("tabler:database-export"),
+                                ),
                                 dmc.Text(
-                                    "The template ZIP follows the no-mapping CSV contract in connectors/README.md. Or from the command line: `uv run ea import <dir> --source ea-tool --mapping connectors/tool-export/mapping.yaml`.",
+                                    "The template ZIP is the empty contract; the content ZIP is this "
+                                    "organisation and branch written out in the same three files. Edit "
+                                    "either in a spreadsheet and drop it back here — an export re-imports "
+                                    "onto the same elements and edges rather than beside them. From the "
+                                    "command line: `uv run ea export <dir>` and `uv run ea import <dir>`.",
                                     size="xs",
                                     c="dimmed",
                                 ),
@@ -416,6 +426,20 @@ def register(app: dash.Dash) -> None:
         store = dict(store or {})
         store.pop(trigger.get("name"), None)
         return store, _file_list(store)
+
+    @app.callback(
+        Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Input(ids.IM_EXPORT, "n_clicks"),
+        prevent_initial_call=True,
+        running=[(Output(ids.IM_EXPORT, "loading"), True, False)],
+    )
+    def export_content(n):
+        """This organisation and branch as the three contract files, ready to re-import."""
+        if not n:
+            return no_update
+        ctx = get_context()
+        name = f"ea-content-{ctx.branch()}.zip"
+        return dcc.send_bytes(export_archive(ctx.backend, ctx.registry), name, type="application/zip")
 
     @app.callback(
         Output(ids.IM_MAP_STORE, "data"),

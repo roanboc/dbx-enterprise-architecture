@@ -82,7 +82,7 @@ flowchart TB
   ask(["⬮ Grounded question answering [ASVC5]"]):::application
   branches(["⬮ Branches and merge [ASVC7]"]):::application
   propose(["⬮ Propose [ASVC9]"]):::application
-  ingest(["⬮ CSV ingestion [ASVC3]"]):::application
+  ingest(["⬮ CSV ingestion and extraction [ASVC3]"]):::application
   meta(["⬮ Metamodel management [ASVC1]"]):::application
   reader -->|reads| browse
   reader -->|asks| ask
@@ -153,7 +153,7 @@ flowchart LR
 | `ROLE2` | ⚉ «Business Role» Architect | `ASVC2` | ⬮ «Application Service» Element browsing and editing | uses | writes on a branch |
 | `ROLE2` | ⚉ «Business Role» Architect | `ASVC7` | ⬮ «Application Service» Branches and merge | uses | creates, drafts, requests review, merges when approved |
 | `ROLE2` | ⚉ «Business Role» Architect | `ASVC9` | ⬮ «Application Service» Propose | uses | |
-| `ROLE2` | ⚉ «Business Role» Architect | `ASVC3` | ⬮ «Application Service» CSV ingestion | uses | onto a branch |
+| `ROLE2` | ⚉ «Business Role» Architect | `ASVC3` | ⬮ «Application Service» CSV ingestion and extraction | uses | onto a branch |
 | `ROLE3` | ⚉ «Business Role» Reviewer | `ASVC7` | ⬮ «Application Service» Branches and merge | uses | approves or sends back |
 | `ROLE1` | ⚉ «Business Role» Admin | `ASVC1` | ⬮ «Application Service» Metamodel management | uses | |
 | `ROLE5` | ⚉ «Business Role» Agent | `ASVC4` | ⬮ «Application Service» Graph query | uses | through the tools |

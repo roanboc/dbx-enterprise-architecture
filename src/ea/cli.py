@@ -301,6 +301,19 @@ def import_cmd(
     raise typer.Exit(code=0 if report.ok else 1)
 
 
+@app.command("export")
+def export_cmd(directory: Path):
+    """Write the current organisation and branch back out as the CSV contract, ready to re-import."""
+    from ea.importer import export_directory
+
+    _, backend, registry, *_ = _ctx()
+    counts = export_directory(backend, registry, directory)
+    typer.echo(
+        f"{directory}: elements {counts['elements']}, relationships {counts['relationships']},"
+        f" links {counts['links']}"
+    )
+
+
 @app.command()
 def validate(
     directory: Path,

@@ -23,6 +23,7 @@ CORE_ELEMENT_COLUMNS = (
     "links",
     "source_ref",
     "origin",
+    "source_system",
     *STATE_COLUMNS,
 )
 CORE_RELATIONSHIP_COLUMNS = (
@@ -32,6 +33,10 @@ CORE_RELATIONSHIP_COLUMNS = (
     "qualifier",
     "status",
     "source_ref",
+    # A relationship's identity is derived from the source system that declared it, so a file
+    # that carries it re-imports onto the same edge instead of creating a second one. That is
+    # what makes an export of this repository's own content a round trip.
+    "source_system",
     *STATE_COLUMNS,
 )
 CORE_LINK_COLUMNS = ("element_id", "url", "label")
