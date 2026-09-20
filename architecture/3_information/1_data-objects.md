@@ -51,7 +51,7 @@ flowchart LR
 | ID | Domain | Owner | Holds |
 | -- | ------ | ----- | ----- |
 | `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; `higher_education` today |
-| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements once the institution's full export is loaded; 47 in the sample |
+| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements in the curriculum slice and 47 in the sample; the institution's estate is a hundred thousand elements and several hundred thousand relationships, which the store holds and answers (assessment `ASM6`, decisions 0016 to 0018) |
 | `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log |
 
 ## Objects
@@ -161,8 +161,10 @@ the one an organisation applies is loaded by name.
 Traversals (`neighbours`, `trace`, `impact`) are one recursive query over
 `relationship` that visits a node once rather than once per path that reaches
 it — so a cycle ends of itself and a hub does not multiply — over both ends of
-an edge indexed, plus an in-process cache of the graph for the app; the whole
-institutional graph fits in memory (assessment `ASM6`).
+an edge indexed. The app also keeps an in-process cache of the whole graph,
+which a traversal still builds even though the store answers it — **pending
+initiative 16**, which bounds it to the size the application declares it is
+built for (assessment `ASM6`, decision 0019).
 
 ## Classification and retention
 

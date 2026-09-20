@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Accepted, 2026-09-05; the platform store superseded by [0013](./0013-lakebase-not-the-lakehouse.md) — Lakebase, not Delta. **Touches:** `ACMP2`, `ACMP3`, `DOBJ2`.
+**Status:** Accepted, 2026-09-05; the platform store superseded by [0013](./0013-lakebase-not-the-lakehouse.md) — Lakebase, not Delta; the traversal moved into the store by [0016](./0016-a-walk-not-an-enumeration.md), and the size this record assumes restated by [0019](./0019-the-size-the-application-declares.md). **Touches:** `ACMP2`, `ACMP3`, `DOBJ2`.
 
 ## Context
 

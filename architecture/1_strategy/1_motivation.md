@@ -4,7 +4,8 @@ _[← Strategy layer](./README.md) · [EA home](../README.md)_
 
 **Status: `◐` draft catalogue** — written from the owner's business case, the
 review of 2026-09-05 and the owner's decisions in that conversation; `ASM7` and
-`P8` added by initiative 2 on the same day; the views moved to the top on
+`P8` added by initiative 2 on the same day; `ASM9` by initiative 15; `ASM6`
+restated with its horizon by initiative 16; the views moved to the top on
 2026-09-06. It is
 validated at the **Direction** gate with the owner and the information
 architect (see [scope/1_curriculum-poc.md](../scope/1_curriculum-poc.md)).
@@ -71,7 +72,7 @@ flowchart LR
   drv4{{"✳ Openness [DRV4]"}}:::motivation
   asm2["⌕ Genie Ontology is not a graph [ASM2]"]:::motivation
   asm5["⌕ The metamodel changes [ASM5]"]:::motivation
-  asm6["⌕ Content is small and largely draft [ASM6]"]:::motivation
+  asm6["⌕ Content is small today, and the estate is not [ASM6]"]:::motivation
   asm7["⌕ Architects read diagrams, not graph layouts [ASM7]"]:::motivation
   asm8["⌕ A warehouse is not an application store [ASM8]"]:::motivation
   asm9["⌕ A metamodel change has nowhere to be tried [ASM9]"]:::motivation
@@ -110,7 +111,7 @@ flowchart LR
 | `ASM3` | **Clone and OCC are not git** — Delta clones cannot be merged back and optimistic concurrency only detects same-table races | Proposals need an explicit change-set model with base versions and recorded approval, deferred past the PoC |
 | `ASM4` | **Most types are mastered elsewhere** — about 80 % of the institution's active types are mirrored or enriched, not authored | Every type will carry a source-of-record and mirrored / authored / enriched semantics; the PoC treats the institution's existing content as the source for everything |
 | `ASM5` | **The metamodel changes** — 27 active and 32 inactive types, instances still present for inactive ones, ANY-targeted and role-qualified relationships | The metamodel is data (a pack), never a fixed schema |
-| `ASM6` | **Content is small and largely draft** — about 4,600 elements across 59 types, many not approved | DuckDB and an in-process graph are enough; no warehouse traversal per click |
+| `ASM6` | **Content is small today, and the estate is not** — the curriculum slice is about 4,600 elements across 59 types, many not approved, and every answer below holds at that size; the institution's estate is a hundred thousand elements and several hundred thousand relationships, which the repository reaches over the months it takes to go from prototype to real work (adopted — the Requester's figure and the horizon stated with it on 2026-09-20) | DuckDB and an in-process graph are enough at the slice's size. The application must **declare the size it is built for** rather than assume it, and read that figure where it would otherwise read the whole model (decision 0019, pending initiative 16); above it a traversal is answered by the store, which already holds the estate (decisions 0016 to 0018) |
 | `ASM7` | **Architects read diagrams, not graph layouts** — a force-directed graph answers a query but is not an architecture diagram; a hand-drawn diagram that is the store is the current EA tool's problem | Views are generated from the model in an architecture notation; diagram editors are at most an export format (initiative 2) |
 | `ASM8` | **A warehouse is not an application store** — a SQL warehouse answers a statement in a round trip of seconds, binds a few hundred values, holds no constraints and no transaction across statements; an application that writes on every click needs the platform's transactional database (adopted — the reading behind the owner's instruction of 2026-09-11, Lakebase and not the lakehouse) | The store on Databricks is Lakebase, the platform's Postgres (decision 0013); the lakehouse reads it through Unity Catalog where a projection is wanted (plateau `PLAT5`) |
 | `ASM9` | **A metamodel change has nowhere to be tried** — one definition of the metamodel is edited in place, so a new type or a new attribute reaches every reader the moment it is saved; the alternative is a second environment, a platform cost architecture work does not carry (adopted — the reading of how a type or an attribute is changed today) | The metamodel is kept in versions with a lifecycle, and the content is partitioned into organisations, so a version is tried on a copy and applied once it checks out (decisions 0014 and 0015) |
@@ -179,7 +180,7 @@ flowchart TB
 | `DRV4` | ✳ «Driver» Openness | `G5` | ◎ «Goal» Reusable by any enterprise | influences | |
 | `ASM2` | ⚖ «Assessment» Genie Ontology is not a graph | `G1` | ◎ «Goal» Query the architecture sustainably | influences | the graph is explicit |
 | `ASM5` | ⚖ «Assessment» The metamodel changes | `G2` | ◎ «Goal» Metamodel is configuration | influences | |
-| `ASM6` | ⚖ «Assessment» Content is small and largely draft | `G3` | ◎ «Goal» One code base, local and Databricks | influences | DuckDB is enough to start |
+| `ASM6` | ⚖ «Assessment» Content is small today, and the estate is not | `G3` | ◎ «Goal» One code base, local and Databricks | influences | DuckDB is enough to start, at a stated size |
 | `ASM8` | ⚖ «Assessment» A warehouse is not an application store | `G3` | ◎ «Goal» One code base, local and Databricks | influences | Lakebase, not the lakehouse, on the platform |
 | `ASM9` | ⚖ «Assessment» A metamodel change has nowhere to be tried | `G2` | ◎ «Goal» Metamodel is configuration | influences | a version is tried on a copy before it is applied |
 | `G1` | ◎ «Goal» Query the architecture sustainably | `OUT1` | ◎ «Outcome» Curriculum model loaded and queried | realized by | |
