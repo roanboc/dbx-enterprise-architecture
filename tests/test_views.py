@@ -41,7 +41,7 @@ def test_mermaid_draws_the_elements_themselves_and_names_the_layer_colours(regis
     assert "-->|" in code
     assert len([ln for ln in code.splitlines() if ":::" in ln]) == len(view.nodes)
     legend = layer_legend(view)
-    assert legend.startswith("Filled by layer:") and "Application (blue)" in legend
+    assert legend.startswith("Filled by layer:") and "🟦 Application" in legend  # shown, not described
     assert [layer for layer in ("Business", "Application") if layer in legend] == ["Business", "Application"]
     assert layer_legend(view_from_ids(registry, graph, [], "empty")) == ""
     md = to_markdown(view)

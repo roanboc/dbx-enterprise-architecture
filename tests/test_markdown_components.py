@@ -47,3 +47,29 @@ def test_markdown_snippets_cover_basic_authoring_actions():
     assert "**" in MARKDOWN_SNIPPETS["bold"]
     assert "| Column |" in MARKDOWN_SNIPPETS["table"]
     assert MARKDOWN_SNIPPETS["mermaid"].startswith("```mermaid")
+
+
+def test_the_legend_above_a_diagram_is_a_chip_per_layer_in_that_layer_s_colour(registry, graph):
+    """The layers are not drawn as boxes, so the names the boxes carried are chips, not a sentence.
+
+    A reader matches a chip to a shape at a glance; a sentence naming a colour has to be
+    translated back into the picture before it is of any use.
+    """
+    from ea.ui.components import layer_chips, mermaid_block
+    from ea.views import view_from_neighbourhood
+    from ea.views.mermaid import LAYER_STYLE
+
+    view = view_from_neighbourhood(registry, graph, "LDC-CURR", 1)
+    chips = layer_chips(view)
+    labels = [c.children for c in chips.children]
+    assert labels == ["Business", "Application"]  # the layers this view draws, top to bottom
+    fills = [c.styles["root"]["backgroundColor"] for c in chips.children]
+    assert fills == [LAYER_STYLE["business"][0], LAYER_STYLE["application"][0]]
+    assert all(c.styles["root"]["color"] == "#333" for c in chips.children)  # readable on a pastel
+    assert layer_chips(None) is None
+
+    block = mermaid_block("test-view", "flowchart BT\n  a --> b\n", legend=chips)
+    holder = next(
+        n for n in _walk(block) if getattr(n, "id", None) == {"type": "mermaid-legend", "id": "test-view"}
+    )
+    assert holder.children is chips  # and a callback that redraws the diagram redraws them with it

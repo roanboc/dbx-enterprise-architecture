@@ -111,9 +111,11 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   Lakebase instance with `make test-live`. `views/` renders a part of the
   model as Mermaid or draw.io from the pack's `notation`; nothing is drawn by
   hand and every shape carries an element identifier (principle `P8`). A
-  generated view draws no layer boxes: the layer is the fill colour, and
-  `layer_legend` says which colour is which, above the diagram and inside the
-  Mermaid source. `ui/graph.py`
+  generated view draws no layer boxes: the layer is the fill colour. On a screen
+  a chip per layer stands above the diagram in that layer's own colour
+  (`ui.components.layer_chips`); the exported Markdown and the diagram's own
+  source carry the same legend as a swatch and a name (`views.mermaid.layer_legend`),
+  which is as close as a text format comes to showing a colour. `ui/graph.py`
   is the one network-graph panel (grouping, layouts, pack colours);
   `assets/ea-views.js` lets a reader arrange a generated view without saving it. A module imports only from layers to its
   left; SQL lives in `backend/` only; framework and institution names live in

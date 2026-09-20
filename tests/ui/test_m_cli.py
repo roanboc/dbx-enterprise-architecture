@@ -607,7 +607,7 @@ def test_m10_view_mermaid(cli, record):
     group="M",
     title="view renders the same diagram as Markdown and as a draw.io file, and --out writes it",
     feature="Command line · view",
-    expected="`--fmt md` wraps the diagram in a titled Markdown section, under a line naming the colour of each layer it draws; `--fmt drawio --out` writes an mxfile and reports how much it holds.",
+    expected="`--fmt md` wraps the diagram in a titled Markdown section, under a line carrying a swatch and a name for each layer it draws; `--fmt drawio --out` writes an mxfile and reports how much it holds.",
 )
 def test_m11_view_formats(cli, record, tmp_path):
     rc, md, md_ev = run(cli, "view", ASSET, "--fmt", "md", limit=120)
@@ -628,8 +628,8 @@ def test_m11_view_formats(cli, record, tmp_path):
     intro = md.split("```")[0]
     check(
         record,
-        "a line above the diagram says which colour is which layer",
-        "Filled by layer:" in intro and "Application (blue)" in intro,
+        "a line above the diagram shows which colour is which layer",
+        "Filled by layer:" in intro and "🟦 Application" in intro,
         trim(next((ln for ln in intro.splitlines() if "Filled by layer" in ln), "(no such line)"), 160),
     )
     legend = md.split("```")[2]

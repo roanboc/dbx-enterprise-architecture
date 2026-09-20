@@ -16,6 +16,7 @@ from ea.ui.components import (
     element_anchor,
     icon,
     keep_selected_option,
+    layer_chips,
     mermaid_block,
     page_title,
     simple_table,
@@ -25,7 +26,7 @@ from ea.ui.components import (
 from ea.ui.context import AppContext, get_context
 from ea.views import view_from_impact
 from ea.views.drawio import to_drawio
-from ea.views.mermaid import layer_legend, to_markdown, to_mermaid
+from ea.views.mermaid import to_markdown, to_mermaid
 
 
 def _option(ctx: AppContext, e) -> dict[str, str]:
@@ -41,7 +42,7 @@ GRAPH_HOPS = 2  # the picture stays readable at two hops however far the tables 
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     preset = (parse_qs((search or "").lstrip("?")).get("element") or [None])[0]
     data = [_option(ctx, e) for e in ctx.repo.search(limit=50)]
-    result, elements, mermaid, legend = None, gp.EMPTY, "", ""
+    result, elements, mermaid, legend = None, gp.EMPTY, "", None
     if preset:
         e = ctx.backend.get_element(preset)
         if e:
@@ -172,7 +173,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
     try:
         res = ctx.graph.impact(element_id, depth)
     except NotFoundError:
-        return _unknown(element_id), gp.EMPTY, "", ""
+        return _unknown(element_id), gp.EMPTY, "", None
     e, c = res["element"], res["completeness"]
     summary = dmc.Paper(
         dmc.Stack(
@@ -237,7 +238,7 @@ def _result(ctx: AppContext, element_id: str, depth: int):
         ctx.registry, ctx.graph.neighbours(element_id, min(int(depth or 3), GRAPH_HOPS))
     )
     view = view_from_impact(ctx.registry, ctx.graph, res)
-    return html.Div([summary, tables]), elements, to_mermaid(view), layer_legend(view)
+    return html.Div([summary, tables]), elements, to_mermaid(view), layer_chips(view)
 
 
 def _graph_note(depth: int) -> str:

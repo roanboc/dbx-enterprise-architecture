@@ -32,6 +32,7 @@ from ea.ui.components import (
     keep_selected_option,
     kv_sections,
     kv_table,
+    layer_chips,
     markdown,
     markdown_editor,
     mermaid_block,
@@ -44,7 +45,7 @@ from ea.ui.context import AppContext, get_context
 from ea.ui.pages.target import current_badge, target_badge
 from ea.views import view_from_neighbourhood
 from ea.views.drawio import to_drawio
-from ea.views.mermaid import layer_legend, to_markdown, to_mermaid
+from ea.views.mermaid import to_markdown, to_mermaid
 
 QUALIFIER_HINT = "Only some relationship types declare qualifiers; the list fills when one does."
 
@@ -629,7 +630,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 height="70vh",
             ),
             dmc.Divider(my="md", label="Architecture view (generated from the model)", labelPosition="left"),
-            mermaid_block("el-view", to_mermaid(neighbourhood), legend=layer_legend(neighbourhood)),
+            mermaid_block("el-view", to_mermaid(neighbourhood), legend=layer_chips(neighbourhood)),
             view_toolbar(
                 ids.EL_VIEW_MD,
                 ids.EL_VIEW_DRAWIO,
@@ -961,7 +962,7 @@ def register(app: dash.Dash) -> None:
         return (
             gp.raw_from_subgraph(ctx.registry, ctx.graph.neighbours(element_id, d)),
             to_mermaid(view),
-            layer_legend(view),
+            layer_chips(view),
         )
 
     app.clientside_callback(

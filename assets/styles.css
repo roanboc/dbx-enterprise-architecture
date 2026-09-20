@@ -6,6 +6,13 @@
   position: relative;
   overflow: hidden;
 }
+.ea-mermaid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ea-mermaid-legend:empty { display: none; }
 .ea-mermaid-controls {
   position: absolute;
   top: 8px;

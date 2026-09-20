@@ -16,6 +16,8 @@ from dash import ctx as dash_ctx
 from ea.metamodel.registry import Registry
 from ea.models import Element, Issue
 from ea.ui import ids
+from ea.views.mermaid import LAYER_STYLE
+from ea.views.model import LAYER_TITLES, View
 
 # Colours come from the pack (a domain's `notation.colour` and `notation.hex`); these are the fallbacks.
 FALLBACK_COLOUR, FALLBACK_HEX = "gray", "#adb5bd"
@@ -462,16 +464,46 @@ SELECT_COLUMN = {
 metamodel's four lists. One definition, so ticking means the same thing on both."""
 
 
-def mermaid_block(block_id: str, code: str, arrangeable: bool = True, legend: str = "") -> html.Div:
+def layer_chips(view: View | None) -> Any:
+    """The legend above a generated diagram: one chip per layer it draws, in that layer's colour.
+
+    The shapes are filled by layer and no box is drawn around them
+    (`views.mermaid.to_mermaid`), so the names the boxes would have carried are here instead —
+    shown in the colour rather than described in words, because a reader matches a chip to a
+    shape at a glance and has to translate a sentence.
+    """
+    if view is None or not view.layers():
+        return None
+    return dmc.Group(
+        [
+            dmc.Badge(
+                LAYER_TITLES.get(layer, layer),
+                size="sm",
+                radius="sm",
+                variant="filled",
+                styles={
+                    "root": {
+                        "backgroundColor": LAYER_STYLE.get(layer, LAYER_STYLE["other"])[0],
+                        "border": f"1px solid {LAYER_STYLE.get(layer, LAYER_STYLE['other'])[1]}",
+                        "color": "#333",
+                    }
+                },
+            )
+            for layer in view.layers()
+        ],
+        gap=6,
+    )
+
+
+def mermaid_block(block_id: str, code: str, arrangeable: bool = True, legend: Any = None) -> html.Div:
     """A generated diagram: the Mermaid source (hidden), the rendered SVG in a pan-and-zoom viewport,
     and, when arrangeable, a store of the shape positions that the draw.io export honours.
 
-    `legend` is the line above the diagram that says what its colours mean — the layers are
-    filled, not boxed (`views.mermaid.to_mermaid`), so the names the boxes would have carried
-    are read here. A callback that redraws the diagram redraws this line with it.
+    `legend` is what stands above the diagram and says what its colours mean — the chips of
+    `layer_chips`. A callback that redraws the diagram redraws them with it.
     """
     children: list[Any] = [
-        dmc.Text(legend, id={"type": "mermaid-legend", "id": block_id}, size="xs", c="dimmed", mb=4),
+        html.Div(legend, id={"type": "mermaid-legend", "id": block_id}, className="ea-mermaid-legend"),
         html.Pre(code, id={"type": "mermaid-src", "id": block_id}, hidden=True),
         dcc.Store(id={"type": "mermaid-pos", "id": block_id}, data=None),
         dcc.Store(id={"type": "mermaid-view", "id": block_id}, data=None),

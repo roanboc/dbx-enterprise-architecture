@@ -21,10 +21,11 @@ architecture view in tabs of their own, and asked whether more than one
 organisation is the right shape or whether something better is available.
 
 Reading the first cut, the Requester added three more: a generated architecture
-view must not group its shapes into layer boxes, which spread the diagram —
-the colour per layer belongs in the line above it instead; an element type, a
-relationship type and an attribute must be deletable, not only deactivatable;
-and an element's attributes must be grouped, and read in those groups.
+view must not group its shapes into layer boxes, which spread the diagram — the
+layers belong above it instead, **shown in their colours rather than described
+in words**; an element type, a relationship type and an attribute must be
+deletable, not only deactivatable; and an element's attributes must be grouped,
+and read in those groups.
 
 ## Is more than one organisation the right shape?
 
@@ -165,9 +166,12 @@ kept and said to be unknown rather than dropped.
 shapes apart — Mermaid gives every box its own rank band and its own padding —
 so a view of a dozen elements spread over a page and the relationships, which
 are the point of it, ran half its width. The bands are gone, with the invisible
-links that held them in order; the layer is the fill colour, and the line above
-the diagram says which colour is which layer, in the application and in the
-exported Markdown. The draw.io export still draws its layers as swimlanes: it
+links that held them in order, and the layer is the fill colour. What the bands
+were labelled stands above the diagram instead: on a screen a chip per layer, in
+that layer's own colour, so a reader matches a chip to a shape rather than
+translating a sentence; in the exported Markdown and in the diagram's own source,
+a swatch and a name, which is as close as a text format comes to showing a
+colour. The draw.io export still draws its layers as swimlanes: it
 is a canvas to rework, where a group is easy to move and easy to delete.
 
 ## Work packages

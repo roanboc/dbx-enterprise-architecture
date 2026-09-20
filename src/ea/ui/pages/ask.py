@@ -16,6 +16,7 @@ from ea.ui.components import (
     element_anchor,
     element_href,
     icon,
+    layer_chips,
     markdown,
     mermaid_block,
     page_title,
@@ -25,7 +26,7 @@ from ea.ui.components import (
 )
 from ea.ui.context import AppContext, get_context
 from ea.views.drawio import to_drawio
-from ea.views.mermaid import layer_legend, to_mermaid
+from ea.views.mermaid import to_mermaid
 from ea.views.model import view_from_dict, view_to_dict
 
 EXAMPLES = [
@@ -189,7 +190,7 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
         views.append(
             _section(
                 v.title,
-                mermaid_block(f"ask-view-{i}", to_mermaid(v), legend=layer_legend(v)),
+                mermaid_block(f"ask-view-{i}", to_mermaid(v), legend=layer_chips(v)),
                 v.note
                 or (
                     "Generated from the model: every shape is an element you can open, filled by its layer."

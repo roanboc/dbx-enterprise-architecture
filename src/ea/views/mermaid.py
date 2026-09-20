@@ -30,16 +30,17 @@ LAYER_STYLE = {
     "implementation": ("#f8d7da", "#c0392b"),
     "other": ("#eeeeee", "#888888"),
 }
-# The same colours in words, for the line that stands in for the layer boxes.
-LAYER_COLOUR_NAMES = {
-    "motivation": "violet",
-    "strategy": "sand",
-    "business": "yellow",
-    "application": "blue",
-    "technology": "green",
-    "physical": "green",
-    "implementation": "red",
-    "other": "grey",
+# A swatch per layer for the line that stands in for the layer boxes: in a document, a
+# reader matches a colour to a shape at a glance and has to translate the word "blue".
+LAYER_SWATCH = {
+    "motivation": "🟪",
+    "strategy": "🟧",
+    "business": "🟨",
+    "application": "🟦",
+    "technology": "🟩",
+    "physical": "🟩",
+    "implementation": "🟥",
+    "other": "⬜",
 }
 # Mermaid node shapes by the pack's `shape` key.
 SHAPES = {
@@ -129,15 +130,15 @@ def layer_legend(view: View) -> str:
     """Which colour stands for which architecture layer, for the layers this view draws.
 
     The diagram fills every shape by its ArchiMate layer but draws no box around the layers
-    (`to_mermaid` says why), so what a box would have been labelled is said here instead, in
-    the line above the diagram and in the exported Markdown.
+    (`to_mermaid` says why), so what a box would have been labelled is carried here: a swatch
+    and the layer's name, in the exported Markdown and in the source of the diagram itself.
+    On a screen the same legend is drawn as chips in the layers' own colours
+    (`ui.components.layer_chips`), which is what a text format cannot do.
     """
     layers = view.layers()
     if not layers:
         return ""
-    named = ", ".join(
-        f"{LAYER_TITLES.get(layer, layer)} ({LAYER_COLOUR_NAMES.get(layer, 'grey')})" for layer in layers
-    )
+    named = ", ".join(f"{LAYER_SWATCH.get(layer, '⬜')} {LAYER_TITLES.get(layer, layer)}" for layer in layers)
     return f"Filled by layer: {named}."
 
 

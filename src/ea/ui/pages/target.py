@@ -15,6 +15,7 @@ from ea.ui import ids
 from ea.ui.components import (
     element_anchor,
     icon,
+    layer_chips,
     mermaid_block,
     page_title,
     simple_table,
@@ -24,7 +25,7 @@ from ea.ui.components import (
 from ea.ui.context import AppContext, get_context
 from ea.views import view_from_ids
 from ea.views.drawio import to_drawio
-from ea.views.mermaid import layer_legend, state_legend, to_markdown, to_mermaid
+from ea.views.mermaid import state_legend, to_markdown, to_mermaid
 
 
 def current_badge(state: str, size: str = "sm") -> dmc.Badge:
@@ -193,9 +194,7 @@ def _body(ctx: AppContext, work_package: str | None, only_changes: bool):
                             dmc.Text(
                                 legend or "Nothing changes in this scope.", size="xs", c="dimmed", mb="xs"
                             ),
-                            mermaid_block(
-                                "tg-view", to_mermaid(view, marked=True), legend=layer_legend(view)
-                            ),
+                            mermaid_block("tg-view", to_mermaid(view, marked=True), legend=layer_chips(view)),
                             view_toolbar(
                                 ids.TG_VIEW_MD,
                                 ids.TG_VIEW_DRAWIO,

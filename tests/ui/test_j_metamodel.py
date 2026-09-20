@@ -49,7 +49,7 @@ SUPER_GLYPH = "✤"  # nowhere in the shipped pack, so an inherited glyph names 
 DOMAIN_GLYPH = "✜"
 STEREOTYPE = "J Data Object"
 DOMAIN_COLOUR = "grape"
-UNUSED_LAYER = "physical"  # no active type is drawn in it, so a new band is the edit landing
+UNUSED_LAYER = "physical"  # no active type is drawn in it, so a chip for it is the edit landing
 NEW_TYPE_NAME = "J Saved Type"
 DELETED_TYPE = "measure"  # J21 deletes it from the draft: the sample model uses it, so the page warns
 NEW_DOMAIN = "j_domain"
@@ -517,9 +517,28 @@ def _await_preview(ui, needle: str) -> bool:
     return _await_label(ui, PREVIEW, needle)
 
 
-def _legend(ui, block: str) -> str:
-    """The line above a diagram that says which colour is which layer."""
-    return ui.text(_pm(id=block, type="mermaid-legend"))
+def _legend(ui, block: str) -> list[str]:
+    """The layers named above a diagram, lower-cased: a chip is a badge, drawn in capitals."""
+    return [
+        t.strip().lower()
+        for t in ui.page.locator(
+            f"{_pm(id=block, type='mermaid-legend')} .mantine-Badge-root"
+        ).all_inner_texts()
+        if t.strip()
+    ]
+
+
+def _legend_fill(ui, block: str, layer: str) -> str:
+    """The colour a layer's chip is filled with, as the browser resolves it."""
+    return (
+        ui.page.evaluate(
+            "([sel, name]) => { const chips = document.querySelectorAll(sel + ' .mantine-Badge-root');"
+            " for (const c of chips) { if ((c.innerText || '').trim().toLowerCase() === name) {"
+            " return getComputedStyle(c).backgroundColor; } } return ''; }",
+            [_pm(id=block, type="mermaid-legend"), layer.lower()],
+        )
+        or ""
+    )
 
 
 def _layer_class(ui, type_id: str) -> str:
@@ -1568,8 +1587,13 @@ def test_architecture_view(ui, record):
     legend = _legend(ui, "mm-view")
     ui.check(
         "the layers are named above the diagram rather than boxed inside it",
-        legend.startswith("Filled by layer:") and "Application (blue)" in legend,
-        legend or "(no legend line)",
+        "application" in legend and "business" in legend,
+        str(legend) or "(no legend chips)",
+    )
+    ui.check(
+        "and each is shown in the colour its shapes are filled with, not described in words",
+        _legend_fill(ui, "mm-view", "Application") == "rgb(194, 240, 255)",
+        _legend_fill(ui, "mm-view", "Application") or "(no chip for Application)",
     )
     ui.check("an inactive type is left out", "[gateway]" not in labels)
     ui.check(
@@ -1696,20 +1720,21 @@ def test_notation_layer_shape_and_stencil(ui, record):
     ui.must("the preview is drawn", ui.page.locator(f"{PREVIEW} svg").count() > 0)
     ui.must("the type override row is in the grid", _reveal(ui, "mm-notation-types-grid", TYPE))
     legend = _legend(ui, "mm-notation-preview")
-    ui.must(
-        "a line above the preview says which colour is which layer",
-        legend.startswith("Filled by layer:"),
-        legend,
-    )
+    ui.must("a chip above the preview names each layer it draws", bool(legend), str(legend))
     ui.check(
         "the type is drawn in the layer the pack gives it",
         _cell(ui, "mm-notation-types-grid", TYPE, "layer") == "application",
     )
-    ui.check("the layer it is in is named and coloured", "Application (blue)" in legend, legend)
+    ui.check(
+        "the layer it is in is named, in the colour it is filled with",
+        "application" in legend
+        and _legend_fill(ui, "mm-notation-preview", "Application") == "rgb(194, 240, 255)",
+        f"{legend} · {_legend_fill(ui, 'mm-notation-preview', 'Application')}",
+    )
     ui.check(
         "the shape is filled by that layer", "application" in _layer_class(ui, TYPE), _layer_class(ui, TYPE)
     )
-    ui.check("no type is drawn in the physical layer to begin with", "Physical" not in legend, legend)
+    ui.check("no type is drawn in the physical layer to begin with", "physical" not in legend, str(legend))
     _set_select(ui, "mm-notation-types-grid", TYPE, "layer", UNUSED_LAYER)
     ui.check(
         "the layer cell holds what was chosen",
@@ -1719,14 +1744,14 @@ def test_notation_layer_shape_and_stencil(ui, record):
         "the shape is refilled in the new layer", _await_class(ui, TYPE, UNUSED_LAYER), _layer_class(ui, TYPE)
     )
     ui.check(
-        "the line above the preview names the layer that appeared",
-        "Physical (green)" in _legend(ui, "mm-notation-preview"),
-        _legend(ui, "mm-notation-preview"),
+        "a chip for the layer that appeared is added above the preview",
+        "physical" in _legend(ui, "mm-notation-preview"),
+        str(_legend(ui, "mm-notation-preview")),
     )
     ui.check(
         "the type is still drawn, and nothing else moved",
-        f"[{TYPE}]" in _preview_text(ui) and "Application (blue)" in _legend(ui, "mm-notation-preview"),
-        _legend(ui, "mm-notation-preview"),
+        f"[{TYPE}]" in _preview_text(ui) and "application" in _legend(ui, "mm-notation-preview"),
+        str(_legend(ui, "mm-notation-preview")),
     )
     ui.shot("Changing a type's layer refills its shape and names the layer above the preview")
     was = _outline(ui, TYPE)
@@ -1774,8 +1799,8 @@ def test_notation_layer_shape_and_stencil(ui, record):
     )
     ui.check(
         "the preview is drawn from the stored version again",
-        "Physical" not in _legend(ui, "mm-notation-preview"),
-        _legend(ui, "mm-notation-preview"),
+        "physical" not in _legend(ui, "mm-notation-preview"),
+        str(_legend(ui, "mm-notation-preview")),
     )
 
 

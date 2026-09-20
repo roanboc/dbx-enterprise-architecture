@@ -36,6 +36,7 @@ from ea.ui.components import (
     SELECT_COLUMN,
     alert,
     icon,
+    layer_chips,
     mermaid_block,
     modal_title,
     page_title,
@@ -45,7 +46,7 @@ from ea.ui.components import (
 from ea.ui.context import AppContext, get_context
 from ea.views import view_from_metamodel
 from ea.views.drawio import STENCIL, to_drawio
-from ea.views.mermaid import SHAPES, layer_legend, to_markdown, to_mermaid
+from ea.views.mermaid import SHAPES, to_markdown, to_mermaid
 from ea.views.model import LAYER_ORDER, View, ViewNode, layer_rank
 
 _SELECT = "agSelectCellEditor"
@@ -862,7 +863,7 @@ def _view_panel(reg: Registry) -> Any:
             mermaid_block(
                 ids.MM_VIEW,
                 metamodel_view_code(reg, None, False),
-                legend=layer_legend(view_from_metamodel(reg, None, False)),
+                legend=layer_chips(view_from_metamodel(reg, None, False)),
             ),
             view_toolbar(
                 ids.MM_VIEW_MD,
@@ -915,7 +916,7 @@ def _notation_panel(ctx: AppContext, reg: Registry) -> Any:
             ),
             html.Div(notation_swatches(reg), id=ids.MM_NOTATION_SWATCHES),
             mermaid_block(
-                ids.MM_NOTATION_PREVIEW, notation_preview(reg), legend=layer_legend(notation_view(reg))
+                ids.MM_NOTATION_PREVIEW, notation_preview(reg), legend=layer_chips(notation_view(reg))
             ),
         ],
         gap="xs",
@@ -1555,7 +1556,7 @@ def register(app: dash.Dash) -> None:
     def redraw_view(domain, inactive, ref):
         reg = _shown(get_context(), ref)
         view = view_from_metamodel(reg, domain or None, bool(inactive))
-        return to_mermaid(view, direction="BT", legend=True), layer_legend(view)
+        return to_mermaid(view, direction="BT", legend=True), layer_chips(view)
 
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
@@ -2021,7 +2022,7 @@ def register(app: dash.Dash) -> None:
                 no_update,
             )
         view = notation_view(reg)
-        return to_mermaid(view, direction="LR"), layer_legend(view), None, notation_swatches(reg)
+        return to_mermaid(view, direction="LR"), layer_chips(view), None, notation_swatches(reg)
 
     @app.callback(
         Output(ids.MM_REVIEWERS_FEEDBACK, "children"),
