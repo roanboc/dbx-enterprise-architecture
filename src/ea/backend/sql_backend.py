@@ -1641,6 +1641,26 @@ class SqlBackend(DatabaseBackend):
             )
         return out
 
+    def elements_by_keys(self, keys: list[str]) -> list[Element]:
+        """The elements carrying these human keys, in one read per chunk.
+
+        What an import merging on the source's own key needs: the identity the store already
+        gave the thing, so a second load updates it rather than making another one."""
+        wanted = list(dict.fromkeys(k for k in keys if k))
+        if not wanted:
+            return []
+        out: list[Element] = []
+        for chunk in chunks(wanted, self.IN_CHUNK):
+            out.extend(
+                self._row_to_element(row)
+                for row in self._fetch_all(
+                    f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el "
+                    f"WHERE key IN ({self._marks(chunk)})",
+                    list(chunk),
+                )
+            )
+        return out
+
     def edges_among(self, ids: list[str]) -> list[Relationship]:
         """Every live relationship with both ends inside this set of elements."""
         wanted = list(dict.fromkeys(i for i in ids if i))

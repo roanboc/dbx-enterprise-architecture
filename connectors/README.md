@@ -92,8 +92,10 @@ A mapping YAML adapts a source's headers and vocabulary to the contract; see
 source_system: ea-tool
 encoding: utf-8-sig            # how the file is encoded
 delimiter: ","                 # the field separator; ";" for a spreadsheet saved in much of Europe
+id_prefix: "CMDB-"             # put in front of every identifier this source brings
 files: {elements: ["*.csv"], relationships: ["*relationship*.csv"], links: []}
 elements:
+  match_on: id                     # id (default) or key — which column carries this source's identity
   type_from_filename: false        # true = one file per type, type = file name
   columns: {ID: id, Name: name}    # source header -> contract column
   type_names: {Definition: business_definition}   # source type label -> pack type id
@@ -114,6 +116,28 @@ file was really written with instead of blaming the id column.
 
 The Import page takes a mapping YAML of your own as well as the two that ship with the
 repository; an uploaded mapping overrides the choice in the dropdown.
+
+## Which column is the identity
+
+Every identifier a source brings — the elements it declares, the endpoints of its
+relationships, the owners of its links, the work packages it names — goes through one rule,
+so the files cannot disagree about what a row is called.
+
+**`id_prefix`** is put in front of all of them. Two systems that both number their rows from
+one collide on `1001` without it, and the second load silently overwrites the first. With
+`id_prefix: "CMDB-"` the element becomes `CMDB-1001`, while `source_ref` keeps `1001` — the
+prefix is the repository's business, not the source's.
+
+**`match_on`** says which column carries the identity the source is merged on:
+
+| | What it means |
+| ---- | ---- |
+| `id` (default) | The `id` column becomes the element id, prefixed. Right when the source has a stable surrogate key |
+| `key` | The `key` column is what the source system knows the row by (`DT007`). An element the repository already holds under that key **keeps the identity it was given**, so a reload updates it however the source has renumbered its `id` column; anything new is created as `<id_prefix><key>`. Endpoints and link owners in the other files are keys too |
+
+Nothing makes a key unique. A key that names two elements is reported as `ambiguous_key` and
+merged onto the first by identifier, rather than one being picked silently — that is how an
+import rewrites the wrong row. A row with no key, under `match_on: key`, is refused by name.
 
 ## Getting content back out
 

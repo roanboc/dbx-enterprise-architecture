@@ -176,7 +176,13 @@ def read_directory(
 
 
 def _states(
-    rec: dict, mapping: Mapping, report: ImportReport, row: int, fname: str, entity: str
+    rec: dict,
+    mapping: Mapping,
+    report: ImportReport,
+    row: int,
+    fname: str,
+    entity: str,
+    by_key: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """The four state fields of a row: given columns first, else the current state derived from the lifecycle text."""
     lifecycle = rec.get("lifecycle_status") or ""
@@ -211,9 +217,47 @@ def _states(
     return {
         "current_state": current,
         "target_state": target or "undecided",
-        "target_work_package": (rec.get("target_work_package") or "").strip(),
+        "target_work_package": element_ref(rec.get("target_work_package") or "", mapping, by_key or {}),
         "target_note": (rec.get("target_note") or "").strip(),
     }
+
+
+MATCH_KEYS = ("id", "key")
+
+
+def element_ref(raw: str, mapping: Mapping, by_key: dict[str, str]) -> str:
+    """One identifier as written by the source, as the element id the store uses.
+
+    Every identifier a source brings goes through here — the elements it declares, the
+    endpoints of its relationships, the owners of its links, the work packages it names — so
+    they cannot disagree about what a row is called.
+
+    Merging on `key`, an element the store already holds under that key keeps the identity it
+    was given; anything new takes the prefix and the key. Merging on `id`, which is the
+    default, the prefix is all that is added.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if mapping.match_on == "key":
+        return by_key.get(raw) or f"{mapping.id_prefix}{raw}"
+    return f"{mapping.id_prefix}{raw}"
+
+
+def keys_in(frames: dict[str, list[tuple[str, pd.DataFrame]]], mapping: Mapping) -> set[str]:
+    """Every identifier the source's files mention, for one look-up against the store."""
+    out: set[str] = set()
+    for kind, columns, wanted in (
+        ("elements", mapping.element_columns, ("key", "id", "target_work_package")),
+        ("relationships", mapping.relationship_columns, ("src_id", "dst_id", "target_work_package")),
+        ("links", mapping.link_columns, ("element_id",)),
+    ):
+        for _fname, raw in frames.get(kind, []):
+            df = _rename(raw, columns)
+            for col in wanted:
+                if col in df.columns:
+                    out |= {v for v in df[col].astype(str).str.strip() if v}
+    return out
 
 
 def _resolve_type(registry: Registry, mapping: Mapping, label: str):
@@ -228,7 +272,9 @@ def build_elements(
     mapping: Mapping,
     source_system: str,
     report: ImportReport,
+    by_key: dict[str, str] | None = None,
 ) -> tuple[list[Element], list[Link]]:
+    by_key = by_key or {}
     elements: dict[str, Element] = {}
     links: list[Link] = []
     for fname, raw in frames:
@@ -246,9 +292,22 @@ def build_elements(
                 rec.setdefault(k, v)
                 if rec.get(k) in ("", None):
                     rec[k] = v
-            eid = rec.get("id") or rec.get("key") or ""
+            source_ident = (
+                rec.get("key") or "" if mapping.match_on == "key" else rec.get("id") or rec.get("key") or ""
+            )
+            eid = element_ref(source_ident, mapping, by_key)
             if not eid:
-                report.add_issue(Issue("error", "missing_id", "row has no id or key", row=i, file=fname))
+                report.add_issue(
+                    Issue(
+                        "error",
+                        "missing_key" if mapping.match_on == "key" else "missing_id",
+                        "row has no key, and this mapping merges on the key"
+                        if mapping.match_on == "key"
+                        else "row has no id or key",
+                        row=i,
+                        file=fname,
+                    )
+                )
                 report.elements_skipped += 1
                 continue
             t = _resolve_type(registry, mapping, rec.get("type", ""))
@@ -314,10 +373,10 @@ def build_elements(
                 status=status,
                 lifecycle_status=rec.get("lifecycle_status") or "",
                 source_system=rec.get("source_system") or source_system,
-                source_ref=rec.get("source_ref") or eid,
+                source_ref=rec.get("source_ref") or source_ident,
                 attrs=attrs,
                 origin=rec.get("origin") or f"import:{rec.get('source_system') or source_system}",
-                **_states(rec, mapping, report, i, fname, eid),
+                **_states(rec, mapping, report, i, fname, eid, by_key),
             )
             for j, url in enumerate(u for u in _SPLIT_LINKS.split(rec.get("links") or "") if u):
                 report.links_read += 1
@@ -332,7 +391,9 @@ def build_relationships(
     source_system: str,
     known: dict[str, str],
     report: ImportReport,
+    by_key: dict[str, str] | None = None,
 ) -> list[Relationship]:
+    by_key = by_key or {}
     rels: dict[str, Relationship] = {}
     for fname, raw in frames:
         df = _rename(raw, mapping.relationship_columns)
@@ -343,8 +404,8 @@ def build_relationships(
                 if rec.get(k) in ("", None):
                     rec[k] = v
             src, dst, label, qualifier = (
-                rec.get("src_id", ""),
-                rec.get("dst_id", ""),
+                element_ref(rec.get("src_id", ""), mapping, by_key),
+                element_ref(rec.get("dst_id", ""), mapping, by_key),
                 rec.get("rel_type", ""),
                 rec.get("qualifier", "") or "",
             )
@@ -423,7 +484,7 @@ def build_relationships(
                 origin=f"import:{rsource}",
                 source_system=rsource,
                 source_ref=rec.get("source_ref") or "",
-                **_states(rec, mapping, report, i, fname, f"{src}->{dst}"),
+                **_states(rec, mapping, report, i, fname, f"{src}->{dst}", by_key),
             )
     return list(rels.values())
 
@@ -434,6 +495,7 @@ def build_links(
     known: dict[str, str],
     report: ImportReport,
     backend: DatabaseBackend | None = None,
+    by_key: dict[str, str] | None = None,
 ) -> list[Link]:
     """Links for elements this import brought, and for elements the model already holds.
 
@@ -447,7 +509,15 @@ def build_links(
         for i, row in enumerate(df.to_dict("records"), start=2):
             report.links_read += 1
             rec = {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
-            rows.append((fname, i, rec.get("element_id", ""), rec.get("url", ""), rec.get("label") or ""))
+            rows.append(
+                (
+                    fname,
+                    i,
+                    element_ref(rec.get("element_id", ""), mapping, by_key or {}),
+                    rec.get("url", ""),
+                    rec.get("label") or "",
+                )
+            )
     # Everything the store might already hold, asked once rather than once per row: a links
     # file naming ten thousand elements used to be ten thousand round trips (decision 0019).
     unknown = {eid for _f, _i, eid, _u, _l in rows if eid and eid not in known}
@@ -533,6 +603,41 @@ def _write_links(
         report.links_loaded += len(lns)
 
 
+def _identities_by_key(
+    backend: DatabaseBackend,
+    frames: dict[str, list[tuple[str, pd.DataFrame]]],
+    mapping: Mapping,
+    report: ImportReport,
+) -> dict[str, str]:
+    """Key -> the element id the store already gave it, for a mapping that merges on the key.
+
+    One read for every identifier the source's files mention rather than one per row. A key is
+    not the store's identity and nothing makes it unique, so a key that names two elements is
+    reported and the first by identifier is taken — silently picking one is how an import
+    rewrites the wrong element.
+    """
+    if mapping.match_on != "key":
+        return {}
+    found: dict[str, list[str]] = {}
+    for e in backend.elements_by_keys(sorted(keys_in(frames, mapping))):
+        if e.key:
+            found.setdefault(e.key, []).append(e.element_id)
+    out: dict[str, str] = {}
+    for key, ids in found.items():
+        ids.sort()
+        out[key] = ids[0]
+        if len(ids) > 1:
+            report.add_issue(
+                Issue(
+                    "warning",
+                    "ambiguous_key",
+                    f"key {key!r} names {len(ids)} elements ({', '.join(ids)}); merged onto {ids[0]}",
+                    entity=ids[0],
+                )
+            )
+    return out
+
+
 def import_frames(
     backend: DatabaseBackend,
     registry: Registry,
@@ -545,8 +650,11 @@ def import_frames(
     mapping = mapping or Mapping()
     source_system = source_system or mapping.source_system or "import"
     report = ImportReport(source_system=source_system, dry_run=dry_run)
+    if mapping.match_on not in MATCH_KEYS:
+        raise ValueError(f"match_on must be one of {MATCH_KEYS}, not {mapping.match_on!r}")
+    by_key = _identities_by_key(backend, frames, mapping, report)
     elements, inline_links = build_elements(
-        registry, frames.get("elements", []), mapping, source_system, report
+        registry, frames.get("elements", []), mapping, source_system, report, by_key
     )
     known = {e.element_id: e.type_id for e in elements}
     # Endpoints may already be in the store from an earlier import. Every one of them is asked
@@ -560,9 +668,9 @@ def import_frames(
     for existing in backend.elements_by_ids(sorted(wanted)) if wanted else []:
         known[existing.element_id] = existing.type_id
     rels = build_relationships(
-        registry, frames.get("relationships", []), mapping, source_system, known, report
+        registry, frames.get("relationships", []), mapping, source_system, known, report, by_key
     )
-    links = inline_links + build_links(frames.get("links", []), mapping, known, report, backend)
+    links = inline_links + build_links(frames.get("links", []), mapping, known, report, backend, by_key)
     packages = {e.target_work_package for e in elements + rels if e.target_work_package}  # type: ignore[operator]
     unresolved = {w for w in packages if w not in known}
     if unresolved:

@@ -289,3 +289,100 @@ def test_a_refresh_that_changes_nothing_says_so(backend, registry, tmp_path):
     assert again.elements_loaded == 2  # every row accounted for, none of them written
     assert "0 new, 0 updated, 2 unchanged" in again.summary()
     assert backend.get_element("E1").version == 1
+
+
+def test_a_prefix_keeps_two_systems_that_both_number_from_one_apart(backend, registry, tmp_path):
+    """Two sources numbering their rows from 1001 collide on the element id without a prefix,
+    and the second load silently overwrites the first."""
+    for system, prefix in (("cmdb", "CMDB-"), ("hr", "HR-")):
+        d = tmp_path / system
+        d.mkdir()
+        (d / "elements.csv").write_text(f"id,type,name\n1001,logical_data_component,From {system}\n")
+        import_directory(backend, registry, d, system, Mapping(id_prefix=prefix), actor="t")
+    assert sorted(e.element_id for e in backend.find_elements(limit=10)) == ["CMDB-1001", "HR-1001"]
+    assert backend.get_element("CMDB-1001").name == "From cmdb"
+    # the prefix is the store's business, not the source's: source_ref keeps what was written
+    assert backend.get_element("CMDB-1001").source_ref == "1001"
+
+
+def test_merging_on_the_key_survives_a_source_renumbering_its_ids(backend, registry, tmp_path):
+    """What a source system knows its rows by is often the key, not a surrogate id. Merging on it
+    means a reload updates the element the store already has, whatever the id column now says."""
+    d = tmp_path / "d"
+    d.mkdir()
+    mapping = Mapping(match_on="key", id_prefix="REF-")
+    (d / "elements.csv").write_text("id,type,name,key\nold-1,data_entity,Course,DE001\n")
+    import_directory(backend, registry, d, "ref", mapping, actor="t")
+    assert backend.get_element("REF-DE001").name == "Course"
+
+    (d / "elements.csv").write_text("id,type,name,key\nunrecognisable,data_entity,Course renamed,DE001\n")
+    report = import_directory(backend, registry, d, "ref", mapping, actor="t")
+    assert (report.elements_created, report.elements_updated) == (0, 1)
+    assert backend.get_element("REF-DE001").name == "Course renamed"
+    assert backend.count_elements() == 1  # not a second element beside the first
+
+
+def test_merging_on_the_key_keeps_the_identity_the_store_already_gave(backend, registry, tmp_path):
+    """An element created in the app has a minted id. A source that later claims the same key
+    must land on it, not make a parallel copy under a prefixed name."""
+    from ea.services.repository import RepositoryService
+
+    repo = RepositoryService(backend, registry)
+    made = repo.create_element("data_entity", "Course", "t", key="DE001")
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name,key\nx,data_entity,Course from the source,DE001\n")
+    import_directory(backend, registry, d, "ref", Mapping(match_on="key", id_prefix="REF-"), actor="t")
+    assert backend.get_element(made.element_id).name == "Course from the source"
+    assert backend.get_element("REF-DE001") is None
+    assert backend.count_elements() == 1
+
+
+def test_a_prefix_reaches_relationships_and_links_too(backend, registry, tmp_path):
+    """A prefix that applied only to elements would leave every endpoint dangling."""
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\n1,logical_data_component,One\n2,data_entity,Two\n")
+    (d / "relationships.csv").write_text("src_id,rel_type,dst_id\n1,encapsulates,2\n")
+    (d / "links.csv").write_text("element_id,url,label\n1,https://a.example/x,X\n")
+    report = import_directory(backend, registry, d, "s", Mapping(id_prefix="SYS-"), actor="t")
+    assert report.ok, report.summary()
+    assert report.relationships_loaded == 1
+    edge = backend.find_relationships(limit=5)[0]
+    assert (edge.src_id, edge.dst_id) == ("SYS-1", "SYS-2")
+    assert [ln.url for ln in backend.get_links("SYS-1")] == ["https://a.example/x"]
+
+
+def test_a_row_without_the_key_it_is_merged_on_is_refused_by_name(backend, registry, tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name,key\nE1,data_entity,No key here,\n")
+    report = import_directory(backend, registry, d, "s", Mapping(match_on="key"), actor="t", dry_run=True)
+    assert [i.code for i in report.issues] == ["missing_key"]
+    assert "merges on the key" in report.issues[0].message
+
+
+def test_a_key_naming_two_elements_is_reported_not_guessed(backend, registry, tmp_path):
+    """Nothing makes a key unique. Picking one silently is how an import rewrites the wrong row."""
+    from ea.services.repository import RepositoryService
+
+    repo = RepositoryService(backend, registry)
+    a = repo.create_element("data_entity", "First", "t", element_id="AAA", key="DUP")
+    repo.create_element("data_entity", "Second", "t", element_id="ZZZ", key="DUP")
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name,key\nx,data_entity,Incoming,DUP\n")
+    report = import_directory(backend, registry, d, "s", Mapping(match_on="key"), actor="t")
+    ambiguous = [i for i in report.issues if i.code == "ambiguous_key"]
+    assert len(ambiguous) == 1 and "AAA" in ambiguous[0].message and "ZZZ" in ambiguous[0].message
+    assert backend.get_element(a.element_id).name == "Incoming"  # the first by identifier
+
+
+def test_an_unknown_match_on_is_refused_rather_than_ignored(backend, registry, tmp_path):
+    import pytest
+
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "elements.csv").write_text("id,type,name\nE1,data_entity,One\n")
+    with pytest.raises(ValueError, match="match_on"):
+        import_directory(backend, registry, d, "s", Mapping(match_on="name"), actor="t")

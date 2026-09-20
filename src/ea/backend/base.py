@@ -177,6 +177,14 @@ class DatabaseBackend(ABC):
         """The elements these identifiers name, in one read per chunk (decision 0019)."""
 
     @abstractmethod
+    def elements_by_keys(self, keys: list[str]) -> list[Element]:
+        """The elements carrying these human keys, in one read per chunk.
+
+        A key is what a source system calls the thing (`DT007`), and it is not the store's
+        identity — nothing constrains it to be unique, so a caller that merges on it decides
+        what to do when one key names two elements."""
+
+    @abstractmethod
     def edges_among(self, ids: list[str]) -> list[Relationship]:
         """Every live relationship with both ends inside this set of elements."""
 

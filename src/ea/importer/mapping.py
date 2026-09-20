@@ -110,6 +110,15 @@ class Mapping:
     #: The field separator the source writes. A spreadsheet saved as CSV uses the list
     #: separator of the machine that saved it, which is a semicolon across much of Europe.
     delimiter: str = ","
+    #: Put in front of every identifier this source brings — its elements, the endpoints of
+    #: its relationships, the owners of its links and the work packages it names. Two systems
+    #: that both number their rows from one collide on `1001` without it, and the second load
+    #: silently overwrites the first.
+    id_prefix: str = ""
+    #: Which column carries the identity this source is merged on: `id`, or `key` when what
+    #: the source system knows its rows by is the human key (`DT007`). Merging on the key
+    #: keeps the identity the store already gave the thing, so a reload updates it.
+    match_on: str = "id"
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Mapping:
@@ -134,6 +143,8 @@ class Mapping:
             lifecycle_states={str(k): str(v) for k, v in (el.get("lifecycle_states") or {}).items()},
             encoding=d.get("encoding", "utf-8-sig"),
             delimiter=str(d.get("delimiter") or ","),
+            id_prefix=str(d.get("id_prefix") or ""),
+            match_on=str(el.get("match_on") or d.get("match_on") or "id").strip().lower(),
         )
 
 
