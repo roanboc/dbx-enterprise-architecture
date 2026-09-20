@@ -160,25 +160,30 @@ def _attr_input(a, value: Any, kind: str = ids.EL_ATTR):
     )
 
 
-def _by_group(attrs: list) -> dict[str, list]:
+def _by_group(attrs: list, registry: Any = None) -> dict[str, list]:
     """The attributes under the group the metamodel puts them in, ungrouped first.
 
-    A metamodel with twenty common attributes reads as a wall; the `group` an attribute
-    declares is how the source metamodel's own document sections it, and it is the same
-    grouping here, on the form and on the page that only reads.
+    A metamodel with twenty common attributes reads as a wall; the groups a version declares
+    are how its own document sections them, and it is the same grouping here, on the form and
+    on the page that only reads. The order is the version's, not the order the attributes
+    happen to be written in, and the key is the group's name because that is the heading.
     """
+    order = {g.id: i for i, g in enumerate(registry.groups_in_order())} if registry is not None else {}
     groups: dict[str, list] = {"": []}
-    for a in attrs:
-        groups.setdefault(a.group or "", []).append(a)
+    for a in sorted(attrs, key=lambda a: order.get(a.group or "", len(order))):
+        name = registry.group_name(a.group) if (registry is not None and a.group) else (a.group or "")
+        groups.setdefault(name, []).append(a)
     if not groups[""]:
         del groups[""]
     return groups
 
 
-def _attr_sections(attrs: list, values: dict[str, Any], default_title: str) -> list[Any]:
+def _attr_sections(
+    attrs: list, values: dict[str, Any], default_title: str, registry: Any = None
+) -> list[Any]:
     """The inputs of a list of attributes, one grid per declared group; ungrouped ones first."""
     out: list[Any] = []
-    for name, members in _by_group(attrs).items():
+    for name, members in _by_group(attrs, registry).items():
         out.append(dmc.Title(name or default_title, order=2, size="h5"))
         out.append(
             dmc.SimpleGrid([_attr_input(a, values.get(a.name)) for a in members], cols={"base": 1, "md": 3})
@@ -186,7 +191,7 @@ def _attr_sections(attrs: list, values: dict[str, Any], default_title: str) -> l
     return out
 
 
-def _attr_values(attrs: list, values: dict[str, Any]) -> list[Any]:
+def _attr_values(attrs: list, values: dict[str, Any], registry: Any = None) -> list[Any]:
     """What an element's attributes say, in the groups the metamodel declares.
 
     Only what carries a value: a page that lists every attribute a type may take, empty,
@@ -194,7 +199,7 @@ def _attr_values(attrs: list, values: dict[str, Any]) -> list[Any]:
     metamodel does not know is kept and said to be unknown rather than dropped.
     """
     sections: list[tuple[str, list[tuple[str, Any]]]] = []
-    for name, members in _by_group(attrs).items():
+    for name, members in _by_group(attrs, registry).items():
         rows = [
             (a.title + (" (restricted)" if a.sensitivity else ""), _shown_value(values.get(a.name)))
             for a in members
@@ -345,7 +350,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     own = [a for a in attrs if a.type_id == e.type_id or (a.type_id and a.type_id != e.type_id)]
     common = [a for a in attrs if a.type_id is None]
     # The Edit tab marks a restricted attribute; a reader who only reads has to be told too.
-    attr_values = _attr_values(attrs, e.attrs)
+    attr_values = _attr_values(attrs, e.attrs, ctx.registry)
     header = dmc.Group(
         [
             dmc.Stack(
@@ -479,14 +484,17 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                     ],
                     cols={"base": 1, "md": 4},
                 ),
-                *(_attr_sections(own, e.attrs, "Type attributes") if own else []),
+                *(_attr_sections(own, e.attrs, "Type attributes", ctx.registry) if own else []),
                 dmc.Accordion(
                     [
                         dmc.AccordionItem(
                             [
                                 dmc.AccordionControl("Common attributes"),
                                 dmc.AccordionPanel(
-                                    dmc.Stack(_attr_sections(common, e.attrs, "Common attributes"), gap="xs")
+                                    dmc.Stack(
+                                        _attr_sections(common, e.attrs, "Common attributes", ctx.registry),
+                                        gap="xs",
+                                    )
                                 ),
                             ],
                             value="common",

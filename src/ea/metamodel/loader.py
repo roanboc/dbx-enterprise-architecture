@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from ea.models import ANY, AttributeDef, Domain, ElementType, Pack, RelationshipType
+from ea.models import ANY, AttributeDef, AttributeGroup, Domain, ElementType, Pack, RelationshipType, slugify
 
 # Keys of an attribute a pack may set and the engine reads; anything else under an attribute
 # is unknown to the engine and travels in `properties`, so a framework loses nothing by
@@ -73,6 +73,7 @@ def _notation(d: Any) -> dict[str, str]:
 
 
 DOMAIN_KEYS = {"id", "name", "description", "notation", "properties"}
+GROUP_KEYS = {"id", "name", "description", "properties"}
 TYPE_KEYS = {
     "id",
     "name",
@@ -137,6 +138,16 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
         )
         for i, d in enumerate(data.get("domains") or [])
     ]
+    groups = [
+        AttributeGroup(
+            id=g["id"] if isinstance(g, dict) else slugify(str(g)),
+            name=(g.get("name") or "") if isinstance(g, dict) else str(g),
+            description=g.get("description", "") if isinstance(g, dict) else "",
+            sort_order=i,
+            properties=_properties(g, GROUP_KEYS) if isinstance(g, dict) else {},
+        )
+        for i, g in enumerate(data.get("attribute_groups") or [])
+    ]
     common = [_attr(a) for a in data.get("common_attributes") or []]
     element_types: list[ElementType] = []
     for i, e in enumerate(data.get("element_types") or []):
@@ -183,22 +194,71 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
                 properties=_properties(r, REL_KEYS),
             )
         )
-    return Pack(
-        id=meta["id"],
-        name=meta.get("name", meta["id"]),
-        version=str(meta.get("version") or "1"),
-        description=meta.get("description", ""),
-        source=meta.get("source", ""),
-        provenance_values=list(meta.get("provenance_values") or []),
-        domains=domains,
-        common_attributes=common,
-        element_types=element_types,
-        relationship_types=relationship_types,
-        status=str(meta.get("status") or "draft"),
-        derived_from=str(meta.get("derived_from") or ""),
-        notes=str(meta.get("notes") or ""),
-        properties=_properties(meta, PACK_KEYS),
+    return resolve_attribute_groups(
+        Pack(
+            id=meta["id"],
+            name=meta.get("name", meta["id"]),
+            version=str(meta.get("version") or "1"),
+            description=meta.get("description", ""),
+            source=meta.get("source", ""),
+            provenance_values=list(meta.get("provenance_values") or []),
+            domains=domains,
+            attribute_groups=groups,
+            common_attributes=common,
+            element_types=element_types,
+            relationship_types=relationship_types,
+            status=str(meta.get("status") or "draft"),
+            derived_from=str(meta.get("derived_from") or ""),
+            notes=str(meta.get("notes") or ""),
+            properties=_properties(meta, PACK_KEYS),
+        )
     )
+
+
+def resolve_attribute_groups(pack: Pack) -> Pack:
+    """Every attribute's `group` made to name a declared group, declaring the missing ones.
+
+    A group written as a label rather than an identifier (`group: Governance`, which is how
+    the format read before groups were declared) matches a declared group by its name; one
+    nothing declares is **added** to the pack rather than dropped. So a vocabulary always
+    exists, and a typo shows up as an extra row in the groups list — visible, and deletable —
+    instead of an invisible section on the element page.
+    """
+    by_id = {g.id: g for g in pack.attribute_groups}
+    by_name = {g.name.strip().lower(): g for g in pack.attribute_groups}
+    for a in _every_attribute(pack):
+        raw = (a.group or "").strip()
+        if not raw:
+            a.group = ""
+            continue
+        if raw in by_id:
+            continue
+        found = by_name.get(raw.lower())
+        if found is None:
+            try:
+                slug = slugify(raw)
+            except ValueError:
+                a.group = ""
+                continue
+            found = by_id.get(slug)
+        if found is None:
+            found = AttributeGroup(id=slug, name=raw, sort_order=len(pack.attribute_groups))
+            pack.attribute_groups.append(found)
+            by_id[found.id] = found
+            by_name[found.name.strip().lower()] = found
+        a.group = found.id
+    for i, g in enumerate(pack.attribute_groups):
+        g.sort_order = i
+    return pack
+
+
+def _every_attribute(pack: Pack) -> list[AttributeDef]:
+    out = list(pack.common_attributes)
+    for e in pack.element_types:
+        out.extend(e.attributes)
+    for r in pack.relationship_types:
+        out.extend(r.attributes)
+    return out
 
 
 def load_pack(path: str | Path) -> Pack:
@@ -259,6 +319,7 @@ def pack_to_dict(pack: Pack) -> dict[str, Any]:
             }
         ),
         "domains": [_clean(asdict(d), drop=("sort_order",)) for d in pack.domains],
+        "attribute_groups": [_clean(asdict(g), drop=("sort_order",)) for g in pack.attribute_groups],
         "common_attributes": [attr_to_dict(a) for a in pack.common_attributes],
         "element_types": element_types,
         "relationship_types": relationship_types,

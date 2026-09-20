@@ -177,7 +177,9 @@ ATTR_COLS = [
     {"field": "enum", "editable": True, "width": 220, "headerName": "enum (comma-separated)"},
     {"field": "default", "editable": True, "width": 120},
     {"field": "multiple", "editable": True, "width": 100, "cellDataType": "boolean"},
-    {"field": "group", "editable": True, "width": 140},
+    # Picked from the groups the version declares, never typed: a typo used to make a section
+    # of its own on the element page, which nobody could see was a mistake.
+    {"field": "group", "editable": True, "width": 160, "cellEditor": _SELECT},
     {"field": "help", "editable": True, "width": 220},
     {"field": "unit", "editable": True, "width": 90},
     {"field": "pattern", "editable": True, "width": 160},
@@ -186,6 +188,12 @@ ATTR_COLS = [
     {"field": "sensitivity", "editable": True, "width": 120},
     {"field": "description", "editable": True, "flex": 1, "minWidth": 240},
     {"field": "properties", "editable": True, "width": 200, "headerName": "properties (JSON)", **_LARGE},
+]
+GROUP_COLS = [
+    {"field": "id", "editable": True, "pinned": "left", "width": 180},
+    {"field": "name", "editable": True, "width": 260, "headerName": "name (the section heading)"},
+    {"field": "description", "editable": True, "flex": 1, "minWidth": 320, **_LARGE},
+    {"field": "properties", "editable": True, "width": 220, "headerName": "properties (JSON)", **_LARGE},
 ]
 DOMAIN_COLS = [
     {"field": "id", "editable": True, "pinned": "left", "width": 180},
@@ -253,6 +261,23 @@ def _domain_rows(reg: Registry) -> list[dict[str, Any]]:
     return [
         {"id": d.id, "name": d.name, "description": d.description, "properties": _props(d.properties)}
         for d in reg.pack.domains
+    ]
+
+
+def _attr_cols(reg: Registry) -> list[dict[str, Any]]:
+    """The attribute columns, with the group cell offering the groups this version declares.
+
+    A blank is offered too: an attribute outside every group is read on its own, above the
+    sections, and that is a choice rather than an omission.
+    """
+    values = [""] + [g.id for g in reg.pack.attribute_groups]
+    return [{**c, "cellEditorParams": {"values": values}} if c["field"] == "group" else c for c in ATTR_COLS]
+
+
+def _group_rows(reg: Registry) -> list[dict[str, Any]]:
+    return [
+        {"id": g.id, "name": g.name, "description": g.description, "properties": _props(g.properties)}
+        for g in reg.pack.attribute_groups
     ]
 
 
@@ -706,6 +731,7 @@ def _manage_panel(ctx: AppContext, reg: Registry, list_tab: str) -> Any:
                             dmc.TabsTab(f"Relationship types ({len(pack.relationship_types)})", value="rels"),
                             dmc.TabsTab(f"Attributes ({n_attrs})", value="attrs"),
                             dmc.TabsTab(f"Domains ({len(pack.domains)})", value="domains"),
+                            dmc.TabsTab(f"Attribute groups ({len(pack.attribute_groups)})", value="groups"),
                         ]
                     ),
                     dmc.TabsPanel(
@@ -726,7 +752,11 @@ def _manage_panel(ctx: AppContext, reg: Registry, list_tab: str) -> Any:
                         [
                             _row_buttons("attribute", ids.MM_ADD_ATTR, ids.MM_DEL_ATTR, can_edit),
                             _grid(
-                                ids.MM_ATTRS_GRID, ATTR_COLS, _attr_rows(reg), "params.data.row_key", can_edit
+                                ids.MM_ATTRS_GRID,
+                                _attr_cols(reg),
+                                _attr_rows(reg),
+                                "params.data.row_key",
+                                can_edit,
                             ),
                         ],
                         value="attrs",
@@ -743,6 +773,28 @@ def _manage_panel(ctx: AppContext, reg: Registry, list_tab: str) -> Any:
                             ),
                         ],
                         value="domains",
+                    ),
+                    dmc.TabsPanel(
+                        [
+                            dmc.Text(
+                                "The sections an element's attributes are read and edited in, in this order. "
+                                "An attribute picks one from this list rather than naming it in free text, so a "
+                                "typo cannot make a section of its own. Deleting a group leaves its attributes "
+                                "ungrouped.",
+                                size="xs",
+                                c="dimmed",
+                                mb="xs",
+                            ),
+                            _row_buttons("attribute group", ids.MM_ADD_GROUP, ids.MM_DEL_GROUP, can_edit),
+                            _grid(
+                                ids.MM_GROUPS_GRID,
+                                GROUP_COLS,
+                                _group_rows(reg),
+                                "params.data.id",
+                                can_edit,
+                            ),
+                        ],
+                        value="groups",
                     ),
                 ],
                 id=ids.MM_LISTS,
@@ -1251,8 +1303,20 @@ def _pack_from_grids(
     domains: list[dict] | None = None,
     domain_notation: list[dict] | None = None,
     type_notation: list[dict] | None = None,
+    groups: list[dict] | None = None,
 ) -> dict[str, Any]:
     d = pack_to_dict(pack)
+    if groups is not None:
+        d["attribute_groups"] = [
+            {
+                "id": r["id"],
+                "name": r.get("name") or r["id"],
+                "description": r.get("description", "") or "",
+                "properties": _json_cell(r.get("properties"), f"attribute group {r['id']}"),
+            }
+            for r in groups
+            if r.get("id")
+        ]
     keep_domain_notation = {x.id: dict(x.notation) for x in pack.domains}
     if domains is not None:
         d["domains"] = [
@@ -1354,6 +1418,8 @@ GRID_STATES = [
     State(ids.MM_ATTRS_GRID, "rowData"),
     State(ids.MM_DOMAINS_GRID, "virtualRowData"),
     State(ids.MM_DOMAINS_GRID, "rowData"),
+    State(ids.MM_GROUPS_GRID, "virtualRowData"),
+    State(ids.MM_GROUPS_GRID, "rowData"),
     State(ids.MM_NOTATION_DOMAINS_GRID, "virtualRowData"),
     State(ids.MM_NOTATION_DOMAINS_GRID, "rowData"),
     State(ids.MM_NOTATION_TYPES_GRID, "virtualRowData"),
@@ -1371,20 +1437,28 @@ def _pack_from_states(pack: Pack, grids: tuple) -> dict[str, Any]:
         rows["domains"],
         rows["notation_domains"],
         rows["notation_types"],
+        rows["groups"],
     )
 
 
-DELETABLE = {"types": "element type", "rels": "relationship type", "attrs": "attribute", "domains": "domain"}
+DELETABLE = {
+    "types": "element type",
+    "rels": "relationship type",
+    "attrs": "attribute",
+    "domains": "domain",
+    "groups": "attribute group",
+}
 
 
 def _rows_from_states(grids: tuple) -> dict[str, list[dict]]:
     """Every grid of the Manage and Notation tabs as it now stands, edits and all."""
-    t_v, t_r, r_v, r_r, a_v, a_r, d_v, d_r, dn_v, dn_r, tn_v, tn_r = grids
+    t_v, t_r, r_v, r_r, a_v, a_r, d_v, d_r, g_v, g_r, dn_v, dn_r, tn_v, tn_r = grids
     return {
         "types": _all_rows(t_v, t_r, "id"),
         "rels": _all_rows(r_v, r_r, "id"),
         "attrs": _all_rows(a_v, a_r, "type_id", "name"),
         "domains": _all_rows(d_v, d_r, "id"),
+        "groups": _all_rows(g_v, g_r, "id"),
         "notation_types": _all_rows(tn_v, tn_r, "id"),
         "notation_domains": _all_rows(dn_v, dn_r, "id"),
     }
@@ -1408,6 +1482,7 @@ def remove_rows(
     gone_rels = {r.get("id") for r in picked} if which == "rels" else set()
     gone_attrs = {(r.get("type_id") or "", r.get("name")) for r in picked} if which == "attrs" else set()
     gone_domains = {r.get("id") for r in picked} if which == "domains" else set()
+    gone_groups = {r.get("id") for r in picked} if which == "groups" else set()
 
     if gone_types:
         out["types"] = [r for r in out["types"] if r.get("id") not in gone_types]
@@ -1445,6 +1520,14 @@ def remove_rows(
         said.append(f"{len(gone_domains)} domain(s)")
         if homeless:
             said.append(f"the domain of {len(homeless)} element type(s), cleared rather than deleted")
+    if gone_groups:
+        out["groups"] = [r for r in out.get("groups", []) if r.get("id") not in gone_groups]
+        ungrouped = [r for r in out["attrs"] if r.get("group") in gone_groups]
+        for r in ungrouped:
+            r["group"] = ""
+        said.append(f"{len(gone_groups)} attribute group(s)")
+        if ungrouped:
+            said.append(f"the group of {len(ungrouped)} attribute(s), cleared rather than deleted")
     return out, said
 
 
@@ -1691,21 +1774,36 @@ def register(app: dash.Dash) -> None:
         )
 
     @app.callback(
+        Output(ids.MM_GROUPS_GRID, "rowTransaction"),
+        Input(ids.MM_ADD_GROUP, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def add_group(n):
+        return (
+            {"add": [{"id": f"new_group_{n}", "name": "New group", "description": "", "properties": ""}]}
+            if n
+            else no_update
+        )
+
+    @app.callback(
         Output(ids.MM_FEEDBACK, "children", allow_duplicate=True),
         Output(ids.MM_TYPES_GRID, "rowData"),
         Output(ids.MM_RELS_GRID, "rowData"),
         Output(ids.MM_ATTRS_GRID, "rowData"),
         Output(ids.MM_DOMAINS_GRID, "rowData"),
+        Output(ids.MM_GROUPS_GRID, "rowData"),
         Output(ids.MM_NOTATION_TYPES_GRID, "rowData"),
         Output(ids.MM_NOTATION_DOMAINS_GRID, "rowData"),
         Input(ids.MM_DEL_TYPE, "n_clicks"),
         Input(ids.MM_DEL_REL, "n_clicks"),
         Input(ids.MM_DEL_ATTR, "n_clicks"),
         Input(ids.MM_DEL_DOMAIN, "n_clicks"),
+        Input(ids.MM_DEL_GROUP, "n_clicks"),
         State(ids.MM_TYPES_GRID, "selectedRows"),
         State(ids.MM_RELS_GRID, "selectedRows"),
         State(ids.MM_ATTRS_GRID, "selectedRows"),
         State(ids.MM_DOMAINS_GRID, "selectedRows"),
+        State(ids.MM_GROUPS_GRID, "selectedRows"),
         *GRID_STATES,
         prevent_initial_call=True,
     )
@@ -1715,22 +1813,22 @@ def register(app: dash.Dash) -> None:
         Nothing is stored here: the grids are rewritten and the save writes the version, so a
         deletion is undone by leaving the page. `remove_rows` decides what goes with what.
         """
-        buttons = (ids.MM_DEL_TYPE, ids.MM_DEL_REL, ids.MM_DEL_ATTR, ids.MM_DEL_DOMAIN)
-        clicks, selections, grids = args[:4], args[4:8], args[8:]
+        buttons = (ids.MM_DEL_TYPE, ids.MM_DEL_REL, ids.MM_DEL_ATTR, ids.MM_DEL_DOMAIN, ids.MM_DEL_GROUP)
+        clicks, selections, grids = args[:5], args[5:10], args[10:]
         trigger = dash_ctx.triggered_id
         if trigger not in buttons or not clicks[buttons.index(trigger)]:
-            return (no_update,) * 7
+            return (no_update,) * 8
         ctx = get_context()
         if not ctx.can("edit_metamodel"):
             return (alert(f"{a_role(ctx.role_label())} may not edit the metamodel.", "red"),) + (
                 no_update,
-            ) * 6
-        which = ("types", "rels", "attrs", "domains")[buttons.index(trigger)]
+            ) * 7
+        which = ("types", "rels", "attrs", "domains", "groups")[buttons.index(trigger)]
         picked = list(selections[buttons.index(trigger)] or [])
         if not picked:
             return (
                 alert(f"Tick the {DELETABLE[which]}s to delete first: nothing is ticked.", "yellow"),
-                *(no_update,) * 6,
+                *(no_update,) * 7,
             )
         rows, said = remove_rows(which, picked, _rows_from_states(grids))
         return (
@@ -1745,6 +1843,7 @@ def register(app: dash.Dash) -> None:
             rows["rels"],
             rows["attrs"],
             rows["domains"],
+            rows["groups"],
             rows["notation_types"],
             rows["notation_domains"],
         )

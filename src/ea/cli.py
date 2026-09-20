@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 
+from ea import capacity
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
 from ea.models import BRANCH_STATUSES, ConflictError, Forbidden, NotFoundError, ValidationError
@@ -375,6 +376,13 @@ def health(fmt: str = typer.Option("table", help="table or md")):
     svc = HealthService(backend, registry)
     fresh, comp = svc.freshness(), svc.completeness()
     sep = "| " if fmt == "md" else ""
+    size = capacity.headroom(backend.count_elements(), backend.count_relationships())
+    typer.echo(
+        f"Size: {size['elements']:,} of {size['assessed_elements']:,} elements ({size['elements_pct']}%), "
+        f"{size['relationships']:,} of {size['assessed_relationships']:,} relationships "
+        f"({size['relationships_pct']}%) the application is assessed for"
+    )
+    typer.echo("")
     typer.echo(f"Freshness (as of {fresh['as_of']})")
     if fmt == "md":
         typer.echo(

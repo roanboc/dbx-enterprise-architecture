@@ -14,7 +14,14 @@ in the same commit.
 
 import re
 
-META_TABLES = ["meta_pack", "meta_domain", "meta_element_type", "meta_attribute", "meta_relationship_type"]
+META_TABLES = [
+    "meta_pack",
+    "meta_domain",
+    "meta_attribute_group",
+    "meta_element_type",
+    "meta_attribute",
+    "meta_relationship_type",
+]
 CONTENT_TABLES = ["element", "relationship", "element_link", "change_log"]
 BRANCH_TABLES = [
     "branch",
@@ -137,6 +144,16 @@ DDL: dict[str, str] = {
             description VARCHAR,
             sort_order INTEGER,
             notation VARCHAR,
+            pack_version VARCHAR,
+            properties VARCHAR
+        )""",
+    "meta_attribute_group": """
+        CREATE TABLE IF NOT EXISTS meta_attribute_group (
+            pack_id VARCHAR NOT NULL,
+            group_id VARCHAR NOT NULL,
+            name VARCHAR,
+            description VARCHAR,
+            sort_order INTEGER,
             pack_version VARCHAR,
             properties VARCHAR
         )""",
@@ -460,6 +477,30 @@ SELECT node_id, depth, via_id, rel_type_id FROM (
 # Which end of a relationship the walk stands on, and which it moves to.
 TRACE_ENDS: dict[str, tuple[str, str]] = {"out": ("src_id", "dst_id"), "in": ("dst_id", "src_id")}
 
+# The same walk ignoring direction, for a neighbourhood: a reader asking what sits around an
+# element means both ways round, and a path may turn — out of one element and into the next.
+# Each edge is read twice, once from each end, so the step still joins on an indexed column
+# rather than on an OR the planner cannot use.
+TRACE_SQL_BOTH = """
+WITH RECURSIVE walk(node_id, depth, via_id, rel_type_id) AS (
+    SELECT CAST(? AS VARCHAR), 0, CAST('' AS VARCHAR), CAST('' AS VARCHAR)
+    UNION
+    SELECT CAST(r.to_id AS VARCHAR), w.depth + 1,
+           CAST(w.node_id AS VARCHAR), CAST(r.rel_type_id AS VARCHAR)
+    FROM walk w JOIN (
+        SELECT src_id AS from_id, dst_id AS to_id, rel_type_id, status FROM {rel}
+        UNION ALL
+        SELECT dst_id AS from_id, src_id AS to_id, rel_type_id, status FROM {rel}
+    ) r ON r.from_id = w.node_id
+    WHERE w.depth < ? AND r.status <> 'retired' AND r.to_id <> ?
+)
+SELECT node_id, depth, via_id, rel_type_id FROM (
+    SELECT node_id, depth, via_id, rel_type_id,
+           ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth, via_id, rel_type_id) AS pick
+    FROM walk WHERE depth > 0
+) AS picked WHERE pick = 1 ORDER BY depth, node_id
+"""
+
 # Indexes, created on start-up and never assumed to exist: a store that already holds a
 # duplicate refuses the unique one, and the store logs it rather than failing to open.
 #
@@ -473,6 +514,7 @@ TRACE_ENDS: dict[str, tuple[str, str]] = {"out": ("src_id", "dst_id"), "in": ("d
 INDEXES: list[tuple[str, str, bool, str]] = [
     ("meta_pack_key", "meta_pack", True, "(pack_id, version)"),
     ("meta_domain_key", "meta_domain", True, "(pack_id, pack_version, domain_id)"),
+    ("meta_attribute_group_key", "meta_attribute_group", True, "(pack_id, pack_version, group_id)"),
     ("meta_element_type_key", "meta_element_type", True, "(pack_id, pack_version, type_id)"),
     ("meta_relationship_type_key", "meta_relationship_type", True, "(pack_id, pack_version, rel_type_id)"),
     ("meta_attribute_version", "meta_attribute", False, "(pack_id, pack_version)"),

@@ -29,7 +29,7 @@ flowchart LR
   s1f["1f — search, bulk edit, health"]:::implementation
   s1g["1g — roles and review"]:::implementation
   s1h["1h — metamodel versions and organisations"]:::implementation
-  s1i["1i — the size the model is built for"]:::implementation
+  s1i["1i — prepared for real content"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s4["4 — governed change on the platform"]:::implementation
@@ -53,7 +53,7 @@ flowchart LR
 flowchart LR
   s1g["1g — roles and review"]:::implementation
   s1h["1h — metamodel versions and organisations"]:::implementation
-  s1i["1i — the size the model is built for"]:::implementation
+  s1i["1i — prepared for real content"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s5["5 — semantic front doors"]:::implementation
@@ -84,7 +84,7 @@ flowchart LR
 | 1f — search, bulk edit, health (initiative 6, built 2026-09-06) | `GAP15` | `PLAT1`, extended | Step 1e | A steward searches descriptions for a wrong term, fixes twenty elements in one bulk edit, and the Health page shows which source is stale and which types lack descriptions |
 | 1g — roles and review (initiative 7, built 2026-09-06) | `GAP14` | `PLAT4`, roles and review, on DuckDB | Step 1f | An architect requests a review; the information architect approves the information types and a steward the application types; the author merges; a reader cannot edit |
 | 1h — metamodel versions and organisations (initiative 15, built 2026-09-19) | `GAP17` | `PLAT1`, extended | Step 1g | An architect copies the default organisation, drafts a version of the metamodel in the copy, reads in a compatibility check what the change would leave invalid, publishes it and applies it to the default organisation; a reader in the default organisation sees none of the trial |
-| 1i — the size the model is built for (initiative 16, opened 2026-09-20) | `GAP18` | `PLAT1`, extended | Step 1h, and the store re-sized by decisions 0016 to 0018 | The Health page says how large the model is against the size the application declares it is built for; a trace on a seeded estate answers from the store without building the graph, and the suite fails if a hot path reads the model whole |
+| 1i — prepared for real content (initiative 16, built 2026-09-20) | `GAP18` | `PLAT1`, extended | Step 1h, and the store measured by decisions 0016 to 0018 | The Health page says how large the model is against the capacity the application is assessed for; a trace on a seeded hundred thousand elements answers from the store without building the graph; an attribute's group is picked from a list the metamodel declares, not typed; and a second pack, in a different framework, is loaded into an organisation of its own |
 | 2 — Databricks (initiatives 13 and 14, built 2026-09-09 and 2026-09-11; the workspace run pending) | `GAP1`, `GAP2`, `GAP16` | `PLAT2` | A workspace with Apps enabled and Lakebase available; a service principal | The same app on Databricks Apps, the same data in a Lakebase database, the same tests green |
 | 3 — provenance and feeds | `GAP4` | `PLAT3` | The per-type source-of-record table agreed with the IT division's enterprise architecture team (open question 5); read access to the extracts of the CMDB, the HR system, the project portfolio tool, the information asset register and the data platform's metadata catalogue (the last through its existing platform pipelines) | A CMDB change appears in the repository without anyone typing it |
 | 4 — governed change on the platform | `GAP5` (the rest) | `PLAT4` | `PLAT2`: roles carried by workspace groups; sensitive attributes granted by role | The same review flow with workspace identities, and restricted attributes hidden from readers |

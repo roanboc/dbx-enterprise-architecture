@@ -134,10 +134,11 @@ def test_nothing_ticked_changes_nothing(registry, rows):
 
 
 def test_the_attributes_a_type_declares_carry_their_group(registry):
-    """The group is what the element page sections an element's attributes by."""
+    """An attribute names a declared group by its identifier; the name is the section heading."""
     groups = {a.name: a.group for a in registry.attributes_for("information_asset")}
-    assert groups["alias"] == "Identification" and groups["owner"] == "Governance"
-    assert groups["confidentiality_risk_rating"] == "Risk ratings"
+    assert groups["alias"] == "identification" and groups["owner"] == "governance"
+    assert groups["confidentiality_risk_rating"] == "risk_ratings"
     assert groups["information_category_description"] == ""
+    assert registry.group_name("risk_ratings") == "Risk ratings"
     rows = _attr_rows(registry)
-    assert next(r for r in rows if r["name"] == "alias")["group"] == "Identification"
+    assert next(r for r in rows if r["name"] == "alias")["group"] == "identification"

@@ -138,7 +138,9 @@ class DatabaseBackend(ABC):
     def relationships_of(self, element_id: str, direction: str = "both") -> list[Relationship]: ...
 
     @abstractmethod
-    def find_relationships(self, rel_type_id: str | None = None, limit: int = 500) -> list[Relationship]: ...
+    def find_relationships(
+        self, rel_type_id: str | None = None, limit: int = 500, offset: int = 0
+    ) -> list[Relationship]: ...
 
     @abstractmethod
     def count_relationships(self, rel_type_id: str | None = None) -> int: ...
@@ -164,6 +166,14 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def trace(self, element_id: str, direction: str = "out", max_depth: int = 5) -> list[dict[str, Any]]:
         """Reachable elements with depth, node path and relationship-type path."""
+
+    @abstractmethod
+    def elements_by_ids(self, ids: list[str]) -> list[Element]:
+        """The elements these identifiers name, in one read per chunk (decision 0019)."""
+
+    @abstractmethod
+    def edges_among(self, ids: list[str]) -> list[Relationship]:
+        """Every live relationship with both ends inside this set of elements."""
 
     @abstractmethod
     def edges_frame(self) -> pd.DataFrame:

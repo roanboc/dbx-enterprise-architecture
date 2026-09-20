@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 from urllib.request import Request, urlopen
 
+from ea import capacity
 from ea.agent.tools import ToolBox
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import use_branch
@@ -356,11 +357,24 @@ class ProposalService:
         return result
 
     def _index(self) -> dict[str, Any]:
-        elements = self.backend.find_elements(limit=1_000_000)
-        by_id = {e.element_id.lower(): e for e in elements}
+        """Every element's identifier and name, to match a proposal against.
+
+        **This one reads the whole model on purpose** (decision 0019). Matching a proposed
+        name against a candidate set rather than against everything would change what the
+        reader finds — it would link a new element to an existing one only when the
+        shortlist happened to contain it — and a proposal that silently misses a match is
+        worse than one that takes a moment. Only the identifier and the name are kept, not
+        the elements, and the model is read in pages so the rows are never all held at once:
+        at the capacity the application is assessed for that is about 100,000 short strings.
+        """
+        by_id: dict[str, Element] = {}
         by_name: dict[str, list[Element]] = {}
-        for e in elements:
-            by_name.setdefault(_norm(e.name), []).append(e)
+        for page in capacity.pages(
+            lambda limit, offset: self.backend.find_elements(limit=limit, offset=offset)
+        ):
+            for e in page:
+                by_id[e.element_id.lower()] = e
+                by_name.setdefault(_norm(e.name), []).append(e)
         return {"by_id": by_id, "by_name": by_name, "names": list(by_name)}
 
     def _resolve_element(self, el: ProposedElement, index: dict[str, Any]) -> None:

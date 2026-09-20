@@ -42,6 +42,7 @@ from ea.backend.sql import (
     RELATIONSHIP_COLUMNS,
     TRACE_ENDS,
     TRACE_SQL,
+    TRACE_SQL_BOTH,
     create_table_sql,
     index_sql,
     qualified,
@@ -501,8 +502,21 @@ class SqlBackend(DatabaseBackend):
             ]
             for d in pack.domains
         ]
+        group_rows = [
+            [
+                pack.id,
+                g.id,
+                g.name,
+                g.description,
+                g.sort_order,
+                pack.version,
+                json.dumps(g.properties, ensure_ascii=False, default=str) if g.properties else None,
+            ]
+            for g in pack.attribute_groups
+        ]
         return {
             "meta_domain": domain_rows,
+            "meta_attribute_group": group_rows,
             "meta_element_type": type_rows,
             "meta_attribute": attribute_rows,
             "meta_relationship_type": rel_rows,
@@ -614,6 +628,14 @@ class SqlBackend(DatabaseBackend):
                 [pid, version],
             )
         ]
+        attribute_groups = [
+            {"id": g, "name": n, "description": desc or "", "properties": _loads(props)}
+            for g, n, desc, props in self._fetch_all(
+                "SELECT group_id, name, description, properties FROM meta_attribute_group "
+                "WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+                [pid, version],
+            )
+        ]
         attrs = self._fetch_all(
             "SELECT type_id, name, label, datatype, required, enum_values, description, sensitivity, rel_type_id, extra "
             "FROM meta_attribute WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
@@ -704,6 +726,7 @@ class SqlBackend(DatabaseBackend):
                     "properties": _loads(properties),
                 },
                 "domains": domains,
+                "attribute_groups": attribute_groups,
                 "common_attributes": common,
                 "element_types": element_types,
                 "relationship_types": relationship_types,
@@ -1362,11 +1385,13 @@ class SqlBackend(DatabaseBackend):
         )
         return [self._row_to_rel(r) for r in rows]
 
-    def find_relationships(self, rel_type_id: str | None = None, limit: int = 500) -> list[Relationship]:
+    def find_relationships(
+        self, rel_type_id: str | None = None, limit: int = 500, offset: int = 0
+    ) -> list[Relationship]:
         where = " WHERE rel_type_id = ?" if rel_type_id else ""
         rows = self._fetch_all(
-            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM {self._rel()} AS rl{where} ORDER BY rel_type_id, src_id, dst_id"
-            + self._page(limit),
+            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM {self._rel()} AS rl{where} ORDER BY rel_type_id, src_id, dst_id, relationship_id"
+            + self._page(limit, offset),
             [rel_type_id] if rel_type_id else [],
         )
         return [self._row_to_rel(r) for r in rows]
@@ -1557,6 +1582,8 @@ class SqlBackend(DatabaseBackend):
 
     # -------------------------------------------------------------- graph
     def _trace_sql(self, direction: str) -> str:
+        if direction == "both":
+            return TRACE_SQL_BOTH.replace("{rel}", self._rel())
         step, take = TRACE_ENDS["out" if direction == "out" else "in"]
         return TRACE_SQL.replace("{rel}", self._rel()).replace("{step}", step).replace("{take}", take)
 
@@ -1592,6 +1619,62 @@ class SqlBackend(DatabaseBackend):
                     "direction": direction,
                 }
             )
+        return out
+
+    def elements_by_ids(self, ids: list[str]) -> list[Element]:
+        """The elements these identifiers name, in one read per chunk.
+
+        What a traversal needs to label its answer. The alternative — one `get_element` per
+        row, or the whole model in memory — is what this replaces (decision 0019)."""
+        wanted = list(dict.fromkeys(i for i in ids if i))
+        if not wanted:
+            return []
+        out: list[Element] = []
+        for chunk in chunks(wanted, self.IN_CHUNK):
+            out.extend(
+                self._row_to_element(row)
+                for row in self._fetch_all(
+                    f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el "
+                    f"WHERE element_id IN ({self._marks(chunk)})",
+                    list(chunk),
+                )
+            )
+        return out
+
+    def edges_among(self, ids: list[str]) -> list[Relationship]:
+        """Every live relationship with both ends inside this set of elements."""
+        wanted = list(dict.fromkeys(i for i in ids if i))
+        if not wanted:
+            return []
+        out: list[Relationship] = []
+        seen: set[str] = set()
+        for chunk in chunks(wanted, max(1, self.IN_CHUNK // 2)):
+            marks = self._marks(chunk)
+            rows = self._fetch_all(
+                f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM {self._rel()} AS rl "
+                f"WHERE status <> 'retired' AND src_id IN ({marks}) AND dst_id IN ({marks})",
+                list(chunk) + list(chunk),
+            )
+            for row in rows:
+                r = self._row_to_rel(row)
+                if r.relationship_id not in seen:
+                    seen.add(r.relationship_id)
+                    out.append(r)
+        # A chunked IN pair only sees edges whose ends fall in the same chunk; with more than
+        # one chunk the set is walked again from each element so nothing across a boundary is
+        # lost. One chunk is the ordinary case and costs a single read.
+        if len(wanted) > max(1, self.IN_CHUNK // 2):
+            inside = set(wanted)
+            for chunk in chunks(wanted, self.IN_CHUNK):
+                for row in self._fetch_all(
+                    f"SELECT {', '.join(RELATIONSHIP_COLUMNS)} FROM {self._rel()} AS rl "
+                    f"WHERE status <> 'retired' AND src_id IN ({self._marks(chunk)})",
+                    list(chunk),
+                ):
+                    r = self._row_to_rel(row)
+                    if r.dst_id in inside and r.relationship_id not in seen:
+                        seen.add(r.relationship_id)
+                        out.append(r)
         return out
 
     def edges_frame(self) -> pd.DataFrame:

@@ -2,14 +2,15 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Proposed 2026-09-20, with initiative 16 at the Understanding gate.
+**Status:** Accepted 2026-09-20 (the Requester at initiative 16's Understanding gate).
 **Touches:** `ASM6`, `ASVC4`, `ACMP3`, `DOBJ2`, `GAP18`.
 
 ## Context
 
-Decisions 0016 to 0018 re-sized the **store** for the figure the Requester
-named — a hundred thousand elements and several hundred thousand relationships
-— and measured it. The **services above it** were never re-sized. Six call
+Decisions 0016 to 0018 re-sized the **store** and measured it at a hundred
+thousand elements and six hundred thousand relationships. That figure is
+assessed capacity, not a forecast of the institution's estate, which is much
+smaller and may stay so. The **services above it** were never assessed at all. Six call
 sites read every element and every relationship of the organisation into one
 request: the in-process graph, the metamodel compatibility check, the two
 Health answers, the target-state service and the proposal matcher. One of them
@@ -19,10 +20,12 @@ decision 0016 introduced is wrapped by the enumeration it replaced.
 
 None of this is felt today. At 4,600 elements every one of those reads costs
 milliseconds, which is why they were written that way and why they survived.
-The Requester's instruction of 2026-09-20 is that `ASM6` stays true for several
-months, and that the preparation is made now rather than when it is urgent.
-So the call is not *how* to make the services fast; it is what stops a
-PoC-sized assumption from being re-made silently as the model grows.
+The Requester's instruction of 2026-09-20 is that `ASM6` stays true while the
+repository moves from prototype to real work, and that the preparation is made
+now rather than when it is urgent. So the call is not *how* to make the
+services fast; it is what stops a PoC-sized assumption from being re-made
+silently as the model grows, and what turns one hand measurement into a figure
+the suite holds.
 
 ## Options considered
 
@@ -35,9 +38,9 @@ PoC-sized assumption from being re-made silently as the model grows.
 
 ## Decision
 
-The application declares the size it is built for — two figures, because they
-differ: what the **store** holds and answers, and the smaller size below which
-the **in-process graph** may be built at all. Both live in one module the
+The application declares the capacity it has been assessed for — two figures,
+because they differ: what the **store** holds and answers, and the smaller size
+below which the **in-process graph** may be built at all. Both live in one module the
 services read. Every whole-model read is then either bounded by that figure or
 declared deliberate with its cost written down, and the suite holds the figure
 with a seeded fixture rather than a memory of one measurement.
@@ -50,9 +53,9 @@ size at which it stops being true.
 - A service that needs the whole model has to say so, and say what it costs.
   That is the point; it is also friction on every future service.
 - The graph's budget is adopted from initiative 15's measurement (about 470 MB
-  and seven seconds at the Requester's figure, against the 6 GB an app on the
-  platform gets by default), not measured on this hardware. The scale fixture
-  is what turns it into a measurement, and the figure moves when it does.
+  and seven seconds at a hundred thousand elements, against the 6 GB an app on
+  the platform gets by default). The scale fixture is what keeps it a
+  measurement, and the figure moves when the measurement does.
 - A declared figure nobody revisits is a new way to be wrong. `GAP18` carries
   the horizon, because a roadmap row is revisited and a constant is not.
 - The in-process graph survives, below its budget. Nothing about the PoC's
