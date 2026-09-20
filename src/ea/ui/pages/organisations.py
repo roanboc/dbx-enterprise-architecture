@@ -72,7 +72,8 @@ def organisations_table(ctx: AppContext) -> Any:
                     ],
                     gap=6,
                 ),
-                dmc.Code(o.org_id),
+                # an identifier broken across two lines reads as two words
+                dmc.Code(o.org_id, style={"whiteSpace": "nowrap"}),
                 dmc.Group(
                     [
                         dmc.Code(o.pack_ref or "none"),
