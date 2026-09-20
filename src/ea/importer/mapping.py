@@ -102,6 +102,9 @@ class Mapping:
     ignore_columns: list[str] = field(default_factory=list)
     lifecycle_states: dict[str, str] = field(default_factory=dict)  # lifecycle text -> current_state
     encoding: str = "utf-8-sig"
+    #: The field separator the source writes. A spreadsheet saved as CSV uses the list
+    #: separator of the machine that saved it, which is a semicolon across much of Europe.
+    delimiter: str = ","
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Mapping:
@@ -125,9 +128,24 @@ class Mapping:
             ignore_columns=list(el.get("ignore_columns") or []),
             lifecycle_states={str(k): str(v) for k, v in (el.get("lifecycle_states") or {}).items()},
             encoding=d.get("encoding", "utf-8-sig"),
+            delimiter=str(d.get("delimiter") or ","),
         )
 
 
 def load_mapping(path: str | Path) -> Mapping:
     with open(path, encoding="utf-8") as fh:
         return Mapping.from_dict(yaml.safe_load(fh) or {})
+
+
+def mapping_from_text(text: str) -> Mapping:
+    """A mapping written as YAML rather than held in a file — what an upload arrives as.
+
+    YAML parsing stays here rather than in the page, so the screen and the command line read a
+    mapping by the same rules.
+    """
+    loaded = yaml.safe_load(text or "")
+    if loaded is None:
+        return Mapping()
+    if not isinstance(loaded, dict):
+        raise ValueError("a mapping must be a YAML mapping of keys to values, not a list or a scalar")
+    return Mapping.from_dict(loaded)

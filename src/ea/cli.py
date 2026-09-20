@@ -279,6 +279,7 @@ def import_cmd(
     mapping: Path = typer.Option(None, help="mapping YAML for the source's files and columns"),
     dry_run: bool = typer.Option(False, help="validate and report, load nothing"),
     actor: str = typer.Option("import"),
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
 ):
     """Import elements, relationships and links from CSV files (validated against the metamodel)."""
     from ea.importer import import_directory, load_mapping
@@ -288,15 +289,27 @@ def import_cmd(
     m = load_mapping(mapping) if mapping else None
     report = import_directory(backend, registry, directory, source, m, actor, dry_run)
     typer.echo(report.summary())
-    for iss in report.issues:
+    shown = report.issues if issues <= 0 else report.issues[:issues]
+    for iss in shown:
         typer.echo("  " + str(iss))
+    # A wrong header produces one issue per row, and a terminal scrolled past the summary tells
+    # the reader less than the counts do.
+    found = sum(report.counts.values())
+    if found > len(shown):
+        by_code = ", ".join(f"{c} {n}" for c, n in sorted(report.counts.items(), key=lambda kv: -kv[1]))
+        typer.echo(f"  … {found - len(shown)} more not shown ({by_code})")
     raise typer.Exit(code=0 if report.ok else 1)
 
 
 @app.command()
-def validate(directory: Path, source: str = typer.Option(""), mapping: Path = typer.Option(None)):
+def validate(
+    directory: Path,
+    source: str = typer.Option(""),
+    mapping: Path = typer.Option(None),
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
+):
     """Validate CSV files against the metamodel without loading."""
-    import_cmd(directory, source, mapping, True)
+    import_cmd(directory, source, mapping, True, issues=issues)
 
 
 @app.command()

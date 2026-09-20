@@ -165,6 +165,9 @@ IM_TEMPLATE = "im-template"
 IM_VALIDATE = "im-validate"
 IM_LOAD = "im-load"
 IM_REPORT = "im-report"
+IM_MAP_UPLOAD = "im-map-upload"  # a mapping YAML of the reader's own
+IM_MAP_STORE = "im-map-store"
+IM_MAP_NAME = "im-map-name"
 
 # ask
 ASK_INPUT = "ask-input"

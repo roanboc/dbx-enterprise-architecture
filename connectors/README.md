@@ -41,6 +41,11 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 
 **links.csv**: `element_id`, `url`, `label`.
 
+A links file loaded on its own **adds** to what an element already has: what is stored
+stays, a URL sent again may carry a new label, and the rest is appended. An element
+whose own row is in the same import is different — that row's `links` column declares
+what its links are, so re-importing it with one link leaves it with one.
+
 ## What validation does
 
 Every row is checked against the loaded metamodel before anything is written:
@@ -49,6 +54,12 @@ or id (error), unknown or disallowed relationship (error, skipped — the messag
 lists what *is* allowed between the two types), qualifier issues (warning),
 endpoints that do not exist (error, skipped). `ea validate DIR` runs the check
 without loading; `ea import DIR` loads and prints the same report.
+
+Every issue is counted; the report keeps the first 2,000 of them and says so, because a
+wrong header makes one issue per row and the two-thousandth tells a reader nothing the
+first told them. The command line prints 50 by default (`--issues N`, `0` for every one
+kept) and then the totals by code. A load also reports how many rows were new and how
+many overwrote something already there.
 
 Re-importing the same files is safe: elements are matched by id and
 relationships by (source, type, endpoints, qualifier), so a reload updates
@@ -75,6 +86,8 @@ A mapping YAML adapts a source's headers and vocabulary to the contract; see
 
 ```yaml
 source_system: ea-tool
+encoding: utf-8-sig            # how the file is encoded
+delimiter: ","                 # the field separator; ";" for a spreadsheet saved in much of Europe
 files: {elements: ["*.csv"], relationships: ["*relationship*.csv"], links: []}
 elements:
   type_from_filename: false        # true = one file per type, type = file name
@@ -90,3 +103,10 @@ relationships:
 
 Headers not listed under `columns` are normalised (`Lifecycle Status` ->
 `lifecycle_status`) and treated as attributes.
+
+A file read with the wrong separator parses as a single column, so every row looks as
+though it has no `id`. The importer recognises that shape and names the separator the
+file was really written with instead of blaming the id column.
+
+The Import page takes a mapping YAML of your own as well as the two that ship with the
+repository; an uploaded mapping overrides the choice in the dropdown.

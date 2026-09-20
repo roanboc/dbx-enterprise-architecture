@@ -508,6 +508,12 @@ class Issue:
         return f"[{self.level}] {self.code}: {self.message}" + (f" ({where})" if where else "")
 
 
+#: The most issues one import report keeps. Past it the report counts rather than lists:
+#: a file with a wrong header produces one issue per row, and a hundred thousand of them
+#: tell a reader nothing the first two thousand did not (decision 0019).
+MAX_IMPORT_ISSUES = 2_000
+
+
 @dataclass
 class ImportReport:
     source_system: str
@@ -519,20 +525,55 @@ class ImportReport:
     links_loaded: int = 0
     elements_skipped: int = 0
     relationships_skipped: int = 0
+    #: What the load did, not just how much of it: an architect about to press Load wants to
+    #: know how many rows are new and how many overwrite something that is already there.
+    elements_created: int = 0
+    elements_updated: int = 0
+    relationships_created: int = 0
+    relationships_updated: int = 0
     issues: list[Issue] = field(default_factory=list)
+    #: Every issue found, counted by code, whether or not it was kept in `issues`.
+    counts: dict[str, int] = field(default_factory=dict)
+    #: How many of them were errors and warnings. `ok` and `summary()` read these, not the
+    #: kept list, so both stay true when the list is cut.
+    error_count: int = 0
+    warning_count: int = 0
+    #: True when more issues were found than the report keeps.
+    truncated: bool = False
     dry_run: bool = False
+
+    def add_issue(self, issue: Issue) -> None:
+        """Record an issue: always counted, kept while there is room to keep it."""
+        self.counts[issue.code] = self.counts.get(issue.code, 0) + 1
+        if issue.level == "error":
+            self.error_count += 1
+        elif issue.level == "warning":
+            self.warning_count += 1
+        if len(self.issues) < MAX_IMPORT_ISSUES:
+            self.issues.append(issue)
+        else:
+            self.truncated = True
 
     @property
     def errors(self) -> list[Issue]:
+        """The errors this report kept. `error_count` is how many there were."""
         return [i for i in self.issues if i.level == "error"]
 
     @property
     def warnings(self) -> list[Issue]:
+        """The warnings this report kept. `warning_count` is how many there were."""
         return [i for i in self.issues if i.level == "warning"]
 
     @property
     def ok(self) -> bool:
-        return not self.errors
+        return not self.error_count
+
+    def _tally(self) -> str:
+        """The error and warning totals, saying so when the kept list is shorter than they are."""
+        out = f"{self.error_count} errors, {self.warning_count} warnings"
+        if self.truncated:
+            out += f" (the first {len(self.issues)} listed)"
+        return out
 
     def summary(self) -> str:
         if self.dry_run:
@@ -542,13 +583,16 @@ class ImportReport:
                 f"source={self.source_system} checked elements {self.elements_read}"
                 f" ({self.elements_skipped} would be skipped), relationships {self.relationships_read}"
                 f" ({self.relationships_skipped} would be skipped), links {self.links_read};"
-                f" {len(self.errors)} errors, {len(self.warnings)} warnings"
+                f" {self._tally()}"
             )
         return (
             f"source={self.source_system} elements {self.elements_loaded}/{self.elements_read} loaded"
-            f" ({self.elements_skipped} skipped), relationships {self.relationships_loaded}/{self.relationships_read}"
-            f" loaded ({self.relationships_skipped} skipped), links {self.links_loaded}/{self.links_read};"
-            f" {len(self.errors)} errors, {len(self.warnings)} warnings"
+            f" ({self.elements_created} new, {self.elements_updated} updated,"
+            f" {self.elements_skipped} skipped), relationships"
+            f" {self.relationships_loaded}/{self.relationships_read} loaded"
+            f" ({self.relationships_created} new, {self.relationships_updated} updated,"
+            f" {self.relationships_skipped} skipped), links {self.links_loaded}/{self.links_read};"
+            f" {self._tally()}"
         )
 
 

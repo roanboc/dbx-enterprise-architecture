@@ -18,7 +18,6 @@ from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch
 from ea.importer.mapping import (
     CORE_ELEMENT_COLUMNS,
-    CORE_LINK_COLUMNS,
     CORE_RELATIONSHIP_COLUMNS,
     Mapping,
     derive_current_state,
@@ -55,7 +54,30 @@ class CsvShapeError(ValueError):
         self.detail = detail
 
 
-def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.DataFrame:
+#: Separators worth naming when a file parses as a single column: the list separator a
+#: spreadsheet writes outside the English-speaking world, and a tab.
+_OTHER_DELIMITERS = {";": "a semicolon", "\t": "a tab", "|": "a pipe"}
+
+
+def _wrong_delimiter(frame: pd.DataFrame, delimiter: str) -> str:
+    """The delimiter a one-column frame was really written with, described, or empty.
+
+    Read with the wrong separator, a perfectly good file parses as one column whose name is
+    the whole header line. Every row then lacks an id, and the importer blames the source's
+    id column for what is a separator the reader was never told about.
+    """
+    if len(frame.columns) != 1:
+        return ""
+    header = str(frame.columns[0])
+    for sep, name in _OTHER_DELIMITERS.items():
+        if sep != delimiter and sep in header:
+            return name
+    return ""
+
+
+def _read_frame(
+    source: Any, filename: str, encoding: str | None = None, delimiter: str = ","
+) -> pd.DataFrame:
     """One CSV, read strictly: a row that does not match the header is refused, not reshaped.
 
     Left to itself, a row carrying more fields than the header makes the parser promote the
@@ -63,7 +85,12 @@ def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.D
     then loads without a word, under identifiers it never declared — the worst outcome an
     importer can have. Refusing it is the only safe answer.
     """
-    kwargs: dict[str, Any] = {"dtype": str, "keep_default_na": False, "index_col": False}
+    kwargs: dict[str, Any] = {
+        "dtype": str,
+        "keep_default_na": False,
+        "index_col": False,
+        "sep": delimiter,
+    }
     if encoding is not None:
         kwargs["encoding"] = encoding
     try:
@@ -80,16 +107,24 @@ def _read_frame(source: Any, filename: str, encoding: str | None = None) -> pd.D
     ragged = [w for w in caught if issubclass(w.category, pd.errors.ParserWarning)]
     if ragged:
         raise CsvShapeError(filename, " ".join(str(ragged[0].message).split()))
+    other = _wrong_delimiter(frame, delimiter)
+    if other:
+        raise CsvShapeError(
+            filename,
+            f"the whole header read as one column, so this file is separated by {other}, "
+            f"not by {_OTHER_DELIMITERS.get(delimiter, 'a comma')}; "
+            "set `delimiter` in the mapping YAML",
+        )
     return frame
 
 
-def read_csv_text(text: str, filename: str) -> pd.DataFrame:
+def read_csv_text(text: str, filename: str, delimiter: str = ",") -> pd.DataFrame:
     """The same strict read, for a file that arrived as text rather than a path."""
-    return _read_frame(io.StringIO(text), filename)
+    return _read_frame(io.StringIO(text), filename, delimiter=delimiter)
 
 
-def _read_csv(path: Path, encoding: str) -> pd.DataFrame:
-    return _read_frame(path, path.name, encoding)
+def _read_csv(path: Path, encoding: str, delimiter: str = ",") -> pd.DataFrame:
+    return _read_frame(path, path.name, encoding, delimiter)
 
 
 def _rename(df: pd.DataFrame, columns: dict[str, str]) -> pd.DataFrame:
@@ -132,7 +167,7 @@ def read_directory(
                     continue
                 seen.add(p)
                 try:
-                    out[kind].append((p.name, _read_csv(p, mapping.encoding)))
+                    out[kind].append((p.name, _read_csv(p, mapping.encoding, mapping.delimiter)))
                 except CsvShapeError as exc:
                     if problems is None:
                         raise
@@ -147,7 +182,7 @@ def _states(
     lifecycle = rec.get("lifecycle_status") or ""
     current = (rec.get("current_state") or "").strip().lower().replace(" ", "_").replace("-", "_")
     if current and current not in CURRENT_STATES:
-        report.issues.append(
+        report.add_issue(
             Issue(
                 "warning",
                 "unknown_current_state",
@@ -162,7 +197,7 @@ def _states(
         current = derive_current_state(lifecycle, mapping.lifecycle_states)
     target = (rec.get("target_state") or "").strip().lower().replace(" ", "_").replace("-", "_")
     if target and target not in TARGET_STATES:
-        report.issues.append(
+        report.add_issue(
             Issue(
                 "warning",
                 "unknown_target_state",
@@ -213,12 +248,12 @@ def build_elements(
                     rec[k] = v
             eid = rec.get("id") or rec.get("key") or ""
             if not eid:
-                report.issues.append(Issue("error", "missing_id", "row has no id or key", row=i, file=fname))
+                report.add_issue(Issue("error", "missing_id", "row has no id or key", row=i, file=fname))
                 report.elements_skipped += 1
                 continue
             t = _resolve_type(registry, mapping, rec.get("type", ""))
             if t is None:
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "error",
                         "unknown_type",
@@ -232,13 +267,13 @@ def build_elements(
                 continue
             name = rec.get("name") or ""
             if not name:
-                report.issues.append(
+                report.add_issue(
                     Issue("error", "missing_name", "name is required", row=i, entity=eid, file=fname)
                 )
                 report.elements_skipped += 1
                 continue
             if eid in elements:
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "warning",
                         "duplicate_id",
@@ -256,10 +291,10 @@ def build_elements(
                 iss.row, iss.file = i, fname
                 if iss.code == "extra_attribute":
                     continue  # extras are kept; the pack can adopt them later
-                report.issues.append(iss)
+                report.add_issue(iss)
             status = (rec.get("status") or "approved").lower()
             if status not in ("draft", "approved", "retired"):
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "warning",
                         "unknown_status",
@@ -315,7 +350,7 @@ def build_relationships(
             )
             missing = [x for x in (src, dst) if x not in known]
             if not src or not dst or missing:
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "error",
                         "dangling_relationship",
@@ -337,7 +372,7 @@ def build_relationships(
                 allowed = (
                     ", ".join(r.name for r in registry.allowed_rel_types(known[src], known[dst])) or "none"
                 )
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "error",
                         "unknown_relationship_type",
@@ -362,10 +397,10 @@ def build_relationships(
                     iss.message += " — imported as draft"
                     status = "draft"
                     attrs["validation"] = iss.code
-                report.issues.append(iss)
+                report.add_issue(iss)
             rid = relationship_key(source_system, rt.id, src, dst, qualifier)
             if rid in rels:
-                report.issues.append(
+                report.add_issue(
                     Issue(
                         "info",
                         "duplicate_relationship",
@@ -405,45 +440,75 @@ def build_links(
     elements imported last week. Knowing only what came in the same upload would call
     every one of those unknown and drop the file.
     """
-    links: list[Link] = []
+    rows: list[tuple[str, int, str, str, str]] = []
     for fname, raw in frames:
         df = _rename(raw, mapping.link_columns)
         for i, row in enumerate(df.to_dict("records"), start=2):
             report.links_read += 1
             rec = {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
-            eid, url = rec.get("element_id", ""), rec.get("url", "")
-            here = eid in known or (
-                bool(eid) and backend is not None and backend.get_element(eid) is not None
+            rows.append((fname, i, rec.get("element_id", ""), rec.get("url", ""), rec.get("label") or ""))
+    # Everything the store might already hold, asked once rather than once per row: a links
+    # file naming ten thousand elements used to be ten thousand round trips (decision 0019).
+    unknown = {eid for _f, _i, eid, _u, _l in rows if eid and eid not in known}
+    in_store: set[str] = set()
+    if unknown and backend is not None:
+        in_store = {e.element_id for e in backend.elements_by_ids(sorted(unknown))}
+    links: list[Link] = []
+    order: dict[str, int] = {}
+    for fname, i, eid, url, label in rows:
+        if not (eid and (eid in known or eid in in_store)) or not url:
+            report.add_issue(
+                Issue(
+                    "warning",
+                    "dangling_link",
+                    f"link for unknown element {eid!r} or empty url",
+                    row=i,
+                    file=fname,
+                    entity=eid,
+                )
             )
-            if not here or not url:
-                report.issues.append(
-                    Issue(
-                        "warning",
-                        "dangling_link",
-                        f"link for unknown element {eid!r} or empty url",
-                        row=i,
-                        file=fname,
-                        entity=eid,
-                    )
+            continue
+        if not url.lower().startswith(LINK_SCHEMES):
+            # The element page refuses the same line for the same reason: a `javascript:`
+            # line waiting for a click is not a link to a source.
+            report.add_issue(
+                Issue(
+                    "warning",
+                    "bad_link",
+                    f"link for {eid!r} refused: {url!r} is not an http, https or mailto address",
+                    row=i,
+                    file=fname,
+                    entity=eid,
                 )
-                continue
-            if not url.lower().startswith(LINK_SCHEMES):
-                # The element page refuses the same line for the same reason: a `javascript:`
-                # line waiting for a click is not a link to a source.
-                report.issues.append(
-                    Issue(
-                        "warning",
-                        "bad_link",
-                        f"link for {eid!r} refused: {url!r} is not an http, https or mailto address",
-                        row=i,
-                        file=fname,
-                        entity=eid,
-                    )
-                )
-                continue
-            links.append(Link(element_id=eid, url=url, label=rec.get("label") or "", sort_order=len(links)))
-    _ = CORE_LINK_COLUMNS
+            )
+            continue
+        order[eid] = order.get(eid, -1) + 1
+        links.append(Link(element_id=eid, url=url, label=label, sort_order=order[eid]))
     return links
+
+
+def _write_links(
+    backend: DatabaseBackend, links: list[Link], imported: set[str], actor: str, report: ImportReport
+) -> None:
+    """Land the import's links, adding to an element this import did not itself bring.
+
+    `set_links` replaces an element's links wholesale, which is right for an element whose own
+    row was in this import: that row declares what its links are. It is wrong for a links file
+    loaded on its own, which this module documents as a second pass adding documentation — a
+    one-row file would silently delete everything else the element had. So that case merges:
+    what is stored stays, a URL sent again may carry a new label, and the rest is appended.
+    """
+    by_el: dict[str, list[Link]] = {}
+    for ln in links:
+        by_el.setdefault(ln.element_id, []).append(ln)
+    for eid, lns in by_el.items():
+        to_write = lns
+        if eid not in imported:
+            fresh = {ln.url: ln for ln in lns}
+            to_write = [fresh.pop(ln.url, ln) for ln in backend.get_links(eid)]
+            to_write.extend(fresh.values())
+        backend.set_links(eid, to_write, actor)
+        report.links_loaded += len(lns)
 
 
 def import_frames(
@@ -462,25 +527,29 @@ def import_frames(
         registry, frames.get("elements", []), mapping, source_system, report
     )
     known = {e.element_id: e.type_id for e in elements}
-    # endpoints may already be in the store from an earlier import
+    # Endpoints may already be in the store from an earlier import. Every one of them is asked
+    # for in one read rather than one apiece (decision 0019).
+    wanted: set[str] = set()
     for _fname, raw in frames.get("relationships", []):
         df = _rename(raw, mapping.relationship_columns)
         for col in ("src_id", "dst_id"):
             if col in df.columns:
-                for eid in set(df[col].astype(str).str.strip()) - set(known):
-                    if eid:
-                        existing = backend.get_element(eid)
-                        if existing:
-                            known[eid] = existing.type_id
+                wanted |= {e for e in set(df[col].astype(str).str.strip()) - set(known) if e}
+    for existing in backend.elements_by_ids(sorted(wanted)) if wanted else []:
+        known[existing.element_id] = existing.type_id
     rels = build_relationships(
         registry, frames.get("relationships", []), mapping, source_system, known, report
     )
     links = inline_links + build_links(frames.get("links", []), mapping, known, report, backend)
+    packages = {e.target_work_package for e in elements + rels if e.target_work_package}  # type: ignore[operator]
+    unresolved = {w for w in packages if w not in known}
+    if unresolved:
+        unresolved -= {e.element_id for e in backend.elements_by_ids(sorted(unresolved))}
     for e in elements + rels:  # type: ignore[operator]
         wp = e.target_work_package
-        if wp and wp not in known and backend.get_element(wp) is None:
+        if wp and wp in unresolved:
             entity = e.element_id if isinstance(e, Element) else f"{e.src_id}->{e.dst_id}"
-            report.issues.append(
+            report.add_issue(
                 Issue(
                     "warning",
                     "unknown_work_package",
@@ -498,16 +567,11 @@ def import_frames(
         raise Forbidden(
             f"branch {b.branch_id} is {b.status.replace('_', ' ')}: frozen until the review is decided"
         )
-    ins, upd = backend.upsert_elements(elements, actor)
-    report.elements_loaded = ins + upd
-    ins, upd = backend.upsert_relationships(rels, actor)
-    report.relationships_loaded = ins + upd
-    by_el: dict[str, list[Link]] = {}
-    for ln in links:
-        by_el.setdefault(ln.element_id, []).append(ln)
-    for eid, lns in by_el.items():
-        backend.set_links(eid, lns, actor)
-        report.links_loaded += len(lns)
+    report.elements_created, report.elements_updated = backend.upsert_elements(elements, actor)
+    report.elements_loaded = report.elements_created + report.elements_updated
+    report.relationships_created, report.relationships_updated = backend.upsert_relationships(rels, actor)
+    report.relationships_loaded = report.relationships_created + report.relationships_updated
+    _write_links(backend, links, set(known) & {e.element_id for e in elements}, actor, report)
     return report
 
 
@@ -535,7 +599,7 @@ def import_directory(
         dry_run,
     )
     for problem in problems:
-        report.issues.append(
+        report.add_issue(
             Issue(
                 level="error",
                 code="ragged_row",
