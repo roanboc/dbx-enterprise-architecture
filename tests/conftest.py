@@ -98,6 +98,20 @@ def backend(request, pack):
 
 
 @pytest.fixture
+def fresh_backend(pack):
+    """A second, empty store — what an export has to be able to rebuild the model into.
+
+    Always DuckDB: the comparison is of what the two stores hold, not of how they hold it, so
+    the engine the export is read back into does not need to vary with the engine it came from.
+    """
+    b = DuckDBBackend(":memory:")
+    b.save_pack(pack)
+    OrganisationService(b).ensure_default(pack)
+    yield b
+    b.close()
+
+
+@pytest.fixture
 def loaded(backend, registry):
     report = import_directory(backend, registry, SAMPLE, "sample")
     assert report.ok, report.summary()

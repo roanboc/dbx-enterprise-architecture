@@ -15,7 +15,8 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, dcc, html, no_update
 
 from ea.config import ROOT
-from ea.importer import Mapping, import_frames, load_mapping
+from ea.importer import Mapping, export_archive, import_frames, load_mapping, mapping_from_text
+from ea.importer.csv_export import SCHEMA_FILE
 from ea.importer.csv_import import CsvShapeError, read_csv_text
 from ea.models import Forbidden, Issue
 from ea.services.roles import a_role
@@ -89,6 +90,20 @@ def render(ctx: AppContext) -> html.Div:
                                     value="",
                                     comboboxProps={"withinPortal": False},
                                 ),
+                                # The command line takes any mapping YAML by path. Without this
+                                # the screen could only ever use the two that ship, so a reader
+                                # with their own source had to leave the app to use it.
+                                dcc.Upload(
+                                    id=ids.IM_MAP_UPLOAD,
+                                    multiple=False,
+                                    accept=".yaml,.yml",
+                                    children=dmc.Text(
+                                        "…or upload your own mapping YAML", size="xs", td="underline"
+                                    ),
+                                    style={"cursor": "pointer"},
+                                ),
+                                html.Div(id=ids.IM_MAP_NAME),
+                                dcc.Store(id=ids.IM_MAP_STORE, data=""),
                                 dmc.Divider(),
                                 dmc.Button(
                                     "Download template",
@@ -96,8 +111,18 @@ def render(ctx: AppContext) -> html.Div:
                                     variant="light",
                                     leftSection=icon("tabler:download"),
                                 ),
+                                dmc.Button(
+                                    "Download current content",
+                                    id=ids.IM_EXPORT,
+                                    variant="light",
+                                    leftSection=icon("tabler:database-export"),
+                                ),
                                 dmc.Text(
-                                    "The template ZIP follows the no-mapping CSV contract in connectors/README.md. Or from the command line: `uv run ea import <dir> --source ea-tool --mapping connectors/tool-export/mapping.yaml`.",
+                                    "The template ZIP is the empty contract; the content ZIP is this "
+                                    "organisation and branch written out in the same three files. Edit "
+                                    "either in a spreadsheet and drop it back here — an export re-imports "
+                                    "onto the same elements and edges rather than beside them. From the "
+                                    "command line: `uv run ea export <dir>` and `uv run ea import <dir>`.",
                                     size="xs",
                                     c="dimmed",
                                 ),
@@ -183,29 +208,49 @@ def _classify(name: str, mapping: Mapping) -> str | None:
     return None
 
 
+def _text(raw: str, encoding: str = "utf-8-sig") -> str:
+    """One uploaded file's bytes as text, in the encoding the mapping names.
+
+    The bytes are kept as they arrived and decoded here rather than at upload, because which
+    encoding is right is the mapping's answer and the mapping is chosen after the drop. The
+    command line has always honoured it; decoding early is what made the two doors disagree.
+    """
+    try:
+        return base64.b64decode(raw).decode(encoding, errors="replace")
+    except (ValueError, LookupError):
+        return base64.b64decode(raw).decode("utf-8-sig", errors="replace")
+
+
 def _frames(store: dict, mapping: Mapping):
     frames = {"elements": [], "relationships": [], "links": []}
     unclassified: list[str] = []
+    reference: list[str] = []
     malformed: list[CsvShapeError] = []
-    for name, text in (store or {}).items():
+    for name, raw in (store or {}).items():
+        if name.lower() == SCHEMA_FILE:
+            # The export writes it and it describes the other three rather than holding
+            # content. Calling it 'ignored' would read as a problem with the upload.
+            reference.append(name)
+            continue
         kind = _classify(name, mapping)
         if kind is None:
             unclassified.append(name)
             continue
         try:
-            frames[kind].append((name, read_csv_text(text, name)))
+            frames[kind].append((name, read_csv_text(_text(raw, mapping.encoding), name, mapping.delimiter)))
         except CsvShapeError as exc:
             malformed.append(exc)
-    return frames, unclassified, malformed
+    return frames, unclassified, reference, malformed
 
 
-def _row_count(text: str) -> int:
+def _row_count(raw: str) -> int:
     """How many records a file holds, which is not how many lines it has.
 
     A quoted field may run over several lines — a description pasted from a document
     routinely does — and counting lines then says the file holds rows it does not, before
     the reader has pressed anything.
     """
+    text = _text(raw)
     try:
         return max(0, sum(1 for _ in csv.reader(io.StringIO(text))) - 1)
     except csv.Error:
@@ -222,7 +267,7 @@ def _file_list(store: dict) -> Any:
                 [
                     icon("tabler:file-type-csv"),
                     dmc.Text(name, size="sm"),
-                    dmc.Text(_rows_label(_row_count(text)), size="xs", c="dimmed"),
+                    dmc.Text(_rows_label(_row_count(raw)), size="xs", c="dimmed"),
                     dmc.ActionIcon(
                         icon("tabler:trash", 14),
                         id={"type": ids.IM_DROP, "name": name},
@@ -234,7 +279,7 @@ def _file_list(store: dict) -> Any:
                 ],
                 gap="xs",
             )
-            for name, text in store.items()
+            for name, raw in store.items()
         ],
         gap=4,
     )
@@ -256,12 +301,22 @@ def _malformed_alert(malformed: list[CsvShapeError]):
     )
 
 
-def _run(store, source, mapping_key, dry_run: bool):
+def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
     ctx = get_context()
     if not store:
         return alert("Upload at least one CSV file first.", "yellow")
-    mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml") if mapping_key else Mapping()
-    frames, unclassified, malformed = _frames(store, mapping)
+    if map_yaml:
+        # An uploaded mapping wins over the dropdown: it is the more specific thing the
+        # reader did, and leaving the dropdown to override it would be a silent no-op.
+        try:
+            mapping = mapping_from_text(map_yaml)
+        except Exception as exc:  # noqa: BLE001 — any YAML fault is the reader's to see
+            return alert(f"That mapping YAML could not be read: {exc}", "red")
+    elif mapping_key:
+        mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml")
+    else:
+        mapping = Mapping()
+    frames, unclassified, reference, malformed = _frames(store, mapping)
     if not any(frames.values()) and not malformed:
         return alert(
             "None of the files matched the element/relationship/link file patterns of the mapping.", "red"
@@ -284,7 +339,7 @@ def _run(store, source, mapping_key, dry_run: bool):
         # The command line counts a file it could not read as an error of the import
         # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
         # file that went unread.
-        report.issues.append(
+        report.add_issue(
             Issue(
                 level="error",
                 code="ragged_row",
@@ -303,6 +358,10 @@ def _run(store, source, mapping_key, dry_run: bool):
     else:
         lead = "Nothing was loaded. "
     head = lead + report.summary()
+    # The report counts every issue it found and keeps only the first few thousand, so the
+    # totals a reader compares with the command line come from the counts, not the kept list.
+    found = sum(report.counts.values())
+    by_code = ", ".join(f"{code} {n}" for code, n in sorted(report.counts.items(), key=lambda kv: -kv[1])[:6])
     if malformed:
         # A file that could not be read is an error, and the count a reader compares with
         # the command line has to say so.
@@ -314,15 +373,24 @@ def _run(store, source, mapping_key, dry_run: bool):
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified
             else None,
-            dmc.Title(f"Issues ({len(report.issues)})", order=2, size="h5", my="sm"),
+            alert(
+                f"{', '.join(reference)} describes the other files rather than holding content, "
+                "so it was not imported.",
+                "blue",
+            )
+            if reference
+            else None,
+            dmc.Title(f"Issues ({found})", order=2, size="h5", my="sm"),
             issues_table(report.issues[:ISSUE_LIMIT]),
             dmc.Text(
-                f"Showing the first {ISSUE_LIMIT} of {len(report.issues)}. "
-                "Fix these and run it again to see the rest.",
+                f"Showing the first {min(ISSUE_LIMIT, len(report.issues))} of {found}"
+                + (f", of which the report kept {len(report.issues)}" if report.truncated else "")
+                + ". Fix these and run it again to see the rest."
+                + (f" By code: {by_code}." if by_code else ""),
                 size="xs",
                 c="dimmed",
             )
-            if len(report.issues) > ISSUE_LIMIT
+            if found > ISSUE_LIMIT
             else None,
         ]
     )
@@ -353,7 +421,7 @@ def register(app: dash.Dash) -> None:
         store = dict(store or {})
         for content, name in zip(contents, names, strict=True):
             _, b64 = content.split(",", 1)
-            store[name] = base64.b64decode(b64).decode("utf-8-sig", errors="replace")
+            store[name] = b64  # decoded when the mapping says in what encoding
         return store, _file_list(store)
 
     @app.callback(
@@ -374,16 +442,49 @@ def register(app: dash.Dash) -> None:
         return store, _file_list(store)
 
     @app.callback(
+        Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Input(ids.IM_EXPORT, "n_clicks"),
+        prevent_initial_call=True,
+        running=[(Output(ids.IM_EXPORT, "loading"), True, False)],
+    )
+    def export_content(n):
+        """This organisation and branch as the three contract files, ready to re-import."""
+        if not n:
+            return no_update
+        ctx = get_context()
+        name = f"ea-content-{ctx.branch()}.zip"
+        return dcc.send_bytes(export_archive(ctx.backend, ctx.registry), name, type="application/zip")
+
+    @app.callback(
+        Output(ids.IM_MAP_STORE, "data"),
+        Output(ids.IM_MAP_NAME, "children"),
+        Input(ids.IM_MAP_UPLOAD, "contents"),
+        State(ids.IM_MAP_UPLOAD, "filename"),
+        prevent_initial_call=True,
+    )
+    def mapping_upload(content, name):
+        """Keep the uploaded mapping, and say on the page which one is in force."""
+        if not content:
+            return no_update, no_update
+        text = base64.b64decode(content.split(",", 1)[1]).decode("utf-8", errors="replace")
+        try:
+            mapping_from_text(text)
+        except Exception as exc:  # noqa: BLE001 — any YAML fault is the reader's to see
+            return "", alert(f"{name} could not be read: {exc}", "red")
+        return text, dmc.Text(f"Using {name} — this overrides the choice above.", size="xs", c="dimmed")
+
+    @app.callback(
         Output(ids.IM_REPORT, "children"),
         Input(ids.IM_VALIDATE, "n_clicks"),
         State(ids.IM_STORE, "data"),
         State(ids.IM_SOURCE, "value"),
         State(ids.IM_MAPPING, "value"),
+        State(ids.IM_MAP_STORE, "data"),
         prevent_initial_call=True,
         running=[(Output(ids.IM_VALIDATE, "loading"), True, False)],
     )
-    def validate(n, store, source, mapping_key):
-        return _run(store, source, mapping_key, True) if n else no_update
+    def validate(n, store, source, mapping_key, map_yaml):
+        return _run(store, source, mapping_key, True, map_yaml) if n else no_update
 
     @app.callback(
         Output(ids.IM_REPORT, "children", allow_duplicate=True),
@@ -391,11 +492,12 @@ def register(app: dash.Dash) -> None:
         State(ids.IM_STORE, "data"),
         State(ids.IM_SOURCE, "value"),
         State(ids.IM_MAPPING, "value"),
+        State(ids.IM_MAP_STORE, "data"),
         prevent_initial_call=True,
         running=[(Output(ids.IM_LOAD, "loading"), True, False)],
     )
-    def load(n, store, source, mapping_key):
-        return _run(store, source, mapping_key, False) if n else no_update
+    def load(n, store, source, mapping_key, map_yaml):
+        return _run(store, source, mapping_key, False, map_yaml) if n else no_update
 
 
 _ = Path

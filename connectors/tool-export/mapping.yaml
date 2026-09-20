@@ -7,11 +7,14 @@
 # labels that differ from the pack need a row in type_names.
 source_system: ea-tool
 encoding: utf-8-sig
+# delimiter: ";"        # set when the export is separated by something other than a comma
+# id_prefix: "TOOL-"    # set when more than one source is loaded and their ids could collide
 files:
   elements: ["*element*.csv", "*object*.csv"]
   relationships: ["*relationship*.csv", "*relation*.csv"]
   links: ["*link*.csv"]
 elements:
+  # match_on: key       # set when the identity this tool's rows are known by is the key column
   type_from_filename: false
   columns:
     ID: id

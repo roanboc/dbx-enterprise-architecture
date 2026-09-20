@@ -27,11 +27,11 @@ def test_optimistic_concurrency(backend):
 
 
 def test_upsert_is_idempotent_and_bumps_version(backend):
-    ins, upd = backend.upsert_elements(
+    ins, upd, _ = backend.upsert_elements(
         [Element("A", "capability", "A"), Element("B", "capability", "B")], "import"
     )
     assert (ins, upd) == (2, 0)
-    ins, upd = backend.upsert_elements([Element("A", "capability", "A renamed")], "import")
+    ins, upd, _ = backend.upsert_elements([Element("A", "capability", "A renamed")], "import")
     assert (ins, upd) == (0, 1)
     assert backend.get_element("A").version == 2
     assert backend.count_elements() == 2

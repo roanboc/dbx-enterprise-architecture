@@ -42,7 +42,7 @@ flowchart TB
   agent["⊞ Agent [ACMP5]"]:::application
   views["⊞ View generator [ACMP8]"]:::application
   svc["⊞ Repository and graph services [ACMP3]"]:::application
-  imp["⊞ Importer [ACMP4]"]:::application
+  imp["⊞ Importer and exporter [ACMP4]"]:::application
   reg["⊞ Metamodel registry [ACMP1]"]:::application
   store["⊸ Graph store [ACMP2]"]:::application
   duck["⊞ DuckDB backend [ACMP2.1]"]:::application

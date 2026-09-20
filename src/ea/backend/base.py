@@ -121,8 +121,12 @@ class DatabaseBackend(ABC):
     ) -> Element: ...
 
     @abstractmethod
-    def upsert_elements(self, elements: list[Element], actor: str) -> tuple[int, int]:
-        """Bulk load by element_id. Returns (inserted, updated)."""
+    def upsert_elements(self, elements: list[Element], actor: str) -> tuple[int, int, int]:
+        """Bulk load by element_id. Returns (inserted, updated, unchanged).
+
+        A row identical to what the branch already holds is left alone and counted as
+        unchanged, not as updated — a nightly refresh that re-sends the whole source would
+        otherwise report every row as written every night."""
 
     @abstractmethod
     def set_links(self, element_id: str, links: list[Link], actor: str) -> list[Link]: ...
@@ -160,7 +164,8 @@ class DatabaseBackend(ABC):
     def delete_relationship(self, relationship_id: str, actor: str) -> None: ...
 
     @abstractmethod
-    def upsert_relationships(self, rels: list[Relationship], actor: str) -> tuple[int, int]: ...
+    def upsert_relationships(self, rels: list[Relationship], actor: str) -> tuple[int, int, int]:
+        """Bulk load by relationship_id. Returns (inserted, updated, unchanged)."""
 
     # ---------------------------------------------------------------- graph
     @abstractmethod
@@ -170,6 +175,14 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def elements_by_ids(self, ids: list[str]) -> list[Element]:
         """The elements these identifiers name, in one read per chunk (decision 0019)."""
+
+    @abstractmethod
+    def elements_by_keys(self, keys: list[str]) -> list[Element]:
+        """The elements carrying these human keys, in one read per chunk.
+
+        A key is what a source system calls the thing (`DT007`), and it is not the store's
+        identity — nothing constrains it to be unique, so a caller that merges on it decides
+        what to do when one key names two elements."""
 
     @abstractmethod
     def edges_among(self, ids: list[str]) -> list[Relationship]:

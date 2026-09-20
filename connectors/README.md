@@ -25,7 +25,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `target_state` | what the organisation intends: `undecided` (default), `keep`, `new`, `change`, `decommission`, `merge` |
 | `target_work_package` | the id of the work package (initiative) that carries the change |
 | `target_note` | why, and into what for `merge` |
-| `source_ref`, `origin` | optional provenance overrides |
+| `source_ref`, `origin`, `source_system` | optional provenance overrides; `source_system` overrides `--source` for that row |
 | anything else | an attribute; declared attributes are typed from the pack, others are kept as text |
 
 **relationships.csv**
@@ -37,9 +37,18 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `qualifier` | role qualifier where the type declares one (`Data Steward`) |
 | `current_state`, `target_state`, `target_work_package`, `target_note` | the same state columns as elements, optional |
 | `status`, `source_ref` | optional |
+| `source_system` | which source declared the edge; optional, and it overrides `--source` for that row. A relationship's identity is derived from it, so a file that carries it updates the edge instead of creating a second one |
 | anything else | an attribute of the relationship |
 
 **links.csv**: `element_id`, `url`, `label`.
+
+The same URL stated twice for one element — inline in `links` and again in the links file —
+lands once, keeping the labelled one.
+
+A links file loaded on its own **adds** to what an element already has: what is stored
+stays, a URL sent again may carry a new label, and the rest is appended. An element
+whose own row is in the same import is different — that row's `links` column declares
+what its links are, so re-importing it with one link leaves it with one.
 
 ## What validation does
 
@@ -49,6 +58,12 @@ or id (error), unknown or disallowed relationship (error, skipped — the messag
 lists what *is* allowed between the two types), qualifier issues (warning),
 endpoints that do not exist (error, skipped). `ea validate DIR` runs the check
 without loading; `ea import DIR` loads and prints the same report.
+
+Every issue is counted; the report keeps the first 2,000 of them and says so, because a
+wrong header makes one issue per row and the two-thousandth tells a reader nothing the
+first told them. The command line prints 50 by default (`--issues N`, `0` for every one
+kept) and then the totals by code. A load also reports how many rows were new and how
+many overwrote something already there.
 
 Re-importing the same files is safe: elements are matched by id and
 relationships by (source, type, endpoints, qualifier), so a reload updates
@@ -75,8 +90,12 @@ A mapping YAML adapts a source's headers and vocabulary to the contract; see
 
 ```yaml
 source_system: ea-tool
+encoding: utf-8-sig            # how the file is encoded
+delimiter: ","                 # the field separator; ";" for a spreadsheet saved in much of Europe
+id_prefix: "CMDB-"             # put in front of every identifier this source brings
 files: {elements: ["*.csv"], relationships: ["*relationship*.csv"], links: []}
 elements:
+  match_on: id                     # id (default) or key — which column carries this source's identity
   type_from_filename: false        # true = one file per type, type = file name
   columns: {ID: id, Name: name}    # source header -> contract column
   type_names: {Definition: business_definition}   # source type label -> pack type id
@@ -90,3 +109,67 @@ relationships:
 
 Headers not listed under `columns` are normalised (`Lifecycle Status` ->
 `lifecycle_status`) and treated as attributes.
+
+A file read with the wrong separator parses as a single column, so every row looks as
+though it has no `id`. The importer recognises that shape and names the separator the
+file was really written with instead of blaming the id column.
+
+**`delimiter` must be a single character.** A tab (`"\t"`) and the ASCII unit separator
+(`"\u001f"`) both work and neither appears in ordinary text, so either is a good choice for a
+source whose values are full of commas. A two-character separator such as `||` cannot be
+supported and is not a matter of effort: Python's CSV writer refuses a delimiter longer than one
+character, so the export could not write it; a multi-character separator makes the reader fall
+back to a mode that **stops honouring quotes**, so every description holding a newline — every
+fenced Mermaid diagram — would break apart into several broken rows; and `|` already separates
+the values of `links` and of a multi-valued attribute, so the two meanings would collide. The
+problem `||` is reaching for — commas inside a description — is the problem quoting already
+solves, which is why a description with commas, quotes and newlines round-trips today.
+
+The Import page takes a mapping YAML of your own as well as the two that ship with the
+repository; an uploaded mapping overrides the choice in the dropdown.
+
+## Which column is the identity
+
+Every identifier a source brings — the elements it declares, the endpoints of its
+relationships, the owners of its links, the work packages it names — goes through one rule,
+so the files cannot disagree about what a row is called.
+
+**`id_prefix`** is put in front of all of them. Two systems that both number their rows from
+one collide on `1001` without it, and the second load silently overwrites the first. With
+`id_prefix: "CMDB-"` the element becomes `CMDB-1001`, while `source_ref` keeps `1001` — the
+prefix is the repository's business, not the source's.
+
+**`match_on`** says which column carries the identity the source is merged on:
+
+| | What it means |
+| ---- | ---- |
+| `id` (default) | The `id` column becomes the element id, prefixed. Right when the source has a stable surrogate key |
+| `key` | The `key` column is what the source system knows the row by (`DT007`). An element the repository already holds under that key **keeps the identity it was given**, so a reload updates it however the source has renumbered its `id` column; anything new is created as `<id_prefix><key>`. Endpoints and link owners in the other files are keys too |
+
+Nothing makes a key unique. A key that names two elements is reported as `ambiguous_key` and
+merged onto the first by identifier, rather than one being picked silently — that is how an
+import rewrites the wrong row. A row with no key, under `match_on: key`, is refused by name.
+
+## Getting content back out
+
+`uv run ea export <dir>` writes the current organisation and branch as the same three files,
+and the Import page has **Download current content** beside the template. What comes out goes
+back in: an export re-imported lands on the same elements and the same edges rather than beside
+them, so the cheapest way to correct a thousand rows is to export them, fix the column in a
+spreadsheet, and import the file again.
+
+Beside the three content files it writes **`schema.csv`**, the reference an adopter builds
+a feed from: every column the three may carry, the type or file that is its parent, the data
+type the value is read as, whether it takes many values, the vocabulary where one is fixed, the
+attribute group, and what the pack says the column means. It is written from the metamodel
+version the organisation applies, so it describes the columns *this* import will accept. It is
+a reference and is not imported back — the Import page says so rather than calling it ignored.
+
+`elements.csv` is written as **one wide file** — the core columns above, then a column for every
+attribute any exported element carries, whether the pack declares it or not. A row leaves the
+cells that do not apply to its type blank, which is what the importer already reads.
+
+Markdown descriptions survive the trip, fenced Mermaid diagrams included: commas, quotes and
+newlines inside a quoted cell are what CSV is for. Two things to know before editing the file in
+a spreadsheet — Excel caps a cell at 32,767 characters, and it re-saves using the list separator
+of the machine that saved it, which is where `delimiter` comes in.
