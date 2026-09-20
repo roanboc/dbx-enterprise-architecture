@@ -170,6 +170,29 @@ IM_MAP_STORE = "im-map-store"
 IM_MAP_NAME = "im-map-name"
 IM_EXPORT = "im-export"  # the current content, written back out in the same contract
 
+# feeds
+FEED_LIST = "feed-list"
+FEED_FEEDBACK = "feed-feedback"
+FEED_RUN = "feed-run"  # pattern-matching: {"type": FEED_RUN, "id": <feed_id>}
+FEED_DELETE = "feed-delete"  # pattern-matching: {"type": FEED_DELETE, "id": <feed_id>}
+FEED_EDIT = "feed-edit"  # pattern-matching: {"type": FEED_EDIT, "id": <feed_id>}
+FEED_MODAL = "feed-modal"
+FEED_ID = "feed-id"  # store: the feed the modal is editing, empty for a new one
+FEED_NAME = "feed-name"
+FEED_SOURCE = "feed-source"
+FEED_EL_TABLE = "feed-el-table"
+FEED_REL_TABLE = "feed-rel-table"
+FEED_LINK_TABLE = "feed-link-table"
+FEED_BRANCH = "feed-branch"
+FEED_SCHEDULE = "feed-schedule"
+FEED_TZ = "feed-tz"
+FEED_CLEAR = "feed-clear"
+FEED_ENABLED = "feed-enabled"
+FEED_MAPPING = "feed-mapping"
+FEED_SAVE = "feed-save"
+FEED_NEW = "feed-new"
+FEED_MODAL_FEEDBACK = "feed-modal-feedback"
+
 # ask
 ASK_INPUT = "ask-input"
 ASK_BUTTON = "ask-button"

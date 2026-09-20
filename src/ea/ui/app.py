@@ -26,6 +26,7 @@ from ea.ui.pages import (
     branches,
     browse,
     element,
+    feeds,
     health,
     home,
     impact,
@@ -46,6 +47,7 @@ PAGES = {
     "browse",
     "metamodel",
     "organisations",
+    "feeds",
     "impact",
     "import",
     "ask",
@@ -220,6 +222,8 @@ def create_app() -> dash.Dash:
                 body = impact.render(ctx, search)
             elif page == "import":
                 body = import_page.render(ctx)
+            elif page == "feeds":
+                body = feeds.render(ctx)
             elif page == "ask":
                 body = ask.render(ctx)
             elif page == "branches":
@@ -406,6 +410,7 @@ def create_app() -> dash.Dash:
         organisations,
         impact,
         import_page,
+        feeds,
         ask,
         branches,
         target,

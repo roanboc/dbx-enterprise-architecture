@@ -44,6 +44,9 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     "publish_metamodel": ("admin",),  # publish or retire a version
     "apply_metamodel": ("admin",),  # apply a version to an organisation
     "manage_organisations": ("admin",),  # create, rename, copy, delete an organisation, name the default
+    # Where content comes from, and whether a source lands on main without review, is an
+    # admin's decision; running a feed that is already configured is an import.
+    "manage_feeds": ("admin",),
     "assign_reviewers": ("admin",),
 }
 DESCRIPTIONS = {
