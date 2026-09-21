@@ -127,6 +127,10 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("meta_attribute", "extra", "VARCHAR"),
     ("meta_relationship_type", "pack_version", "VARCHAR"),
     ("meta_relationship_type", "properties", "VARCHAR"),
+    # initiative 19: the row as main held it when the branch first touched it, so a merge can
+    # tell what the branch changed apart from what main changed, rather than only that both did
+    ("branch_element", "base_row", "VARCHAR"),
+    ("branch_relationship", "base_row", "VARCHAR"),
 ] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
@@ -137,7 +141,8 @@ STATE_COLUMNS_DDL = """,
 BRANCH_EXTRA_DDL = """,
             branch_id VARCHAR NOT NULL,
             base_version INTEGER NOT NULL,
-            op VARCHAR NOT NULL"""
+            op VARCHAR NOT NULL,
+            base_row VARCHAR"""
 ORG_COLUMN_DDL = """,
             org_id VARCHAR"""
 

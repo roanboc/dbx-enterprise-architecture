@@ -6,8 +6,10 @@ import csv
 import io
 import json
 import os
+from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -19,9 +21,11 @@ from ea.models import (
     SORT_ORDERS,
     AttributeFilter,
     ConflictError,
+    Element,
     ElementFilter,
     Forbidden,
     NotFoundError,
+    Relationship,
     ValidationError,
 )
 from ea.services.roles import require, set_role
@@ -351,6 +355,13 @@ def stats():
             typer.echo(f"  {row['count']:6d}  {row['name']}")
     if s["unknown_types"]:
         typer.echo(f"  unknown types in store: {s['unknown_types']}")
+
+
+#: What `--resolve key.field=…` may name. Taken from the rows themselves rather than typed
+#: out, so a field added to either dataclass is resolvable the day it exists.
+_MERGEABLE_FIELDS = frozenset(
+    {f.name for f in fields(Element)} | {f.name for f in fields(Relationship)} | {"links"}
+)
 
 
 def _moment(text: str, what: str) -> datetime | None:
@@ -725,7 +736,14 @@ def branch_diff(branch_id: str):
         f"branch '{branch_id}' ({cs.branch.status}): {c['added']} added, {c['changed']} changed, {c['deleted']} deleted, {c['conflicts']} conflicts"
     )
     for row in svc.item_rows(cs):
-        flag = "  CONFLICT" if row["conflict"] else ""
+        # Three states, not two: a row main moved under without disagreeing merges as it is,
+        # and calling that CONFLICT sent people looking for a decision nobody has to make.
+        if row["conflict"] == "conflict":
+            flag = f"  CONFLICT (both changed: {row['disputed']})"
+        elif row["conflict"] == "stale":
+            flag = "  stale (main moved, no field in dispute)"
+        else:
+            flag = ""
         fields = f"  [{row['fields']}]" if row["fields"] else ""
         typer.echo(
             f"  {row['change']:8s} {row['kind']:12s} {row['entity_id']:28s} {row['label']}{fields}{flag}"
@@ -739,29 +757,54 @@ def branch_merge(
         None, "--include", "-i", help="item key(s) to merge (element:<id> or relationship:<id>); default: all"
     ),
     resolve: list[str] = typer.Option(
-        None, "--resolve", "-r", help="conflict resolution as key=branch or key=main"
+        None,
+        "--resolve",
+        "-r",
+        help="key=branch or key=main for the whole row, or key.field=branch for one field",
     ),
     actor: str = typer.Option("cli"),
 ):
-    """Merge the branch into main, item by item; unresolved conflicts and unticked items remain on the branch."""
+    """Merge the branch into main, item by item and field by field.
+
+    A row is a conflict only where both sides changed the same field; everything else merges
+    over main's current row. Resolve a whole row with `--resolve element:X=main`, or one field
+    at a time with `--resolve element:X.description_md=main`.
+    """
     _, _, svc = _branches()
-    resolutions = {}
+    resolutions: dict[str, Any] = {}
     for r in resolve or []:
         k, _, v = r.partition("=")
-        resolutions[k] = v
+        if v not in ("branch", "main"):
+            _refuse(f"--resolve {r!r} must end in =branch or =main")
+        # An element id may hold a dot ('LDC.FIN'), so a trailing '.something' is only read
+        # as a field when 'something' is actually a field of the row it names.
+        key, dot, field = k.rpartition(".")
+        if dot and key.count(":") == 1 and field in _MERGEABLE_FIELDS:
+            per_field = resolutions.setdefault(key, {})
+            if not isinstance(per_field, dict):
+                _refuse(f"--resolve names {key} both as a whole row and field by field")
+            per_field[field] = v
+        else:
+            if isinstance(resolutions.get(k), dict):
+                _refuse(f"--resolve names {k} both as a whole row and field by field")
+            resolutions[k] = v
     res = svc.merge(branch_id, actor, set(include) if include else None, resolutions)
     typer.echo(
         f"merged {len(res.applied)} item(s), dropped {len(res.dropped)}, {res.remaining} remaining; branch {'closed' if res.closed else 'still open'}"
     )
     if res.remaining and not res.closed:
         # A merge held back by a conflict otherwise reads exactly like one with nothing to do.
-        stuck = [r["key"] for r in svc.item_rows(svc.diff(branch_id)) if r["conflict"]]
+        stuck = [r for r in svc.item_rows(svc.diff(branch_id)) if r["conflict"] == "conflict"]
         if stuck:
+            named = ", ".join(f"{r['key']} ({r['disputed']})" for r in stuck[:5])
             typer.echo(
-                f"  {len(stuck)} unresolved conflict(s) held it back: {', '.join(stuck[:5])}"
+                f"  {len(stuck)} unresolved conflict(s) held it back: {named}"
                 + (" …" if len(stuck) > 5 else "")
             )
-            typer.echo("  resolve each with --resolve <key>=branch or --resolve <key>=main, then merge again")
+            typer.echo(
+                "  resolve each with --resolve <key>=branch, --resolve <key>=main, or one field at a "
+                "time with --resolve <key>.<field>=main, then merge again"
+            )
 
 
 @branch_app.command("review")

@@ -101,9 +101,12 @@ class BranchService:
         branch_id: str,
         actor: str,
         include: set[str] | None = None,
-        resolutions: dict[str, str] | None = None,
+        resolutions: dict[str, str | dict[str, str]] | None = None,
     ) -> MergeResult:
         """Merge the ticked items (all when `include` is None); conflicts need a resolution.
+
+        A resolution is `"branch"`, `"main"`, or a mapping of one disputed field to either
+        of those — a conflict is per field, so settling one is too.
 
         An architect merges an approved branch; an admin may merge any open branch, and the
         change log then says the merge happened without a review (decision 0009)."""
@@ -148,8 +151,12 @@ class BranchService:
                     "base_version": it.base_version,
                     "main_version": it.main_version,
                     # The word, not a boolean: a grid draws a boolean as a checkbox, and a
-                    # checkbox in this row reads as one more thing to tick.
-                    "conflict": "conflict" if it.conflict else "",
+                    # checkbox in this row reads as one more thing to tick. A row main has
+                    # moved under without disagreeing says so too, in a quieter word: it
+                    # merges as it is, and a reader who sees main's fields in the diff
+                    # should know why they are there.
+                    "conflict": "conflict" if it.conflict else ("stale" if it.stale else ""),
+                    "disputed": ", ".join(it.overlapping),
                     # Empty, not "branch". A conflict means main moved under this row, and
                     # defaulting to the branch's copy made overwriting somebody else's work
                     # the thing that happens when nobody looks. The merge holds an unresolved
@@ -187,3 +194,32 @@ class BranchService:
                 continue
             out.append((k, before.get(k), after.get(k)))
         return out
+
+    @staticmethod
+    def field_rows(it: ChangeItem) -> list[dict[str, Any]]:
+        """Every field in play, with who changed it and whether the two disagree.
+
+        The merge is per field now, so the screen has to be too: a row saying only that
+        *something* differs leaves a reader choosing between two whole rows, which is how
+        one architect's work used to be reverted by another's merge.
+        """
+        skip = {"version", "created_at", "created_by", "updated_at", "updated_by"}
+        was, before, after = it.base or {}, it.before or {}, it.after or {}
+        keys = [k for k in list(after) + [k for k in before if k not in after] if k not in skip]
+        rows = []
+        for k in keys:
+            mine, theirs = k in it.branch_fields, k in it.main_fields
+            if it.change == "changed" and not mine and not theirs and before.get(k) == after.get(k):
+                continue
+            rows.append(
+                {
+                    "field": k,
+                    "base": was.get(k),
+                    "main": before.get(k),
+                    "branch": after.get(k),
+                    "changed_by_branch": mine,
+                    "changed_by_main": theirs,
+                    "disputed": k in it.overlapping,
+                }
+            )
+        return rows

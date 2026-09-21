@@ -106,6 +106,35 @@ criterion with `--json` and `--csv`; the eight defects above, each with a unit
 test; the merge defaults made safe, a staleness alert on a branch behind `main`,
 and a stripe above every page when the reader is not on `main`.
 
+### Field-level merge (added after the Requester saw the first cut)
+
+The Requester asked for the conflict handling this document had named as left, so it was
+built rather than deferred. A branch row now keeps **the row as `main` held it when the
+branch first touched it** (`branch_element.base_row`, `branch_relationship.base_row`).
+With that base, what the branch changed and what `main` changed are each a set of fields,
+and **only their intersection is a conflict** — two architects editing different fields of
+one element have not disagreed about anything. An applied row is `main`'s current row with
+the branch's changed fields laid over it; each disputed field is settled on its own, from
+the merge log's detail panel or with `--resolve element:X.field=main`.
+
+**An adversarial review of that change found seven defects in it, every one reproduced
+against a real store.** They are recorded here because the change would otherwise have
+shipped losing more than it saved:
+
+| What | Why it mattered |
+| ---- | --------------- |
+| A branch's **delete** disagreed with nothing, because a delete changes no field — so deleting a row `main` had been editing applied silently and took `main`'s edit with it | The one path that destroyed a row rather than a field |
+| A branch row that **changed no field** is a stale copy of `main` (setting links alone puts one there). It was not a conflict, so it was ticked by default, and merging it reverted everything `main` had done since | Silent, and reachable by an ordinary edit |
+| **Links sat outside the field comparison**, so `main`'s links were replaced by the branch's stale copy with no conflict — while the new screen told the reader the opposite | The loss pre-dated this work; the wrong reassurance did not |
+| `all(… == "main")` over an **empty** decision is vacuously true, so any mapping on a row `main` had deleted dropped it | The caller asked for the branch's value and got `main`'s |
+| The apply path checked `base is None` where it meant `before is None`, so a per-field decision was **discarded** on any row with no base | Made worse by the next one |
+| An **import onto a branch** wiped `base_row`, because `_replace_rows` names its columns and that one was left out | Turned a legacy edge case into an ordinary one |
+| `--resolve element:LDC.FIN=main` read `FIN` as a field, because an element id may hold a dot | Resolved the wrong row |
+
+Each is fixed, and each has a test in `tests/test_branches.py` named for the sequence that
+found it. **What is still not built** is a merge of one field's *text*: where both sides
+edited the same description, the choice is one value or the other, not a combined one.
+
 **Left, and why.**
 
 1. **A saved or named query.** It needs somewhere per reader to keep one, which
@@ -122,7 +151,8 @@ and a stripe above every page when the reader is not on `main`.
 5. **The branching features:** rebase a stale branch, cherry-pick, revert a
    merge, compare two branches, a per-item review comment, a reviewer inbox.
    Every one is a feature rather than a defect, and the Requester has not been
-   asked which of them matters.
+   asked which of them matters. Field-level conflict resolution was on this list
+   and came off it at the Requester's word.
 6. **A per-element owner.** Review routes on element type only. An owner per
    element is what a commercial repository has and this does not; it reaches
    into the metamodel and belongs with the Requester.
@@ -132,6 +162,10 @@ and a stripe above every page when the reader is not on `main`.
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------------- |
 | Understanding | The product owner | 2026-09-21 | The assessment of both modules — eight defects with file and line, the filtering gap, and the branching list — put to the Requester in the session that produced this document. The Requester's word was *"Start implementing all fixes and improvements"*, which is the approval this row records. The scope actually built is narrower than "all": what was left is listed above, and the Requester has not agreed to that narrowing |
+
+A second **Understanding** is not recorded separately for the field-level merge: it is the
+conflict handling this document already named as left, and the Requester asked for it by
+name in the same session, which the row above covers.
 
 **Direction** was not sought and no row records it: `GAP20` sits under plateaus
 the roadmap already holds, and nothing here changes where the project is going.

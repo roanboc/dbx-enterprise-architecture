@@ -249,6 +249,9 @@ BRANCH_NEW_DESC = "branch-new-desc"
 BRANCH_NEW_WP = "branch-new-wp"
 BRANCH_NEW_SAVE = "branch-new-save"
 BRANCH_NEW_FEEDBACK = "branch-new-feedback"
+# One disputed field of one change item: which side's value main keeps. Pattern-matched,
+# because how many there are depends on the branch.
+BR_FIELD_TAKE = "br-field-take"
 BR_STATUS = "br-status"
 BR_WHERE = "br-where"  # the line saying which branch the reader is on, above the list
 BR_LIST = "br-list"

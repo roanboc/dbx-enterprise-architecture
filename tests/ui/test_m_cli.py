@@ -2891,9 +2891,13 @@ def test_m55_branch_never_created(cli, record, finding):
 @pytest.mark.scenario(
     scenario_id="M56",
     group="M",
-    title="A branch conflicts when main moves under it, and --resolve says which side wins",
+    title="Main moving under a branch is not a conflict unless the same field moved twice",
     feature="Command line · branch merge --resolve",
-    expected="`branch diff` marks the item CONFLICT; a merge without a resolution applies nothing and leaves the branch open; `--resolve <key>=branch` applies the branch's row over main's.",
+    expected=(
+        "The branch set a status while main set a note — different fields of one element. "
+        "`branch diff` marks the row stale rather than CONFLICT, the merge applies it without a "
+        "resolution, and main ends up carrying both changes instead of one reverting the other."
+    ),
     branch=CONFLICT_BRANCH,
 )
 def test_m56_merge_conflict(cli, record, finding):
@@ -2909,49 +2913,19 @@ def test_m56_merge_conflict(cli, record, finding):
     rc, diff, ev = run(cli, "branch", "diff", CONFLICT_BRANCH, limit=190)
     must(record, "the change set was reported", rc == 0 and diff.strip(), ev)
     check(
-        record, "the heading counts the conflict", "1 conflicts" in diff.splitlines()[0], diff.splitlines()[0]
+        record,
+        "the heading counts no conflict, because the two touched different fields",
+        "0 conflicts" in diff.splitlines()[0],
+        diff.splitlines()[0],
     )
     row = next((ln for ln in diff.splitlines() if WRITE_ELEMENT in ln), "")
-    must(record, "the conflicting item is listed", bool(row), ev)
-    check(record, "the row is marked as a conflict", "CONFLICT" in row, row.strip())
-    check(
-        record,
-        "and it says which version of main the branch started from",
-        "changed" in row and "element" in row,
-        row.strip(),
-    )
+    must(record, "the item is listed", bool(row), ev)
+    check(record, "the row is marked stale rather than conflicting", "stale" in row, row.strip())
+    check(record, "and it does not say CONFLICT", "CONFLICT" not in row, row.strip())
 
-    rc_n, nothing, nothing_ev = run(cli, "branch", "merge", CONFLICT_BRANCH, limit=140)
-    must(record, "a merge with the conflict unresolved ran", rc_n == 0, nothing_ev)
-    check(record, "it applies nothing", "merged 0 item(s)" in nothing, trim(nothing))
-    check(record, "the item stays on the branch", "1 remaining" in nothing, trim(nothing))
-    check(record, "and the branch stays open", "still open" in nothing, trim(nothing))
-    _, kept, kept_ev = run(
-        cli, "sql", f"select status, target_note from element where element_id = '{WRITE_ELEMENT}'", limit=150
-    )
-    check(
-        record,
-        "main keeps its own value meanwhile",
-        "main moved underneath" in kept,
-        trim(kept, 130) or kept_ev,
-    )
-    if "conflict" not in nothing.lower():
-        lodge(
-            finding,
-            "M-17",
-            "src/ea/cli.py · branch merge",
-            "usability",
-            "A merge stopped by an unresolved conflict says 'merged 0 item(s), dropped 0, 1 remaining' and never says a conflict is why.",
-            "The merge exits 0 and reads exactly like a merge with nothing to do. `branch diff` marks the row "
-            "CONFLICT and `merge` takes `--resolve <key>=branch|main`, so the command knows both the cause and "
-            "the cure; naming the conflicting items and the flag that resolves them would close the loop.",
-        )
-
-    rc_r, resolved, resolve_ev = run(
-        cli, "branch", "merge", CONFLICT_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=branch", limit=150
-    )
-    must(record, "the merge with a resolution ran", rc_r == 0, resolve_ev)
-    check(record, "the resolved item is applied", "merged 1 item(s)" in resolved, trim(resolved))
+    rc_r, resolved, resolve_ev = run(cli, "branch", "merge", CONFLICT_BRANCH, limit=150)
+    must(record, "the merge ran without needing a resolution", rc_r == 0, resolve_ev)
+    check(record, "the item is applied", "merged 1 item(s)" in resolved, trim(resolved))
     check(record, "nothing is left on the branch", "0 remaining" in resolved, trim(resolved))
     check(record, "so it closes", "branch closed" in resolved, trim(resolved))
     _, after, after_ev = run(
@@ -2960,8 +2934,8 @@ def test_m56_merge_conflict(cli, record, finding):
     check(record, "main now carries the branch's status", "approved" in after, trim(after, 130))
     check(
         record,
-        "and the branch's row replaced main's wholesale, note and all",
-        "main moved underneath" not in after,
+        "and main's own note survived, rather than being reverted by a row that never touched it",
+        "main moved underneath" in after,
         trim(after, 130) or after_ev,
     )
     _, listed, list_ev = run(cli, "branch", "list", "--status", "merged", limit=200)
@@ -2978,20 +2952,37 @@ def test_m56_merge_conflict(cli, record, finding):
     group="M",
     title="--resolve <key>=main drops the branch's row and leaves main's value standing",
     feature="Command line · branch merge --resolve",
-    expected="A conflict resolved to main is reported as dropped rather than merged, main keeps the value it had, and the branch closes because nothing is left on it.",
+    expected=(
+        "Both sides move the *same* field, which is a real conflict: `branch diff` says CONFLICT and "
+        "names the disputed field, a merge without a resolution applies nothing, and `--resolve "
+        "<key>=main` drops the branch's row so main keeps the value it had."
+    ),
     branch=DROP_BRANCH,
 )
 def test_m57_resolve_to_main(cli, record):
     rc_c, created, create_ev = run(cli, "branch", "create", "M drop", limit=130)
     must(record, "the branch was created", rc_c == 0 and DROP_BRANCH in created, create_ev)
     rc_b, wrote, wrote_ev = run(
-        cli, "--branch", DROP_BRANCH, "set", WRITE_ELEMENT, "--status", "retired", limit=130
+        cli, "--branch", DROP_BRANCH, "set", WRITE_ELEMENT, "--note", "M: the branch's note", limit=130
     )
     must(record, "the branch carries a change", rc_b == 0 and "updated 1" in wrote, wrote_ev)
+    # the same field, so the two genuinely disagree
     rc_m, moved, moved_ev = run(cli, "set", WRITE_ELEMENT, "--note", "M: main wins this one", limit=130)
-    must(record, "main moved under it", rc_m == 0 and "updated 1" in moved, moved_ev)
+    must(record, "main moved the same field under it", rc_m == 0 and "updated 1" in moved, moved_ev)
     _, diff, diff_ev = run(cli, "branch", "diff", DROP_BRANCH, limit=180)
     must(record, "the item conflicts", "1 conflicts" in diff.splitlines()[0], diff_ev)
+    row = next((ln for ln in diff.splitlines() if WRITE_ELEMENT in ln), "")
+    check(record, "and the row names the field both sides changed", "target_note" in row, row.strip())
+
+    rc_n, nothing, nothing_ev = run(cli, "branch", "merge", DROP_BRANCH, limit=180)
+    must(record, "a merge with it unresolved ran", rc_n == 0, nothing_ev)
+    check(record, "it applies nothing", "merged 0 item(s)" in nothing, trim(nothing))
+    check(
+        record,
+        "and it says a conflict is why, naming the field and the flag that settles it",
+        "unresolved conflict" in nothing and "--resolve" in nothing,
+        trim(nothing, 200),
+    )
 
     rc, out, ev = run(
         cli, "branch", "merge", DROP_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=main", limit=150
@@ -3016,7 +3007,12 @@ def test_m57_resolve_to_main(cli, record):
     check(
         record, "main kept the note it moved to", "main wins this one" in after, trim(after, 130) or after_ev
     )
-    check(record, "and the branch's status never reached it", "retired" not in after, trim(after, 130))
+    check(
+        record,
+        "and the branch's own note never reached it",
+        "the branch's note" not in after,
+        trim(after, 130),
+    )
     _, listed, list_ev = run(cli, "branch", "list", limit=200)
     row = next((ln for ln in listed.splitlines() if ln.startswith(DROP_BRANCH)), "")
     must(record, "the branch is listed", bool(row), list_ev)

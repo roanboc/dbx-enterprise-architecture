@@ -491,10 +491,37 @@ class ChangeItem:
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     fields_changed: list[str] = field(default_factory=list)
+    #: The row as `main` held it when the branch first touched it. `None` for a row the
+    #: branch added, and for a row written before the base was kept.
+    base: dict[str, Any] | None = None
+    #: What each side changed since that base, and where the two overlap. Only the overlap
+    #: is a conflict: two people editing different fields of one element have not disagreed.
+    branch_fields: list[str] = field(default_factory=list)
+    main_fields: list[str] = field(default_factory=list)
+    overlapping: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
         return f"{self.kind}:{self.entity_id}"
+
+    @property
+    def stale(self) -> bool:
+        """Main moved under this row, whether or not the two disagree about a field."""
+        return bool(self.main_fields)
+
+    def merged_row(self, take: dict[str, str] | None = None) -> dict[str, Any]:
+        """What main should hold: main's current row with the branch's changes laid over it.
+
+        The branch's fields win by default, which is what merging a branch means. `take`
+        names the fields to decide differently — a field mapped to `"main"` keeps main's
+        value — and only ever covers overlapping fields, because nothing else is in dispute.
+        """
+        out = dict(self.before or {})
+        for f in self.branch_fields:
+            if (take or {}).get(f) == "main" and f in (self.main_fields or []):
+                continue
+            out[f] = (self.after or {}).get(f)
+        return out
 
 
 @dataclass

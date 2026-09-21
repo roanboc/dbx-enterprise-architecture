@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from ea.backend.branching import MAIN, branch_id_from_name, current_branch, use_branch
-from ea.models import ConflictError, Element, NotFoundError, Relationship, ValidationError
+from ea.models import ConflictError, Element, Link, NotFoundError, Relationship, ValidationError
 from ea.services import BranchService, GraphService, RepositoryService, TargetStateService
 
 
@@ -80,12 +80,15 @@ def test_diff_lists_changes_and_flags_conflicts(loaded, branches, registry):
     repo.update_element("PAC-CMS", "bob", cms.version, description_md="edited on main")
     cs = branches.diff("wp2")
     by_key = {i.key: i for i in cs.items}
-    assert cs.counts() == {"added": 1, "changed": 2, "deleted": 0, "conflicts": 1}
-    assert by_key["element:PAC-CMS"].conflict and by_key["element:PAC-CMS"].fields_changed == [
-        "description_md",
-        "name",
-    ]
-    assert by_key["element:PAC-CMS"].base_version == 1 and by_key["element:PAC-CMS"].main_version == 2
+    # The branch changed the name, main changed the description: main has moved under the row,
+    # but the two have not disagreed about anything, so it is stale rather than conflicting.
+    cms_item = by_key["element:PAC-CMS"]
+    assert cms_item.stale and not cms_item.conflict
+    assert cms_item.branch_fields == ["name"] and cms_item.main_fields == ["description_md"]
+    assert cms_item.overlapping == []
+    assert cs.counts() == {"added": 1, "changed": 2, "deleted": 0, "conflicts": 0}
+    assert cms_item.fields_changed == ["description_md", "name"]
+    assert cms_item.base_version == 1 and cms_item.main_version == 2
     assert not by_key["element:PAC-SRS"].conflict and by_key["element:PAC-SRS"].fields_changed == [
         "target_state"
     ]
@@ -93,8 +96,12 @@ def test_diff_lists_changes_and_flags_conflicts(loaded, branches, registry):
     rows = branches.item_rows(cs)
     assert {r["key"] for r in rows} == set(by_key)
     assert all(r["include"] for r in rows)
-    # A conflict arrives with no resolution chosen: somebody decides which row main keeps.
-    assert [r["resolution"] for r in rows if r["conflict"]] == [""]
+    # Nothing here is a conflict any more, so no row asks for a resolution — but the row
+    # main moved under says 'stale', because a reader seeing main's fields in the diff
+    # should know why they are there.
+    assert [r["resolution"] for r in rows if r["conflict"] == "conflict"] == []
+    assert {r["key"]: r["conflict"] for r in rows}["element:PAC-CMS"] == "stale"
+    assert {r["key"]: r["disputed"] for r in rows}["element:PAC-CMS"] == ""
 
 
 def test_merge_is_per_item_and_closes_only_when_empty(loaded, branches, registry):
@@ -119,14 +126,15 @@ def test_merge_is_per_item_and_closes_only_when_empty(loaded, branches, registry
     assert loaded.get_element("DE-CAW-PROP").version == 1
     assert len(loaded.relationships_of("DE-CAW-PROP")) == 1
     assert loaded.get_element("PAC-CMS").name != "CMS v2"
-    # second round: everything left; the conflict stays until resolved
+    # second round: everything left. The branch renamed PAC-CMS while main edited its
+    # description — different fields, so both survive and nothing needs resolving.
     res = branches.merge("wp3", "ana")
-    assert res.applied == ["element:PAC-SRS"] and res.remaining == 1 and not res.closed
+    assert sorted(res.applied) == ["element:PAC-CMS", "element:PAC-SRS"]
+    assert res.remaining == 0 and res.closed
     assert loaded.get_element("PAC-SRS").target_state == "change"
-    # resolve for main: the branch row is dropped, main keeps its edit, the branch closes
-    res = branches.merge("wp3", "ana", resolutions={"element:PAC-CMS": "main"})
-    assert res.dropped == ["element:PAC-CMS"] and res.remaining == 0 and res.closed
-    assert loaded.get_element("PAC-CMS").description_md == "edited on main"
+    cms_after = loaded.get_element("PAC-CMS")
+    assert cms_after.name == "CMS v2", "the branch's change landed"
+    assert cms_after.description_md == "edited on main", "and main's was not reverted"
     assert branches.get("wp3").status == "merged"
     with pytest.raises(ConflictError):
         branches.merge("wp3", "ana")
@@ -328,3 +336,200 @@ def test_a_conflict_arrives_unresolved_rather_than_set_to_overwrite_main(loaded,
     result = branches.merge("clash", "ana")
     assert result.applied == [] and "not resolved" in result.reasons()
     assert loaded.get_element("PAC-CMS").description_md == "Main's words.", "main is untouched"
+
+
+def test_two_branches_editing_different_fields_do_not_conflict(loaded, branches, registry):
+    """The case that cost an architect their work: two people, one element, two fields.
+
+    Ana rewrites a description, Bo sets a target state. Whoever merged second used to find
+    a conflict — the version had moved — and resolving it for the branch wrote their whole
+    row, reverting the first one's edit. Neither of them ever disagreed about anything.
+    """
+    repo = RepositoryService(loaded, registry)
+    branches.create("ana", "ana")
+    branches.create("bo", "bo")
+    with use_branch("ana"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, description_md="Ana's description.")
+    with use_branch("bo"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "bo", cms.version, target_note="Bo's note")
+    branches.merge("ana", "ana")
+
+    item = branches.diff("bo").items[0]
+    assert item.stale, "main did move under Bo's row"
+    assert not item.conflict, "but the two never touched the same field"
+    assert item.branch_fields == ["target_note"] and item.main_fields == ["description_md"]
+
+    result = branches.merge("bo", "bo")
+    assert result.applied == ["element:PAC-CMS"] and result.closed
+    after = loaded.get_element("PAC-CMS")
+    assert after.target_note == "Bo's note", "Bo's change landed"
+    assert after.description_md == "Ana's description.", "and Ana's was not reverted"
+
+
+def test_one_field_in_dispute_is_settled_field_by_field(loaded, branches, registry):
+    """Where both sides did move the same field, the choice is per field rather than per row."""
+    repo = RepositoryService(loaded, registry)
+    branches.create("ana", "ana")
+    branches.create("bo", "bo")
+    with use_branch("ana"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, description_md="Ana's description.")
+    with use_branch("bo"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element(
+            "PAC-CMS", "bo", cms.version, description_md="Bo's description.", target_note="Bo's note"
+        )
+    branches.merge("ana", "ana")
+
+    item = branches.diff("bo").items[0]
+    assert item.conflict and item.overlapping == ["description_md"]
+    assert "target_note" in item.branch_fields, "Bo changed something nobody else did"
+
+    # undecided: the row stays put and says which field is waiting
+    result = branches.merge("bo", "bo", resolutions={"element:PAC-CMS": {}})
+    assert result.applied == [] and "no decision for description_md" in result.reasons()
+
+    # decided: main keeps its description, Bo's target state still lands
+    result = branches.merge("bo", "bo", resolutions={"element:PAC-CMS": {"description_md": "main"}})
+    assert result.applied == ["element:PAC-CMS"]
+    after = loaded.get_element("PAC-CMS")
+    assert after.description_md == "Ana's description." and after.target_note == "Bo's note"
+
+
+def test_taking_the_branch_for_every_disputed_field_is_still_whole_row_behaviour(loaded, branches, registry):
+    """The old two-valued resolution still means what it always meant."""
+    repo = RepositoryService(loaded, registry)
+    branches.create("ana", "ana")
+    branches.create("bo", "bo")
+    with use_branch("ana"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, name="Ana's name")
+    with use_branch("bo"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "bo", cms.version, name="Bo's name")
+    branches.merge("ana", "ana")
+    branches.merge("bo", "bo", resolutions={"element:PAC-CMS": "branch"})
+    assert loaded.get_element("PAC-CMS").name == "Bo's name"
+
+
+def test_a_row_with_no_base_kept_is_still_treated_as_a_whole_row_conflict(loaded, branches, registry):
+    """A branch written before the base row was kept must not merge on a guess.
+
+    Without the base, nothing can prove which side moved which field, so the old rule
+    stands: a version that moved is a conflict over everything the branch touched.
+    """
+    repo = RepositoryService(loaded, registry)
+    branches.create("old", "ana")
+    with use_branch("old"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, name="Branch name")
+    # as an older store would have it: the row is there, the base is not
+    loaded._execute(  # noqa: SLF001
+        "UPDATE branch_element SET base_row = NULL WHERE branch_id = ? AND element_id = ?",
+        ["old", "PAC-CMS"],
+    )
+    cms = loaded.get_element("PAC-CMS")
+    repo.update_element("PAC-CMS", "bob", cms.version, description_md="Main's description.")
+
+    item = branches.diff("old").items[0]
+    assert item.conflict and item.base is None
+    assert branches.merge("old", "ana").applied == [], "it will not merge without a decision"
+
+
+def test_a_branch_delete_notices_that_main_moved(loaded, branches, registry):
+    """Deleting a row main has been editing is a disagreement about the whole row.
+
+    The first field-level merge treated a delete as changing no field, so it disagreed with
+    nothing and applied without a decision — taking main's edit with it.
+    """
+    repo = RepositoryService(loaded, registry)
+    branches.create("cut", "ana")
+    rel = loaded.relationships_of("PAC-CMS", "out")[0]
+    with use_branch("cut"):
+        repo.remove_relationship(rel.relationship_id, "ana")
+    repo.set_relationship_states(rel.relationship_id, "bob", target_note="Main's plan")
+
+    item = branches.diff("cut").items[0]
+    assert item.change == "deleted" and item.conflict, "main wrote to the row being deleted"
+    assert branches.merge("cut", "ana").applied == []
+    assert loaded.get_relationship(rel.relationship_id) is not None, "main's row survives"
+
+    # asked for plainly, the delete goes through
+    result = branches.merge("cut", "ana", resolutions={item.key: "branch"})
+    assert result.applied == [item.key]
+    assert loaded.get_relationship(rel.relationship_id) is None
+
+
+def test_a_branch_row_that_changed_nothing_does_not_revert_main(loaded, branches, registry):
+    """Setting links alone puts a copy of main's row on the branch; it must stay a copy.
+
+    That row changes no field, so it was not a conflict, so it was ticked by default — and
+    merging it wrote a stale copy of main over everything main had done since.
+    """
+    repo = RepositoryService(loaded, registry)
+    branches.create("links", "ana")
+    with use_branch("links"):
+        loaded.set_links("PAC-CMS", [Link("PAC-CMS", "https://example.edu/cmdb/cms")], "ana")
+    cms = loaded.get_element("PAC-CMS")
+    repo.update_element("PAC-CMS", "bob", cms.version, description_md="Main's words.")
+
+    branches.merge("links", "ana")
+    assert loaded.get_element("PAC-CMS").description_md == "Main's words."
+
+
+def test_main_keeps_the_links_a_branch_never_touched(loaded, branches, registry):
+    """A branch carries a copy of main's links from the moment it touches the element."""
+    repo = RepositoryService(loaded, registry)
+    branches.create("note", "ana")
+    with use_branch("note"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, target_note="Branch note")
+    loaded.set_links(
+        "PAC-CMS",
+        [
+            Link("PAC-CMS", "https://example.edu/cmdb/cms"),
+            Link("PAC-CMS", "https://example.edu/new"),
+        ],
+        "bob",
+    )
+
+    branches.merge("note", "ana")
+    assert loaded.get_element("PAC-CMS").target_note == "Branch note", "the branch's field landed"
+    assert len(loaded.get_links("PAC-CMS")) == 2, "and main's second link was not reverted"
+
+
+def test_a_branch_that_did_change_the_links_still_writes_them(loaded, branches):
+    branches.create("relink", "ana")
+    with use_branch("relink"):
+        loaded.set_links("PAC-CMS", [Link("PAC-CMS", "https://example.edu/branch")], "ana")
+    branches.merge("relink", "ana")
+    assert [ln.url for ln in loaded.get_links("PAC-CMS")] == ["https://example.edu/branch"]
+
+
+def test_a_mapping_cannot_settle_a_row_that_has_no_disputed_field(loaded, branches, registry):
+    """A row main deleted is a whole-row decision; a per-field mapping used to silently drop it."""
+    repo = RepositoryService(loaded, registry)
+    branches.create("gone", "ana")
+    rel = loaded.relationships_of("PAC-CMS", "out")[0]
+    with use_branch("gone"):
+        repo.set_relationship_states(rel.relationship_id, "ana", target_note="Branch note")
+    loaded.delete_relationship(rel.relationship_id, "bob")
+
+    item = branches.diff("gone").items[0]
+    assert item.conflict and item.overlapping == []
+    result = branches.merge("gone", "ana", resolutions={item.key: {"target_note": "branch"}})
+    assert result.applied == [] and result.dropped == []
+    assert "whole row" in result.reasons(), "and it says which decision it wants"
+
+
+def test_an_import_onto_a_branch_keeps_what_the_branch_started_from(loaded, branches, registry):
+    """`_replace_rows` names its columns, and one left out comes back empty."""
+    repo = RepositoryService(loaded, registry)
+    branches.create("fed", "ana")
+    with use_branch("fed"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, name="Branch name")
+        loaded.upsert_elements([loaded.get_element("PAC-CMS")], "ana")
+    assert branches.diff("fed").items[0].base is not None
