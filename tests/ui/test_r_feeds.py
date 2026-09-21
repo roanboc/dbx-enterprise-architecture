@@ -380,3 +380,88 @@ def test_the_form_says_where_the_tables_live(ui, record):
         names == ["README.md", "elements.csv", "links.csv", "relationships.csv", "schema.csv"],
         str(names),
     )
+
+
+@pytest.mark.scenario(
+    scenario_id="R13",
+    group="R",
+    title="Every import is kept, and the page says so under the feeds",
+    feature="Feeds · import history",
+    expected=(
+        "Under the feeds the page carries the history of every import — a feed's run, a file "
+        "uploaded on the Import page, or one from the command line — newest first, each saying "
+        "how it went and which branch it wrote to. A feed running at a quarter past two reports "
+        "to nobody, so the history is where it reports."
+    ),
+)
+def test_the_history_is_there(ui, record):
+    _open(ui)
+    body = ui.body()
+    ui.check("the history has its own place on the page", "Import history" in body, body[-900:])
+    ui.check(
+        "it says it covers more than feeds",
+        "Import page" in body and "command line" in body,
+        body[-900:],
+    )
+    # This round has run the feed twice by now (R03 and R05), and the store was seeded by an
+    # import of its own, so there is a history to read rather than an empty state.
+    ui.check("the runs this round made are listed", "newest first" in body, body[-600:])
+    ui.check("a run says where it wrote", "→ MAIN" in body or "→ main" in body)
+    ui.check("and how it went", "OK" in body or "ok" in body)
+    ui.shot("The import history under the feeds: every run, newest first")
+
+
+@pytest.mark.scenario(
+    scenario_id="R14",
+    group="R",
+    title="A run opens onto what it read and what it changed",
+    feature="Feeds · one run in the history",
+    expected=(
+        "A run in the history opens onto the tables or files it read, what it created, updated, "
+        "left unchanged or retired, and who started it. What is not there is an undo: a run is "
+        "an account of what happened, and the page does not pretend otherwise."
+    ),
+)
+def test_a_run_opens(ui, record):
+    _open(ui)
+    ui.check("nothing offers to reverse a run", "nothing here undoes one" in ui.body())
+    ui.page.locator("#runs-list button").first.click()
+    ui.settle()
+    body = ui.body()
+    ui.check("the run says what it read", "Read " in body, body[-900:])
+    ui.check("and who started it", "Started by" in body, body[-900:])
+    ui.check(
+        "and what it did in the model",
+        "new" in body or "unchanged" in body or "no element changed" in body,
+        body[-900:],
+    )
+    ui.shot("One run opened: what it read, what it changed, and who started it")
+
+
+@pytest.mark.scenario(
+    scenario_id="R15",
+    group="R",
+    title="The history is paged rather than grown, and it outlives the feed that made it",
+    feature="Feeds · paging and what a deletion keeps",
+    expected=(
+        "The history shows one page at a time and says which page it is: at the newest page "
+        "Newer is off, and Older is off once there is nothing older. Deleting a feed removes the "
+        "configuration and keeps its runs — what it loaded happened, and the account of it stays."
+    ),
+)
+def test_paging_and_what_a_deletion_keeps(ui, record):
+    _open(ui)
+    ui.check("the page says where in the history it is", " of " in ui.text("#runs-list"))
+    ui.check("there is nothing newer than the newest page", ui.disabled("runs-newer"))
+    ui.shot("The history's paging: one page at a time, with where it is said")
+
+    before = ui.text("#runs-list")
+    ui.page.locator('button:has-text("Delete")').first.click()
+    ui.settle()
+    body = ui.body()
+    ui.check("the deletion says the runs stay", "runs stay in the history" in body, body[:600])
+    ui.check(
+        "and they do: the history is no shorter than it was",
+        ui.text("#runs-list").count("Started by") >= before.count("Started by"),
+    )
+    ui.shot("A feed deleted: its configuration gone, its runs kept")

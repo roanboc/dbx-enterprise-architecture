@@ -8,9 +8,11 @@ nobody opened. And a schedule shown without its zone is a time in somebody else'
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 
-from ea.models import SourceFeed
-from ea.ui.pages.feeds import feed_row
+from ea.importer.runs import recorded
+from ea.models import ImportReport, ImportRun, Issue, SourceFeed
+from ea.ui.pages.feeds import HISTORY_PAGE, feed_row, history_list, run_row
 
 
 def _texts(component) -> str:
@@ -239,3 +241,73 @@ def test_the_example_is_the_contract_by_example_with_its_schema_beside_it(backen
         # the schema is generated from the applied version, not shipped
         schema = archive.read("schema.csv").decode("utf-8")
         assert "logical_data_component" in schema
+
+
+# ---------------------------------------------------------------- import history
+def _a_run(**kw) -> ImportRun:
+    base = dict(
+        run_id="run-1",
+        source_system="cmdb",
+        trigger="feed",
+        feed_name="CMDB",
+        actor="scheduler",
+        branch_id="main",
+        inputs=["cmdb_elements"],
+        started_at=datetime(2026, 9, 20, 20, 45),
+        status="ok",
+        summary="source=cmdb elements 2/2 loaded",
+        elements_created=2,
+    )
+    return ImportRun(**{**base, **kw})
+
+
+def test_a_run_says_when_it_ran_where_it_wrote_and_how_it_went():
+    said = _texts(run_row(_a_run(), "Australia/Brisbane"))
+    assert "ok" in said and "CMDB" in said
+    # the same colouring rule the feed cards use: a run that landed on main is unreviewed
+    assert "→ main" in said
+    # the time is read in the zone the page names, not in UTC
+    assert "2026-09-21 06:45 Australia/Brisbane" in said
+    assert "cmdb_elements" in said and "2 new" in said
+
+
+def test_a_run_that_stopped_says_why_instead_of_counting_nothing():
+    """`0 new, 0 updated` over a refusal reads as a quiet night rather than a failure."""
+    said = _texts(
+        run_row(_a_run(status="failed", summary="", message="A Reader may not load content"), "UTC")
+    )
+    assert "failed" in said and "A Reader may not load content" in said
+    assert "no element changed" not in said
+
+
+def test_a_run_that_kept_only_a_sample_of_its_issues_says_so():
+    """The counts beside the sample are the whole of what it found; the sample is not."""
+    run = _a_run(
+        status="errors",
+        issues=[Issue("error", "bad_type", "no such type", row=1)],
+        issue_counts={"bad_type": 900},
+        error_count=900,
+        truncated=True,
+    )
+    said = _texts(run_row(run, "UTC"))
+    assert "kept the first 1 of 900" in said and "900 errors" in said
+
+
+def test_an_empty_history_explains_what_would_appear_there(backend):
+    ctx = SimpleNamespace(backend=backend)
+    said = _texts(history_list(ctx))
+    assert "No imports have been recorded yet" in said
+    # it names all three ways a run starts, so a reader knows this is not only about feeds
+    assert "Import page" in said and "command line" in said
+
+
+def test_the_history_says_which_page_of_how_many_it_is_showing(backend):
+    for i in range(HISTORY_PAGE + 3):
+        with recorded(backend, trigger="command", actor="t", source_system=f"s{i}") as run:
+            run.report = ImportReport(source_system=f"s{i}")
+
+    first = _texts(history_list(SimpleNamespace(backend=backend), 0))
+    assert f"1–{HISTORY_PAGE} of {HISTORY_PAGE + 3}, newest first" in first
+
+    second = _texts(history_list(SimpleNamespace(backend=backend), HISTORY_PAGE))
+    assert f"{HISTORY_PAGE + 1}–{HISTORY_PAGE + 3} of {HISTORY_PAGE + 3}" in second

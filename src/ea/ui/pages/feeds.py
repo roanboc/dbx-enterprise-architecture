@@ -23,13 +23,22 @@ from ea.importer import schedule
 from ea.importer.csv_export import contract_example
 from ea.importer.feeds import in_zone, run_configured_feed, schedule_in_words
 from ea.importer.mapping import mapping_from_text
-from ea.models import Forbidden, SourceFeed
+from ea.importer.runs import counts_in_words, describe_inputs
+from ea.models import Forbidden, ImportRun, SourceFeed
 from ea.services.roles import a_role
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, modal_title, page_title
 from ea.ui.context import AppContext, get_context
 
 ISSUE_LIMIT = 200
+
+#: How many runs the history shows before a reader asks for more. The history is never read
+#: whole: this is a page of it, and `Show older` asks for the next one (decision 0019).
+HISTORY_PAGE = 10
+
+#: What each status is called and coloured on the page. `errors` is deliberately not red: the
+#: run finished and wrote what it could, which is a different thing from one that stopped.
+RUN_STATUS_COLOURS = {"ok": "green", "errors": "yellow", "failed": "red"}
 
 
 def schedule_notice(zone: str) -> str:
@@ -177,6 +186,120 @@ def feed_list(ctx: AppContext) -> Any:
             "blue",
         )
     return dmc.Stack([feed_row(f, zone, can_run, can_configure) for f in feeds], gap="sm")
+
+
+def run_row(run: ImportRun, zone: str) -> Any:
+    """One run of the history: a line that says how it went, opening onto what it did.
+
+    The line is the whole of what most readers want — when, from where, how it went — and the
+    panel is for the one run in fifty that needs explaining.
+    """
+    when = in_zone(run.started_at, zone) or "—"
+    who = run.feed_name or run.source_system or "an upload"
+    return dmc.AccordionItem(
+        [
+            dmc.AccordionControl(
+                dmc.Group(
+                    [
+                        dmc.Badge(
+                            run.status or "unknown",
+                            variant="light",
+                            color=RUN_STATUS_COLOURS.get(run.status, "gray"),
+                        ),
+                        dmc.Text(when, size="sm", fw=600),
+                        dmc.Text(who, size="sm"),
+                        dmc.Badge(
+                            f"→ {run.branch_id or 'main'}",
+                            variant="light",
+                            # The same colouring the feed cards use: a run that landed on main
+                            # is a run nobody reviewed, and it reads that way here too.
+                            color="orange" if (run.branch_id or "main") == "main" else "blue",
+                            size="sm",
+                        ),
+                    ],
+                    gap="xs",
+                )
+            ),
+            dmc.AccordionPanel(
+                dmc.Stack(
+                    [
+                        dmc.Text(f"Read {describe_inputs(run)}", size="sm", c="dimmed"),
+                        dmc.Text(run.message if run.status == "failed" else counts_in_words(run), size="sm"),
+                        dmc.Text(
+                            f"Started by {run.actor or 'somebody'} ({run.trigger or 'unknown'})"
+                            + (f" · run {run.run_id}" if run.run_id else ""),
+                            size="xs",
+                            c="dimmed",
+                        ),
+                        dmc.Text(
+                            f"{run.error_count} errors, {run.warning_count} warnings",
+                            size="xs",
+                            c="dimmed",
+                        )
+                        if run.error_count or run.warning_count
+                        else None,
+                        issues_table(run.issues) if run.issues else None,
+                        # A run keeps a sample of its issues; the counts beside it are the whole
+                        # of what it found. Saying so is what stops the sample passing for the total.
+                        dmc.Text(
+                            f"The run kept the first {len(run.issues)} of "
+                            f"{sum(run.issue_counts.values())} issues it found.",
+                            size="xs",
+                            c="dimmed",
+                        )
+                        if run.truncated
+                        else None,
+                    ],
+                    gap=6,
+                )
+            ),
+        ],
+        value=run.run_id or when,
+    )
+
+
+def history_list(ctx: AppContext, offset: int = 0) -> Any:
+    """One page of the history, newest first.
+
+    A page, not a growing list: `Older` asks the store for the *next* page rather than for a
+    longer one, so however far back a reader goes, one request reads `HISTORY_PAGE` rows
+    (decision 0019). The command line pages the same way, with the same offset.
+    """
+    total = ctx.backend.count_runs()
+    if not total:
+        return alert(
+            "No imports have been recorded yet. Every load — a feed's, a file uploaded on the "
+            "Import page, or one run from the command line — appears here once it has run.",
+            "blue",
+        )
+    offset = max(0, min(int(offset or 0), max(0, total - 1)))
+    runs = ctx.backend.runs(HISTORY_PAGE, offset)
+    return dmc.Stack(
+        [
+            dmc.Accordion(
+                [run_row(r, _zone(ctx)) for r in runs], chevronPosition="left", variant="separated"
+            ),
+            dmc.Group(
+                [
+                    dmc.Text(
+                        f"{offset + 1}–{offset + len(runs)} of {total}, newest first",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    dmc.Button("Newer", id=ids.RUNS_NEWER, variant="subtle", size="xs", disabled=offset == 0),
+                    dmc.Button(
+                        "Older",
+                        id=ids.RUNS_OLDER,
+                        variant="subtle",
+                        size="xs",
+                        disabled=offset + len(runs) >= total,
+                    ),
+                ],
+                gap="xs",
+            ),
+        ],
+        gap="xs",
+    )
 
 
 #: What a mapping is for, shown where it is asked for rather than in a document elsewhere.
@@ -487,6 +610,19 @@ def render(ctx: AppContext) -> html.Div:
             dcc.Store(id=ids.FEED_ID, data=""),
             html.Div(id=ids.FEED_FEEDBACK),
             html.Div(feed_list(ctx), id=ids.FEED_LIST),
+            # Every import is here, not only a feed's: a file somebody uploaded on the Import
+            # page and a run from the command line are the same kind of event, and splitting
+            # them across two screens would make neither of them the history.
+            dmc.Title("Import history", order=2, size="h4", mt="xl", mb="xs"),
+            dmc.Text(
+                "Every run, whoever or whatever started it: what it read, where it wrote and how "
+                "it went. A run is an account of what happened — nothing here undoes one.",
+                size="sm",
+                c="dimmed",
+                mb="sm",
+            ),
+            dcc.Store(id=ids.RUNS_OFFSET, data=0),
+            html.Div(history_list(ctx), id=ids.RUNS_LIST),
             _modal(ctx),
         ]
     )
@@ -773,30 +909,64 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.FEED_FEEDBACK, "children"),
         Output(ids.FEED_LIST, "children", allow_duplicate=True),
+        Output(ids.RUNS_LIST, "children", allow_duplicate=True),
         Input({"type": ids.FEED_RUN, "id": dash.ALL}, "n_clicks"),
         Input({"type": ids.FEED_DELETE, "id": dash.ALL}, "n_clicks"),
+        State(ids.RUNS_OFFSET, "data"),
         prevent_initial_call=True,
     )
-    def run_or_delete(run_clicks, delete_clicks):
+    def run_or_delete(run_clicks, delete_clicks, offset):
         """Run one feed now, or forget one. Running honours the branch the feed names."""
         trigger = dash.ctx.triggered_id
         if not isinstance(trigger, dict):
-            return no_update, no_update
+            return no_update, no_update, no_update
         ctx = get_context()
         feed_id = trigger["id"]
         if trigger.get("type") == ids.FEED_DELETE:
             if not any(delete_clicks or []):
-                return no_update, no_update
+                return no_update, no_update, no_update
             if not ctx.can("manage_feeds"):
-                return alert(_why_not_configure(ctx), "red"), no_update
+                return alert(_why_not_configure(ctx), "red"), no_update, no_update
             ctx.backend.delete_feed(feed_id, ctx.actor)
-            return alert("Feed deleted. Nothing it loaded was touched.", "blue"), feed_list(ctx)
+            # The feed goes; its history does not. What it loaded happened, and a run that
+            # named a feed nobody kept still says what it did.
+            return (
+                alert(
+                    "Feed deleted. Nothing it loaded was touched, and its runs stay in the history.", "blue"
+                ),
+                feed_list(ctx),
+                history_list(ctx, offset),
+            )
         if not any(run_clicks or []):
-            return no_update, no_update
+            return no_update, no_update, no_update
         feed = ctx.backend.get_feed(feed_id)
         try:
             report = run_configured_feed(ctx.backend, ctx.registry, feed_id, ctx.actor)
         except Forbidden as exc:
-            return alert(str(exc), "red"), no_update
+            # The run was recorded as it failed, so the history is refreshed here too.
+            return alert(str(exc), "red"), no_update, history_list(ctx, offset)
         ctx.graph.invalidate()
-        return _report_view(report, feed.name if feed else feed_id), feed_list(ctx)
+        return (
+            _report_view(report, feed.name if feed else feed_id),
+            feed_list(ctx),
+            history_list(ctx, offset),
+        )
+
+    @app.callback(
+        Output(ids.RUNS_OFFSET, "data"),
+        Output(ids.RUNS_LIST, "children", allow_duplicate=True),
+        Input(ids.RUNS_OLDER, "n_clicks"),
+        Input(ids.RUNS_NEWER, "n_clicks"),
+        State(ids.RUNS_OFFSET, "data"),
+        prevent_initial_call=True,
+    )
+    def page_the_history(older, newer, offset):
+        """A page further back or a page nearer. The store is asked for it; nothing is held here."""
+        if dash.ctx.triggered_id == ids.RUNS_OLDER and older:
+            moved = int(offset or 0) + HISTORY_PAGE
+        elif dash.ctx.triggered_id == ids.RUNS_NEWER and newer:
+            moved = max(0, int(offset or 0) - HISTORY_PAGE)
+        else:
+            return no_update, no_update
+        ctx = get_context()
+        return moved, history_list(ctx, moved)

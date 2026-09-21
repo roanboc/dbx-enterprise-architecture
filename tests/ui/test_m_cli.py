@@ -3822,3 +3822,46 @@ def test_m71_feeds(cli, record):
     must(record, "the feed was deleted", rc == 0 and "deleted" in gone, ev)
     rc, empty, ev = run(cli, "feed", "list", limit=120)
     check(record, "and is gone from the list", "No feeds configured" in empty, ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M72",
+    group="M",
+    title="runs list and show: every import kept, read a page at a time and one in full",
+    feature="Command line · runs list/show",
+    expected=(
+        "`runs list` shows every import newest first with what it read, what it did and how it "
+        "went, saying how many older ones are not on the page; `runs show` reads one in full by "
+        "its identifier, and refuses an identifier nobody issued by name rather than by silence."
+    ),
+)
+def test_m72_runs(cli, record):
+    rc, listed, ev = run(cli, "runs", "list", limit=250)
+    must(record, "the history is readable", rc == 0, ev)
+    # This scenario file's store was seeded by an import and M71 ran a feed against it, so
+    # there is a history rather than an empty state — which M71 already proved is said plainly.
+    check(record, "a run says which source it was of", "source  :" in listed, ev)
+    check(record, "and what it read", "read    :" in listed, ev)
+    check(record, "and what it did", "did     :" in listed, ev)
+
+    run_id = listed.split()[0]
+    rc, shown, ev = run(cli, "runs", "show", run_id, limit=250)
+    must(record, "one run is read in full by its identifier", rc == 0 and run_id in shown, ev)
+    check(record, "it names the branch it wrote to", "branch  :" in shown, ev)
+    check(record, "and when it started, in the configured zone", "started :" in shown, ev)
+
+    rc_missing, missing, ev = run(cli, "runs", "show", "run-nobody-made-this", limit=120)
+    check(
+        record,
+        "an identifier nobody issued is refused by name",
+        rc_missing == 1 and "no run 'run-nobody-made-this'" in missing,
+        ev,
+    )
+
+    rc_feed, narrowed, ev = run(cli, "runs", "list", "--feed", "no-such-feed", limit=120)
+    check(
+        record,
+        "a feed with no runs says so, rather than claiming nothing has ever run",
+        rc_feed == 0 and "No runs recorded for feed 'no-such-feed'" in narrowed,
+        ev,
+    )

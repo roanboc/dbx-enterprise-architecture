@@ -112,7 +112,8 @@ a relationship type and an attribute each have one.
 | `DOBJ3.4` | **Change log** — who changed what, when, from which version to which, with the before and after payload | `history()` in `src/ea/backend/base.py` | table `change_log` | internal |
 | `DOBJ3.5` | **Answer document** — a Markdown document composed from an agent answer: question, answer, elements involved, views as Mermaid, identifiers returned by the tools, ungrounded identifiers, tool trace | `AnswerDocument` and `compose()` in `src/ea/agent/document.py` | not persisted; downloadable as Markdown (question 10, resolved: answer documents are not stored in the repository) | as the content it cites |
 | `DOBJ3.6` | **Proposal** — the sources an architect handed in (text, files, links), the change set the agent derived from them (elements linked or new, relationships, states, work package), the pushback when the sources were insufficient, who proposed and when, and the branch it went to | `Proposal` in `src/ea/models.py`; `ProposalResult` and `ProposalService` in `src/ea/agent/proposal.py`; the Proposal Template in `templates/proposal-template.md` | table `proposal`, kept with the branch | as the content it carries |
-| `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`, the `source_feed` table, `src/ea/importer/feeds.py` | ◐ |
+| `DOBJ3.7` | **Import run** — one execution of an import: what started it (an upload, a command, a feed), who by, the organisation and branch it wrote to, the mapping it used, the files or staging tables it read, the counts of what it created, updated, left unchanged and retired, a bounded sample of its issues and the complete count of them by code, and whether it finished or stopped and why. It does **not** hold the before-image of any row it changed, so it is an account of a run rather than the means to reverse one (`GAP19`) | `ImportRun` in `src/ea/models.py`; `recorded()` in `src/ea/importer/runs.py`; `ASVC12` | table `import_run`; kept when its organisation is deleted, as the change log is | internal |
+| `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`; `src/ea/importer/feeds.py` | table `source_feed` | internal |
 
 ## Exchange, audit and intake
 
@@ -124,6 +125,8 @@ flowchart LR
   log["▦ Change log [DOBJ3.4]"]:::application
   ans["▦ Answer document [DOBJ3.5]"]:::application
   prop["▦ Proposal [DOBJ3.6]"]:::application
+  run["▦ Import run [DOBJ3.7]"]:::application
+  feed["▦ Source feed [DOBJ3.8]"]:::application
   el["▦ Element [DOBJ2.1]"]:::application
   br["▦ Branch [DOBJ2.5]"]:::application
   view["▦ Architecture view [DOBJ2.4]"]:::application
@@ -133,6 +136,9 @@ flowchart LR
   log -->|records changes of| el
   ans -->|embeds| view
   prop -->|written to| br
+  feed -->|read through| map
+  run -->|accounts for| rep
+  feed -->|run as| run
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -144,7 +150,7 @@ uses four types both engines read as written; JSON is stored as text. Locally
 the schema lives in one DuckDB file (`data/ea.duckdb`). On Databricks the same
 tables live in a Lakebase database — one schema per group of tables, named from
 `EA_SCHEMA` (`ea_metamodel`, `ea_content`, `ea_branch`, `ea_governance`,
-`ea_audit`) — the
+`ea_audit`, and `ea_staging`, which the store creates and never fills) — the
 platform's Postgres, reached over the Postgres protocol with the app's own
 identity — in an instance the deployment bundle creates (decision 0013). The
 lakehouse reads that database through Unity Catalog once it is registered
@@ -180,6 +186,10 @@ spending the memory (assessment `ASM6`, decision 0019).
 - Nothing is deleted: an element is retired (`status = retired`), a relationship
   removal is logged, and the change log is append-only. The change log is kept
   for 2 years on the platform once it runs on Databricks.
+- **Import runs are kept and nothing prunes them.** A run is a few kilobytes and
+  a nightly feed writes one a day, so the table grows slowly — but it does grow,
+  and no retention is enforced today. Deciding the period is the same decision
+  as the change log's, and it is open (`GAP19` names the larger part of it).
 
 ## Relationships
 
@@ -195,6 +205,9 @@ spending the memory (assessment `ASM6`, decision 0019).
 | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | `DOBJ2.1` | ▤ «Data Object» Element | imported as | idempotent on source system and reference |
 | `DOBJ3.2` | ▤ «Data Object» Column mapping | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | normalises | |
 | `DOBJ3.4` | ▤ «Data Object» Change log | `DOBJ2.1` | ▤ «Data Object» Element | records changes of | and of relationships and the pack |
+| `DOBJ3.7` | ▤ «Data Object» Import run | `DOBJ3.3` | ▤ «Data Object» Import report | accounts for | the report is what a run said while somebody watched; the run is what it was afterwards |
+| `DOBJ3.8` | ▤ «Data Object» Source feed | `DOBJ3.7` | ▤ «Data Object» Import run | run as | one run per execution; the run outlives the feed, keeping its name |
+| `DOBJ3.8` | ▤ «Data Object» Source feed | `DOBJ3.2` | ▤ «Data Object» Column mapping | read through | stored inline with the feed, not as a path |
 | `DOBJ2.4` | ▤ «Data Object» Architecture view | `DOBJ2.1` | ▤ «Data Object» Element | selects | every node is an element, focus marked |
 | `DOBJ2.4` | ▤ «Data Object» Architecture view | `DOBJ1.5` | ▤ «Data Object» Notation | drawn with | layer, glyph, stereotype, shape per type |
 | `DOBJ3.5` | ▤ «Data Object» Answer document | `DOBJ2.4` | ▤ «Data Object» Architecture view | embeds | one per `propose_view` call, or one from the cited elements |

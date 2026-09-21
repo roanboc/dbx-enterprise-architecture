@@ -32,10 +32,17 @@ BRANCH_TABLES = [
     "branch_review",
     "reviewer_assignment",
 ]
+# Where content arrives from, and what arrived: a feed's configuration and the history of every
+# run of it. Neither is content and neither hangs off a branch — they belong to the organisation
+# directly.
+FEED_TABLES = ["source_feed", "import_run"]
 # Every table whose rows belong to one organisation (decision 0014): the content, the change
-# log, the branches and everything that hangs off a branch. The organisation table itself and
-# the metamodel tables are shared by every organisation.
-ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES
+# log, the branches and everything that hangs off a branch, the feeds and their history. The
+# organisation table itself and the metamodel tables are shared by every organisation.
+ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES
+# What an organisation's deletion leaves behind. The audit trail answers what happened, and
+# what happened does not stop having happened because the organisation was removed.
+AUDIT_TABLES = ["change_log", "import_run"]
 
 # The tables are grouped the way `architecture/3_information/3_logical-data-model.md` groups
 # them, and each group is a schema of its own, named `<prefix>_<group>`. Someone who opens the
@@ -49,7 +56,9 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     # A feed's configuration sits with the other things that govern how content arrives
     # and is reviewed, rather than with the content itself.
     "governance": ["branch_review", "reviewer_assignment", "proposal", "source_feed"],
-    "audit": ["change_log"],
+    # A run is what happened, beside the change log's what changed. Both are read by more
+    # people than may write content, which is what the group is for.
+    "audit": ["change_log", "import_run"],
     # The store creates the schema and never a table in it. What lands here is put there
     # from outside — a platform job writing Postgres, or a catalogue table replicated into
     # it — and the application's contract with a source is the shape of the table, nothing
@@ -430,6 +439,42 @@ DDL: dict[str, str] = {
             updated_by VARCHAR,
             org_id VARCHAR
         )""",
+    # What a run was, kept after the request that produced it has gone. The counts are columns
+    # rather than a payload because a person opening the database with a SQL client is meant to
+    # be able to ask what last night loaded; only the issue sample and the per-code totals,
+    # which have no fixed shape, are JSON.
+    "import_run": """
+        CREATE TABLE IF NOT EXISTS import_run (
+            run_id VARCHAR NOT NULL,
+            source_system VARCHAR,
+            trigger_kind VARCHAR,
+            feed_id VARCHAR,
+            feed_name VARCHAR,
+            actor VARCHAR,
+            branch_id VARCHAR,
+            inputs VARCHAR,
+            mapping_yaml VARCHAR,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            status VARCHAR,
+            summary VARCHAR,
+            message VARCHAR,
+            elements_created INTEGER,
+            elements_updated INTEGER,
+            elements_unchanged INTEGER,
+            elements_retired INTEGER,
+            relationships_created INTEGER,
+            relationships_updated INTEGER,
+            relationships_unchanged INTEGER,
+            relationships_retired INTEGER,
+            links_loaded INTEGER,
+            error_count INTEGER,
+            warning_count INTEGER,
+            issues_json VARCHAR,
+            issue_counts_json VARCHAR,
+            truncated BOOLEAN,
+            org_id VARCHAR
+        )""",
 }
 
 ELEMENT_COLUMNS = [
@@ -574,6 +619,10 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("branch_review_key", "branch_review", True, "(org_id, review_id)"),
     ("reviewer_assignment_key", "reviewer_assignment", True, "(org_id, type_id, reviewer)"),
     ("proposal_key", "proposal", True, "(org_id, proposal_id)"),
+    ("import_run_key", "import_run", True, "(org_id, run_id)"),
+    # The history is read newest first, and a feed's own history is read the same way.
+    ("import_run_recent", "import_run", False, "(org_id, started_at)"),
+    ("import_run_feed", "import_run", False, "(org_id, feed_id, started_at)"),
 ]
 
 

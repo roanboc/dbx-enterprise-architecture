@@ -11,6 +11,7 @@ from ea.models import (
     Branch,
     ChangeSet,
     Element,
+    ImportRun,
     Link,
     MergeResult,
     Organisation,
@@ -261,6 +262,26 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def delete_feed(self, feed_id: str, actor: str) -> None: ...
+
+    # ------------------------------------------------------- import history
+    @abstractmethod
+    def record_run(self, run: ImportRun) -> ImportRun:
+        """Keep what an import did, in the current organisation. The run is written once and
+        never altered: an account of something that happened is not a row to edit."""
+
+    @abstractmethod
+    def runs(self, limit: int, offset: int, feed_id: str = "") -> list[ImportRun]:
+        """Runs newest first, a page at a time — the whole history of one is never read at once.
+
+        `feed_id` narrows it to one feed's own history; empty is every run, a feed's and a
+        person's alike."""
+
+    @abstractmethod
+    def get_run(self, run_id: str) -> ImportRun | None: ...
+
+    @abstractmethod
+    def count_runs(self, feed_id: str = "") -> int:
+        """How many runs there are, so a page can say what it is a page of."""
 
     # -------------------------------------------------------------- staging
     @abstractmethod

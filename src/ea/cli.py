@@ -1074,6 +1074,91 @@ def feed_delete(feed_id: str):
     typer.echo(f"{feed_id} deleted")
 
 
+runs_app = typer.Typer(
+    help="Import history: every run, what it read, what it did and how it went.",
+    no_args_is_help=True,
+)
+app.add_typer(runs_app, name="runs")
+
+
+@runs_app.command("list")
+def runs_list(
+    feed: str = typer.Option("", help="only this feed's runs; every run by default"),
+    limit: int = typer.Option(20, help="how many to show"),
+    offset: int = typer.Option(0, help="skip this many, for the page after"),
+):
+    """Every import run, newest first, in the configured zone. The history is read a page at a time."""
+    from ea.importer.feeds import in_zone
+    from ea.importer.runs import counts_in_words, describe_inputs
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    total = backend.count_runs(feed)
+    runs = backend.runs(limit, offset, feed)
+    if not runs:
+        # Three different silences, and they mean different things: nothing has ever run, this
+        # feed has never run, or the reader has paged past the end of a history that does exist.
+        if total:
+            typer.echo(f"No runs on this page. There are {total}; try --offset 0.")
+        elif feed:
+            typer.echo(f"No runs recorded for feed {feed!r}.")
+        else:
+            typer.echo("No imports have been recorded yet.")
+        return
+    for r in runs:
+        where = r.branch_id or "main"
+        typer.echo(f"{r.run_id:20s} {in_zone(r.started_at, settings.timezone)}  {r.status:7s} -> {where}")
+        typer.echo(
+            f"    source  : {r.source_system or '—'} ({r.trigger}{f', {r.feed_name}' if r.feed_name else ''})"
+        )
+        typer.echo(f"    read    : {describe_inputs(r)}")
+        typer.echo(f"    did     : {counts_in_words(r) if r.status != 'failed' else r.message}")
+        if r.error_count or r.warning_count:
+            typer.echo(f"    issues  : {r.error_count} errors, {r.warning_count} warnings")
+    shown = offset + len(runs)
+    if shown < total:
+        typer.echo(f"… {total - shown} older not shown (--offset {shown})")
+
+
+@runs_app.command("show")
+def runs_show(
+    run_id: str,
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
+):
+    """One run in full: what it read, what it wrote, and the issues it kept."""
+    from ea.importer.feeds import in_zone
+    from ea.importer.runs import counts_in_words
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    r = backend.get_run(run_id)
+    if r is None:
+        typer.echo(f"no run {run_id!r} in this organisation", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"{r.run_id}  {r.status}")
+    typer.echo(f"  started : {in_zone(r.started_at, settings.timezone)}")
+    typer.echo(f"  finished: {in_zone(r.finished_at, settings.timezone)}")
+    typer.echo(f"  source  : {r.source_system or '—'}   trigger: {r.trigger}   actor: {r.actor or '—'}")
+    if r.feed_id:
+        typer.echo(f"  feed    : {r.feed_name or r.feed_id} ({r.feed_id})")
+    typer.echo(f"  branch  : {r.branch_id or 'main'}")
+    typer.echo(f"  read    : {', '.join(r.inputs) or 'nothing named'}")
+    typer.echo(f"  did     : {counts_in_words(r)}")
+    if r.summary:
+        typer.echo(f"  said    : {r.summary}")
+    if r.message:
+        typer.echo(f"  stopped : {r.message}")
+    shown = r.issues if issues <= 0 else r.issues[:issues]
+    for iss in shown:
+        typer.echo("  " + str(iss))
+    found = sum(r.issue_counts.values())
+    if found > len(shown):
+        by_code = ", ".join(f"{c} {n}" for c, n in sorted(r.issue_counts.items(), key=lambda kv: -kv[1]))
+        # A run keeps a sample of its issues and the full count of them, so this says both
+        # rather than letting the sample pass for the total.
+        typer.echo(f"  … {found - len(shown)} more not kept with the run ({by_code})")
+
+
 # Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a
 # command group registered after this line would not exist by the time `run()` reads the
 # arguments. Everything the application offers has to be declared above it.

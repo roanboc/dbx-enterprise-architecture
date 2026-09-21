@@ -29,6 +29,7 @@ from ea.backend.branching import MAIN, use_branch
 from ea.importer import schedule
 from ea.importer.csv_import import import_frames
 from ea.importer.mapping import Mapping, mapping_from_text
+from ea.importer.runs import recorded
 from ea.metamodel.registry import Registry
 from ea.models import ImportReport, Issue, NotFoundError, SourceFeed
 
@@ -179,12 +180,27 @@ def run_configured_feed(
     The branch is the feed's own: a feed configured onto a branch writes there and is reviewed
     before it reaches main, and one configured onto main writes directly. That is the choice the
     Requester made per source, and it is honoured here rather than by whoever presses the button.
+
+    Two things are recorded, and they are not the same thing. The feed keeps *how its last run
+    went*, which is what its card shows without reading anything else; the history keeps *what
+    every run was*, which outlives the feed (`DOBJ3.7`). The recorder sits inside `use_branch`
+    on purpose — a run recorded outside it would name the caller's branch, not the feed's.
     """
     stored = backend.get_feed(feed_id)
     if stored is None:
         raise NotFoundError(feed_id, "feed")
+    feed = feed_from_config(stored)
     with use_branch(stored.target_branch or MAIN):
-        report = run_feed(backend, registry, feed_from_config(stored), actor, dry_run)
+        with recorded(
+            backend,
+            trigger="feed",
+            actor=actor,
+            feed=stored,
+            inputs=[t for t in (stored.elements_table, stored.relationships_table, stored.links_table) if t],
+            dry_run=dry_run,
+        ) as run:
+            report = run_feed(backend, registry, feed, actor, dry_run)
+            run.report = report
     if not dry_run:
         stored.last_run_at = _utc_now()
         stored.last_run_status = "ok" if report.ok else "errors"

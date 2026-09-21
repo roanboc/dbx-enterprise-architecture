@@ -33,6 +33,7 @@ from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch, validate_branch_id
 from ea.backend.organisations import DEFAULT_ORG, current_org, validate_org_id
 from ea.backend.sql import (
+    AUDIT_TABLES,
     DDL,
     ELEMENT_COLUMNS,
     INDEXES,
@@ -60,6 +61,8 @@ from ea.models import (
     ChangeSet,
     ConflictError,
     Element,
+    ImportRun,
+    Issue,
     Link,
     MergeResult,
     NotFoundError,
@@ -915,7 +918,9 @@ class SqlBackend(DatabaseBackend):
             raise NotFoundError(org_id, "organisation")
         with self._lock:
             for table in ORG_TABLES:
-                if table != "change_log":
+                # The audit trail stays: what an organisation's imports did does not stop
+                # having happened because the organisation was removed.
+                if table not in AUDIT_TABLES:
                     self._execute(f"DELETE FROM {table} WHERE org_id = ?", [org_id])
             self._execute("DELETE FROM organisation WHERE org_id = ?", [org_id])
             self._log("organisation", org_id, "delete", actor, None, None, None, MAIN, org_id)
@@ -2374,6 +2379,140 @@ class SqlBackend(DatabaseBackend):
             self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed_id])
             if before is not None:
                 self._log("source_feed", feed_id, "delete", actor, self._public(before), None, None)
+
+    # ------------------------------------------------------ import history
+    _RUN_COLUMNS = (
+        "run_id",
+        "source_system",
+        "trigger_kind",
+        "feed_id",
+        "feed_name",
+        "actor",
+        "branch_id",
+        "inputs",
+        "mapping_yaml",
+        "started_at",
+        "finished_at",
+        "status",
+        "summary",
+        "message",
+        "elements_created",
+        "elements_updated",
+        "elements_unchanged",
+        "elements_retired",
+        "relationships_created",
+        "relationships_updated",
+        "relationships_unchanged",
+        "relationships_retired",
+        "links_loaded",
+        "error_count",
+        "warning_count",
+        "issues_json",
+        "issue_counts_json",
+        "truncated",
+    )
+
+    def record_run(self, run: ImportRun) -> ImportRun:
+        run.run_id = run.run_id or new_id("run")
+        with self._lock:
+            self._insert_rows("import_run", [self._run_values(run) + [self._org()]])
+        return run
+
+    def _run_values(self, r: ImportRun) -> list[Any]:
+        return [
+            r.run_id,
+            r.source_system or None,
+            r.trigger or None,
+            r.feed_id or None,
+            r.feed_name or None,
+            r.actor or None,
+            r.branch_id or None,
+            "\n".join(r.inputs) or None,
+            r.mapping_yaml or None,
+            r.started_at,
+            r.finished_at,
+            r.status or None,
+            r.summary or None,
+            r.message or None,
+            int(r.elements_created),
+            int(r.elements_updated),
+            int(r.elements_unchanged),
+            int(r.elements_retired),
+            int(r.relationships_created),
+            int(r.relationships_updated),
+            int(r.relationships_unchanged),
+            int(r.relationships_retired),
+            int(r.links_loaded),
+            int(r.error_count),
+            int(r.warning_count),
+            json.dumps([vars(i) for i in r.issues], ensure_ascii=False, default=str),
+            _dumps(r.issue_counts),
+            bool(r.truncated),
+        ]
+
+    @staticmethod
+    def _row_to_run(r: tuple) -> ImportRun:
+        try:
+            raw = json.loads(r[25]) if r[25] else []
+        except (TypeError, ValueError):
+            raw = []
+        return ImportRun(
+            run_id=r[0],
+            source_system=r[1] or "",
+            trigger=r[2] or "",
+            feed_id=r[3] or "",
+            feed_name=r[4] or "",
+            actor=r[5] or "",
+            branch_id=r[6] or "",
+            inputs=[line for line in (r[7] or "").split("\n") if line],
+            mapping_yaml=r[8] or "",
+            started_at=r[9],
+            finished_at=r[10],
+            status=r[11] or "",
+            summary=r[12] or "",
+            message=r[13] or "",
+            elements_created=r[14] or 0,
+            elements_updated=r[15] or 0,
+            elements_unchanged=r[16] or 0,
+            elements_retired=r[17] or 0,
+            relationships_created=r[18] or 0,
+            relationships_updated=r[19] or 0,
+            relationships_unchanged=r[20] or 0,
+            relationships_retired=r[21] or 0,
+            links_loaded=r[22] or 0,
+            error_count=r[23] or 0,
+            warning_count=r[24] or 0,
+            issues=[Issue(**i) for i in raw if isinstance(i, dict)],
+            issue_counts={k: int(v) for k, v in _loads(r[26]).items()},
+            truncated=bool(r[27]),
+        )
+
+    def runs(self, limit: int, offset: int, feed_id: str = "") -> list[ImportRun]:
+        where, params = "org_id = ?", [self._org()]
+        if feed_id:
+            where, params = where + " AND feed_id = ?", [*params, feed_id]
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._RUN_COLUMNS)} FROM import_run WHERE {where} "
+            # `run_id` breaks the tie: two runs of the same second would otherwise come back
+            # in whatever order the engine felt like, and a page boundary would drop one.
+            f"ORDER BY started_at DESC, run_id DESC LIMIT {int(limit)} OFFSET {int(offset)}",
+            params,
+        )
+        return [self._row_to_run(r) for r in rows]
+
+    def get_run(self, run_id: str) -> ImportRun | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._RUN_COLUMNS)} FROM import_run WHERE org_id = ? AND run_id = ?",
+            [self._org(), run_id],
+        )
+        return self._row_to_run(rows[0]) if rows else None
+
+    def count_runs(self, feed_id: str = "") -> int:
+        where, params = "org_id = ?", [self._org()]
+        if feed_id:
+            where, params = where + " AND feed_id = ?", [*params, feed_id]
+        rows = self._fetch_all(f"SELECT COUNT(*) FROM import_run WHERE {where}", params)
+        return int(rows[0][0]) if rows else 0
 
     # ------------------------------------------------------------- staging
     def _staging(self, table: str) -> str:

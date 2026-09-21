@@ -201,6 +201,10 @@ FEED_MAPPING_SAID = "feed-mapping-said"  # what the mapping typed there would do
 FEED_SAVE = "feed-save"
 FEED_NEW = "feed-new"
 FEED_MODAL_FEEDBACK = "feed-modal-feedback"
+RUNS_LIST = "runs-list"
+RUNS_OFFSET = "runs-offset"  # store: how far into the history the page is
+RUNS_OLDER = "runs-older"
+RUNS_NEWER = "runs-newer"
 
 # ask
 ASK_INPUT = "ask-input"

@@ -18,6 +18,7 @@ from ea.config import ROOT
 from ea.importer import Mapping, export_archive, import_frames, load_mapping, mapping_from_text
 from ea.importer.csv_export import SCHEMA_FILE
 from ea.importer.csv_import import CsvShapeError, read_csv_text
+from ea.importer.runs import recorded
 from ea.models import Forbidden, Issue
 from ea.services.roles import a_role
 from ea.ui import ids
@@ -323,30 +324,46 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
         )
     if not any(frames.values()):
         return html.Div([_malformed_alert(malformed)])
-    try:
-        report = import_frames(
-            ctx.backend,
-            ctx.registry,
-            frames,
-            source or mapping.source_system or "import",
-            mapping,
-            ctx.actor,
-            dry_run,
-        )
-    except Forbidden as exc:
-        return alert(str(exc), "red")
-    for bad in malformed:
-        # The command line counts a file it could not read as an error of the import
-        # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
-        # file that went unread.
-        report.add_issue(
-            Issue(
-                level="error",
-                code="ragged_row",
-                message=f"a row does not match the header this file declares: {bad.detail}",
-                file=bad.filename,
+    # Recorded around the load, not inside it: a file this page refused to read is part of
+    # what the run was, and a run the store refused is the one a reader most wants to find.
+    with recorded(
+        ctx.backend,
+        trigger="upload",
+        actor=ctx.actor,
+        source_system=source or mapping.source_system or "import",
+        inputs=sorted(
+            {name for pairs in frames.values() for name, _ in pairs} | {b.filename for b in malformed}
+        ),
+        mapping_yaml=map_yaml,
+        dry_run=dry_run,
+    ) as run:
+        try:
+            report = import_frames(
+                ctx.backend,
+                ctx.registry,
+                frames,
+                source or mapping.source_system or "import",
+                mapping,
+                ctx.actor,
+                dry_run,
             )
-        )
+        except Forbidden as exc:
+            run.failed(str(exc))
+            return alert(str(exc), "red")
+        for bad in malformed:
+            # The command line counts a file it could not read as an error of the import
+            # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
+            # file that went unread — and so does the run this is recorded as, which is why the
+            # issues are added before the recording closes rather than after.
+            report.add_issue(
+                Issue(
+                    level="error",
+                    code="ragged_row",
+                    message=f"a row does not match the header this file declares: {bad.detail}",
+                    file=bad.filename,
+                )
+            )
+        run.report = report
     if not dry_run:
         ctx.graph.invalidate()
     color = "green" if report.ok and not malformed else "red"
@@ -369,6 +386,17 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
     return html.Div(
         [
             alert(head, "red" if malformed else color),
+            # This report goes when the page does. The run does not, and a reader who has just
+            # loaded a thousand rows should be told where it went rather than discover later
+            # that it was kept — or worse, assume it was not.
+            dmc.Text(
+                f"Kept as run {run.run_id} — the Feeds page carries the history of every import.",
+                size="xs",
+                c="dimmed",
+                mb="sm",
+            )
+            if not dry_run
+            else None,
             _malformed_alert(malformed),
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified

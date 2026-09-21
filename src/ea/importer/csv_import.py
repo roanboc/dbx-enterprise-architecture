@@ -24,6 +24,7 @@ from ea.importer.mapping import (
     Mapping,
     derive_current_state,
 )
+from ea.importer.runs import recorded
 from ea.metamodel.registry import Registry
 from ea.models import (
     CURRENT_STATES,
@@ -833,22 +834,35 @@ def import_directory(
     frames = read_directory(directory, mapping, problems)
     if not any(frames.values()) and not problems:
         raise FileNotFoundError(f"no CSV files matched in {directory}")
-    report = import_frames(
+    source = source_system or mapping.source_system or Path(directory).name
+    # The run is recorded around the whole of it rather than around `import_frames`, because a
+    # file this directory held and could not read is part of what the run was.
+    with recorded(
         backend,
-        registry,
-        frames,
-        source_system or mapping.source_system or Path(directory).name,
-        mapping,
-        actor,
-        dry_run,
-    )
-    for problem in problems:
-        report.add_issue(
-            Issue(
-                level="error",
-                code="ragged_row",
-                message=f"a row does not match the header this file declares: {problem.detail}",
-                file=problem.filename,
+        trigger="command",
+        actor=actor,
+        source_system=source,
+        inputs=_file_names(frames, problems),
+        dry_run=dry_run,
+    ) as run:
+        report = import_frames(backend, registry, frames, source, mapping, actor, dry_run)
+        for problem in problems:
+            report.add_issue(
+                Issue(
+                    level="error",
+                    code="ragged_row",
+                    message=f"a row does not match the header this file declares: {problem.detail}",
+                    file=problem.filename,
+                )
             )
-        )
+        run.report = report
     return report
+
+
+def _file_names(
+    frames: dict[str, list[tuple[str, pd.DataFrame]]], problems: list[CsvShapeError]
+) -> list[str]:
+    """Every file the import touched, read or refused, each named once."""
+    names = {fname for pairs in frames.values() for fname, _ in pairs}
+    names |= {p.filename for p in problems}
+    return sorted(names)

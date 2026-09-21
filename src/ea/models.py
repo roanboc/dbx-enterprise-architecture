@@ -652,6 +652,104 @@ class ImportReport:
         )
 
 
+#: How a run started. `upload` is somebody on the Import page, `command` is `ea import`, and
+#: `feed` is a configured source read from the staging schema — by its schedule's trigger or by
+#: `Run now`. The list is closed: a run whose origin nobody can name is a run nobody can trust.
+RUN_TRIGGERS = ("upload", "command", "feed")
+
+#: How a run ended. `ok` and `errors` are both loads that finished — the second one found errors
+#: and wrote what it could. `failed` is a run that stopped: the store refused it, the branch was
+#: frozen, the mapping would not read. The distinction matters because only `failed` means the
+#: counts below are not the whole of what happened.
+RUN_STATUSES = ("ok", "errors", "failed")
+
+#: The most issues one *stored* run keeps. A report keeps `MAX_IMPORT_ISSUES` for the screen
+#: that is about to show it; history keeps far fewer, because a run is kept forever and a
+#: hundred nightly feeds each holding two thousand issues is a table nobody meant to grow.
+#: `issue_counts` stays complete either way, so the totals are never the sample's.
+MAX_RUN_ISSUES = 200
+
+
+@dataclass
+class ImportRun:
+    """One execution of an import: what it read, where it wrote, what it did, and how it went.
+
+    An `ImportReport` (`DOBJ3.3`) is what a run *said*, held for as long as the request that
+    produced it. This is what a run *was*, and it outlives that request — which is the whole
+    reason it exists: a feed that runs at a quarter past two has nobody watching the screen it
+    would otherwise have reported to.
+
+    It outlives its feed, too. `feed_name` is a copy of a name the feed owns, kept here on
+    purpose: a feed deleted six months from now must not take its history with it, and a
+    dangling `feed_id` would leave the rows it loaded unexplained.
+
+    **Nothing here reverses a run.** Reversal needs the before-image of every row a run
+    changed, which is a different and much larger thing to store, and it is not built (`GAP19`).
+    What this holds is the account of what happened, not the means to undo it.
+    """
+
+    run_id: str = ""
+    source_system: str = ""
+    #: One of `RUN_TRIGGERS`.
+    trigger: str = "command"
+    #: The feed this ran, when one did. Empty for an upload or a command.
+    feed_id: str = ""
+    #: The feed's name as it read at the time — kept so history survives the feed's deletion.
+    feed_name: str = ""
+    actor: str = ""
+    #: What it wrote to: a branch's identifier, or `main`.
+    branch_id: str = ""
+    #: What it read: the file names of an upload, or the staging tables of a feed.
+    inputs: list[str] = field(default_factory=list)
+    #: The mapping the run used, as it was used. A feed stores its mapping inline so a source's
+    #: columns cannot change underneath it; keeping the same text here says which version of it
+    #: produced these counts.
+    mapping_yaml: str = ""
+    started_at: Any = None
+    finished_at: Any = None
+    #: One of `RUN_STATUSES`.
+    status: str = ""
+    #: The report's own one-line summary, kept as written so the history and the screen that
+    #: first showed it cannot drift into saying different things about the same run.
+    summary: str = ""
+    #: Why it stopped, when it did. Empty otherwise.
+    message: str = ""
+    elements_created: int = 0
+    elements_updated: int = 0
+    elements_unchanged: int = 0
+    elements_retired: int = 0
+    relationships_created: int = 0
+    relationships_updated: int = 0
+    relationships_unchanged: int = 0
+    relationships_retired: int = 0
+    links_loaded: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    #: A bounded sample, at most `MAX_RUN_ISSUES` of them.
+    issues: list[Issue] = field(default_factory=list)
+    #: Every issue the run found, counted by code — complete whether or not `issues` is.
+    issue_counts: dict[str, int] = field(default_factory=dict)
+    #: True when the run found more issues than the sample kept.
+    truncated: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @property
+    def wrote(self) -> int:
+        """How many rows it put in the model. Zero is a quiet night, not a failure."""
+        return (
+            self.elements_created
+            + self.elements_updated
+            + self.elements_retired
+            + self.relationships_created
+            + self.relationships_updated
+            + self.relationships_retired
+            + self.links_loaded
+        )
+
+
 @dataclass
 class CompatibilityReport:
     """What an organisation's content would say under a metamodel version: every element and
