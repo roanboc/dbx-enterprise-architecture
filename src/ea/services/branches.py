@@ -24,6 +24,32 @@ from ea.models import (
 from ea.services.roles import current_role, require
 
 
+def refusal_for_writing(backend: DatabaseBackend, branch_id: str | None = None) -> str:
+    """Why a write to this branch would be refused, or empty if it would be allowed.
+
+    Two states refuse. A branch **in review** is frozen until the review is decided, so a
+    reviewer reads what they were asked to read. A branch that has been **merged or
+    abandoned** is closed, and that one used to be missed: a row written into a closed
+    branch's overlay can never reach main — `merge_branch` refuses a closed branch — and is
+    never abandoned with it either, so it sat in the store for good, invisible on main and
+    on every open branch, while the header told its author they were editing a branch.
+    """
+    bid = branch_id or current_branch()
+    if bid == MAIN:
+        return ""
+    b = backend.get_branch(bid)
+    if b is None:
+        return ""
+    if b.status in ("in_review", "approved"):
+        return f"branch {bid} is {b.status.replace('_', ' ')}: frozen until the review is decided"
+    if b.status not in OPEN_STATUSES:
+        return (
+            f"branch {bid} is {b.status}: a closed branch is history, and nothing written "
+            f"into it could ever be merged. Switch to main or to an open branch first"
+        )
+    return ""
+
+
 class BranchService:
     def __init__(self, backend: DatabaseBackend, registry: Registry):
         self.backend = backend

@@ -520,8 +520,15 @@ class MergeResult:
     branch_id: str
     applied: list[str] = field(default_factory=list)  # item keys written to main
     dropped: list[str] = field(default_factory=list)  # conflicts resolved for main: removed from the branch
+    #: Items the merge would not write, and why — a relationship whose end is not on main
+    #: and was not ticked with it, or a conflict nobody resolved. They stay on the branch.
+    held_back: list[dict[str, str]] = field(default_factory=list)
     remaining: int = 0  # rows still on the branch
     closed: bool = False
+
+    def reasons(self) -> str:
+        """What was held back, as one line a person reads."""
+        return "; ".join(f"{h['key']}: {h['reason']}" for h in self.held_back)
 
 
 @dataclass

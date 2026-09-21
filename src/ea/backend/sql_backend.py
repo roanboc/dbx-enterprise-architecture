@@ -2058,6 +2058,10 @@ class SqlBackend(DatabaseBackend):
                 change = "deleted"
             else:
                 change = "changed"
+            # `main` gone with a base version above zero means the row the branch started
+            # from was deleted on main. Writing the branch's copy back would resurrect it
+            # without anybody deciding to, so it is a conflict like any other.
+            gone_on_main = main is None and base > 0
             if before is not None:
                 before["links"] = [ln.url for ln in main_links.get(e.element_id, [])]
             if after is not None:
@@ -2070,7 +2074,7 @@ class SqlBackend(DatabaseBackend):
                     change=change,
                     base_version=base,
                     main_version=main.version if main else None,
-                    conflict=main is not None and main.version != base,
+                    conflict=gone_on_main or (main is not None and main.version != base),
                     before=before,
                     after=after,
                     fields_changed=self._changed_fields(before, after),
@@ -2089,6 +2093,7 @@ class SqlBackend(DatabaseBackend):
             before = self._public(main) if main else None
             after = self._public(r) if op == "upsert" else None
             change = "added" if main is None else ("deleted" if op == "delete" else "changed")
+            gone_on_main = main is None and base > 0
             items.append(
                 ChangeItem(
                     kind="relationship",
@@ -2097,7 +2102,7 @@ class SqlBackend(DatabaseBackend):
                     change=change,
                     base_version=base,
                     main_version=main.version if main else None,
-                    conflict=main is not None and main.version != base,
+                    conflict=gone_on_main or (main is not None and main.version != base),
                     before=before,
                     after=after,
                     fields_changed=self._changed_fields(before, after),
@@ -2139,6 +2144,25 @@ class SqlBackend(DatabaseBackend):
                 + [i for i in change_set.items if i.kind == "element"]
                 + [i for i in change_set.items if i.kind == "relationship" and i.change != "deleted"]
             )
+            # Which elements this merge will put on main. A merge of everything writes every
+            # end before the relationships that need them; a merge of some rows need not, so
+            # the ends are checked rather than assumed.
+            landing = {
+                i.entity_id
+                for i in ordered
+                if i.kind == "element"
+                and i.change != "deleted"
+                and (include is None or i.key in include)
+                and (not i.conflict or resolutions.get(i.key) == "branch")
+            }
+            leaving = {
+                i.entity_id
+                for i in ordered
+                if i.kind == "element"
+                and i.change == "deleted"
+                and (include is None or i.key in include)
+                and (not i.conflict or resolutions.get(i.key) == "branch")
+            }
             for item in ordered:
                 if include is not None and item.key not in include:
                     continue
@@ -2149,7 +2173,20 @@ class SqlBackend(DatabaseBackend):
                         result.dropped.append(item.key)
                         continue
                     if choice != "branch":
+                        result.held_back.append({"key": item.key, "reason": "the conflict is not resolved"})
                         continue  # unresolved: stays on the branch
+                missing = self._ends_missing(item, landing, leaving)
+                if missing:
+                    # Writing it anyway would leave main holding a relationship to an element
+                    # that is not there — a broken model nothing on the branch can repair,
+                    # because the row that would repair it has already been merged away.
+                    result.held_back.append(
+                        {
+                            "key": item.key,
+                            "reason": f"{missing} is not on main and is not in this merge",
+                        }
+                    )
+                    continue
                 self._apply_item(branch_id, item, actor, now)
                 self._drop_branch_row(branch_id, item)
                 result.applied.append(item.key)
@@ -2168,6 +2205,23 @@ class SqlBackend(DatabaseBackend):
                 MAIN,
             )
         return result
+
+    def _ends_missing(self, item: ChangeItem, landing: set[str], leaving: set[str]) -> str:
+        """The end of a relationship this merge would leave dangling on main, or empty.
+
+        `landing` is what this merge writes to main, `leaving` what it deletes from main.
+        An end counts as present when it is on main already and not being deleted, or when
+        this same merge is putting it there.
+        """
+        if item.kind != "relationship" or item.change == "deleted":
+            return ""
+        row = item.after or {}
+        for end in (row.get("src_id"), row.get("dst_id")):
+            if not end or end in landing:
+                continue
+            if end in leaving or self._main_element_version(end) is None:
+                return str(end)
+        return ""
 
     def _apply_item(self, branch_id: str, item: ChangeItem, actor: str, now: datetime) -> None:
         origin_log = f"branch:{branch_id}"

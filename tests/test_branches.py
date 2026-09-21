@@ -237,3 +237,70 @@ def test_a_closed_branch_is_not_abandoned(loaded, branches):
     with pytest.raises(ConflictError, match="already merged"):
         branches.abandon(b.branch_id, "ana")
     assert loaded.get_branch(b.branch_id).status == "merged"
+
+
+def test_a_partial_merge_never_leaves_a_relationship_without_its_ends(loaded, branches, registry):
+    """Merging a relationship without the element it points at would break main.
+
+    The whole-branch merge orders elements before relationships, so it always finds the
+    ends. A merge of some rows cannot assume that: ticking the relationship and leaving
+    its new element on the branch used to write a row on main pointing at nothing, and
+    nothing on the branch could repair it afterwards.
+    """
+    branches.create("Portal", "ana")
+    repo = RepositoryService(loaded, registry)
+    with use_branch("portal"):
+        new = repo.create_element("physical_application_component", "Portal", "ana", element_id="PAC-P")
+        repo.add_relationship(
+            "physical_application_component__processes__logical_data_component",
+            "PAC-P",
+            "LDC-CURR",
+            "ana",
+        )
+    rel = next(i for i in branches.diff("portal").items if i.kind == "relationship")
+
+    result = branches.merge("portal", "ana", include={rel.key})
+    assert result.applied == [], "the relationship was written without its end"
+    assert result.held_back == [{"key": rel.key, "reason": "PAC-P is not on main and is not in this merge"}]
+    assert loaded.count_relationships() == 99, "main is unchanged"
+
+    # ticked together, both land
+    result = branches.merge("portal", "ana", include={rel.key, f"element:{new.element_id}"})
+    assert sorted(result.applied) == sorted([rel.key, f"element:{new.element_id}"])
+    assert loaded.get_element("PAC-P") is not None and loaded.count_relationships() == 100
+
+
+def test_a_row_main_deleted_under_the_branch_is_a_conflict_not_a_resurrection(loaded, branches, registry):
+    """A branch holding an edit to a row main has since deleted must not put it back silently."""
+    branches.create("Edit", "ana")
+    repo = RepositoryService(loaded, registry)
+    rel = loaded.relationships_of("PAC-CMS", "out")[0]
+    with use_branch("edit"):
+        repo.set_relationship_states(rel.relationship_id, "ana", target_state="change")
+    loaded.delete_relationship(rel.relationship_id, "ana")  # removed on main meanwhile
+
+    item = next(i for i in branches.diff("edit").items if i.entity_id == rel.relationship_id)
+    assert item.conflict, "main deleted the row the branch started from"
+
+    result = branches.merge("edit", "ana")
+    assert result.applied == [] and "not resolved" in result.reasons()
+    assert loaded.get_relationship(rel.relationship_id) is None, "still deleted on main"
+
+    result = branches.merge("edit", "ana", resolutions={item.key: "branch"})
+    assert result.applied == [item.key], "put back only because somebody said so"
+    assert loaded.get_relationship(rel.relationship_id) is not None
+
+
+def test_a_closed_branch_refuses_the_writes_it_could_never_merge(loaded, branches, registry):
+    """A row written into a merged branch can reach neither main nor an abandon: it is lost."""
+    from ea.models import Forbidden
+
+    branches.create("Done", "ana")
+    repo = RepositoryService(loaded, registry)
+    with use_branch("done"):
+        repo.create_element("physical_application_component", "Landed", "ana", element_id="PAC-L")
+    branches.merge("done", "ana")
+    assert branches.get("done").status == "merged"
+
+    with use_branch("done"), pytest.raises(Forbidden, match="closed branch is history"):
+        repo.create_element("physical_application_component", "After the merge", "ana")

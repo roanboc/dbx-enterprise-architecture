@@ -26,6 +26,7 @@ from ea.models import (
     ValidationError,
     split_multi,
 )
+from ea.services.branches import refusal_for_writing
 from ea.services.roles import require
 
 STATE_FIELDS = ("current_state", "target_state", "target_work_package", "target_note")
@@ -172,11 +173,9 @@ class RepositoryService:
             require("edit_main", what="change main directly; work on a branch")
             return
         require(action)
-        b = self.backend.get_branch(branch)
-        if b is not None and b.status in ("in_review", "approved"):
-            raise Forbidden(
-                f"branch {branch} is {b.status.replace('_', ' ')}: frozen until the review is decided"
-            )
+        refusal = refusal_for_writing(self.backend, branch)
+        if refusal:
+            raise Forbidden(refusal)
 
     def mint_id(self, type_id: str) -> str:
         t = self.registry.get_type(type_id)
