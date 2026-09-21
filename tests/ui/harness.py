@@ -197,6 +197,37 @@ class Ui:
         option.first.click()
         self.settle()
 
+    def multi_select(self, selector: str, label: str, exact: bool = False) -> None:
+        """A Mantine MultiSelect: choose one more value.
+
+        Unlike a Select, the input sits inside a pills container that takes the pointer
+        events aimed at it, so the click goes to the wrapper. The dropdown stays open after
+        a choice — it can take several — so it is closed here rather than left over the next
+        control.
+        """
+        field = self.page.locator(self._sel(selector)).first
+        wrapper = field.locator("xpath=ancestor::*[contains(@class, 'mantine-MultiSelect-input')][1]")
+        (wrapper.first if wrapper.count() else field).click()
+        option = self.page.locator("[role='option']:visible").filter(
+            has_text=re.compile(f"^{re.escape(label)}$") if exact else re.compile(re.escape(label))
+        )
+        option.first.click()
+        self.page.keyboard.press("Escape")
+        self.settle()
+
+    def clear_multi(self, selector: str) -> None:
+        """Empty a MultiSelect by taking every pill off it, which is what a reader does."""
+        field = self.page.locator(self._sel(selector)).first
+        wrapper = field.locator("xpath=ancestor::*[contains(@class, 'mantine-MultiSelect-input')][1]")
+        root = wrapper.first if wrapper.count() else field
+        for _ in range(20):
+            remove = root.locator("[class*='mantine-Pill-remove']")
+            if not remove.count():
+                break
+            remove.first.click()
+            self.page.wait_for_timeout(120)
+        self.settle()
+
     def segmented(self, selector: str, label: str) -> None:
         """Choose one option of a segmented control, and see that the choice arrived.
 

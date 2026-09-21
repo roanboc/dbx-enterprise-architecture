@@ -96,7 +96,7 @@ def test_grid_loads(ui, record):
 def test_type_filter(ui, record):
     ui.goto("/browse")
     _, before = _counts(ui)
-    ui.select("browse-type", "Logical Data Component")
+    ui.multi_select("browse-type", "Logical Data Component")
     _, after = _counts(ui)
     ui.check("the filter narrowed the model", 0 < after < before, f"{after} of {before}")
     types = _column(ui, "type")
@@ -106,7 +106,7 @@ def test_type_filter(ui, record):
         str(types),
     )
     ui.shot("The type filter leaves only Logical Data Components")
-    ui.select("browse-type", "All types")
+    ui.clear_multi("browse-type")
     _, restored = _counts(ui)
     ui.check("clearing the filter restores the whole model", restored == before, f"{restored} of {before}")
 
@@ -177,7 +177,7 @@ def test_search_every_word_matches(ui, record):
 def test_status_filter(ui, record):
     ui.goto("/browse")
     _, before = _counts(ui)
-    ui.select("browse-status", "approved")
+    ui.multi_select("browse-status", "approved")
     _, approved = _counts(ui)
     ui.check("the status filter narrowed the model", 0 < approved <= before, f"{approved} of {before}")
     statuses = _column(ui, "status")
@@ -187,9 +187,9 @@ def test_status_filter(ui, record):
         str(statuses),
     )
     ui.shot("The status filter leaves only approved elements")
-    ui.select("browse-status", "Any status")
+    ui.clear_multi("browse-status")
     _, restored = _counts(ui)
-    ui.check("'Any status' restores the whole model", restored == before, f"{restored} of {before}")
+    ui.check("clearing the status restores the whole model", restored == before, f"{restored} of {before}")
 
 
 @pytest.mark.scenario(

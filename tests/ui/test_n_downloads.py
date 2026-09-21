@@ -1857,16 +1857,29 @@ def test_browse_result_set_export(ui, record):
 @pytest.mark.scenario(
     scenario_id="N28",
     group="N",
-    title="A feed's example rows come down as the file its staging tables take",
+    title="A feed's example comes down beside the field that asks for a staging table",
     feature="Downloads · feeds · the staging example",
     expected=(
-        "The example beside the staging-table field downloads as a CSV whose header is the "
-        "contract's own columns, so somebody filling a staging table has the shape in front of them."
+        "The example beside the staging-table field downloads as the contract's own archive, so "
+        "somebody filling a staging table has its shape in front of them rather than having to go "
+        "and find the Import page."
     ),
 )
 def test_feed_staging_example(ui, record):
+    import zipfile
+
     ui.goto("/feeds")
-    path = ui.download("feed-example", ".csv")
-    header = path.read_text(encoding="utf-8").splitlines()[0]
-    ui.check("the example is the contract's own columns", header.startswith("id,type,name"), header[:60])
-    ui.shot("The Feeds page, having handed out the example its staging tables take")
+    # The example sits in the form that asks for the tables, beside the field it explains.
+    ui.click("feed-new")
+    ui.settle()
+    path = ui.download("feed-example", ".zip")
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(archive.namelist())
+        ui.check(
+            "the example holds the three contract files and the schema",
+            names == ["elements.csv", "links.csv", "relationships.csv", "schema.csv"],
+            str(names),
+        )
+        header = archive.read("elements.csv").decode("utf-8").splitlines()[0]
+    ui.check("and its columns are the contract's own", header.startswith("id,type,name"), header[:60])
+    ui.shot("The feed form, having handed out the shape its staging tables take")

@@ -470,8 +470,9 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
                                     dmc.Title("Merge log", order=2, className="ea-section-title"),
                                     dmc.Text(
                                         "Every row is one element or relationship this branch would write to main. Tick what goes "
-                                        "to main now; what is not ticked remains on the branch. A conflict means main changed the "
-                                        "same row since the branch started: choose whether main takes the branch's row or keeps its own.",
+                                        "to main now; what is not ticked remains on the branch. A conflict means main changed "
+                                        "the same row since the branch started, so it arrives neither ticked nor decided: "
+                                        "choose whether main takes the branch's row or keeps its own, then tick it.",
                                         size="xs",
                                         c="dimmed",
                                     ),

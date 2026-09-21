@@ -591,8 +591,9 @@ def test_conflict_is_flagged(ui, record, finding):
     title="Taking the branch's row resolves a conflict in the branch's favour",
     feature="Branches · conflict · take branch",
     expected=(
-        "The take cell of a conflicting row can be set both ways; left on 'branch' and ticked alone, "
-        "Merge writes the branch's row over main's and leaves the other conflict on the branch."
+        "A conflicting row arrives neither ticked nor resolved, because main moved under it. Its take "
+        "cell can be set both ways; set to 'branch' and ticked alone, Merge writes the branch's row "
+        "over main's and leaves the other conflict on the branch."
     ),
 )
 def test_resolve_to_the_branch(ui, record):
@@ -606,7 +607,10 @@ def test_resolve_to_the_branch(ui, record):
     ui.check(
         "and set back to the branch", _row(ui, key, "resolution") == "branch", _row(ui, key, "resolution")
     )
-    _set_included(ui, f"element:{D2}", False)
+    # A conflicting row arrives unticked and unresolved: main moved under it, so both the
+    # decision and the tick are a person's. The other conflict is left as it came.
+    ui.check("a conflicting row is not ticked for you", not _included(ui, key))
+    _set_included(ui, key, True)
     ui.check("only the resolved row is ticked", _included(ui, key) and not _included(ui, f"element:{D2}"))
     ui.shot("One conflict is set to take the branch's row and ticked; the other is left alone")
     ui.click("br-merge")
@@ -646,6 +650,7 @@ def test_resolve_to_main(ui, record):
     )
     _set_take(ui, key, "main")
     ui.check("the take cell reads main", _row(ui, key, "resolution") == "main", _row(ui, key, "resolution"))
+    _set_included(ui, key, True)
     ui.check("the row is ticked", _included(ui, key))
     ui.shot("The last conflict is set to keep main's row")
     ui.click("br-merge")

@@ -958,13 +958,15 @@ def test_branch_controls(ui, record):
     group="A",
     title="The navigation draws an icon for every link and says what the repository is",
     feature="Shell · navigation",
-    expected="Each of the ten links carries an icon of its own, no two the same, the navigation closes by "
-    "saying what the repository is, and the brand in the header carries its name and its tagline.",
+    expected="Each of the twelve links carries an icon of its own, no two the same, the navigation closes "
+    "by saying what the repository is, and the brand in the header carries its name and its tagline.",
 )
 def test_navigation_furniture(ui, record):
     ui.goto("/")
     icons = ui.page.evaluate(NAV_ICONS_JS)
-    ui.must("the ten links are read back", len(icons["links"]) == 10, f"{len(icons['links'])} links")
+    # Twelve, not ten: the navigation gained Feeds and Organisations with initiatives 15 and 18
+    # and this count was not moved with them, so the scenario had been failing before this change.
+    ui.must("the twelve links are read back", len(icons["links"]) == 12, f"{len(icons['links'])} links")
     without = [row["label"] for row in icons["links"] if not row["icon"]]
     ui.check("every link draws an icon", not without, "; ".join(without) if without else "")
     unsized = [
