@@ -15,11 +15,13 @@ document says a thing, that is what the project claims is true today. The one
 place allowed to describe a future is [`6_transition/`](./6_transition/README.md).
 
 The subject is the **EA Repository**: a generic, metamodel-driven enterprise
-architecture repository that runs on DuckDB locally and on Databricks later,
-configured first with a university's metamodel (the higher-education pack) and
-loaded first with the curriculum slice of the institution's content. The
-business case that started it and its review are held privately by the product
-owner; [`reference/`](./reference/README.md) says what was derived from them.
+architecture repository that runs on DuckDB locally and on Databricks, holds the
+enterprise's architecture as governed data, and serves it to the people, the
+solutions and the agents that need it. A metamodel is configuration, so the
+first one it was configured with is one pack among others and names no
+organisation. The business case that started it and its review are held
+privately by the product owner; [`reference/`](./reference/README.md) says what
+was derived from them.
 
 ## How to read this document
 
@@ -96,12 +98,12 @@ is a stated fact — `Out of scope`, `External`, or a named `Gap` — not a sile
 | # | Layer | The question it answers | Status |
 | - | ----- | ----------------------- | ------ |
 | 0 | Business design | Who are the customers, and how does each offering pay? | `Out of scope` — this project models an application, not an organization |
-| 1 | Strategy | Why does this exist, and what must it be able to do? | `Local` — [1_strategy/](./1_strategy/README.md): motivation, and the one value stream with the capability it realises; `◐` until the Understanding gate |
+| 1 | Strategy | Why does this exist, and what must it be able to do? | `Local` — [1_strategy/](./1_strategy/README.md): motivation — six stakeholders, five drivers, twelve assessments, six goals and eight principles — and the one value stream with the capability it realises; `◐` until the Direction gate |
 | 2 | Business | Who does what, and which services are offered? | `Local` — [2_business/](./2_business/README.md): the actors and the five roles the application enforces, the three business services and the processes that deliver them (the governed change process among them); `◐` |
 | 3 | Information | What information exists, and where does it live? | `Local` — [3_information/](./3_information/README.md): the metamodel in versions, the architecture graph partitioned by organisation, the exchange files and the audit trail, read as a catalogue, as entities and as tables; `◐` |
 | 4 | Application | Which software realizes each business service? | `Local` — [4_application/](./4_application/README.md): services and components, every component pointing at its module; `◐` |
 | 5 | Technology | What runs it all — runtimes, build, hosting? | `Local` — [5_technology/](./5_technology/README.md): one Python process, the embedded DuckDB engine, the browser, the artifacts; the Databricks workspace with its Lakebase store engine and deployment bundle built, drawn dashed until a workspace runs it (plateau `PLAT2`); `◐` |
-| — | Transition | Where is this going, and in what order? | `Local` — [6_transition/](./6_transition/README.md): six plateaus from the local PoC to the current EA tool retired |
+| — | Transition | Where is this going, and in what order? | `Local` — [6_transition/](./6_transition/README.md): six plateaus, from the store on a laptop to the current EA tool retired |
 
 ## How deeply this project models itself
 
@@ -115,8 +117,8 @@ is a stated fact — `Out of scope`, `External`, or a named `Gap` — not a sile
 
 Depth is about the subject, not the effort. The repository *manages* an
 enterprise model; it is itself one application, so it is modeled at Depth 1.
-The content it holds (the curriculum slice's ~4,600 elements today) is data inside the application,
-not this model.
+The content it holds (~4,600 elements in the first slice loaded) is data inside
+the application, not this model.
 
 ## How far a document has been validated
 
@@ -130,10 +132,11 @@ three marks:
 | `●` | **Validated** | Rely on it. Confirmed on a named date, at a named gate |
 
 **A draft catalogue is not an architecture draft.** Every layer document in this
-model is `◐` today: it records what the owner decided in the conversations of
-2026-09-05 and 2026-09-06 and what the code does, and it waits for the
-information architect's Understanding gate (see
-[scope/1_curriculum-poc.md](./scope/1_curriculum-poc.md)).
+model is `◐` today: it records what the owner decided, and what the code does,
+and it waits for its gate — the strategy layer and the roadmap at **Direction**
+(see [initiative 19](./scope/19_the-product-not-the-phase.md)), every other
+layer at the information architect's **Understanding** (see
+[initiative 1](./scope/1_curriculum-poc.md)).
 
 **Every layer document opens with its views.** One to three Mermaid diagrams
 in the archreator notation come before the catalogue tables they are drawn

@@ -5,7 +5,7 @@ _[← EA home](../README.md)_
 The passive structure of the repository: the metamodel that says what may
 exist, the architecture graph that holds what does exist, and the exchange
 files and audit trail around them. This layer describes the repository's
-*own* information; the enterprise content it holds (the institution's elements) is data
+*own* information; the enterprise content it holds (the enterprise's own elements) is data
 inside `DOBJ2`, not elements of this model.
 
 ## How to read this document

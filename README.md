@@ -1,17 +1,23 @@
 # EA Repository
 
 **A generic, metamodel-driven enterprise architecture repository for the
-ontology and agent era — DuckDB on a laptop today, Databricks tomorrow, the
-same code.** Built first as a proof of concept for a university's data and
-analytics unit, on its TOGAF-based metamodel and the curriculum domain; built so any enterprise can
-bring its own metamodel.
+ontology and agent era — DuckDB on a laptop, Databricks on the platform, the
+same code.** Built first for a data and analytics unit on its TOGAF-based
+metamodel; built so any enterprise can bring its own.
 
-The repository treats enterprise architecture as what it has become: a data
-integration problem. Elements and relationships are rows in a graph you can
-query, not shapes in a drawing tool. The metamodel is data, so a new element
-type is a row rather than a migration. Everything a person can do in the app
-an agent can do through tools, and every answer the agent gives cites the
-element identifiers it came from.
+Enterprise architecture is **both a modelling problem and a data problem**, and
+the tools on offer solve one half each. A modelling repository holds a
+metamodel and drawings, but its metamodel is a schema only its vendor changes
+and what it knows leaves as an export. A metadata catalogue holds the flow of
+data, but has no metamodel of the enterprise, no traversal across layers and no
+governed change. So this one is built on the halves they leave out: elements
+and relationships are rows in a graph you can query, the metamodel is data so a
+new element type is a row rather than a migration, content is ingested through
+one validated pipeline whatever it arrives on, and the model is meant to be
+served — to people, to other solutions on the data platform, and to agents that
+call tools rather than open files. Everything a person can do in the app an
+agent can do through tools, and every answer the agent gives cites the element
+identifiers it came from.
 
 ## What it does today
 
@@ -38,13 +44,13 @@ The first pack is an anonymised **higher-education** metamodel (59 element types
 relationship types with provenance, `ANY` targets and stewardship qualifiers;
 its attributes grouped into Identification, Governance, Classification,
 Standard dates, Risk ratings and Data platform).
-The sample content is a fictional university's curriculum slice so the demo
-runs without any institutional data.
+The sample content is a small fictional model so the demo runs without any
+real data.
 
 ## A quick look
 
-Every screen below runs on the sample model — a fictional university's
-curriculum slice — seeded by `make seed`.
+Every screen below runs on the sample model — a small fictional model —
+seeded by `make seed`.
 
 | | |
 | --- | --- |
@@ -338,6 +344,6 @@ also have.
 ## Licence
 
 Apache-2.0 for the engine ([`LICENSE`](./LICENSE)). The higher-education pack
-is a university's metamodel, anonymised and expressed as configuration; the
+is one enterprise's metamodel, anonymised and expressed as configuration; the
 bundled icons are Tabler Icons (MIT) and the bundled diagram renderer is
 Mermaid (MIT). See [`NOTICE`](./NOTICE).
