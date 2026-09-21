@@ -3777,7 +3777,7 @@ def test_m70_delete(cli, record):
     expected=(
         "`feed save` stores a feed and prints its identifier; `feed list` shows it with its "
         "schedule read as a sentence in the zone it was written in; `feed run` loads what is "
-        "waiting in the landing schema, and reports nothing to do when the table is not there; "
+        "waiting in the staging schema, and reports nothing to do when the table is not there; "
         "`feed delete` forgets the configuration without touching what it loaded."
     ),
 )
@@ -3810,12 +3810,12 @@ def test_m71_feeds(cli, record):
         "Every day at 06:45" in listed and "Australia/Brisbane" in listed,
         ev,
     )
-    check(record, "and says which landing table is its", "m_elements" in listed, ev)
+    check(record, "and says which staging table is its", "m_elements" in listed, ev)
     check(record, "and where it writes", "-> main" in listed, ev)
 
-    # The landing table is not there, so the run has nothing to do and says which table it wanted.
+    # The staging table is not there, so the run has nothing to do and says which table it wanted.
     rc, ran, ev = run(cli, "feed", "run", feed_id, limit=200)
-    check(record, "a run with no landing table names the table", "m_elements" in ran, ev)
+    check(record, "a run with no staging table names the table", "m_elements" in ran, ev)
     check(record, "and loads nothing", "elements 0/0" in ran, ev)
 
     rc, gone, ev = run(cli, "feed", "delete", feed_id, limit=120)

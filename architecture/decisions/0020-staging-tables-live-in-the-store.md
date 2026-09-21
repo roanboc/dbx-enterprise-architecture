@@ -1,4 +1,4 @@
-# 0020 — A landing table lives in the store, not in the catalogue
+# 0020 — A staging table lives in the store, not in the catalogue
 
 _[← Decisions](./README.md)_
 
@@ -31,15 +31,15 @@ store rather than holding it.*
 
 | Option | Why not (or why) |
 | ------ | ---------------- |
-| A warehouse, for the landing tables only | Contradicts 0013 within a fortnight of it being taken, and brings back the round trip, the grant step and a second identity for one read a day |
+| A warehouse, for the staging tables only | Contradicts 0013 within a fortnight of it being taken, and brings back the round trip, the grant step and a second identity for one read a day |
 | The statement execution API instead of a connector | The same warehouse under another name, plus a second way of running SQL to keep true |
-| **A landing table is a table in the store's own database — chosen** | The application already has a connection to it, already has an identity on it, already reads it in pages, and a transaction there is a transaction over the load. No new dependency, no new resource, no new grant |
+| **A staging table is a table in the store's own database — chosen** | The application already has a connection to it, already has an identity on it, already reads it in pages, and a transaction there is a transaction over the load. No new dependency, no new resource, no new grant |
 | The application reads files from a volume instead | Workable, and it is the same shape as today's upload. Kept as the fallback if a source cannot write Postgres, but a table is what the Requester asked for and what a pipeline produces most naturally |
 
 ## Decision
 
-A landing table is an ordinary table in the Lakebase database the application
-already connects to, in a schema of its own (`<EA_SCHEMA>_landing`). What puts
+A staging table is an ordinary table in the Lakebase database the application
+already connects to, in a schema of its own (`<EA_SCHEMA>_staging`). What puts
 the rows there is outside the application: a platform job writing to Postgres,
 or a Lakebase synced table replicating a catalogue table into it. The
 application's contract with a source is the **shape of the table**, which is
@@ -51,14 +51,14 @@ way of running SQL.
 ## Consequences
 
 - Feeds cost no new dependency, resource, identity or grant. The feed runner
-  reads its landing table over the connection the store already holds, in pages,
+  reads its staging table over the connection the store already holds, in pages,
   like every other read.
 - The boundary is a table shape rather than a platform API, so the same feed
   works on DuckDB locally — which is what lets the unit suite cover it on both
   engines, as the store tests already are.
 - A source that can only produce files is served by the upload path that
   already exists, or by a volume, which stays the declared fallback.
-- Whoever writes the landing table needs a Postgres role on the instance. That
+- Whoever writes the staging table needs a Postgres role on the instance. That
   is the same grant a person running the live tests needs, and it is decided by
   the database resource rather than by a grant step, as 0013 has it.
 - Registering the database in Unity Catalog — the step 0013 names ahead of the

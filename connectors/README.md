@@ -222,8 +222,8 @@ of the machine that saved it, which is where `delimiter` comes in.
 
 ## Feeds: the same load, from a table
 
-A source that runs on a schedule does not upload a file. It leaves rows in the **landing
-schema** of the store's own database — `<EA_SCHEMA>_landing`, which the application creates and
+A source that runs on a schedule does not upload a file. It leaves rows in the **staging
+schema** of the store's own database — `<EA_SCHEMA>_staging`, which the application creates and
 never fills — and the application loads them through the same validation, the same report, the
 same identity rules and the same branch targeting a file gets.
 
@@ -233,7 +233,7 @@ which is this document's columns, and nothing else. The application never reache
 catalogue, which is why a feed costs no new dependency, resource, identity or grant
 (decision 0020) — and why the same feed works against DuckDB locally.
 
-A feed names the landing table holding its elements, its relationships and its links, and
+A feed names the staging table holding its elements, its relationships and its links, and
 carries the same mapping a file import would use, so `id_prefix`, `match_on`, `deletion_mode`
 and the column renames are said once whichever way the rows arrive.
 

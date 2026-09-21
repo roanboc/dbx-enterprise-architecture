@@ -45,10 +45,10 @@ from ea.backend.sql import (
     TRACE_SQL_BOTH,
     create_table_sql,
     index_sql,
-    landing_schema,
     qualified,
     schema_of,
     schemas,
+    staging_schema,
     table_columns,
 )
 from ea.metamodel.loader import pack_from_dict, pack_to_dict
@@ -103,9 +103,9 @@ def _loads(value: Any) -> dict[str, Any]:
         return {}
 
 
-#: A landing table is named by configuration, so its name is checked before it reaches a
+#: A staging table is named by configuration, so its name is checked before it reaches a
 #: statement as a name rather than as a bound value.
-_LANDING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STAGING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def new_id(prefix: str = "") -> str:
@@ -2375,29 +2375,29 @@ class SqlBackend(DatabaseBackend):
             if before is not None:
                 self._log("source_feed", feed_id, "delete", actor, self._public(before), None, None)
 
-    # ------------------------------------------------------------- landing
-    def _landing(self, table: str) -> str:
-        """`<prefix>_landing.<table>`, refusing anything that is not a plain identifier.
+    # ------------------------------------------------------------- staging
+    def _staging(self, table: str) -> str:
+        """`<prefix>_staging.<table>`, refusing anything that is not a plain identifier.
 
-        A landing table is named by configuration rather than by the code, and it goes into a
+        A staging table is named by configuration rather than by the code, and it goes into a
         statement as a name rather than as a bound value — so it is checked here, where the
         statement is built, and not trusted from wherever it came."""
-        if not _LANDING_NAME.fullmatch(table or ""):
-            raise ValueError(f"{table!r} is not a landing table name: use letters, digits and _")
-        return f"{landing_schema(self.schema_prefix)}.{table}"
+        if not _STAGING_NAME.fullmatch(table or ""):
+            raise ValueError(f"{table!r} is not a staging table name: use letters, digits and _")
+        return f"{staging_schema(self.schema_prefix)}.{table}"
 
-    def landing_tables(self) -> list[str]:
+    def staging_tables(self) -> list[str]:
         rows = self._fetch_all(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name",
-            [landing_schema(self.schema_prefix)],
+            [staging_schema(self.schema_prefix)],
         )
         return [r[0] for r in rows]
 
-    def read_landing(self, table: str, limit: int, offset: int) -> pd.DataFrame:
-        return self._fetch_df(f"SELECT * FROM {self._landing(table)} LIMIT {int(limit)} OFFSET {int(offset)}")
+    def read_staging(self, table: str, limit: int, offset: int) -> pd.DataFrame:
+        return self._fetch_df(f"SELECT * FROM {self._staging(table)} LIMIT {int(limit)} OFFSET {int(offset)}")
 
-    def clear_landing(self, table: str) -> int:
-        name = self._landing(table)
+    def clear_staging(self, table: str) -> int:
+        name = self._staging(table)
         with self._lock:
             held = self._fetch_all(f"SELECT COUNT(*) FROM {name}")[0][0]
             self._execute(f"DELETE FROM {name}")

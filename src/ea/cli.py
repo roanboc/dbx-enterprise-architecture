@@ -979,7 +979,7 @@ def run() -> None:
 
 
 feed_app = typer.Typer(
-    help="Source feeds: the landing tables a source writes to, and running one of them.",
+    help="Source feeds: the staging tables a source writes to, and running one of them.",
     no_args_is_help=True,
 )
 app.add_typer(feed_app, name="feed")
@@ -1001,7 +1001,7 @@ def feed_list():
         typer.echo(f"{f.feed_id:22s} {f.name or f.source_system}  -> {where}")
         typer.echo(f"    schedule: {schedule_in_words(f, settings.timezone)}")
         tables = ", ".join(t for t in (f.elements_table, f.relationships_table, f.links_table) if t)
-        typer.echo(f"    landing : {tables or 'none named'}")
+        typer.echo(f"    staging : {tables or 'none named'}")
         if f.last_run_at:
             typer.echo(f"    last run: {in_zone(f.last_run_at, settings.timezone)} — {f.last_run_status}")
 
@@ -1010,14 +1010,14 @@ def feed_list():
 def feed_save(
     name: str,
     source: str = typer.Option("", help="source system recorded on every row it loads"),
-    elements: str = typer.Option("", help="the landing table holding its elements"),
-    relationships: str = typer.Option("", help="the landing table holding its relationships"),
-    links: str = typer.Option("", help="the landing table holding its links"),
+    elements: str = typer.Option("", help="the staging table holding its elements"),
+    relationships: str = typer.Option("", help="the staging table holding its relationships"),
+    links: str = typer.Option("", help="the staging table holding its links"),
     mapping: Path = typer.Option(None, help="mapping YAML, stored with the feed"),
     branch: str = typer.Option("", help="the branch it writes to; empty writes to main"),
     schedule: str = typer.Option("", help="a cron expression, as whatever triggers it writes them"),
     timezone: str = typer.Option("", help="the zone the schedule is written in; EA_TIMEZONE by default"),
-    clear_after: bool = typer.Option(True, help="empty the landing tables once they are loaded"),
+    clear_after: bool = typer.Option(True, help="empty the staging tables once they are loaded"),
     feed_id: str = typer.Option("", help="an existing feed to update; a new one by default"),
 ):
     """Configure a feed, or update one."""

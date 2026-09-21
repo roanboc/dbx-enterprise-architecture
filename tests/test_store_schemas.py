@@ -34,18 +34,18 @@ def test_the_schemas_are_named_from_the_prefix():
         "ea_branch",
         "ea_governance",
         "ea_audit",
-        "ea_landing",
+        "ea_staging",
     ]
     assert qualified("element", "ea") == "ea_content.element"
     assert qualified("change_log", "demo") == "demo_audit.change_log"
 
 
-def test_the_landing_schema_is_the_one_the_store_does_not_fill():
-    """Every other group names the tables the store makes. Landing names none: what goes there
+def test_the_staging_schema_is_the_one_the_store_does_not_fill():
+    """Every other group names the tables the store makes. Staging names none: what goes there
     is put there from outside, and the contract with a source is the shape of the table
     (decision 0020)."""
-    assert SCHEMA_GROUPS["landing"] == []
-    assert all(SCHEMA_GROUPS[group] for group in SCHEMA_GROUPS if group != "landing")
+    assert SCHEMA_GROUPS["staging"] == []
+    assert all(SCHEMA_GROUPS[group] for group in SCHEMA_GROUPS if group != "staging")
 
 
 def test_each_table_is_made_in_the_schema_of_its_group(backend):

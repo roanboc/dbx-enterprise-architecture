@@ -1,6 +1,6 @@
 """Feeds: the configured sources, what each one reads, and running one now.
 
-A feed reads the landing schema of the store's own database (decision 0020). This page is
+A feed reads the staging schema of the store's own database (decision 0020). This page is
 where a feed is configured and where somebody runs one without waiting for its schedule.
 
 The page shows a schedule; it does not fire one. What fires a feed is outside the application,
@@ -17,8 +17,10 @@ import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, dcc, html, no_update
 
+from ea.backend.sql import staging_schema
 from ea.config import Settings
 from ea.importer import schedule
+from ea.importer.csv_export import contract_example
 from ea.importer.feeds import in_zone, run_configured_feed, schedule_in_words
 from ea.importer.mapping import mapping_from_text
 from ea.models import Forbidden, SourceFeed
@@ -101,18 +103,18 @@ def feed_row(feed: SourceFeed, zone: str, can_run: bool, can_configure: bool) ->
                         dmc.Badge(
                             f"→ {where}",
                             variant="light",
-                            # Landing on main is the one that skips review, so it is the one
+                            # Staging on main is the one that skips review, so it is the one
                             # that has to look different from the rest.
                             color="orange" if feed.writes_to_main else "blue",
                         ),
                         dmc.Badge("disabled", variant="light", color="gray") if not feed.enabled else None,
-                        dmc.Badge("keeps its landing tables", variant="light", color="gray", size="sm")
+                        dmc.Badge("keeps its staging tables", variant="light", color="gray", size="sm")
                         if not feed.clear_after
                         else None,
                     ],
                     gap="xs",
                 ),
-                dmc.Text(f"Reads {tables or 'no landing table yet'}", size="sm", c="dimmed"),
+                dmc.Text(f"Reads {tables or 'no staging table yet'}", size="sm", c="dimmed"),
                 dmc.Text(schedule_in_words(feed, zone), size="sm"),
                 dmc.Text(
                     f"Last run {in_zone(feed.last_run_at, zone)} — {feed.last_run_status}"
@@ -170,7 +172,7 @@ def feed_list(ctx: AppContext) -> Any:
     feeds = ctx.backend.list_feeds()
     if not feeds:
         return alert(
-            "No feeds configured. A feed reads a table a source leaves in the landing schema of "
+            "No feeds configured. A feed reads a table a source leaves in the staging schema of "
             "this store's own database, and loads it exactly as an uploaded file is loaded.",
             "blue",
         )
@@ -181,7 +183,7 @@ def feed_list(ctx: AppContext) -> Any:
 #: Most feeds need none: a source that already writes the contract's own column names is read
 #: as it is, and the box stays empty.
 MAPPING_HELP = (
-    "Leave this empty if the landing table already uses the contract's column names "
+    "Leave this empty if the staging table already uses the contract's column names "
     "(id, type, name, description, …). Fill it in when the source calls things something else, "
     "numbers its rows the same way another source does, or is known by a key rather than an id."
 )
@@ -202,6 +204,73 @@ relationships:
     TO_CI: dst_id
     REL: rel_type
 """
+
+
+def staging_note(prefix: str) -> str:
+    """Where a source puts its rows, named rather than assumed.
+
+    The schema is the deployment's, not the application's: `EA_SCHEMA` sets the prefix and the
+    staging schema follows from it. A form that asked for three table names without saying
+    which schema they live in would be asking half a question.
+    """
+    return (
+        f"Name the tables only — they are read from the {staging_schema(prefix)} schema of this "
+        "store's own database, which the deployment names through EA_SCHEMA. A source writes "
+        "its rows there; the application never reaches outside it."
+    )
+
+
+def _tables_field() -> Any:
+    """The three table names, with the schema they live in and the example that shows their shape."""
+    prefix = Settings.from_env().store_schema or "ea"
+    return dmc.Stack(
+        [
+            dmc.Text("Staging tables", fw=500, size="sm"),
+            dmc.Text(staging_note(prefix), size="xs", c="dimmed"),
+            dmc.SimpleGrid(
+                [
+                    dmc.TextInput(
+                        id=ids.FEED_EL_TABLE,
+                        label="Elements table",
+                        placeholder=f"{prefix}_elements",
+                    ),
+                    dmc.TextInput(
+                        id=ids.FEED_REL_TABLE,
+                        label="Relationships table",
+                        placeholder=f"{prefix}_relationships",
+                    ),
+                    dmc.TextInput(
+                        id=ids.FEED_LINK_TABLE,
+                        label="Links table",
+                        placeholder=f"{prefix}_links",
+                    ),
+                ],
+                cols={"base": 1, "sm": 3},
+                spacing="sm",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text(
+                        "A staging table has the columns of the CSV contract — the same ones an "
+                        "uploaded file has.",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    # A button rather than a link: this produces a file, and an anchor does not
+                    # report a click to the callback that would make one.
+                    dmc.Button(
+                        "Download the example and the column reference",
+                        id=ids.FEED_EXAMPLE,
+                        variant="subtle",
+                        size="compact-xs",
+                        leftSection=icon("tabler:download", 14),
+                    ),
+                ],
+                gap="xs",
+            ),
+        ],
+        gap=4,
+    )
 
 
 def _mapping_field() -> Any:
@@ -244,7 +313,7 @@ def _mapping_field() -> Any:
             ),
             dmc.Textarea(
                 id=ids.FEED_MAPPING,
-                placeholder="Empty — the landing table uses the contract's own column names",
+                placeholder="Empty — the staging table uses the contract's own column names",
                 minRows=4,
                 autosize=True,
                 **{"aria-label": "The feed's mapping, as YAML"},
@@ -359,15 +428,7 @@ def _modal(ctx: AppContext) -> Any:
                     label="Source system",
                     description="Recorded on every row it loads; a relationship's identity is derived from it.",
                 ),
-                dmc.SimpleGrid(
-                    [
-                        dmc.TextInput(id=ids.FEED_EL_TABLE, label="Elements table"),
-                        dmc.TextInput(id=ids.FEED_REL_TABLE, label="Relationships table"),
-                        dmc.TextInput(id=ids.FEED_LINK_TABLE, label="Links table"),
-                    ],
-                    cols={"base": 1, "sm": 3},
-                    spacing="sm",
-                ),
+                _tables_field(),
                 dmc.TextInput(
                     id=ids.FEED_BRANCH,
                     label="Writes to",
@@ -380,7 +441,7 @@ def _modal(ctx: AppContext) -> Any:
                     [
                         dmc.Checkbox(
                             id=ids.FEED_CLEAR,
-                            label="Empty the landing tables once they are loaded",
+                            label="Empty the staging tables once they are loaded",
                             checked=True,
                         ),
                         dmc.Checkbox(id=ids.FEED_ENABLED, label="Enabled", checked=True),
@@ -401,7 +462,7 @@ def render(ctx: AppContext) -> html.Div:
         [
             page_title(
                 "Feeds",
-                "A source leaves rows in the landing schema of this store's own database and a feed "
+                "A source leaves rows in the staging schema of this store's own database and a feed "
                 "loads them through the same validation, report and branch rules an uploaded file gets.",
             ),
             # Saving a schedule here does not make anything happen, and a page that showed one
@@ -483,6 +544,26 @@ def register(app: dash.Dash) -> None:
         )
 
     @app.callback(
+        Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Input(ids.FEED_EXAMPLE, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def example(n):
+        """The contract's own example files, from the form that asks for tables shaped like them.
+
+        A staging table has the columns an uploaded file has, so the example is the same one the
+        Import page hands out — the three files with a row apiece, and the schema file naming
+        every column, its parent and its type. Somebody filling this form in should not have to
+        go and find it.
+        """
+        if not n:
+            return no_update
+        ctx = get_context()
+        return dcc.send_bytes(
+            contract_example(ctx.backend, ctx.registry), "ea-staging-example.zip", type="application/zip"
+        )
+
+    @app.callback(
         Output(ids.FEED_MAPPING_SAID, "children"),
         Input(ids.FEED_MAPPING, "value"),
         prevent_initial_call=True,
@@ -520,7 +601,7 @@ def register(app: dash.Dash) -> None:
             said.append(f"deletion mode {mapping.deletion_mode}")
         if not said:
             return alert(
-                "Read, and it changes nothing — the landing table is taken as the contract writes it.",
+                "Read, and it changes nothing — the staging table is taken as the contract writes it.",
                 "blue",
             )
         return alert("Read: " + "; ".join(said) + ".", "green")
@@ -667,7 +748,7 @@ def register(app: dash.Dash) -> None:
             return (
                 no_update,
                 no_update,
-                alert("A feed needs at least one landing table to read.", "yellow"),
+                alert("A feed needs at least one staging table to read.", "yellow"),
             )
         feed = SourceFeed(
             feed_id=feed_id or "",

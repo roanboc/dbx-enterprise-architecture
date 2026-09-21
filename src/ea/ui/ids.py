@@ -196,6 +196,7 @@ FEED_TZ = "feed-tz"
 FEED_CLEAR = "feed-clear"
 FEED_ENABLED = "feed-enabled"
 FEED_MAPPING = "feed-mapping"
+FEED_EXAMPLE = "feed-example"  # the contract's example files, from the feed form
 FEED_MAPPING_SAID = "feed-mapping-said"  # what the mapping typed there would do
 FEED_SAVE = "feed-save"
 FEED_NEW = "feed-new"

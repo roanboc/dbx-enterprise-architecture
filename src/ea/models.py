@@ -516,7 +516,7 @@ MAX_IMPORT_ISSUES = 2_000
 
 @dataclass
 class SourceFeed:
-    """A configured source: which landing tables are its, how they are read, and when it runs.
+    """A configured source: which staging tables are its, how they are read, and when it runs.
 
     The schedule is kept **in the zone it is written in** rather than converted to UTC. A person
     who says a feed runs at half past two means half past two where they are, and a platform
@@ -540,7 +540,7 @@ class SourceFeed:
     mapping_yaml: str = ""
     #: Where the feed writes. Empty is `main`, which is a feed nobody reviews before it lands.
     target_branch: str = ""
-    #: Whether the landing tables are emptied once loaded. False for a table something else
+    #: Whether the staging tables are emptied once loaded. False for a table something else
     #: maintains, such as one replicated from a catalogue.
     clear_after: bool = True
     enabled: bool = True

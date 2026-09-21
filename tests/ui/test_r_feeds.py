@@ -1,6 +1,6 @@
 """Group R — Feeds: a configured source, what it reads, and running it now.
 
-A feed reads a table a source left in the landing schema of the store's own database
+A feed reads a table a source left in the staging schema of the store's own database
 (decision 0020) and loads it through the same pipeline an uploaded file goes through. This
 group proves the screen around that: a feed is configured, its card says where it writes and
 when it is meant to run, pressing Run now loads what is waiting, and the roles split the way
@@ -12,7 +12,7 @@ than leave it in a field nobody opened. And a schedule shown without its zone is
 somebody else's day, so every time on the page carries the zone it means.
 
 Everything this group creates is prefixed `R-` and carries the nonsense word `rqmark` in its
-description, so a search finds this group's rows and nothing else. The landing tables it
+description, so a search finds this group's rows and nothing else. The staging tables it
 writes are named `r_*`; the group empties them by loading them.
 """
 
@@ -67,7 +67,7 @@ def test_the_page(ui, record):
     title="A feed is configured from the page, and its card says what it reads and where it writes",
     feature="Feeds · configuring",
     expected=(
-        "New feed opens a dialog for the landing tables, the branch, the schedule and its zone. "
+        "New feed opens a dialog for the staging tables, the branch, the schedule and its zone. "
         "Saving it closes the dialog and the feed appears as a card naming the tables it reads, "
         "the schedule in the zone it was written in, and that it has never run."
     ),
@@ -118,10 +118,10 @@ def test_configure(ui, record):
 @pytest.mark.scenario(
     scenario_id="R03",
     group="R",
-    title="Run now loads what the source left in the landing schema, and reports what it did",
+    title="Run now loads what the source left in the staging schema, and reports what it did",
     feature="Feeds · running one",
     expected=(
-        "With rows waiting in the landing tables, Run now loads them through the same pipeline a "
+        "With rows waiting in the staging tables, Run now loads them through the same pipeline a "
         "file goes through and reports the counts. The card then shows when it last ran, in the "
         "zone the page reads in."
     ),
@@ -165,9 +165,9 @@ def test_what_it_loaded(ui, record):
     scenario_id="R05",
     group="R",
     title="Running a feed a second time finds nothing waiting, because the first run emptied it",
-    feature="Feeds · the landing tables are emptied by a run",
+    feature="Feeds · the staging tables are emptied by a run",
     expected=(
-        "A feed empties its landing tables once it has loaded them, so a second run with nothing "
+        "A feed empties its staging tables once it has loaded them, so a second run with nothing "
         "new reports nothing loaded rather than loading the same rows again."
     ),
 )
@@ -179,7 +179,7 @@ def test_second_run(ui, record):
     ui.check(
         "the second run loads nothing, the tables having been emptied", "elements 0/0" in body, body[:400]
     )
-    ui.shot("A second run with nothing waiting: the landing tables were emptied by the first")
+    ui.shot("A second run with nothing waiting: the staging tables were emptied by the first")
 
 
 @pytest.mark.scenario(
@@ -246,10 +246,10 @@ def test_narrow(ui, record):
 @pytest.mark.scenario(
     scenario_id="R09",
     group="R",
-    title="A feed naming a landing table that is not there says so rather than failing silently",
+    title="A feed naming a staging table that is not there says so rather than failing silently",
     feature="Feeds · a table that is not there",
     expected=(
-        "A feed configured against a table the landing schema does not hold reports it as a "
+        "A feed configured against a table the staging schema does not hold reports it as a "
         "warning naming the table, and loads nothing."
     ),
 )
@@ -268,7 +268,7 @@ def test_missing_table(ui, record):
     body = ui.body()
     ui.check("the run names the table it could not find", "r_never_created" in body, body[:600])
     ui.check("it is a warning, not a crash", "warning" in body.lower() or "0 errors" in body)
-    ui.shot("A feed whose landing table is not there: named, and nothing loaded")
+    ui.shot("A feed whose staging table is not there: named, and nothing loaded")
 
 
 @pytest.mark.scenario(
@@ -347,3 +347,36 @@ def test_the_mapping_field_guides(ui, record):
     bad = ui.text("#feed-mapping-said")
     ui.check("YAML that cannot be read is said so before the feed is saved", "not YAML" in bad, bad)
     ui.shot("A mapping that is not YAML: said before the feed is saved")
+
+
+@pytest.mark.scenario(
+    scenario_id="R12",
+    group="R",
+    title="The form says which schema the tables are read from, and hands out the example",
+    feature="Feeds · where the tables live",
+    expected=(
+        "The staging tables are named, not qualified: the form says they are read from this "
+        "store's own staging schema, which the deployment names, and offers the contract by "
+        "example — the three files with a row apiece and the schema file describing every column."
+    ),
+)
+def test_the_form_says_where_the_tables_live(ui, record):
+    import zipfile
+
+    _open(ui)
+    ui.click("#feed-new")
+    ui.settle()
+    body = ui.body()
+    ui.check("the schema the tables are read from is named", "ea_staging" in body, body[-800:])
+    ui.check("and the deployment is said to name it", "EA_SCHEMA" in body)
+    ui.check("the example is offered from the form", "Download the example" in body)
+    ui.shot("The staging tables, the schema they are read from, and the example beside them")
+
+    archive = ui.download("feed-example", ".zip")
+    with zipfile.ZipFile(archive) as z:
+        names = sorted(z.namelist())
+    ui.check(
+        "the example is the contract's files with the schema beside them",
+        names == ["README.md", "elements.csv", "links.csv", "relationships.csv", "schema.csv"],
+        str(names),
+    )

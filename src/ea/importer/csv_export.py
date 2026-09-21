@@ -332,3 +332,27 @@ def export_archive(backend: DatabaseBackend, registry: Registry) -> bytes:
             write(buf)
             archive.writestr(name, buf.getvalue())
     return out.getvalue()
+
+
+#: The example files that ship with the repository: a row apiece in each of the three, so the
+#: shape is visible rather than described.
+TEMPLATE_FILES = ("README.md", "elements.csv", "relationships.csv", "links.csv")
+
+
+def contract_example(backend: DatabaseBackend, registry: Registry) -> bytes:
+    """The contract by example: the three files with a row apiece, and the schema beside them.
+
+    What a staging table has to look like and what an uploaded file has to look like are the
+    same question, so they get the same answer. The schema file is generated from the version
+    this organisation applies rather than shipped, because that is what its import will accept.
+    """
+    from ea.config import ROOT
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in TEMPLATE_FILES:
+            archive.write(ROOT / "templates" / "import-template" / name, arcname=name)
+        buf = io.StringIO()
+        write_schema(registry, buf)
+        archive.writestr(SCHEMA_FILE, buf.getvalue())
+    return out.getvalue()

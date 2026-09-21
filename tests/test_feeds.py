@@ -1,4 +1,4 @@
-"""A feed reads the landing schema — the one boundary a source writes to (decision 0020).
+"""A feed reads the staging schema — the one boundary a source writes to (decision 0020).
 
 Every test here runs on both engines, which is the point of putting the boundary in a table
 rather than behind a platform API: what a feed does on Lakebase, it does on DuckDB.
@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 
 from ea.backend.branching import use_branch
-from ea.backend.sql import landing_schema
+from ea.backend.sql import staging_schema
 from ea.importer import Feed, Mapping, run_feed
-from ea.importer.feeds import frames_from_landing
+from ea.importer.feeds import frames_from_staging
 
 
 def _land(backend, table: str, columns: str, *rows: str) -> None:
@@ -19,7 +19,7 @@ def _land(backend, table: str, columns: str, *rows: str) -> None:
 
     The schema is named from the store's own prefix, because a Lakebase test run gets a schema
     of its own — which is exactly the thing a hardcoded name would have hidden."""
-    where = f"{landing_schema(backend.schema_prefix)}.{table}"
+    where = f"{staging_schema(backend.schema_prefix)}.{table}"
     backend._execute(f"CREATE TABLE {where} ({columns})")
     for row in rows:
         backend._execute(f"INSERT INTO {where} VALUES ({row})")
@@ -52,7 +52,7 @@ def test_a_feed_loads_what_a_source_left_and_then_clears_it(backend, registry):
     edge = backend.find_relationships(limit=5)[0]
     assert (edge.src_id, edge.dst_id) == ("CMDB-1001", "CMDB-1002")
     # what was loaded no longer waits
-    assert backend.read_landing("cmdb_elements", 10, 0).empty
+    assert backend.read_staging("cmdb_elements", 10, 0).empty
 
 
 def test_clearing_happens_after_loading_so_a_stopped_run_loses_nothing(backend, registry):
@@ -82,7 +82,7 @@ def test_a_failed_load_leaves_the_rows_where_they_are(backend, registry):
     feed = Feed("src", tables={"elements": "bad_elements"})
     report = run_feed(backend, registry, feed, actor="t")
     assert not report.ok
-    assert backend.read_landing("bad_elements", 10, 0).shape[0] == 1  # still waiting
+    assert backend.read_staging("bad_elements", 10, 0).shape[0] == 1  # still waiting
 
 
 def test_a_feed_reading_a_table_it_does_not_own_leaves_it_alone(backend, registry):
@@ -91,17 +91,17 @@ def test_a_feed_reading_a_table_it_does_not_own_leaves_it_alone(backend, registr
     _land(backend, "synced_elements", "id VARCHAR, type VARCHAR, name VARCHAR", "'E1','data_entity','One'")
     feed = Feed("synced", tables={"elements": "synced_elements"}, clear_after=False)
     report = run_feed(backend, registry, feed, actor="t")
-    assert report.ok and backend.read_landing("synced_elements", 10, 0).shape[0] == 1
+    assert report.ok and backend.read_staging("synced_elements", 10, 0).shape[0] == 1
 
 
 def test_a_feed_naming_a_table_that_is_not_there_says_so(backend, registry):
     feed = Feed("src", tables={"elements": "never_created"})
     report = run_feed(backend, registry, feed, actor="t")
-    assert [i.code for i in report.issues] == ["no_landing_table"]
+    assert [i.code for i in report.issues] == ["no_staging_table"]
     assert report.elements_loaded == 0
 
 
-def test_a_landing_table_is_read_in_pages(backend, registry, monkeypatch):
+def test_a_staging_table_is_read_in_pages(backend, registry, monkeypatch):
     """No single statement asks the store for a whole table (decision 0019)."""
     from ea import capacity
 
@@ -110,30 +110,30 @@ def test_a_landing_table_is_read_in_pages(backend, registry, monkeypatch):
     _land(backend, "many_elements", "id VARCHAR, type VARCHAR, name VARCHAR", *rows)
 
     seen: list[int] = []
-    original = backend.read_landing
+    original = backend.read_staging
 
     def counted(table, limit, offset):
         seen.append(offset)
         return original(table, limit, offset)
 
-    monkeypatch.setattr(backend, "read_landing", counted)
-    frames = frames_from_landing(backend, Feed("src", tables={"elements": "many_elements"}))
+    monkeypatch.setattr(backend, "read_staging", counted)
+    frames = frames_from_staging(backend, Feed("src", tables={"elements": "many_elements"}))
     assert len(frames["elements"][0][1]) == 5  # every row arrives
     assert seen[:3] == [0, 2, 4]  # and it took more than one read to get them
 
 
-def test_a_landing_table_name_that_is_not_an_identifier_is_refused(backend):
-    """A landing table is named by configuration and goes into a statement as a name."""
-    with pytest.raises(ValueError, match="not a landing table name"):
-        backend.read_landing("elements; DROP TABLE element", 10, 0)
-    with pytest.raises(ValueError, match="not a landing table name"):
-        backend.clear_landing("x'; DELETE FROM element; --")
+def test_a_staging_table_name_that_is_not_an_identifier_is_refused(backend):
+    """A staging table is named by configuration and goes into a statement as a name."""
+    with pytest.raises(ValueError, match="not a staging table name"):
+        backend.read_staging("elements; DROP TABLE element", 10, 0)
+    with pytest.raises(ValueError, match="not a staging table name"):
+        backend.clear_staging("x'; DELETE FROM element; --")
 
 
-def test_the_landing_schema_exists_and_the_store_puts_nothing_in_it(backend):
+def test_the_staging_schema_exists_and_the_store_puts_nothing_in_it(backend):
     """The store creates the schema and never a table in it: what lands there comes from
     outside the application entirely."""
-    assert backend.landing_tables() == []
+    assert backend.staging_tables() == []
 
 
 # --------------------------------------------------------- configured feeds

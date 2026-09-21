@@ -73,12 +73,12 @@ def test_the_last_run_is_read_where_the_reader_is():
     assert "Never run" in _texts(feed_row(SourceFeed(name="n", elements_table="t"), "UTC", True, True))
 
 
-def test_a_feed_that_keeps_its_landing_tables_is_marked():
+def test_a_feed_that_keeps_its_staging_tables_is_marked():
     """Because it is the exception: a feed normally empties what it loaded."""
     kept = feed_row(SourceFeed(name="Synced", elements_table="t", clear_after=False), "UTC", True, True)
-    assert "keeps its landing tables" in _texts(kept)
+    assert "keeps its staging tables" in _texts(kept)
     normal = feed_row(SourceFeed(name="Normal", elements_table="t"), "UTC", True, True)
-    assert "keeps its landing tables" not in _texts(normal)
+    assert "keeps its staging tables" not in _texts(normal)
 
 
 def test_a_disabled_feed_is_marked():
@@ -199,3 +199,43 @@ def test_the_example_mapping_is_one_the_importer_can_actually_read():
     assert mapping.element_columns["CI_ID"] == "id"
     assert mapping.type_names["Server"] == "physical_technology_component"
     assert mapping.relationship_columns["FROM_CI"] == "src_id"
+
+
+# ------------------------------------- where the tables live, and their shape
+
+
+def test_the_form_names_the_schema_the_tables_are_read_from():
+    """A form asking for three table names without saying which schema they live in is asking
+    half a question. The schema is the deployment's, through EA_SCHEMA."""
+    from ea.ui.pages.feeds import staging_note
+
+    note = staging_note("ea")
+    assert "ea_staging" in note
+    assert "EA_SCHEMA" in note  # and that the deployment is what names it
+    assert "never reaches outside it" in note
+
+    # a deployment that renames the prefix gets its own schema named back
+    assert "acme_staging" in staging_note("acme")
+
+
+def test_the_example_is_the_contract_by_example_with_its_schema_beside_it(backend, registry):
+    """Somebody filling the form in should not have to go and find what the columns are."""
+    import io
+    import zipfile
+
+    from ea.importer.csv_export import contract_example
+
+    with zipfile.ZipFile(io.BytesIO(contract_example(backend, registry))) as archive:
+        assert sorted(archive.namelist()) == [
+            "README.md",
+            "elements.csv",
+            "links.csv",
+            "relationships.csv",
+            "schema.csv",
+        ]
+        elements = archive.read("elements.csv").decode("utf-8").splitlines()
+        assert elements[0].startswith("id,type,name")
+        assert len(elements) > 1, "an example with no row shows nothing"
+        # the schema is generated from the applied version, not shipped
+        schema = archive.read("schema.csv").decode("utf-8")
+        assert "logical_data_component" in schema

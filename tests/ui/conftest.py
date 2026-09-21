@@ -55,16 +55,16 @@ def _free_port() -> int:
 
 
 def _land_for_feeds(backend) -> None:
-    """Rows waiting in the landing schema, as a source leaves them (group R).
+    """Rows waiting in the staging schema, as a source leaves them (group R).
 
     They are written before the application opens the database, which is the real sequence:
     something outside puts rows there and the application reads them afterwards. It is also the
     only one available — DuckDB takes the file exclusively, so nothing can write it while the
     round's application is running.
     """
-    from ea.backend.sql import landing_schema
+    from ea.backend.sql import staging_schema
 
-    where = landing_schema(backend.schema_prefix)
+    where = staging_schema(backend.schema_prefix)
     backend._execute(
         f"CREATE TABLE IF NOT EXISTS {where}.r_elements "
         "(id VARCHAR, type VARCHAR, name VARCHAR, description VARCHAR)"
@@ -72,7 +72,7 @@ def _land_for_feeds(backend) -> None:
     backend._execute(
         f"INSERT INTO {where}.r_elements VALUES "
         "('R-LDC-RESEARCH','logical_data_component','R Research Data',"
-        "'The research data area, left in the landing schema by a feed (rqmark).'),"
+        "'The research data area, left in the staging schema by a feed (rqmark).'),"
         "('R-DE-PROJECT','data_entity','R Project','One research project record (rqmark).')"
     )
     backend._execute(

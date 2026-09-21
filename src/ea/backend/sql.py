@@ -54,7 +54,7 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     # from outside — a platform job writing Postgres, or a catalogue table replicated into
     # it — and the application's contract with a source is the shape of the table, nothing
     # more (decision 0020).
-    "landing": [],
+    "staging": [],
 }
 TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t in tables}
 
@@ -64,9 +64,9 @@ def schemas(prefix: str) -> list[str]:
     return [f"{prefix}_{group}" for group in SCHEMA_GROUPS]
 
 
-def landing_schema(prefix: str) -> str:
+def staging_schema(prefix: str) -> str:
     """Where a source's rows wait to be read. The one schema the store does not own."""
-    return f"{prefix}_landing"
+    return f"{prefix}_staging"
 
 
 def schema_of(table: str, prefix: str) -> str:

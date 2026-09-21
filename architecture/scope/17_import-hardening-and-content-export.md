@@ -124,11 +124,11 @@ changes what the model claims about a feed and needs the Requester at a gate,
 not a code change. It is the question that blocks unattended feeds, more than
 any of the plumbing below.
 
-**Feeds from landing tables.** The Requester's direction is a table per source
+**Feeds from staging tables.** The Requester's direction is a table per source
 in the platform's catalogue, already in the contract's shape, which the
 application reads and puts through the same pipeline — so validation, the issue
 report, branch targeting and the change log all come for free and no pipeline
-reimplements them in SQL. `import_frames` already takes frames, so a landing
+reimplements them in SQL. `import_frames` already takes frames, so a staging
 table would be read straight into one rather than written to CSV first. What
 remains open is not the reading but the triggering, and these questions decide
 it before any mechanism does:
@@ -137,7 +137,7 @@ it before any mechanism does:
 | ------------- | ------------- |
 | **What branch does an unattended feed write to?** | An import writes to the current branch and the Import page refuses `main` outright, because review happens before anything merges. A feed has nobody to open a branch or approve the merge. Either every run gets a branch somebody drains, or feeds are trusted onto `main` — which is the rule the application enforces hardest. A gate question |
 | **Which role does a feed run as?** | `require("import")` needs an actor, and whatever it is appears in the change log as the author of every row |
-| **One landing table or several?** | Several. Each source then carries its own `id_prefix` and `match_on`, which is what the mapping now expresses; one shared table would force a single identity rule on every source |
+| **One staging table or several?** | Several. Each source then carries its own `id_prefix` and `match_on`, which is what the mapping now expresses; one shared table would force a single identity rule on every source |
 | **How is it triggered?** | Sketched, not decided: the refreshing job calling the import as its last task (the trigger is the pipeline's own completion, and freshness becomes "did the job succeed"); a watermark per source deciding what is actually new; a scheduled sweep beneath both as a safety net; and a button in the application whatever else is chosen, so the path stays testable by hand |
 
 **Two smaller notes.** The links file is one read per element that carries a
