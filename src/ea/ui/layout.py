@@ -35,10 +35,10 @@ NAV_SECTIONS = [
     (
         "Contribute",
         [
+            ("Branches", "/branches", "tabler:git-branch"),
             ("Import", "/import", "tabler:file-import"),
             ("Feeds", "/feeds", "tabler:refresh"),
             ("Propose", "/propose", "tabler:file-plus"),
-            ("Branches", "/branches", "tabler:git-branch"),
         ],
     ),
     (
