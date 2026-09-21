@@ -36,7 +36,12 @@ merged or abandoned branch still accepted writes that could reach neither `main`
 nor an abandon.
 
 **Three refusals were not refusals.** `ea sql` and the agent's SQL tool answered
-from `main` while the reader stood on a branch, with nothing saying so.
+from `main` while the reader stood on a branch, with nothing saying so — and a
+security review of the fix found that laying the branch over the *bare* table
+names left a qualified one (`<prefix>_content.element`) reaching the base table,
+which reads **every organisation's rows**, not only the reader's. That half
+pre-dates this work and contradicts decision 0014's partition; naming a schema
+is refused now, and the catalogues that disclose the names with it.
 Configuring a feed needed the Admin role on the page and nobody's role on the
 command line. A bulk edit naming an attribute with an empty value wrote the
 blank over every ticked row — the one bulk edit nobody can undo.

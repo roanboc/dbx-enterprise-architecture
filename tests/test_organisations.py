@@ -12,6 +12,7 @@ import pytest
 
 from ea.backend.branching import use_branch
 from ea.backend.organisations import DEFAULT_ORG, current_org, org_id_from_name, use_org
+from ea.backend.sql import schemas
 from ea.metamodel import Registry
 from ea.metamodel.loader import pack_to_dict
 from ea.models import ConflictError, Element, Forbidden, NotFoundError, Relationship
@@ -207,6 +208,33 @@ def test_a_readers_sql_answers_for_the_organisation_and_its_version(loaded, orgs
     assert int(loaded.query("with c as (select * from element) select count(*) as n from c")["n"][0]) == 47
     assert int(loaded.query("select count(*) as n from meta_element_type")["n"][0]) == 59
     assert int(loaded.query("select count(*) as n from element", scoped=False)["n"][0]) == 48
+
+
+def test_a_readers_sql_cannot_name_a_schema_and_read_past_its_organisation(loaded, orgs):
+    """The scoping shadows the content tables by their bare names, and only by those.
+
+    A qualified name — `<prefix>_content.element`, or the catalog before it — resolved to the
+    base table instead, so a reader standing in one organisation read every organisation's
+    rows, and a reader standing on a branch read main's. The system catalogues are how the
+    schema names were found, so they are refused with them.
+    """
+    orgs.create("Trial", "ada")
+    with use_org("trial"):
+        loaded.insert_element(Element("E1", "capability", "Only ours"), "ada")
+        schema = schemas(loaded.schema_prefix)[1]  # the content group
+        for query in (
+            f"select count(*) as n from {schema}.element",
+            f"select count(*) as n from memory.{schema}.element",
+            f"with c as (select * from {schema}.element) select count(*) as n from c",
+            f"select (select count(*) from {schema}.element) as n",
+            f"select name from element union all select name from {schema}.element",
+            f"select count(*) as n from {schema.upper()}.ELEMENT",
+            "select table_name from information_schema.tables",
+        ):
+            with pytest.raises(ValueError, match="name the table on its own"):
+                loaded.query(query)
+        # the bare name still answers, and answers for this organisation alone
+        assert int(loaded.query("select count(*) as n from element")["n"][0]) == 1
 
 
 def test_an_older_store_is_given_its_organisation(backend, pack):

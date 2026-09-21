@@ -86,6 +86,10 @@ _FORBIDDEN_RE = re.compile(
     r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck)\b",
     re.IGNORECASE,
 )
+#: The catalogues a reader could find the store's own schema names in, and the qualifiers
+#: that reach a table directly. Refused in a reader's own SQL for the same reason the store's
+#: schemas are: the scoping shadows bare names only.
+_SYSTEM_SCHEMAS = ("information_schema", "pg_catalog", "pg_temp", "main", "memory", "system", "temp")
 # The keys of an attribute definition kept in the `extra` JSON column of meta_attribute.
 _ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", "help", "properties")
 
@@ -3055,6 +3059,22 @@ class SqlBackend(DatabaseBackend):
             self._execute(f"DELETE FROM {name}")
         return int(held)
 
+    def _qualified_escape(self, bare: str) -> str:
+        """A schema or catalog name in the reader's query that would step around the scope.
+
+        The scoping below shadows the content tables by their **bare** names, so `element`
+        answers for the reader's organisation and branch. A qualified name — `ea_content.element`,
+        or the catalog before it — resolves to the base table instead and no shadow applies,
+        which reads every organisation's rows, not only the reader's. Naming a schema is
+        refused rather than rewritten: there is nothing a reader's query needs from one that
+        the bare name does not already give, and the system catalogues are how the schema
+        names are found in the first place.
+        """
+        for name in (*schemas(self.schema_prefix), *_SYSTEM_SCHEMAS):
+            if re.search(rf"\b{re.escape(name)}\s*\.", bare, re.IGNORECASE):
+                return name
+        return ""
+
     def query(
         self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
     ) -> pd.DataFrame:
@@ -3063,6 +3083,11 @@ class SqlBackend(DatabaseBackend):
         bare = re.sub(r"'(?:[^']|'')*'", "''", stripped)
         if ";" in bare or not _READ_ONLY_RE.match(bare) or _FORBIDDEN_RE.search(bare):
             raise ValueError("only a single read-only SELECT/WITH statement is allowed")
+        if scoped and (named := self._qualified_escape(bare)):
+            raise ValueError(
+                f"name the table on its own, not as {named}.<table>: a qualified name reads past "
+                f"the organisation and branch this query answers for"
+            )
         if scoped:
             ctes = self._scope_ctes()
             m = _WITH_RE.match(stripped)
