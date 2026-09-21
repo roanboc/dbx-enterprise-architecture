@@ -28,7 +28,9 @@ dependencies = [
 databricks = ["databricks-sdk>=0.60"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.6"]
+# `pytest-xdist` is what `make test` runs the suite across; the Makefile holds the
+# flags, because the suite is only safe under `--dist loadfile` (see the comment there).
+dev = ["pytest>=8.3", "pytest-xdist>=3.8", "ruff>=0.6"]
 # The browser-driven round, installed on request with `uv sync --group gui`.
 # Pinned: the driver and the browser build ship as a pair, so a bump is a
 # bump of both, together with `playwright install chromium`.

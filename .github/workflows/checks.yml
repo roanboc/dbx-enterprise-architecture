@@ -51,5 +51,8 @@ jobs:
         run: uv sync --frozen
       - name: Lint
         run: uv run ruff check src tests app.py && uv run ruff format --check src tests app.py
+      # Through the Makefile, so the flags the suite needs are defined once. It runs
+      # across the runner's cores a file at a time; the Postgres above is shared by every
+      # worker, each test taking a schema of its own.
       - name: Tests
-        run: uv run pytest -q
+        run: make test
