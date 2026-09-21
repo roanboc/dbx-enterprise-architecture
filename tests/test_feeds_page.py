@@ -59,7 +59,7 @@ def test_a_schedule_is_shown_with_the_zone_it_means():
         schedule_timezone="Australia/Brisbane",
     )
     shown = _texts(feed_row(feed, "UTC", True, True))
-    assert "02:30 daily Australia/Brisbane" in shown
+    assert "Every day at 02:30 (Australia/Brisbane)" in shown
 
 
 def test_the_last_run_is_read_where_the_reader_is():
@@ -116,3 +116,86 @@ def test_the_page_says_which_zone_it_shows_and_that_it_fires_nothing():
     assert "Australia/Brisbane" in notice
     assert "does not fire one" in notice
     assert "runs a feed on demand" in notice
+
+
+# ------------------------------------------- what a run left, said briefly
+
+
+def test_a_run_is_summarised_on_the_card_by_what_it_changed():
+    """The report's own sentence is written for a terminal: the counts that stayed at zero
+    crowd out the ones that did not, and four dense lines is what a card gets."""
+    from ea.ui.pages.feeds import run_in_brief
+
+    loaded = (
+        "source=s elements 2/2 loaded (2 new, 0 updated, 0 unchanged, 0 retired, 0 skipped), "
+        "relationships 1/1 loaded (1 new, 0 updated, 0 unchanged, 0 skipped), links 0/0; "
+        "0 errors, 0 warnings"
+    )
+    # the kinds stay apart: '3 new' across elements and relationships names nothing to act on
+    assert run_in_brief(loaded) == "elements 2 new · relationships 1 new"
+
+
+def test_a_run_that_changed_nothing_says_so_in_two_words():
+    from ea.ui.pages.feeds import run_in_brief
+
+    quiet = (
+        "source=s elements 0/0 loaded (0 new, 0 updated, 0 unchanged, 0 retired, 0 skipped), "
+        "relationships 0/0 loaded (0 new, 0 updated, 0 unchanged, 0 skipped), links 0/0; "
+        "0 errors, 0 warnings"
+    )
+    assert run_in_brief(quiet) == "Nothing changed"
+    assert run_in_brief("") == ""
+
+
+def test_a_run_with_errors_says_so_however_much_it_changed():
+    from ea.ui.pages.feeds import run_in_brief
+
+    partial = (
+        "source=s elements 1/3 loaded (0 new, 1 updated, 0 unchanged, 1 retired, 2 skipped), "
+        "relationships 0/0 loaded (0 new, 0 updated, 0 unchanged, 0 skipped), links 0/0; "
+        "3 errors, 0 warnings"
+    )
+    assert run_in_brief(partial) == "elements 1 updated, 1 retired, 2 skipped — with errors"
+
+    nothing = (
+        "source=s elements 0/2 loaded (0 new, 0 updated, 0 unchanged, 0 retired, 2 skipped), "
+        "relationships 0/0 loaded (0 new, 0 updated, 0 unchanged, 0 skipped), links 0/0; "
+        "2 errors, 0 warnings"
+    )
+    assert "with errors" in run_in_brief(nothing)
+
+
+def test_the_whole_summary_is_still_reachable_from_the_card():
+    """Brief is not the same as gone: the report's own sentence stays, under the pointer."""
+    feed = SourceFeed(
+        name="n",
+        elements_table="t",
+        last_run_at=datetime(2026, 9, 20, 16, 30),
+        last_run_status="ok",
+        last_run_summary="source=s elements 2/2 loaded (2 new, 0 updated, 0 unchanged, 0 retired, 0 skipped); 0 errors, 0 warnings",
+    )
+    shown = _texts(feed_row(feed, "UTC", True, True))
+    assert "elements 2 new" in shown  # the brief
+    assert "2/2 loaded" in shown  # and the whole of it, as the tooltip's label
+
+
+def test_the_mapping_field_says_what_it_is_for_and_shows_an_example():
+    """A box labelled only 'Mapping (YAML)' asks a question without saying what an answer is."""
+    from ea.ui.pages.feeds import MAPPING_EXAMPLE, MAPPING_HELP
+
+    assert "Leave this empty" in MAPPING_HELP  # most feeds need none, and that is said first
+    assert "id_prefix" in MAPPING_EXAMPLE and "match_on" in MAPPING_EXAMPLE
+    assert "columns" in MAPPING_EXAMPLE and "type_names" in MAPPING_EXAMPLE
+
+
+def test_the_example_mapping_is_one_the_importer_can_actually_read():
+    """An example that does not parse teaches the wrong thing."""
+    from ea.importer import mapping_from_text
+    from ea.ui.pages.feeds import MAPPING_EXAMPLE
+
+    mapping = mapping_from_text(MAPPING_EXAMPLE)
+    assert mapping.id_prefix == "CMDB-"
+    assert mapping.match_on == "id"
+    assert mapping.element_columns["CI_ID"] == "id"
+    assert mapping.type_names["Server"] == "physical_technology_component"
+    assert mapping.relationship_columns["FROM_CI"] == "src_id"

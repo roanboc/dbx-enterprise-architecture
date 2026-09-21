@@ -26,6 +26,7 @@ import pandas as pd
 from ea import capacity
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, use_branch
+from ea.importer import schedule
 from ea.importer.csv_import import import_frames
 from ea.importer.mapping import Mapping, mapping_from_text
 from ea.metamodel.registry import Registry
@@ -211,12 +212,15 @@ def in_zone(moment: Any, zone: str) -> str:
 
 
 def schedule_in_words(feed: SourceFeed, fallback_zone: str = "UTC") -> str:
-    """What a feed's schedule says, and the zone it says it in.
+    """What a feed's schedule says, and the zone it says it in — as a sentence where it can be.
 
     The expression is kept in the zone it was written in rather than converted to UTC, because
-    a person who says half past two means half past two where they are — and a platform
+    a person who says half past two means half past two where they are, and a platform
     scheduler takes a zone alongside its expression for that reason. So there is nothing to
     convert to show it correctly, and nothing drifts when a zone's offset changes.
+
+    An expression the words cannot hold is shown exactly as written, because a wrong rendering
+    of a schedule says the wrong time as confidently as a right one.
 
     The application does not fire it. What fires it is outside (decision 0020); this is what a
     trigger honours and what the screen shows beside `Run now`.
@@ -224,24 +228,6 @@ def schedule_in_words(feed: SourceFeed, fallback_zone: str = "UTC") -> str:
     if not feed.schedule:
         return "No schedule — this feed runs when somebody runs it"
     zone = feed.schedule_timezone or fallback_zone or "UTC"
-    daily = _daily_at(feed.schedule)
-    when = f"{feed.schedule} ({daily} {zone})" if daily else f"{feed.schedule} ({zone})"
+    said = schedule.in_words(feed.schedule)
+    when = f"{said} ({zone})" if said != feed.schedule else f"{feed.schedule} ({zone})"
     return when if feed.enabled else f"{when} — disabled"
-
-
-def _daily_at(cron: str) -> str:
-    """`30 2 * * *` as `02:30`, when the expression is a plain daily one; else empty.
-
-    Deliberately narrow. A five-field expression whose day, month and weekday are all `*` is a
-    time of day and can be read as one; anything else is shown as written rather than guessed
-    at, because a wrong rendering of a schedule is worse than none.
-    """
-    parts = cron.split()
-    if len(parts) != 5:
-        return ""
-    minute, hour, day, month, weekday = parts
-    if (day, month, weekday) != ("*", "*", "*") or not (minute.isdigit() and hour.isdigit()):
-        return ""
-    if not (0 <= int(minute) < 60 and 0 <= int(hour) < 24):
-        return ""
-    return f"{int(hour):02d}:{int(minute):02d} daily"

@@ -3767,3 +3767,58 @@ def test_m70_delete(cli, record):
         rc_retired == 0 and "retired" in retired,
         retired_ev,
     )
+
+
+@pytest.mark.scenario(
+    scenario_id="M71",
+    group="M",
+    title="feed save, list, run and delete: a source configured, run from the command line, and forgotten",
+    feature="Command line · feed save/list/run/delete",
+    expected=(
+        "`feed save` stores a feed and prints its identifier; `feed list` shows it with its "
+        "schedule read as a sentence in the zone it was written in; `feed run` loads what is "
+        "waiting in the landing schema, and reports nothing to do when the table is not there; "
+        "`feed delete` forgets the configuration without touching what it loaded."
+    ),
+)
+def test_m71_feeds(cli, record):
+    rc, out, ev = run(cli, "feed", "list", limit=120)
+    check(record, "with nothing configured it says so", rc == 0 and "No feeds configured" in out, ev)
+
+    rc, saved, ev = run(
+        cli,
+        "feed",
+        "save",
+        "M Reference",
+        "--source",
+        "m-feed",
+        "--elements",
+        "m_elements",
+        "--schedule",
+        "45 6 * * *",
+        "--timezone",
+        "Australia/Brisbane",
+        limit=120,
+    )
+    must(record, "the feed was saved and named", rc == 0 and "M Reference" in saved, ev)
+    feed_id = saved.split()[0]
+
+    rc, listed, ev = run(cli, "feed", "list", limit=200)
+    check(
+        record,
+        "the list reads the schedule as a sentence, in the zone it was written in",
+        "Every day at 06:45" in listed and "Australia/Brisbane" in listed,
+        ev,
+    )
+    check(record, "and says which landing table is its", "m_elements" in listed, ev)
+    check(record, "and where it writes", "-> main" in listed, ev)
+
+    # The landing table is not there, so the run has nothing to do and says which table it wanted.
+    rc, ran, ev = run(cli, "feed", "run", feed_id, limit=200)
+    check(record, "a run with no landing table names the table", "m_elements" in ran, ev)
+    check(record, "and loads nothing", "elements 0/0" in ran, ev)
+
+    rc, gone, ev = run(cli, "feed", "delete", feed_id, limit=120)
+    must(record, "the feed was deleted", rc == 0 and "deleted" in gone, ev)
+    rc, empty, ev = run(cli, "feed", "list", limit=120)
+    check(record, "and is gone from the list", "No feeds configured" in empty, ev)

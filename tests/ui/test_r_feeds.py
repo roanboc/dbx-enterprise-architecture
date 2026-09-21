@@ -32,7 +32,7 @@ DE = "R-DE-PROJECT"
 
 NOTICE = "it does not fire one"
 EMPTY = "No feeds configured."
-SCHEDULE = "30 2 * * *"
+SCHEDULE = "45 6 * * *"
 ZONE = "Australia/Brisbane"
 
 
@@ -82,14 +82,33 @@ def test_configure(ui, record):
     ui.fill("#feed-source", SOURCE)
     ui.fill("#feed-el-table", EL_TABLE)
     ui.fill("#feed-rel-table", REL_TABLE)
-    ui.fill("#feed-schedule", SCHEDULE)
-    ui.fill("#feed-tz", ZONE)
+    # The schedule is chosen, not typed: Every [Day] at [14]:[31], with the zone beside it.
+    ui.select("#feed-every", "Day")
+    ui.select("#feed-hour", "06")
+    ui.select("#feed-minute", "45")
+    ui.check(
+        "the picker says in words what it just chose",
+        "Every day at 06:45" in ui.text("#feed-schedule-said"),
+        ui.text("#feed-schedule-said"),
+    )
+    # A schedule has no "no hour": clicking the value already chosen must keep it.
+    ui.select("#feed-hour", "06")
+    ui.check(
+        "choosing the value already chosen keeps it rather than blanking it",
+        "06:45" in ui.text("#feed-schedule-said"),
+        ui.text("#feed-schedule-said"),
+    )
+    ui.shot("Choosing a schedule: Every Day at 06:45, said in words underneath")
     ui.click("#feed-save")
     ui.settle()
     body = ui.body()
     ui.check("the feed is listed by name", FEED_NAME in body)
     ui.check("the card names the tables it reads", EL_TABLE in body and REL_TABLE in body, body[:400])
-    ui.check("the schedule is read as a time of day in its own zone", "02:30 daily" in body and ZONE in body)
+    ui.check(
+        "the card reads the schedule as a sentence, in its own zone",
+        "Every day at 06:45" in body and ZONE in body,
+        body[:400],
+    )
     ui.check("a feed that has never run says so", "Never run" in body)
     # A badge renders its text uppercase, so the card says "→ MAIN" however it was written.
     ui.check("the card says it writes to main", "→ main" in body.lower(), body[:400])
@@ -250,3 +269,81 @@ def test_missing_table(ui, record):
     ui.check("the run names the table it could not find", "r_never_created" in body, body[:600])
     ui.check("it is a warning, not a crash", "warning" in body.lower() or "0 errors" in body)
     ui.shot("A feed whose landing table is not there: named, and nothing loaded")
+
+
+@pytest.mark.scenario(
+    scenario_id="R10",
+    group="R",
+    title="The cron expression is a click away, and an expression too detailed to say is kept as written",
+    feature="Feeds · the schedule picker and cron",
+    expected=(
+        "The picker writes the expression and says it in words. Show the cron expression reveals "
+        "what is stored; typing one the words cannot hold is kept exactly as written and said to "
+        "be so, rather than being rendered as something it does not mean."
+    ),
+)
+def test_cron_is_there_for_those_who_want_it(ui, record):
+    _open(ui)
+    ui.click("#feed-new")
+    ui.settle()
+    ui.select("#feed-every", "Week")
+    ui.settle()
+    ui.check("a weekly schedule asks which day", ui.visible("feed-weekday"))
+    ui.check(
+        "and says the week and the day in words",
+        "Every week on" in ui.text("#feed-schedule-said"),
+        ui.text("#feed-schedule-said"),
+    )
+    ui.click("#feed-show-cron")
+    ui.settle()
+    ui.check("the expression the picker wrote is revealed", ui.visible("feed-schedule"))
+    written = ui.page.locator("#feed-schedule").input_value()
+    ui.check("and it is a cron expression", len(written.split()) == 5, written)
+    ui.shot("The picker, the sentence it produces, and the cron expression it wrote")
+
+    ui.fill("#feed-schedule", "0 */4 * * 1-5")
+    ui.settle()
+    said = ui.text("#feed-schedule-said")
+    ui.check("an expression too detailed to say is kept as written", "0 */4 * * 1-5" in said, said)
+    ui.check("and the page says that is why", "too detailed to say in words" in said, said)
+    ui.shot("An expression the words cannot hold: kept as written, and said to be")
+
+
+@pytest.mark.scenario(
+    scenario_id="R11",
+    group="R",
+    title="The mapping field says what it is for, and shows an example that works",
+    feature="Feeds · the mapping",
+    expected=(
+        "A box labelled only 'Mapping (YAML)' asks a question without saying what an answer looks "
+        "like. It now says that leaving it empty is a real answer, folds an example away for the "
+        "feeds that need one, and reads back what a mapping typed there would do."
+    ),
+)
+def test_the_mapping_field_guides(ui, record):
+    _open(ui)
+    ui.click("#feed-new")
+    ui.settle()
+    body = ui.body()
+    ui.check("it says leaving it empty is an answer", "Leave this empty" in body, body[-600:])
+    ui.check("an example is offered", "Show an example" in body)
+
+    ui.click('button:has-text("Show an example")')
+    ui.settle()
+    shown = ui.body()
+    ui.check(
+        "the example names the keys that matter", "id_prefix" in shown and "match_on" in shown, shown[-600:]
+    )
+    ui.shot("The mapping field: what it is for, and a worked example")
+
+    ui.fill("#feed-mapping", 'id_prefix: "CMDB-"\nelements:\n  match_on: key\n')
+    ui.settle()
+    said = ui.text("#feed-mapping-said")
+    ui.check("what was typed is read back as the rules it sets", "CMDB-" in said and "key" in said, said)
+    ui.shot("A mapping read back: the prefix it adds and the column it matches on")
+
+    ui.fill("#feed-mapping", "id_prefix: [unclosed\n")
+    ui.settle()
+    bad = ui.text("#feed-mapping-said")
+    ui.check("YAML that cannot be read is said so before the feed is saved", "not YAML" in bad, bad)
+    ui.shot("A mapping that is not YAML: said before the feed is saved")

@@ -221,9 +221,12 @@ def test_a_schedule_is_shown_in_the_zone_it_was_written_in():
     from ea.models import SourceFeed
 
     daily = SourceFeed(name="n", schedule="30 2 * * *", schedule_timezone="Australia/Brisbane")
-    assert schedule_in_words(daily) == "30 2 * * * (02:30 daily Australia/Brisbane)"
+    assert schedule_in_words(daily) == "Every day at 02:30 (Australia/Brisbane)"
 
-    # anything that is not a plain daily expression is shown as written, never guessed at
+    weekly = SourceFeed(name="n", schedule="31 14 * * 1", schedule_timezone="Australia/Brisbane")
+    assert schedule_in_words(weekly) == "Every week on Monday at 14:31 (Australia/Brisbane)"
+
+    # an expression the words cannot hold is shown as written, never guessed at
     odd = SourceFeed(name="n", schedule="0 */4 * * 1-5", schedule_timezone="Australia/Brisbane")
     assert schedule_in_words(odd) == "0 */4 * * 1-5 (Australia/Brisbane)"
 

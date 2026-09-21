@@ -36,6 +36,7 @@ DOWNLOAD_TRIGGERS = {
     "mm-view-md": "the metamodel's architecture view as Markdown",
     "mm-view-drawio": "the metamodel's architecture view as draw.io",
     "im-template": "the import template archive",
+    "im-export": "the organisation's content, written back out as the contract",
     "pr-template": "the Proposal Template",
 }
 
