@@ -62,11 +62,11 @@ flowchart LR
 
 | ID | Actor | Concern |
 | -- | ----- | ------- |
-| `ACT1` | **Product owner** — the university's data and analytics unit; commissions the repository, approves the gates and decides what ships (stakeholder `STK1`) | Wants a governed model that stays true, and a demonstration that sells it |
+| `ACT1` | **Product owner** — the enterprise's data and analytics unit; commissions the repository, approves the gates and decides what ships (stakeholder `STK1`) | Wants a governed model that stays true, and one other solutions and agents can read |
 | `ACT2` | **Information architect** — validates the information layer of the metamodel and of the content, and reviews changes to information elements (stakeholder `STK2`) | Needs the information elements right before anything builds on them |
 | `ACT3` | **Solution architect** — designs changes to the enterprise and describes them as proposals; the main author of branches (stakeholder `STK3`) | Wants to draft quickly, see the impact of a change, and hand a design page in rather than retype it |
 | `ACT4` | **Content steward** — owns the instances of a type on behalf of a domain (the pack's `instance_owner`); reviews changes to the elements of that type | Wants to see exactly what changes before it lands, and nothing else |
-| `ACT5` | **Enterprise architecture team** — the IT division's owners of the institution's metamodel and of the current EA tool (stakeholder `STK4`) | Expects the metamodel respected; administers packs |
+| `ACT5` | **Enterprise architecture team** — the owners of the enterprise's metamodel and of the current EA tool (stakeholder `STK4`) | Expects the metamodel respected; administers packs |
 | `ACT6` | **Architecture assistant** — the AI agent that answers questions and reads proposals through tools (component `ACMP5`, `ACMP10`) | May read everything a reader may; never writes an approval (principle `P3`) |
 
 ## Roles
