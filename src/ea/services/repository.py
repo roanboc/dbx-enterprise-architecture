@@ -299,25 +299,44 @@ class RepositoryService:
         actor: str,
         fields: dict[str, Any] | None = None,
         attribute: tuple[str, Any] | None = None,
+        clear_attribute: bool = False,
     ) -> dict[str, Any]:
         """The same change on many elements, one audited update each; a refusal on one does not stop the rest.
 
         `fields` may hold status, lifecycle_status, current_state, target_state, target_work_package,
-        target_note; `attribute` sets one attribute value. Empty values are not applied."""
+        target_note; `attribute` sets one attribute value. **Empty values are not applied** — which
+        was true of `fields` and was not true of `attribute`: naming an attribute and leaving its box
+        empty wrote the empty string over whatever every ticked row held, which is the one bulk edit
+        nobody can undo. Emptying an attribute on purpose is `clear_attribute`, which says so.
+        """
         self.check_write("bulk_edit")
         fields = {k: v for k, v in (fields or {}).items() if v not in (None, "")}
         allowed = {"status", "lifecycle_status", *STATE_FIELDS}
         unknown = sorted(set(fields) - allowed)
         if unknown:
             raise ValidationError([_err("unknown_field", f"bulk edit cannot set {', '.join(unknown)}")])
+        name = (attribute[0] or "").strip() if attribute else ""
+        value = attribute[1] if attribute else None
+        if name and value in (None, "") and not clear_attribute:
+            raise ValidationError(
+                [
+                    _err(
+                        "empty_attribute_value",
+                        f"give {name!r} a value, or tick 'clear it' to empty it on every ticked row",
+                    )
+                ]
+            )
         updated, refused = [], []
         for eid in dict.fromkeys(element_ids):
             try:
                 e = self.element(eid)
                 kwargs: dict[str, Any] = dict(fields)
-                if attribute and attribute[0]:
+                if name:
                     attrs = dict(e.attrs)
-                    attrs[attribute[0]] = attribute[1]
+                    if clear_attribute and value in (None, ""):
+                        attrs.pop(name, None)
+                    else:
+                        attrs[name] = value
                     kwargs["attrs"] = attrs
                 if not kwargs:
                     continue

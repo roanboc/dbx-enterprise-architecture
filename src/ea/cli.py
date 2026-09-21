@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -13,6 +16,8 @@ from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
 from ea.models import (
     BRANCH_STATUSES,
+    SORT_ORDERS,
+    AttributeFilter,
     ConflictError,
     ElementFilter,
     Forbidden,
@@ -348,19 +353,90 @@ def stats():
         typer.echo(f"  unknown types in store: {s['unknown_types']}")
 
 
+def _moment(text: str, what: str) -> datetime | None:
+    """An ISO date or date-time a person typed, or a refusal naming the option."""
+    if not (text or "").strip():
+        return None
+    try:
+        return datetime.fromisoformat(text.strip())
+    except ValueError:
+        _refuse(f"{what} must be an ISO date like 2026-01-31, or a date and time")
+        return None
+
+
+def _attribute_filters(pairs: list[str]) -> list[AttributeFilter]:
+    """`--attr owner=ana` and `--attr owner` (set to anything) as filters."""
+    out = []
+    for raw in pairs or []:
+        name, _, value = raw.partition("=")
+        if not name.strip():
+            _refuse(f"--attr {raw!r} names no attribute; write --attr name=value or --attr name")
+        out.append(AttributeFilter(name.strip(), value.strip()))
+    return out
+
+
 @app.command()
-def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50):
-    """Search elements: every word must match in the name, key, id, description or attributes; ranked."""
+def find(
+    text: str = typer.Argument("", help="words that must all match; omit to list by filter alone"),
+    type_id: list[str] = typer.Option(None, "--type", help="repeat for several types"),
+    status: list[str] = typer.Option(None, "--status", help="draft, approved or retired; repeatable"),
+    current_state: list[str] = typer.Option(None, "--current-state", help="repeatable"),
+    target_state: list[str] = typer.Option(None, "--target-state", help="repeatable"),
+    work_package: list[str] = typer.Option(None, "--work-package", help="repeatable"),
+    source: list[str] = typer.Option(None, "--source", help="source system; repeatable"),
+    lifecycle: list[str] = typer.Option(None, "--lifecycle", help="lifecycle text; repeatable"),
+    attr: list[str] = typer.Option(None, "--attr", help="name=value, or just name; repeatable"),
+    updated_since: str = typer.Option("", "--updated-since", help="ISO date or date-time"),
+    updated_before: str = typer.Option("", "--updated-before", help="ISO date or date-time"),
+    sort: str = typer.Option("relevance", help=f"one of {', '.join(SORT_ORDERS)}"),
+    desc: bool = typer.Option(False, "--desc", help="reverse the sort"),
+    limit: int = 50,
+    offset: int = typer.Option(0, help="skip this many, to read past the first page"),
+    as_json: bool = typer.Option(False, "--json", help="one JSON array, for a script"),
+    csv_out: bool = typer.Option(False, "--csv", help="comma-separated, with a header row"),
+):
+    """Search and filter elements. Every word must match; every criterion narrows together."""
     from ea.services import SearchService
 
     _, backend, registry, *_ = _ctx()
-    t = registry.resolve_type(type_id) if type_id else None
-    if type_id and t is None:
-        # Ignoring it would answer the unrestricted search and look like a narrow one.
-        _refuse(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
-    hits = SearchService(backend, registry).search(
-        ElementFilter(text=text or "", type_ids=[t.id] if t else []), limit=limit
+    types = []
+    for one in type_id or []:
+        t = registry.resolve_type(one)
+        if t is None:
+            # Ignoring it would answer the unrestricted search and look like a narrow one.
+            _refuse(f"no element type {one!r} in this metamodel; `ea summary` lists them")
+        types.append(t.id)
+    if sort not in SORT_ORDERS:
+        _refuse(f"--sort must be one of {', '.join(SORT_ORDERS)}")
+    filt = ElementFilter(
+        text=text or "",
+        type_ids=types,
+        statuses=list(status or []),
+        current_states=list(current_state or []),
+        target_states=list(target_state or []),
+        work_packages=list(work_package or []),
+        sources=list(source or []),
+        lifecycle_statuses=list(lifecycle or []),
+        attributes=_attribute_filters(attr),
+        updated_since=_moment(updated_since, "--updated-since"),
+        updated_before=_moment(updated_before, "--updated-before"),
+        sort=sort,
+        descending=desc,
     )
+    svc = SearchService(backend, registry)
+    hits = svc.search(filt, limit=limit, offset=offset)
+    total = svc.count(filt)
+    if as_json or csv_out:
+        rows = SearchService.rows(hits, registry)
+        if as_json:
+            typer.echo(json.dumps(rows, indent=2, default=str))
+        else:
+            out = io.StringIO()
+            writer = csv.DictWriter(out, fieldnames=list(rows[0]) if rows else ["element_id"])
+            writer.writeheader()
+            writer.writerows(rows)
+            typer.echo(out.getvalue().rstrip("\n"))
+        return
     for h in hits:
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
@@ -368,7 +444,10 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
     if not hits:
         # Silence reads as a command that did nothing; `branch list` and `reviewers list`
         # both say when they have nothing to show.
-        typer.echo(f"no elements{f' of type {t.name}' if t else ''} match {text!r}")
+        typer.echo(f"nothing matches{f' {text!r}' if text else ' those filters'}")
+    elif total > offset + len(hits):
+        # The old command printed a page and stopped, so a cut list read as a whole one.
+        typer.echo(f"… {offset + len(hits)} of {total}; --offset {offset + len(hits)} reads on")
 
 
 @app.command("set")
@@ -381,6 +460,7 @@ def set_cmd(
     work_package: str = typer.Option(None, "--work-package", "-w"),
     note: str = typer.Option(None, "--note"),
     attr: str = typer.Option(None, help="one attribute as name=value"),
+    clear_attr: bool = typer.Option(False, "--clear-attr", help="remove the --attr attribute instead"),
     actor: str = typer.Option("cli"),
 ):
     """The same change on many elements at once (bulk edit), on the current branch."""
@@ -395,17 +475,22 @@ def set_cmd(
     }
     attribute = None
     if attr:
-        name, _, value = attr.partition("=")
+        name, sep, value = attr.partition("=")
+        if not sep and not clear_attr:
+            _refuse("--attr takes name=value; to empty an attribute add --clear-attr")
         attribute = (name.strip(), value)
     if not attribute and not any(v is not None for v in fields.values()):
         _refuse(
             "nothing to set: give at least one of --status, --lifecycle, --current-state, "
             "--target-state, --work-package, --note or --attr"
         )
-    out = repo.bulk_update(element_ids, actor, fields, attribute)
+    out = repo.bulk_update(element_ids, actor, fields, attribute, clear_attribute=clear_attr)
     typer.echo(f"updated {len(out['updated'])}, refused {len(out['refused'])}")
     for r in out["refused"]:
         typer.echo(f"  {r['element_id']}: {r['reason']}")
+    if out["refused"] and not out["updated"]:
+        # Every element refused and an exit code of 0 tells a script the edit was applied.
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -1037,6 +1122,9 @@ def feed_save(
 
     settings = Settings.from_env()
     _, backend, *_ = _ctx()
+    # The page hid the form from a role that may not configure feeds; the command line
+    # offered the same write to anybody, so the gate was a suggestion.
+    require("manage_feeds", what="configure a feed")
     saved = backend.save_feed(
         SourceFeed(
             feed_id=feed_id,
@@ -1082,6 +1170,7 @@ def feed_run(
 def feed_delete(feed_id: str):
     """Forget a feed's configuration. Nothing it loaded is touched."""
     _, backend, *_ = _ctx()
+    require("manage_feeds", what="delete a feed")
     backend.delete_feed(feed_id, actor="cli")
     typer.echo(f"{feed_id} deleted")
 

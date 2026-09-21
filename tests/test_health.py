@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from ea.backend.branching import use_branch
-from ea.models import Element, ElementFilter
+from ea.models import Element, ElementFilter, ValidationError
 from ea.services import BranchService, HealthService, RepositoryService, SearchService
 
 
@@ -118,3 +120,25 @@ def test_twelve_weeks_means_twelve_bars(loaded, registry):
             weeks[-1]
             == f"{datetime(2026, 9, day).isocalendar()[0]}-W{datetime(2026, 9, day).isocalendar()[1]:02d}"
         )
+
+
+def test_an_attribute_is_not_emptied_by_leaving_its_box_blank(loaded, registry):
+    """Naming an attribute with no value wrote the empty string over every ticked row.
+
+    That is the one bulk edit nobody can undo — what was there is gone and the change log
+    holds one entry per row. It is refused now, and emptying an attribute on purpose says so.
+    """
+    repo = RepositoryService(loaded, registry)
+    BranchService(loaded, registry).create("attrs", "ada")
+    with use_branch("attrs"):
+        repo.bulk_update(["PAC-CMS", "PAC-SRS"], "ada", None, ("owner", "Curriculum office"))
+        assert loaded.get_element("PAC-CMS").attrs["owner"] == "Curriculum office"
+
+        with pytest.raises(ValidationError, match="clear it"):
+            repo.bulk_update(["PAC-CMS", "PAC-SRS"], "ada", None, ("owner", ""))
+        assert loaded.get_element("PAC-CMS").attrs["owner"] == "Curriculum office", "untouched"
+
+        # asked for plainly, it is removed rather than blanked
+        out = repo.bulk_update(["PAC-CMS"], "ada", None, ("owner", ""), clear_attribute=True)
+        assert out["updated"] == ["PAC-CMS"]
+        assert "owner" not in loaded.get_element("PAC-CMS").attrs
