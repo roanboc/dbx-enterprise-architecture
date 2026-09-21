@@ -1,8 +1,8 @@
 # AGENTS.md
 
 **EA Repository** — a generic, metamodel-driven enterprise architecture
-repository that runs on DuckDB locally and on Databricks later, configured
-first with an anonymised higher-education metamodel. This file is the standing instruction for any
+repository that runs on DuckDB locally and on Databricks, configured first
+with an anonymised higher-education metamodel. This file is the standing instruction for any
 coding agent (and any person) working in this repository. The model of the
 project itself lives in [`architecture/`](./architecture/README.md); the code
 lives in [`src/ea/`](./src/ea).
@@ -30,19 +30,22 @@ it changes with `Source` reading `adopted — <the call>`, in a document that
 stays `◐`, so a later word from the Requester overrides it. Never ask about a
 state that does not exist yet.
 
-**The PoC posture** (initiatives 1 to 12 and 15 built; the Databricks step,
-initiatives 13 and 14, built on Lakebase and waiting for a workspace run;
+**The delivery posture** (initiatives 1 to 12 and 15 built; the Databricks
+step, initiatives 13 and 14, built on Lakebase and waiting for a workspace run;
 step 3, provenance and feeds, waits on the source-of-record table agreed
-outside the repository):
-iterate and fail fast inside the approved scope, keep the long-term roadmap in
+outside the repository): iterate and fail fast inside the approved scope, keep
+the long-term roadmap in
 [`architecture/6_transition/`](./architecture/6_transition/README.md) honest,
-and never quietly widen the PoC with a roadmap item.
+and never quietly widen the approved scope with a roadmap item. **The
+architecture describes the product, not the phase it is in** — the numbered
+layers say what the product is and must be, and only `6_transition/` says when
+each part arrives.
 
 ## Who decides
 
 | Role | Who | Does |
 | ---- | --- | ---- |
-| **Requester** | The product owner (a university's data and analytics unit), with the information architect validating the information layer | Says what should change — a requirement or a problem, not a diff. **Grants the gate approvals** before any code is written |
+| **Requester** | The product owner (an enterprise's data and analytics unit), with the information architect validating the information layer | Says what should change — a requirement or a problem, not a diff. **Grants the gate approvals** before any code is written |
 | **Agent** | The coding agent (or a person) | Works the change through the layers, stops at Understanding, decides what the model already settles, writes the scope document, implements, opens a pull request |
 | **Reviewer** | The product owner | Reviews and merges. Nothing ships without a human approving it |
 
@@ -85,7 +88,7 @@ not the rest of a document's shape.
 **Declared depth: 1 — Application.** The repository manages an enterprise
 model but is itself one application; its strategy layer is light (motivation
 only), its business and technology layers are declared gaps on the front door
-until the PoC has users and runs on Databricks. The enterprise content it holds
+until the application has users and runs on Databricks. The enterprise content it holds
 (the institution's elements) is data inside the application, not this model.
 
 ## Layout
@@ -103,7 +106,7 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   tests principle `P5` rather than one pack's good behaviour). An attribute names an
   attribute group the pack declares, never free text. `connectors/` — the
   CSV contract and per-tool column mappings (`tool-export`). `data/sample/` — a
-  fictional university's curriculum slice so the demo works without real data.
+  fictional institution's content so the demo works without real data.
 - `src/ea/` — `models` → `metamodel` → `backend` → `services` → `views`,
   `importer`, `agent` → `ui`, plus `cli.py` and `capacity.py`. `backend/` is the store written
   once on SQL (`sql_backend.py`) with two engines, DuckDB and Lakebase (the

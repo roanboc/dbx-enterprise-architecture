@@ -51,8 +51,8 @@ flowchart LR
 
 | ID | Domain | Owner | Holds |
 | -- | ------ | ----- | ----- |
-| `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; two ship — `higher_education` and `archimate_core`, a second framework carried by the same engine |
-| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements in the curriculum slice and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
+| `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; two ship — `higher_education` and `archimate_core`, a second framework carried by the same engine |
+| `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (everything is sourced from the current EA tool until the source-of-record table is agreed) | About 4,600 elements in the first slice loaded and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
 | `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals, the history of every import and the feeds content arrives on |
 
 ## Objects
@@ -181,8 +181,8 @@ spending the memory (assessment `ASM6`, decision 0019).
 - The repository content is **internal** by default. Two attribute families are
   **restricted**: the confidentiality, integrity and availability ratings of an
   Information Asset (`sensitivity: restricted` in the pack) and the PII flag of
-  a Data Entity. The PoC shows them to every signed-in user; column-level grants
-  on the projection are a plateau `PLAT4` concern.
+  a Data Entity. Today they are shown to every signed-in user; column-level
+  grants on the projection are a plateau `PLAT4` concern.
 - Nothing is deleted: an element is retired (`status = retired`), a relationship
   removal is logged, and the change log is append-only. The change log is kept
   for 2 years on the platform once it runs on Databricks.

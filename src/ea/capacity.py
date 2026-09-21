@@ -22,7 +22,7 @@ ASSESSED_RELATIONSHIPS = 600_000
 #: Above this many elements the in-process graph is not built. Initiative 15 measured the
 #: whole graph at about 470 MB and seven seconds at `ASSESSED_ELEMENTS`, against the 6 GB an
 #: app on the platform is given by default; a fifth of that is the most one request may spend
-#: on a cache, and it is still five times today's curriculum slice.
+#: on a cache, and it is still several times the content an enterprise loads first.
 GRAPH_MAX_ELEMENTS = 20_000
 
 #: The most rows a bounded whole-model read pulls into one request before it answers from

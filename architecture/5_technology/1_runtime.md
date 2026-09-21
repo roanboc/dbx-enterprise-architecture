@@ -51,7 +51,7 @@ flowchart TB
 
 | ID | Node | Runs | State |
 | -- | ---- | ---- | ----- |
-| `NODE1` | **Workstation** — the developer's or architect's machine where the PoC runs (`make run`) | Everything below | Running |
+| `NODE1` | **Workstation** — the developer's or architect's machine where the application runs locally (`make run`) | Everything below | Running |
 | `NODE1.1` | **Python process** — one Python 3.11 process: Flask and Dash serve the pages and callbacks; gunicorn (one worker, four threads) in production mode, the Dash development server locally; the same process hosts the agent and the importer | `app.py`, `src/ea/` | Running |
 | `NODE1.2` | **DuckDB engine** — the embedded analytical engine, in-process, one writer per file; recursive queries for the traversals | `src/ea/backend/duckdb_backend.py` | Running |
 | `NODE1.3` | **Browser** — where the pages render, the diagrams are drawn and the graph panel is laid out; nothing is fetched from the internet at run time (icons, Mermaid and Cytoscape are bundled) | `assets/` | Running |

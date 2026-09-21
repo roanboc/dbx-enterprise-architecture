@@ -5,9 +5,9 @@ _[← Scope index](./README.md) · [Model home](../README.md)_
 **ArchiMate viewpoint:** Implementation & Migration.
 **Delivered as:** branch `claude/enterprise-arch-assessment-iln3rz`.
 **Requester:** the product owner. **Agent:** the coding agent in this
-repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 18.
+repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 19.
 **Target plateau:** `PLAT1` extended, on the way to `PLAT3`.
-**Gap:** `GAP20` **A search cannot be narrowed, shared or carried past its first
+**Gap:** `GAP21` **A search cannot be narrowed, shared or carried past its first
 page**, opened and closed by this initiative.
 
 The Requester asked what to improve next, named browse and branching as the two
@@ -60,7 +60,7 @@ Each is recorded here so a later word from the Requester overrides it.
 | ---------- | ------- | ---------- |
 | `ASVC2` | **Element browsing and editing** | The row claimed exactly the three filters the code had. It now says what narrows a list, that the store ranks the whole result set before it pages, that the criteria are carried in the address, and that a result set comes out as CSV |
 | `DOBJ2.5` | **Branch** | Named three statuses where the code has five, and said nothing about which of them accept writes. Both corrected |
-| `GAP20` | **A search cannot be narrowed, shared or carried past its first page** | Opened and closed by this initiative. Defined in [1_target-state.md](../6_transition/1_target-state.md), which is where a gap lives |
+| `GAP21` | **A search cannot be narrowed, shared or carried past its first page** | Opened and closed by this initiative. Defined in [1_target-state.md](../6_transition/1_target-state.md), which is where a gap lives |
 
 No stakeholder, driver, goal or principle moves. No new application service or
 component: this is an existing service doing what its row already claimed, plus
@@ -78,7 +78,7 @@ the filtering it did not.
 | 3_information | `DOBJ2.5` Branch re-worded for the statuses it actually has. `AttributeFilter` and `ElementFilter` are **not** data objects: nothing persists them, and a query that is never stored is not information the model holds. That is precisely what a saved query would change, which is why it is left. |
 | 4_application | `ASVC2` re-worded. `ACMP3`'s search path and `ACMP7`'s `ea find` gain the criteria; no component is added. |
 | 5_technology | **No change, and one thing to watch.** Every clause is still `ILIKE` over unindexed columns. At the sample's size that is milliseconds; at the assessed hundred thousand it is a full scan per keystroke, on DuckDB and on Lakebase alike. Named under *what was deliberately left*. |
-| Transition | `GAP20` opens and closes. `GAP18` (capacity) is **touched and held**: the browse and branch paths now page, but `tests/test_capacity.py` still does not guard them, which is stated below rather than implied. |
+| Transition | `GAP21` opens and closes. `GAP18` (capacity) is **touched and held**: the browse and branch paths now page, but `tests/test_capacity.py` still does not guard them, which is stated below rather than implied. |
 
 ## What the capacity rule requires of it
 
@@ -167,5 +167,5 @@ A second **Understanding** is not recorded separately for the field-level merge:
 conflict handling this document already named as left, and the Requester asked for it by
 name in the same session, which the row above covers.
 
-**Direction** was not sought and no row records it: `GAP20` sits under plateaus
+**Direction** was not sought and no row records it: `GAP21` sits under plateaus
 the roadmap already holds, and nothing here changes where the project is going.
