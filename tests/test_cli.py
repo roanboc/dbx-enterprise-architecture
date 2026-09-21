@@ -7,6 +7,7 @@ takes, on every change.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -199,3 +200,41 @@ def test_loading_a_file_stores_a_version_and_applies_it(ea_env, tmp_path):
     dump_pack(pack, path)
     refused = runner.invoke(app, ["load-pack", str(path)])
     assert refused.exit_code == 1 and "frozen" in str(refused.exception)
+
+
+def test_every_command_group_is_registered_before_the_entry_point():
+    """`python -m ea.cli` runs the module top to bottom, so a group declared after the
+    `__main__` block does not exist by the time the arguments are read.
+
+    That is not theoretical: `feed` was added at the end of the file and vanished from
+    `python -m ea.cli` while still working through the console script, which is the kind of
+    difference nothing else here would have caught.
+    """
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "src" / "ea" / "cli.py"
+    text = source.read_text(encoding="utf-8")
+    guard = text.index('if __name__ == "__main__":')
+    after = text[guard:]
+    assert "add_typer" not in after, "a command group is registered after the entry point"
+    assert "@app.command" not in after, "a command is declared after the entry point"
+
+
+def test_the_feed_commands_are_reachable_as_a_module():
+    """The way the command-line scenarios invoke it, which is not the console script."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-m", "ea.cli", "feed", "--help"],
+        cwd=root,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(root / "src")},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for command in ("list", "save", "run", "delete"):
+        assert command in proc.stdout, command

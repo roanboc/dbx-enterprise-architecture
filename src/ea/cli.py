@@ -978,10 +978,6 @@ def run() -> None:
         raise SystemExit(1) from None
 
 
-if __name__ == "__main__":
-    run()
-
-
 feed_app = typer.Typer(
     help="Source feeds: the landing tables a source writes to, and running one of them.",
     no_args_is_help=True,
@@ -1076,3 +1072,10 @@ def feed_delete(feed_id: str):
     _, backend, *_ = _ctx()
     backend.delete_feed(feed_id, actor="cli")
     typer.echo(f"{feed_id} deleted")
+
+
+# Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a
+# command group registered after this line would not exist by the time `run()` reads the
+# arguments. Everything the application offers has to be declared above it.
+if __name__ == "__main__":
+    run()
