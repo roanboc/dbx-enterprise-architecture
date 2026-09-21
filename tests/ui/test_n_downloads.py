@@ -1809,3 +1809,64 @@ def test_content_export_archive(ui, record):
         str(list(rows[0])),
     )
     ui.shot("The Import page, having handed out this organisation's content as the contract")
+
+
+@pytest.mark.scenario(
+    scenario_id="N27",
+    group="N",
+    title="Export CSV hands out the result set the filters describe, not the whole model",
+    feature="Downloads · browse · the result set as CSV",
+    expected=(
+        "Export CSV on the Browse page returns the rows the filters are showing, with a header row "
+        "and one line per matching element — the whole result set rather than the page on screen. "
+        "Narrowing the filters narrows the file."
+    ),
+)
+def test_browse_result_set_export(ui, record):
+    import csv
+    import io
+
+    ui.goto("/browse")
+    whole = ui.download("browse-export", ".csv")
+    all_rows = list(csv.DictReader(io.StringIO(whole.read_text(encoding="utf-8"))))
+    ui.check(
+        "the file leads with the columns the grid shows",
+        {"element_id", "name", "type", "status"} <= set(all_rows[0]),
+        str(list(all_rows[0])[:6]),
+    )
+    ui.check("and holds the model, not just a header", len(all_rows) > 40, f"{len(all_rows)} rows")
+
+    # the same button, with the list narrowed, hands out the narrowed list
+    ui.goto("/browse?type=physical_application_component")
+    ui.settle()
+    narrowed = ui.download("browse-export", ".csv")
+    some = list(csv.DictReader(io.StringIO(narrowed.read_text(encoding="utf-8"))))
+    ui.check(
+        "the filtered export is the filtered list",
+        0 < len(some) < len(all_rows),
+        f"{len(some)} of {len(all_rows)} rows",
+    )
+    ui.check(
+        "and every row in it met the filter",
+        all(r["type_id"] == "physical_application_component" for r in some),
+        str({r["type_id"] for r in some}),
+    )
+    ui.shot("Browse, filtered to one element type, having handed out that result set as CSV")
+
+
+@pytest.mark.scenario(
+    scenario_id="N28",
+    group="N",
+    title="A feed's example rows come down as the file its staging tables take",
+    feature="Downloads · feeds · the staging example",
+    expected=(
+        "The example beside the staging-table field downloads as a CSV whose header is the "
+        "contract's own columns, so somebody filling a staging table has the shape in front of them."
+    ),
+)
+def test_feed_staging_example(ui, record):
+    ui.goto("/feeds")
+    path = ui.download("feed-example", ".csv")
+    header = path.read_text(encoding="utf-8").splitlines()[0]
+    ui.check("the example is the contract's own columns", header.startswith("id,type,name"), header[:60])
+    ui.shot("The Feeds page, having handed out the example its staging tables take")

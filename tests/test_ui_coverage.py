@@ -38,6 +38,8 @@ DOWNLOAD_TRIGGERS = {
     "im-template": "the import template archive",
     "im-export": "the organisation's content, written back out as the contract",
     "pr-template": "the Proposal Template",
+    "feed-example": "the example rows a feed's staging tables take",
+    "browse-export": "the Browse result set as CSV",
 }
 
 

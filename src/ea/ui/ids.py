@@ -304,6 +304,26 @@ PR_RESULT_STORE = "pr-result-store"
 # Search, bulk edit (initiative 6)
 BROWSE_EMPTY = "browse-empty"  # what the screen says when the grid has nothing in it
 BROWSE_SELECTED = "browse-selected"
+# The filters beyond the three the page started with. Each narrows with the others, and
+# every one of them round-trips through the address bar so a search can be shared.
+BROWSE_CURRENT = "browse-current"
+BROWSE_TARGET = "browse-target"
+BROWSE_WP = "browse-wp"
+BROWSE_SOURCE = "browse-source"
+BROWSE_LIFECYCLE = "browse-lifecycle"
+BROWSE_ATTR_NAME = "browse-attr-name"
+BROWSE_ATTR_VALUE = "browse-attr-value"
+BROWSE_UPDATED_SINCE = "browse-updated-since"
+BROWSE_SORT = "browse-sort"
+BROWSE_DESC = "browse-desc"
+BROWSE_MORE = "browse-more"  # the drawer holding the filters that are not the common three
+BROWSE_MORE_OPEN = "browse-more-open"
+BROWSE_CLEAR = "browse-clear"
+BROWSE_CHIPS = "browse-chips"  # what is narrowing the list, as removable chips
+BROWSE_PAGE = "browse-page"  # which page of the result set is on screen
+BROWSE_PAGER = "browse-pager"
+BROWSE_EXPORT = "browse-export"  # the result set as CSV
+BROWSE_COLUMNS = "browse-columns"  # which columns the grid shows
 BULK_OPEN = "bulk-open"
 BULK_MODAL = "bulk-modal"
 BULK_STATUS = "bulk-status"
@@ -314,6 +334,7 @@ BULK_NOTE = "bulk-note"
 BULK_LIFECYCLE = "bulk-lifecycle"
 BULK_ATTR_NAME = "bulk-attr-name"
 BULK_ATTR_VALUE = "bulk-attr-value"
+BULK_ATTR_CLEAR = "bulk-attr-clear"  # empty the attribute rather than write a blank into it
 BULK_SAVE = "bulk-save"
 BULK_FEEDBACK = "bulk-feedback"
 BROWSE_FILTER_NOTE = "browse-filter-note"

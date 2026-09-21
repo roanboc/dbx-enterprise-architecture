@@ -68,6 +68,7 @@ flowchart LR
   g8["⊘ No retirement criteria for the current EA tool [GAP8]"]:::implementation
   g18["⊘ The services are sized for the PoC, not for the assessed capacity [GAP18]"]:::implementation
   g19["⊘ A run that landed on main cannot be reversed [GAP19]"]:::implementation
+  g20["⊘ A search cannot be narrowed, shared or carried past its first page [GAP20]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
   g16 -.-> p2
@@ -78,6 +79,7 @@ flowchart LR
   g8 -.-> p6
   g18 -.-> p3
   g19 -.-> p3
+  g20 -.-> p3
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -103,6 +105,7 @@ flowchart LR
 | `GAP17` | **A metamodel change cannot be tried without changing what everybody reads** — one metamodel, edited in place: a trial rewrites the language every reader sees, the alternative is a second environment, and nothing records which definition a piece of content was validated against | `PLAT1` | Initiative 15 (built 2026-09-19): organisations as a partition of the one store, each holding its own content and applying one version of a pack; the pack kept in versions with a draft, published and retired lifecycle, compared as data and checked against an organisation's content before it is applied. Built and tested on DuckDB and on a local Postgres; none of it has run on the platform. Left open: nothing per organisation reaches the platform, where a catalogue, a row filter or a projection of its own belongs to `PLAT2` and `PLAT5`; (an attribute's group was free text with no vocabulary behind it; initiative 16 closed that, and `DOBJ1.7` Attribute group is what a pack now declares) |
 | `GAP19` | **A run that landed on `main` cannot be reversed** — a feed may be configured to write to `main`, where there is no branch to abandon, and a bulk import records what it did without the before-image of any row it changed. So an import that was wrong is corrected by loading the correction, never by undoing the load | `PLAT1` and `PLAT3` | Opened by initiative 18 (2026-09-21), which built the history (`DOBJ3.7`) and stopped there at the Requester's word: the account of every run first, reversal when it is actually wanted. Closing it needs per-row before-images, a retention period for them, and a rule for the case the honest answer is *no* — a run whose rows a later run has already changed again |
 | `GAP18` | **The services are sized for the PoC, not for the assessed capacity** — the store answers a traversal in milliseconds at a hundred thousand elements (decisions 0016 to 0018), but six services above it read every element and every relationship of the organisation into one request, a trace still builds the whole in-process graph the store made unnecessary, and nothing declares the capacity the application is assessed for, so nothing fails when it is exceeded | `PLAT1` and `PLAT3` | Initiative 16 (built 2026-09-20): the capacity declared in one place and read by the services, the traversal unwrapped from the in-process graph, the other five whole-model reads bounded or declared deliberate, and a seeded scale fixture holding the figure |
+| `GAP20` | **A search cannot be narrowed, shared or carried past its first page** — Browse filtered by one type, one status and a word; every other field an element carries (both states, the work package, the source, the lifecycle, every attribute, when it was last touched) was invisible to the search. Ranking happened in Python over the alphabetically first 5,000 rows, so above that the best match could not reach the first screen and the count offered a page two that did not exist; the filters never reached the address bar, so a result set could be neither shared nor returned to, and nothing but the whole model could be exported | `PLAT1` and `PLAT3` | Initiative 19 (built 2026-09-21): `ElementFilter` as the one thing that says what narrows a list, read by the store, the services, the page and the command line; ranking, narrowing and ordering in SQL so a page is the rows after the page before it; the criteria named on the screen and carried in the address; the result set exported as CSV from the page and as JSON or CSV from `ea find`. Left open: a **saved or named query**, which needs somewhere per reader to keep one, and a **relationship as a criterion** ("applications that support no capability"), which needs a predicate over the edge table rather than over the element row |
 
 ## Gaps closed so far, and by what
 

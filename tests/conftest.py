@@ -119,6 +119,19 @@ def loaded(backend, registry):
 
 
 @pytest.fixture
+def app_context(loaded):
+    """The application context a page callback is handed, over the seeded store.
+
+    A page's own logic — what the address says, what a count means, which rows a drill-down
+    keeps — is a pure function of a filter and a store, so it is provable here rather than
+    only in the browser round.
+    """
+    from ea.ui.context import AppContext
+
+    return AppContext(settings=Settings.from_env(), backend=loaded)
+
+
+@pytest.fixture
 def repo(loaded, registry):
     return RepositoryService(loaded, registry)
 

@@ -351,3 +351,14 @@ body { background: #e9ecef; }
 [class*="Alert-root"] a {
   color: #2b3f9e;
 }
+
+/* The band above every page when the reader is on a branch rather than on main. The header
+   badge is one chip among six controls and scrolls out of sight on a long grid; this does
+   not, because every edit made on the screen below it goes somewhere other than the model. */
+.ea-branch-stripe {
+  background: var(--mantine-color-orange-0);
+  border-bottom: 1px solid var(--mantine-color-orange-3);
+  color: var(--mantine-color-orange-9);
+  padding: 0.35rem 1.5rem;
+  width: 100%;
+}

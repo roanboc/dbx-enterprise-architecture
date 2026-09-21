@@ -65,7 +65,7 @@ GRID_COLUMNS = [
         "width": 110,
         "editable": {"function": "params.data.conflict"},
         "cellEditor": "agSelectCellEditor",
-        "cellEditorParams": {"values": ["branch", "main"]},
+        "cellEditorParams": {"values": ["", "branch", "main"]},
         "cellClassRules": {"ea-editable": "params.data.conflict"},
     },
     {"field": "base_version", "headerName": "base", "width": 80},
@@ -358,6 +358,27 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         gap="xs",
         my="sm",
     )
+    # Nothing told an author their branch had gone stale until the merge screen showed a
+    # column of conflicts. A conflict is main moving under a row this branch holds, so the
+    # count of them is the age of the branch measured in the only way that matters.
+    stale_note = (
+        dmc.Alert(
+            dmc.Text(
+                f"Main has moved under {counts['conflicts']} of this branch's "
+                f"{len(cs.items)} rows since it started. Each one is marked 'conflict' below and "
+                "needs a decision — take the branch's row, or keep main's — before it can be "
+                "merged. Rows without a conflict merge as they are.",
+                size="sm",
+            ),
+            title="This branch is behind main",
+            color="orange",
+            variant="light",
+            withCloseButton=False,
+            mb="sm",
+        )
+        if counts["conflicts"]
+        else None
+    )
     details = []
     for it in cs.items:
         details.append(
@@ -415,10 +436,16 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         columnDefs=GRID_COLUMNS,
         rowData=rows,
         getRowId="params.data.key",
-        selectedRows=rows,
+        # Everything clean is ticked, because merging the branch is what the button is for.
+        # A conflict is not: main moved under that row, and a row that overwrites somebody
+        # else's work should be ticked by a person rather than by the page.
+        selectedRows=[r for r in rows if not r["conflict"]],
         defaultColDef={"sortable": True, "filter": True, "resizable": True},
         dashGridOptions={
             "rowSelection": "multiple",
+            # The header tick used to select rows the column filter was hiding, so a reader
+            # who filtered to three rows and pressed it merged the whole branch.
+            "headerCheckboxSelectionFilteredOnly": True,
             "suppressRowClickSelection": True,
             "animateRows": False,
             "singleClickEdit": True,
@@ -432,6 +459,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         [
             head,
             count_badges,
+            stale_note,
             html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
             dmc.Paper(
                 [

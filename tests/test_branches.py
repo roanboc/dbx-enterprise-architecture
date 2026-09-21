@@ -93,7 +93,8 @@ def test_diff_lists_changes_and_flags_conflicts(loaded, branches, registry):
     rows = branches.item_rows(cs)
     assert {r["key"] for r in rows} == set(by_key)
     assert all(r["include"] for r in rows)
-    assert [r["resolution"] for r in rows if r["conflict"]] == ["branch"]
+    # A conflict arrives with no resolution chosen: somebody decides which row main keeps.
+    assert [r["resolution"] for r in rows if r["conflict"]] == [""]
 
 
 def test_merge_is_per_item_and_closes_only_when_empty(loaded, branches, registry):
@@ -304,3 +305,26 @@ def test_a_closed_branch_refuses_the_writes_it_could_never_merge(loaded, branche
 
     with use_branch("done"), pytest.raises(Forbidden, match="closed branch is history"):
         repo.create_element("physical_application_component", "After the merge", "ana")
+
+
+def test_a_conflict_arrives_unresolved_rather_than_set_to_overwrite_main(loaded, branches, registry):
+    """The merge grid defaulted every conflict to 'take the branch'.
+
+    That made overwriting somebody else's work the thing that happens when nobody looks at
+    the row. A conflict now arrives with no resolution, and the merge holds it back saying so.
+    """
+    branches.create("Clash", "ana")
+    repo = RepositoryService(loaded, registry)
+    with use_branch("clash"):
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, description_md="The branch's words.")
+    main_cms = loaded.get_element("PAC-CMS")
+    repo.update_element("PAC-CMS", "bo", main_cms.version, description_md="Main's words.")
+
+    rows = branches.item_rows(branches.diff("clash"))
+    row = next(r for r in rows if r["entity_id"] == "PAC-CMS")
+    assert row["conflict"] == "conflict" and row["resolution"] == "", "no resolution is chosen for anybody"
+
+    result = branches.merge("clash", "ana")
+    assert result.applied == [] and "not resolved" in result.reasons()
+    assert loaded.get_element("PAC-CMS").description_md == "Main's words.", "main is untouched"

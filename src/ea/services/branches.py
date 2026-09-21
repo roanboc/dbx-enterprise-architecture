@@ -150,7 +150,11 @@ class BranchService:
                     # The word, not a boolean: a grid draws a boolean as a checkbox, and a
                     # checkbox in this row reads as one more thing to tick.
                     "conflict": "conflict" if it.conflict else "",
-                    "resolution": "branch" if it.conflict else "",
+                    # Empty, not "branch". A conflict means main moved under this row, and
+                    # defaulting to the branch's copy made overwriting somebody else's work
+                    # the thing that happens when nobody looks. The merge holds an unresolved
+                    # row back and says so.
+                    "resolution": "",
                     "include": True,
                 }
             )

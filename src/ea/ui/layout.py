@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import dash_mantine_components as dmc
 from dash import dcc, html
 
@@ -59,6 +61,34 @@ def branch_badge(branch_id: str, changes: int | None = None) -> dmc.Badge:
     label = f"branch · {changes} change{'s' if changes != 1 else ''}" if changes is not None else "branch"
     return dmc.Badge(
         label, variant="filled", color="orange", size="lg", leftSection=icon("tabler:git-branch", 12)
+    )
+
+
+def branch_stripe(branch_id: str, changes: int | None = None) -> Any:
+    """A band above every page saying the reader is not on main, or nothing on main.
+
+    The header badge is one chip among six controls, and a reader scrolled down a long
+    Browse grid cannot see it at all. Every edit on this screen goes to a branch rather
+    than to the model, which is the kind of thing a page says out loud.
+    """
+    if branch_id == MAIN:
+        return None
+    count = f" · {changes} change{'s' if changes != 1 else ''}" if changes is not None else ""
+    return html.Div(
+        dmc.Group(
+            [
+                icon("tabler:git-branch", 14),
+                dmc.Text(
+                    f"You are on the branch {branch_id}{count}. What you change here stays on the "
+                    "branch until it is merged.",
+                    size="xs",
+                ),
+                dmc.Anchor("Open the branch", href=f"/branches?branch={branch_id}", size="xs", fw=600),
+            ],
+            gap="xs",
+            align="center",
+        ),
+        className="ea-branch-stripe",
     )
 
 
@@ -324,7 +354,10 @@ def shell(
                         )
                     ),
                     dmc.AppShellMain(
-                        html.Div(id=ids.PAGE, style={"padding": "1rem 1.5rem", "width": "100%"})
+                        [
+                            branch_stripe(current, changes),
+                            html.Div(id=ids.PAGE, style={"padding": "1rem 1.5rem", "width": "100%"}),
+                        ]
                     ),
                 ],
                 id=ids.APP_SHELL,

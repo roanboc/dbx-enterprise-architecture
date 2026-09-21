@@ -1040,15 +1040,19 @@ def test_m19_set_status(cli, record):
     group="M",
     title="set puts an element into a work package with a current state, a target state and a note",
     feature="Command line · set",
-    expected="One command sets all four target-state fields, `target` then lists the element under the work package, and a state outside the vocabulary is refused by name.",
+    expected=(
+        "One command sets all four target-state fields, `target` then lists the element under the work "
+        "package, and a state outside the vocabulary is refused by name — with a failed exit, because a "
+        "command that changed nothing must not tell a script it succeeded."
+    ),
 )
 def test_m20_set_target(cli, record):
     # The vocabulary is lowercase, and a value outside it is refused before anything is written.
-    rc_bad, bad, bad_ev = run(cli, "set", WRITE_ELEMENT, "--current-state", "Live", limit=160)
+    rc_bad, bad, bad_ev = run(cli, "set", WRITE_ELEMENT, "--current-state", "Live", expect=1, limit=160)
     check(
         record,
-        "a state outside the vocabulary is refused",
-        rc_bad == 0 and "updated 0, refused 1" in bad,
+        "a state outside the vocabulary is refused, and the exit says so",
+        rc_bad == 1 and "updated 0, refused 1" in bad,
         bad_ev,
     )
     check(
@@ -1116,14 +1120,17 @@ def test_m21_set_attribute(cli, record):
     group="M",
     title="set refuses an element that does not exist, and says why it refused",
     feature="Command line · set",
-    expected="`ea set M-NO-SUCH-ELEMENT --status draft` reports one refusal, and the reason says the element was not found rather than repeating its id.",
+    expected=(
+        "`ea set M-NO-SUCH-ELEMENT --status draft` reports one refusal and exits 1, because nothing was "
+        "updated; the reason says the element was not found rather than repeating its id."
+    ),
 )
 def test_m22_set_refusal(cli, record, finding):
-    rc, out, ev = run(cli, "set", "M-NO-SUCH-ELEMENT", "--status", "draft", limit=160)
+    rc, out, ev = run(cli, "set", "M-NO-SUCH-ELEMENT", "--status", "draft", expect=1, limit=160)
     must(
         record,
-        "the command completed and reported the refusal",
-        rc == 0 and "updated 0, refused 1" in out,
+        "the command reported the refusal and exited non-zero, so a script is not told it worked",
+        rc == 1 and "updated 0, refused 1" in out,
         ev,
     )
     reason_line = next((ln for ln in out.splitlines() if "M-NO-SUCH-ELEMENT:" in ln), "")
@@ -2106,8 +2113,18 @@ def test_m41_find_options(cli, record, finding):
     )
 
     _, listing, listing_ev = run(cli, "find", "", "--limit", "6", limit=140)
-    rows = [ln for ln in listing.splitlines() if ln.strip()]
+    lines = [ln for ln in listing.splitlines() if ln.strip()]
+    # The last line is the command saying it cut the list. It used to print a page as though
+    # it were the whole answer, which is the same defect the Browse count had.
+    cut = [ln for ln in lines if ln.lstrip().startswith("…")]
+    rows = [ln for ln in lines if ln not in cut]
     must(record, "an empty query lists the model instead of searching it", len(rows) == 6, listing_ev)
+    check(
+        record,
+        "and the command says the list was cut, with how to read on",
+        len(cut) == 1 and "--offset 6" in cut[0],
+        trim(cut[0] if cut else "(nothing said the list was cut)", 120),
+    )
     names = [ln.split(None, 2)[2] for ln in rows if len(ln.split(None, 2)) > 2]
     check(
         record,
