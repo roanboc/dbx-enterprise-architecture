@@ -313,6 +313,84 @@ CURRENT_STATES = ["proposed", "planned", "in_implementation", "live", "retired",
 TARGET_STATES = ["undecided", "keep", "new", "change", "decommission", "merge"]
 
 
+#: How a list of elements may be ordered. `relevance` needs words to rank against and
+#: falls back to `name` without them; the rest are columns the store sorts on.
+SORT_ORDERS = ("relevance", "name", "type", "status", "updated", "created")
+
+
+@dataclass
+class AttributeFilter:
+    """One attribute predicate: the attribute is present, and its value matches.
+
+    `value` empty asks only that the attribute is set to something. Matching is a
+    case-insensitive substring, which is what a reader typing into a box means; an
+    attribute the pack declares as a list holds its values in one string, so a
+    substring finds one of them.
+    """
+
+    name: str
+    value: str = ""
+
+
+@dataclass
+class ElementFilter:
+    """What narrows a list of elements. Every field is optional and they narrow together.
+
+    One object rather than a widening parameter list, so the store, the services, the
+    page, the command line and the address bar all name the same criteria, and a new
+    criterion is added in one place. A list field matches any of its values; the fields
+    match all together.
+    """
+
+    text: str = ""
+    type_ids: list[str] = field(default_factory=list)
+    statuses: list[str] = field(default_factory=list)
+    current_states: list[str] = field(default_factory=list)
+    target_states: list[str] = field(default_factory=list)
+    work_packages: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    lifecycle_statuses: list[str] = field(default_factory=list)
+    attributes: list[AttributeFilter] = field(default_factory=list)
+    updated_since: datetime | None = None
+    updated_before: datetime | None = None
+    #: Only these elements, whatever else matches — how a drill-down from another page
+    #: (the Health facets) narrows the list without the store learning that page's words.
+    only_ids: list[str] | None = None
+    sort: str = "relevance"
+    descending: bool = False
+
+    def __post_init__(self) -> None:
+        if self.sort not in SORT_ORDERS:
+            raise ValueError(f"sort must be one of {SORT_ORDERS}")
+        self.text = (self.text or "").strip()
+
+    @property
+    def words(self) -> list[str]:
+        """The search words, lowercased. Every one of them has to match somewhere."""
+        return [w for w in re.split(r"\s+", self.text.lower()) if w]
+
+    def narrows(self) -> bool:
+        """Whether anything here narrows the list at all."""
+        return bool(
+            self.words
+            or self.type_ids
+            or self.statuses
+            or self.current_states
+            or self.target_states
+            or self.work_packages
+            or self.sources
+            or self.lifecycle_statuses
+            or self.attributes
+            or self.updated_since
+            or self.updated_before
+            or self.only_ids is not None
+        )
+
+    def order(self) -> str:
+        """The sort actually applied: relevance needs words to rank against."""
+        return "name" if self.sort == "relevance" and not self.words else self.sort
+
+
 def _check_states(what: str, current_state: str, target_state: str) -> None:
     if current_state not in CURRENT_STATES:
         raise ValueError(f"{what}: current_state must be one of {CURRENT_STATES}")

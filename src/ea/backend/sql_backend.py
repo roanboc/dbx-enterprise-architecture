@@ -62,6 +62,7 @@ from ea.models import (
     ChangeSet,
     ConflictError,
     Element,
+    ElementFilter,
     ImportRun,
     Issue,
     Link,
@@ -1063,41 +1064,161 @@ class SqlBackend(DatabaseBackend):
         e.links = self.get_links(element_id)
         return e
 
-    def _where(
-        self, text: str | None, type_id: str | list[str] | None, status: str | None
-    ) -> tuple[str, list[Any]]:
-        clauses, params = [], []
-        for word in (text or "").split():  # every word must match somewhere
-            marks, bound = self._bind([f"%{word}%"] * 5)
+    @staticmethod
+    def _like(word: str) -> str:
+        """A reader's word as a LIKE pattern.
+
+        `%` and `_` are wildcards to SQL and ordinary characters to the person typing them,
+        so a search for '50%' would otherwise match every row holding '50'. They are escaped
+        here and every clause below says `ESCAPE '\\'`.
+        """
+        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    def _any_of(self, column: str, values: list[str]) -> tuple[str, list[Any]]:
+        """`column IN (...)`, or the empty-string case a grid sends for 'not set'."""
+        real = [v for v in values if v]
+        blank = len(real) < len(values)
+        parts, params = [], []
+        if real:
+            marks, bound = self._bind(real)
+            parts.append(f"{column} IN ({', '.join(marks)})")
+            params += bound
+        if blank:
+            parts.append(f"({column} IS NULL OR {column} = '')")
+        return ("(" + " OR ".join(parts) + ")") if parts else "", params
+
+    def _where(self, filt: ElementFilter | None) -> tuple[str, list[Any]]:
+        """Every criterion the filter carries, ANDed together."""
+        f = filt or ElementFilter()
+        clauses: list[str] = []
+        params: list[Any] = []
+        for word in f.words:  # every word must match somewhere
+            marks, bound = self._bind([self._like(word)] * 5)
             clauses.append(
-                f"(name ILIKE {marks[0]} OR key ILIKE {marks[1]} OR element_id ILIKE {marks[2]} "
-                f"OR description_md ILIKE {marks[3]} OR attrs ILIKE {marks[4]})"
+                f"(name ILIKE {marks[0]} ESCAPE '\\' OR key ILIKE {marks[1]} ESCAPE '\\' "
+                f"OR element_id ILIKE {marks[2]} ESCAPE '\\' OR description_md ILIKE {marks[3]} ESCAPE '\\' "
+                f"OR attrs ILIKE {marks[4]} ESCAPE '\\')"
             )
             params += bound
-        if type_id:
-            ids = [type_id] if isinstance(type_id, str) else list(type_id)
-            marks, bound = self._bind(ids)
-            clauses.append(f"type_id IN ({', '.join(marks)})")
+        for column, values in (
+            ("type_id", f.type_ids),
+            ("status", f.statuses),
+            ("current_state", f.current_states),
+            ("target_state", f.target_states),
+            ("target_work_package", f.work_packages),
+            ("source_system", f.sources),
+            ("lifecycle_status", f.lifecycle_statuses),
+        ):
+            if values:
+                clause, bound = self._any_of(column, list(values))
+                if clause:
+                    clauses.append(clause)
+                    params += bound
+        for a in f.attributes:
+            if not a.name:
+                continue
+            # The attribute is stored inside the row's JSON, so the name is matched as the
+            # key it is written as and the value as a substring of what follows it. A reader
+            # asking for an attribute with no value asks only that it is set.
+            marks, bound = self._bind(
+                [self._like(f'"{a.name}":')] + ([self._like(a.value)] if a.value else [])
+            )
+            clause = f"attrs ILIKE {marks[0]} ESCAPE '\\'"
+            if a.value:
+                clause += f" AND attrs ILIKE {marks[1]} ESCAPE '\\'"
+            clauses.append(f"({clause})")
             params += bound
-        if status:
-            clauses.append("status = ?")
-            params.append(status)
+        if f.updated_since is not None:
+            clauses.append("updated_at >= ?")
+            params.append(f.updated_since)
+        if f.updated_before is not None:
+            clauses.append("updated_at < ?")
+            params.append(f.updated_before)
+        if f.only_ids is not None:
+            if not f.only_ids:
+                return " WHERE 1 = 0", []
+            clause, bound = self._any_of("element_id", list(f.only_ids))
+            clauses.append(clause)
+            params += bound
         return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
 
+    def _rank(self, words: list[str]) -> tuple[str, list[Any]]:
+        """How well a row matches, as SQL, so the store ranks before it pages.
+
+        0 the name starts with what was typed, 1 the name, key or identifier holds every
+        word, 2 it matched somewhere else (a description, an attribute). Ranking in Python
+        over a page would rank only the rows that page happened to contain.
+        """
+        if not words:
+            return "0", []
+        params: list[Any] = []
+        prefix_mark, bound = self._bind([self._like(" ".join(words))[1:]])  # 'word%', not '%word%'
+        params += bound
+        alls = []
+        for column in ("name", "key", "element_id"):
+            marks, bound = self._bind([self._like(w) for w in words])
+            alls.append(" AND ".join(f"{column} ILIKE {m} ESCAPE '\\'" for m in marks))
+            params += bound
+        both = " OR ".join(f"({a})" for a in alls)
+        return (
+            f"CASE WHEN name ILIKE {prefix_mark[0]} ESCAPE '\\' THEN 0 WHEN {both} THEN 1 ELSE 2 END"
+        ), params
+
+    #: What each sort order is in SQL. Every one ends on the identifier, so a page boundary
+    #: never splits two rows that compare equal and shows one of them twice.
+    _SORT_SQL = {
+        "name": "name",
+        "type": "type_id",
+        "status": "status",
+        "updated": "updated_at",
+        "created": "created_at",
+    }
+
+    def _order_by(self, filt: ElementFilter | None) -> tuple[str, list[Any]]:
+        f = filt or ElementFilter()
+        direction = " DESC" if f.descending else ""
+        order = f.order()
+        if order == "relevance":
+            rank, params = self._rank(f.words)
+            return f" ORDER BY {rank}{direction}, name, element_id", params
+        return f" ORDER BY {self._SORT_SQL[order]}{direction}, element_id", []
+
     def find_elements(
-        self, text=None, type_id=None, status=None, limit: int = 200, offset: int = 0
+        self, filt: ElementFilter | None = None, limit: int = 200, offset: int = 0
     ) -> list[Element]:
-        where, params = self._where(text, type_id, status)
+        where, params = self._where(filt)
+        order, order_params = self._order_by(filt)
         rows = self._fetch_all(
-            f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el{where} ORDER BY name, element_id"
+            f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el{where}{order}"
             + self._page(limit, offset),
-            params,
+            params + order_params,
         )
         return [self._row_to_element(r) for r in rows]
 
-    def count_elements(self, type_id=None, text=None, status=None) -> int:
-        where, params = self._where(text, type_id, status)
+    def count_elements(self, filt: ElementFilter | None = None) -> int:
+        where, params = self._where(filt)
         return int(self._fetch_all(f"SELECT COUNT(*) FROM {self._el()} AS el{where}", params)[0][0])
+
+    def distinct_values(self, column: str) -> list[str]:
+        """The values a filterable column actually holds, for the options on a filter control.
+
+        Only the columns the filter names may be asked for, so the name never reaches SQL
+        from anywhere but this list.
+        """
+        if column not in self._SORT_SQL and column not in (
+            "source_system",
+            "lifecycle_status",
+            "target_work_package",
+            "current_state",
+            "target_state",
+        ):
+            raise ValueError(f"{column} is not a filterable column")
+        rows = self._fetch_all(
+            f"SELECT DISTINCT {column} FROM {self._el()} AS el "
+            f"WHERE {column} IS NOT NULL AND {column} <> '' ORDER BY 1" + self._page(500)
+        )
+        return [r[0] for r in rows]
 
     def linked_element_ids(self) -> list[str]:
         """Ids of the elements that carry at least one link, on the current branch."""
@@ -2307,12 +2428,47 @@ class SqlBackend(DatabaseBackend):
         return out
 
     # ---------------------------------------------------------------- sql
+    #: The content tables a branch overlays, with the branch table holding the overlay rows and
+    #: the key the two are matched on. A reader's own SQL is scoped by all three the same way
+    #: every other read is.
+    _OVERLAID = {
+        "element": ("branch_element", "element_id"),
+        "relationship": ("branch_relationship", "relationship_id"),
+        "element_link": ("branch_link", "element_id"),
+    }
+
+    def _overlay_cte(self, table: str, branch: str) -> str:
+        """One content table as the current branch sees it: main, minus what the branch
+        overrides, plus what the branch adds."""
+        overlay, key = self._OVERLAID[table]
+        org, b = self._qo(), self._q(branch)
+        cols = ", ".join(c for c in table_columns(table) if c != "op")
+        op = " AND op = 'upsert'" if overlay != "branch_link" else ""
+        return (
+            f"{table} AS (SELECT {cols} FROM {table} AS m WHERE m.org_id = {org} AND NOT EXISTS "
+            f"(SELECT 1 FROM {overlay} AS v WHERE v.org_id = {org} AND v.branch_id = {b} "
+            f"AND v.{key} = m.{key}) "
+            f"UNION ALL SELECT {cols} FROM {overlay} WHERE org_id = {org} AND branch_id = {b}{op})"
+        )
+
     def _scope_ctes(self) -> str:
-        """Common table expressions that shadow the content tables with the current organisation's
-        main and the metamodel tables with the version it applies, so a reader's own SQL answers
-        for where the reader is."""
+        """Common table expressions that shadow the content tables with what the reader is
+        standing on — the current organisation, the current branch's overlay, and the
+        metamodel version the organisation applies — so a reader's own SQL answers for where
+        the reader is rather than for main.
+
+        A reader on a branch used to get main's rows back from `ea sql` and from the agent's
+        SQL tool with nothing saying so, which made the one tool meant for checking a branch
+        the one tool that could not see it.
+        """
         org = self._qo()
-        ctes = [f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})" for t in ORG_TABLES]
+        branch = current_branch()
+        ctes = [
+            self._overlay_cte(t, branch)
+            if (branch != MAIN and t in self._OVERLAID)
+            else f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})"
+            for t in ORG_TABLES
+        ]
         current = self.get_organisation(current_org())
         if current is not None and current.pack_id:
             pid = validate_identifier(current.pack_id, "pack id")

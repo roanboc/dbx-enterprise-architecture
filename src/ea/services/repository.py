@@ -18,6 +18,7 @@ from ea.models import (
     AttributeDef,
     ConflictError,
     Element,
+    ElementFilter,
     Forbidden,
     Link,
     NotFoundError,
@@ -103,17 +104,8 @@ class RepositoryService:
             raise NotFoundError(element_id)
         return e
 
-    def search(
-        self,
-        text: str | None = None,
-        type_id: str | list[str] | None = None,
-        status: str | None = None,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> list[Element]:
-        return self.backend.find_elements(
-            text=text, type_id=type_id, status=status, limit=limit, offset=offset
-        )
+    def search(self, filt: ElementFilter | None = None, limit: int = 200, offset: int = 0) -> list[Element]:
+        return self.backend.find_elements(filt, limit=limit, offset=offset)
 
     def element_detail(self, element_id: str) -> dict[str, Any]:
         e = self.element(element_id)

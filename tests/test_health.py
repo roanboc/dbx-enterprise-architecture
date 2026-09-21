@@ -5,27 +5,29 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from ea.backend.branching import use_branch
-from ea.models import Element
+from ea.models import Element, ElementFilter
 from ea.services import BranchService, HealthService, RepositoryService, SearchService
 
 
 def test_search_needs_every_word_and_ranks_names_first(loaded, registry):
     svc = SearchService(loaded, registry)
-    hits = svc.search("curriculum")
+    hits = svc.search(ElementFilter(text="curriculum"))
     assert hits[0].element.name.lower().startswith("curriculum") and hits[0].rank == 0
-    assert svc.count("curriculum") == len(svc.search("curriculum", limit=1000))
+    assert svc.count(ElementFilter(text="curriculum")) == len(
+        svc.search(ElementFilter(text="curriculum"), limit=1000)
+    )
     # a word from a description alone finds the element and says where it matched
-    hits = svc.search("paper-like approval forms")
+    hits = svc.search(ElementFilter(text="paper-like approval forms"))
     assert [h.element.element_id for h in hits] == ["PTC-FORMS"]
     assert hits[0].matched_in == "description" and "forms" in hits[0].snippet.lower()
     # every word must match: an unrelated word empties the result
-    assert svc.search("paper-like approval nonsenseword") == []
+    assert svc.search(ElementFilter(text="paper-like approval nonsenseword")) == []
     # attribute values count too
-    hits = svc.search("Reference data model v3")
+    hits = svc.search(ElementFilter(text="Reference data model v3"))
     assert hits and all(h.matched_in.startswith("attribute:") or h.matched_in for h in hits)
-    rows = SearchService.rows(svc.search("paper-like"), registry)
+    rows = SearchService.rows(svc.search(ElementFilter(text="paper-like")), registry)
     assert rows[0]["snippet"] and rows[0]["matched_in"] == "description"
-    assert svc.search("")[0].rank == 3  # no query: the plain listing
+    assert svc.search(ElementFilter(text=""))[0].rank == 3  # no query: the plain listing
 
 
 def test_bulk_update_applies_one_change_to_many(loaded, registry):

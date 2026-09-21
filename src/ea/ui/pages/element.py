@@ -15,6 +15,7 @@ from ea.models import (
     LINK_SCHEMES,
     TARGET_STATES,
     ConflictError,
+    ElementFilter,
     Forbidden,
     Link,
     NotFoundError,
@@ -809,7 +810,7 @@ def register(app: dash.Dash) -> None:
         if not text or len(text) < 2:
             return no_update
         ctx = get_context()
-        rows = ctx.repo.search(text, limit=25)
+        rows = ctx.repo.search(ElementFilter(text=text or ""), limit=25)
         options = [
             {
                 "value": e.element_id,

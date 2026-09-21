@@ -8,7 +8,7 @@ import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, dcc, html, no_update
 
-from ea.models import NotFoundError
+from ea.models import ElementFilter, NotFoundError
 from ea.ui import graph as gp
 from ea.ui import ids
 from ea.ui.components import (
@@ -267,7 +267,7 @@ def register(app: dash.Dash) -> None:
         if not text or len(text) < 2:
             return no_update, "Type at least two letters to search"
         ctx = get_context()
-        options = [_option(ctx, e) for e in ctx.repo.search(text, limit=25)]
+        options = [_option(ctx, e) for e in ctx.repo.search(ElementFilter(text=text or ""), limit=25)]
         # Picking an option makes the label the next search term, which matches nothing:
         # keep the list as it is rather than dropping the option the value refers to.
         if not options:

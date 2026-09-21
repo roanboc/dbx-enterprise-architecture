@@ -11,7 +11,14 @@ import typer
 from ea import capacity
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
-from ea.models import BRANCH_STATUSES, ConflictError, Forbidden, NotFoundError, ValidationError
+from ea.models import (
+    BRANCH_STATUSES,
+    ConflictError,
+    ElementFilter,
+    Forbidden,
+    NotFoundError,
+    ValidationError,
+)
 from ea.services.roles import require, set_role
 
 app = typer.Typer(
@@ -351,7 +358,9 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
     if type_id and t is None:
         # Ignoring it would answer the unrestricted search and look like a narrow one.
         _refuse(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
-    hits = SearchService(backend, registry).search(text, t.id if t else None, limit=limit)
+    hits = SearchService(backend, registry).search(
+        ElementFilter(text=text or "", type_ids=[t.id] if t else []), limit=limit
+    )
     for h in hits:
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
