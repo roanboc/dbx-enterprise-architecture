@@ -167,7 +167,11 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   0012) — or the debug persona under mock authentication, and from `--as` on
   the command line. `allowed()` is the only
   place that knows what a role may do; every writing path calls `require()`
-  and the pages hide what the role may not use. A branch in review is frozen.
+  and the pages hide what the role may not use. **One write reads `allowed()`
+  instead, and only one:** an import run is recorded *because* the import gate
+  raised, so `require()` there would refuse the very row that says a caller was
+  refused (`importer/runs.py`). It reads the same gate and writes nothing for a
+  caller who may not import at all. A branch in review is frozen.
   Never add a write path without its `require()`.
 - `tests/` — pytest on an in-memory DuckDB, and the command-line scenarios;
   both run in `make check` on every change, and **every behavioural fix has a
@@ -191,7 +195,7 @@ make test-fast   # the unit tests alone, while iterating (every store test on bo
 make test-live   # the unit tests on a Lakebase instance, on demand (EA_LAKEBASE_INSTANCE, DATABRICKS_HOST and the SDK's credentials)
 make deploy      # the bundle's dev target: the Lakebase instance and the app, deployed, not started; then make deploy-run
 make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
-uv run ea --help # the CLI: init, load-pack, export-pack, import, export, validate, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …, metamodel …, org …; --branch, --as and --org on any command
+uv run ea --help # the CLI: init, load-pack, export-pack, import, export, validate, stats, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …, metamodel …, org …, feed …, runs …; --branch, --as and --org on any command
 ```
 
 The DuckDB file is single-writer: stop the app before running the CLI on the

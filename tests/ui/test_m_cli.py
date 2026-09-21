@@ -3767,3 +3767,101 @@ def test_m70_delete(cli, record):
         rc_retired == 0 and "retired" in retired,
         retired_ev,
     )
+
+
+@pytest.mark.scenario(
+    scenario_id="M71",
+    group="M",
+    title="feed save, list, run and delete: a source configured, run from the command line, and forgotten",
+    feature="Command line · feed save/list/run/delete",
+    expected=(
+        "`feed save` stores a feed and prints its identifier; `feed list` shows it with its "
+        "schedule read as a sentence in the zone it was written in; `feed run` loads what is "
+        "waiting in the staging schema, and reports nothing to do when the table is not there; "
+        "`feed delete` forgets the configuration without touching what it loaded."
+    ),
+)
+def test_m71_feeds(cli, record):
+    rc, out, ev = run(cli, "feed", "list", limit=120)
+    check(record, "with nothing configured it says so", rc == 0 and "No feeds configured" in out, ev)
+
+    rc, saved, ev = run(
+        cli,
+        "feed",
+        "save",
+        "M Reference",
+        "--source",
+        "m-feed",
+        "--elements",
+        "m_elements",
+        "--schedule",
+        "45 6 * * *",
+        "--timezone",
+        "Australia/Brisbane",
+        limit=120,
+    )
+    must(record, "the feed was saved and named", rc == 0 and "M Reference" in saved, ev)
+    feed_id = saved.split()[0]
+
+    rc, listed, ev = run(cli, "feed", "list", limit=200)
+    check(
+        record,
+        "the list reads the schedule as a sentence, in the zone it was written in",
+        "Every day at 06:45" in listed and "Australia/Brisbane" in listed,
+        ev,
+    )
+    check(record, "and says which staging table is its", "m_elements" in listed, ev)
+    check(record, "and where it writes", "-> main" in listed, ev)
+
+    # The staging table is not there, so the run has nothing to do and says which table it wanted.
+    rc, ran, ev = run(cli, "feed", "run", feed_id, limit=200)
+    check(record, "a run with no staging table names the table", "m_elements" in ran, ev)
+    check(record, "and loads nothing", "elements 0/0" in ran, ev)
+
+    rc, gone, ev = run(cli, "feed", "delete", feed_id, limit=120)
+    must(record, "the feed was deleted", rc == 0 and "deleted" in gone, ev)
+    rc, empty, ev = run(cli, "feed", "list", limit=120)
+    check(record, "and is gone from the list", "No feeds configured" in empty, ev)
+
+
+@pytest.mark.scenario(
+    scenario_id="M72",
+    group="M",
+    title="runs list and show: every import kept, read a page at a time and one in full",
+    feature="Command line · runs list/show",
+    expected=(
+        "`runs list` shows every import newest first with what it read, what it did and how it "
+        "went, saying how many older ones are not on the page; `runs show` reads one in full by "
+        "its identifier, and refuses an identifier nobody issued by name rather than by silence."
+    ),
+)
+def test_m72_runs(cli, record):
+    rc, listed, ev = run(cli, "runs", "list", limit=250)
+    must(record, "the history is readable", rc == 0, ev)
+    # This scenario file's store was seeded by an import and M71 ran a feed against it, so
+    # there is a history rather than an empty state — which M71 already proved is said plainly.
+    check(record, "a run says which source it was of", "source  :" in listed, ev)
+    check(record, "and what it read", "read    :" in listed, ev)
+    check(record, "and what it did", "did     :" in listed, ev)
+
+    run_id = listed.split()[0]
+    rc, shown, ev = run(cli, "runs", "show", run_id, limit=250)
+    must(record, "one run is read in full by its identifier", rc == 0 and run_id in shown, ev)
+    check(record, "it names the branch it wrote to", "branch  :" in shown, ev)
+    check(record, "and when it started, in the configured zone", "started :" in shown, ev)
+
+    rc_missing, missing, ev = run(cli, "runs", "show", "run-nobody-made-this", expect=1, limit=120)
+    check(
+        record,
+        "an identifier nobody issued is refused by name",
+        rc_missing == 1 and "no run 'run-nobody-made-this'" in missing,
+        ev,
+    )
+
+    rc_feed, narrowed, ev = run(cli, "runs", "list", "--feed", "no-such-feed", limit=120)
+    check(
+        record,
+        "a feed with no runs says so, rather than claiming nothing has ever run",
+        rc_feed == 0 and "No runs recorded for feed 'no-such-feed'" in narrowed,
+        ev,
+    )

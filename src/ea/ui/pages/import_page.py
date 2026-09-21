@@ -18,7 +18,8 @@ from ea.config import ROOT
 from ea.importer import Mapping, export_archive, import_frames, load_mapping, mapping_from_text
 from ea.importer.csv_export import SCHEMA_FILE
 from ea.importer.csv_import import CsvShapeError, read_csv_text
-from ea.models import Forbidden, Issue
+from ea.importer.runs import recorded
+from ea.models import Forbidden, ImportReport, Issue
 from ea.services.roles import a_role
 from ea.ui import ids
 from ea.ui.components import alert, icon, issues_table, page_title
@@ -305,6 +306,9 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
     ctx = get_context()
     if not store:
         return alert("Upload at least one CSV file first.", "yellow")
+    # `said` is the mapping as text, for the run to keep. A run has to say what a source's
+    # columns meant when it read them, whether the reader typed the mapping or chose one.
+    said = map_yaml or ""
     if map_yaml:
         # An uploaded mapping wins over the dropdown: it is the more specific thing the
         # reader did, and leaving the dropdown to override it would be a silent no-op.
@@ -313,7 +317,9 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
         except Exception as exc:  # noqa: BLE001 — any YAML fault is the reader's to see
             return alert(f"That mapping YAML could not be read: {exc}", "red")
     elif mapping_key:
-        mapping = load_mapping(ROOT / "connectors" / mapping_key / "mapping.yaml")
+        chosen = ROOT / "connectors" / mapping_key / "mapping.yaml"
+        mapping = load_mapping(chosen)
+        said = chosen.read_text(encoding="utf-8")
     else:
         mapping = Mapping()
     frames, unclassified, reference, malformed = _frames(store, mapping)
@@ -321,32 +327,56 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
         return alert(
             "None of the files matched the element/relationship/link file patterns of the mapping.", "red"
         )
-    if not any(frames.values()):
-        return html.Div([_malformed_alert(malformed)])
-    try:
-        report = import_frames(
-            ctx.backend,
-            ctx.registry,
-            frames,
-            source or mapping.source_system or "import",
-            mapping,
-            ctx.actor,
-            dry_run,
+    # No early return past this point: a load where every file was refused is still a run, and
+    # the command line records exactly that (`ragged_row` errors over empty frames). A page that
+    # returned here instead would make the two doors disagree about whether anything happened.
+    #
+    # Recorded around the load rather than inside it, for the same reason: a file this page
+    # refused to read is part of what the run was, and a run the store refused is the one a
+    # reader most wants to find.
+    with recorded(
+        ctx.backend,
+        trigger="upload",
+        actor=ctx.actor,
+        source_system=source or mapping.source_system or "import",
+        inputs=sorted(
+            {name for pairs in frames.values() for name, _ in pairs} | {b.filename for b in malformed}
+        ),
+        mapping_yaml=said,
+        dry_run=dry_run,
+    ) as run:
+        # Handed in rather than taken back, so a load that stops half way is recorded with what
+        # it had already written rather than with zeros.
+        run.report = report = ImportReport(
+            source_system=source or mapping.source_system or "import", dry_run=dry_run
         )
-    except Forbidden as exc:
-        return alert(str(exc), "red")
-    for bad in malformed:
-        # The command line counts a file it could not read as an error of the import
-        # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
-        # file that went unread.
-        report.add_issue(
-            Issue(
-                level="error",
-                code="ragged_row",
-                message=f"a row does not match the header this file declares: {bad.detail}",
-                file=bad.filename,
+        try:
+            import_frames(
+                ctx.backend,
+                ctx.registry,
+                frames,
+                source or mapping.source_system or "import",
+                mapping,
+                ctx.actor,
+                dry_run,
+                report,
             )
-        )
+        except Forbidden as exc:
+            run.failed(str(exc))
+            return alert(str(exc), "red")
+        for bad in malformed:
+            # The command line counts a file it could not read as an error of the import
+            # (`ragged_row`); the two counts have to agree, or the page reads '0 errors' over a
+            # file that went unread — and so does the run this is recorded as, which is why the
+            # issues are added before the recording closes rather than after.
+            report.add_issue(
+                Issue(
+                    level="error",
+                    code="ragged_row",
+                    message=f"a row does not match the header this file declares: {bad.detail}",
+                    file=bad.filename,
+                )
+            )
     if not dry_run:
         ctx.graph.invalidate()
     color = "green" if report.ok and not malformed else "red"
@@ -369,6 +399,17 @@ def _run(store, source, mapping_key, dry_run: bool, map_yaml: str = ""):
     return html.Div(
         [
             alert(head, "red" if malformed else color),
+            # This report goes when the page does. The run does not, and a reader who has just
+            # loaded a thousand rows should be told where it went rather than discover later
+            # that it was kept — or worse, assume it was not.
+            dmc.Text(
+                f"Kept as run {run.run_id} — the Feeds page carries the history of every import.",
+                size="xs",
+                c="dimmed",
+                mb="sm",
+            )
+            if not dry_run
+            else None,
             _malformed_alert(malformed),
             alert("Ignored (no pattern matched): " + ", ".join(unclassified), "yellow")
             if unclassified

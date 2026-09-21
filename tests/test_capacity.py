@@ -7,6 +7,8 @@ page, the traversal is held to the store, and the declared figures are held to o
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from ea import capacity
@@ -159,3 +161,27 @@ def test_the_target_summary_counts_past_what_a_page_shows(loaded, registry, monk
     monkeypatch.setattr(TargetStateService, "MAX_ROWS", 2)
     assert len(svc.elements()) == 2
     assert svc.summary()["elements"] > 2
+
+
+def test_the_import_history_is_read_a_page_at_a_time_however_far_back_it_goes(loaded, monkeypatch):
+    """`Older` asks for the *next* page, never for a longer one.
+
+    A history that grew its own read would pass every test on a young store and fail on an old
+    one — which is the failure decision 0019 exists to make impossible rather than unlikely.
+    """
+    from ea.ui.pages.feeds import HISTORY_PAGE, history_list
+
+    asked: list[tuple[int, int]] = []
+    real = loaded.runs
+
+    def runs(limit, offset, feed_id=""):
+        asked.append((limit, offset))
+        return real(limit, offset, feed_id)
+
+    monkeypatch.setattr(loaded, "runs", runs)
+    # Only what `history_list` reads off a context: the store. The zone is a setting.
+    ctx = SimpleNamespace(backend=loaded)
+    for offset in (0, HISTORY_PAGE, 10 * HISTORY_PAGE, 10_000):
+        history_list(ctx, offset)
+    assert asked and all(limit == HISTORY_PAGE for limit, _ in asked), asked
+    assert all(limit <= capacity.READ_CHUNK for limit, _ in asked)

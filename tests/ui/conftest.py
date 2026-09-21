@@ -54,6 +54,36 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
+def _land_for_feeds(backend) -> None:
+    """Rows waiting in the staging schema, as a source leaves them (group R).
+
+    They are written before the application opens the database, which is the real sequence:
+    something outside puts rows there and the application reads them afterwards. It is also the
+    only one available — DuckDB takes the file exclusively, so nothing can write it while the
+    round's application is running.
+    """
+    from ea.backend.sql import staging_schema
+
+    where = staging_schema(backend.schema_prefix)
+    backend._execute(
+        f"CREATE TABLE IF NOT EXISTS {where}.r_elements "
+        "(id VARCHAR, type VARCHAR, name VARCHAR, description VARCHAR)"
+    )
+    backend._execute(
+        f"INSERT INTO {where}.r_elements VALUES "
+        "('R-LDC-RESEARCH','logical_data_component','R Research Data',"
+        "'The research data area, left in the staging schema by a feed (rqmark).'),"
+        "('R-DE-PROJECT','data_entity','R Project','One research project record (rqmark).')"
+    )
+    backend._execute(
+        f"CREATE TABLE IF NOT EXISTS {where}.r_relationships "
+        "(src_id VARCHAR, rel_type VARCHAR, dst_id VARCHAR)"
+    )
+    backend._execute(
+        f"INSERT INTO {where}.r_relationships VALUES ('R-LDC-RESEARCH','encapsulates','R-DE-PROJECT')"
+    )
+
+
 def _seed(db_path: Path) -> str:
     """Load the pack and the sample model into a database this round owns."""
     from ea.backend.duckdb_backend import DuckDBBackend
@@ -66,6 +96,7 @@ def _seed(db_path: Path) -> str:
         backend.save_pack(pack)
         report = import_directory(backend, Registry(pack), SAMPLE, "sample")
         assert report.ok, report.summary()
+        _land_for_feeds(backend)
         elements = backend.count_elements()
         relationships = backend.count_relationships()
     finally:
@@ -97,6 +128,9 @@ def app_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
         EA_AGENT_PROVIDER="stub",
         EA_SECRET_KEY="test-round-fixed-key",
         EA_BACKEND="duckdb",
+        # A zone that is not UTC, so the round proves a time is converted rather than
+        # merely printed. Any zone with an offset would do; this one has no daylight saving.
+        EA_TIMEZONE="Australia/Brisbane",
     )
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)

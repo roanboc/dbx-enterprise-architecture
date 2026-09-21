@@ -515,6 +515,52 @@ MAX_IMPORT_ISSUES = 2_000
 
 
 @dataclass
+class SourceFeed:
+    """A configured source: which staging tables are its, how they are read, and when it runs.
+
+    The schedule is kept **in the zone it is written in** rather than converted to UTC. A person
+    who says a feed runs at half past two means half past two where they are, and a platform
+    scheduler takes a timezone alongside its expression for the same reason. Storing the zone
+    means nothing has to be converted to be shown correctly, and nothing drifts when a zone's
+    offset changes.
+
+    The application does not fire the schedule — what fires it is outside, as decision 0020 has
+    it. The schedule is what a trigger honours and what the screen shows; `Run now` is what the
+    application itself does.
+    """
+
+    feed_id: str = ""
+    name: str = ""
+    source_system: str = ""
+    elements_table: str = ""
+    relationships_table: str = ""
+    links_table: str = ""
+    #: The mapping, inline, so a feed is self-contained: its columns, identity rule, prefix and
+    #: deletion mode travel with it rather than pointing at a file that may change underneath.
+    mapping_yaml: str = ""
+    #: Where the feed writes. Empty is `main`, which is a feed nobody reviews before it lands.
+    target_branch: str = ""
+    #: Whether the staging tables are emptied once loaded. False for a table something else
+    #: maintains, such as one replicated from a catalogue.
+    clear_after: bool = True
+    enabled: bool = True
+    #: A cron expression as whatever triggers this feed writes them, and the zone it is in.
+    schedule: str = ""
+    schedule_timezone: str = ""
+    last_run_at: Any = None
+    last_run_status: str = ""
+    last_run_summary: str = ""
+    created_at: Any = None
+    created_by: str = ""
+    updated_at: Any = None
+    updated_by: str = ""
+
+    @property
+    def writes_to_main(self) -> bool:
+        return not self.target_branch
+
+
+@dataclass
 class ImportReport:
     source_system: str
     elements_read: int = 0
@@ -533,9 +579,13 @@ class ImportReport:
     #: that re-sends its whole source every night is almost all of this, and saying 'updated'
     #: would make a quiet night look like a busy one.
     elements_unchanged: int = 0
+    #: Rows a source said are gone. Retired, not removed: the element, its relationships
+    #: and its history stay, and loading the row again undoes it.
+    elements_retired: int = 0
     relationships_created: int = 0
     relationships_updated: int = 0
     relationships_unchanged: int = 0
+    relationships_retired: int = 0
     issues: list[Issue] = field(default_factory=list)
     #: Every issue found, counted by code, whether or not it was kept in `issues`.
     counts: dict[str, int] = field(default_factory=dict)
@@ -593,11 +643,110 @@ class ImportReport:
         return (
             f"source={self.source_system} elements {self.elements_loaded}/{self.elements_read} loaded"
             f" ({self.elements_created} new, {self.elements_updated} updated,"
-            f" {self.elements_unchanged} unchanged, {self.elements_skipped} skipped), relationships"
+            f" {self.elements_unchanged} unchanged, {self.elements_retired} retired,"
+            f" {self.elements_skipped} skipped), relationships"
             f" {self.relationships_loaded}/{self.relationships_read} loaded"
             f" ({self.relationships_created} new, {self.relationships_updated} updated,"
             f" {self.relationships_unchanged} unchanged, {self.relationships_skipped} skipped), links {self.links_loaded}/{self.links_read};"
             f" {self._tally()}"
+        )
+
+
+#: How a run started. `upload` is somebody on the Import page, `command` is `ea import`, and
+#: `feed` is a configured source read from the staging schema — by its schedule's trigger or by
+#: `Run now`. The list is closed: a run whose origin nobody can name is a run nobody can trust.
+RUN_TRIGGERS = ("upload", "command", "feed")
+
+#: How a run ended. `ok` and `errors` are both loads that finished — the second one found errors
+#: and wrote what it could. `failed` is a run that stopped: the store refused it, the branch was
+#: frozen, the mapping would not read. The distinction matters because only `failed` means the
+#: counts below are not the whole of what happened.
+RUN_STATUSES = ("ok", "errors", "failed")
+
+#: The most issues one *stored* run keeps. A report keeps `MAX_IMPORT_ISSUES` for the screen
+#: that is about to show it; history keeps far fewer, because a run is kept forever and a
+#: hundred nightly feeds each holding two thousand issues is a table nobody meant to grow.
+#: `issue_counts` stays complete either way, so the totals are never the sample's.
+MAX_RUN_ISSUES = 200
+
+
+@dataclass
+class ImportRun:
+    """One execution of an import: what it read, where it wrote, what it did, and how it went.
+
+    An `ImportReport` (`DOBJ3.3`) is what a run *said*, held for as long as the request that
+    produced it. This is what a run *was*, and it outlives that request — which is the whole
+    reason it exists: a feed that runs at a quarter past two has nobody watching the screen it
+    would otherwise have reported to.
+
+    It outlives its feed, too. `feed_name` is a copy of a name the feed owns, kept here on
+    purpose: a feed deleted six months from now must not take its history with it, and a
+    dangling `feed_id` would leave the rows it loaded unexplained.
+
+    **Nothing here reverses a run.** Reversal needs the before-image of every row a run
+    changed, which is a different and much larger thing to store, and it is not built (`GAP19`).
+    What this holds is the account of what happened, not the means to undo it.
+    """
+
+    run_id: str = ""
+    source_system: str = ""
+    #: One of `RUN_TRIGGERS`.
+    trigger: str = "command"
+    #: The feed this ran, when one did. Empty for an upload or a command.
+    feed_id: str = ""
+    #: The feed's name as it read at the time — kept so history survives the feed's deletion.
+    feed_name: str = ""
+    actor: str = ""
+    #: What it wrote to: a branch's identifier, or `main`.
+    branch_id: str = ""
+    #: What it read: the file names of an upload, or the staging tables of a feed.
+    inputs: list[str] = field(default_factory=list)
+    #: The mapping the run used, as it was used. A feed stores its mapping inline so a source's
+    #: columns cannot change underneath it; keeping the same text here says which version of it
+    #: produced these counts.
+    mapping_yaml: str = ""
+    started_at: Any = None
+    finished_at: Any = None
+    #: One of `RUN_STATUSES`.
+    status: str = ""
+    #: The report's own one-line summary, kept as written so the history and the screen that
+    #: first showed it cannot drift into saying different things about the same run.
+    summary: str = ""
+    #: Why it stopped, when it did. Empty otherwise.
+    message: str = ""
+    elements_created: int = 0
+    elements_updated: int = 0
+    elements_unchanged: int = 0
+    elements_retired: int = 0
+    relationships_created: int = 0
+    relationships_updated: int = 0
+    relationships_unchanged: int = 0
+    relationships_retired: int = 0
+    links_loaded: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    #: A bounded sample, at most `MAX_RUN_ISSUES` of them.
+    issues: list[Issue] = field(default_factory=list)
+    #: Every issue the run found, counted by code — complete whether or not `issues` is.
+    issue_counts: dict[str, int] = field(default_factory=dict)
+    #: True when the run found more issues than the sample kept.
+    truncated: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @property
+    def wrote(self) -> int:
+        """How many rows it put in the model. Zero is a quiet night, not a failure."""
+        return (
+            self.elements_created
+            + self.elements_updated
+            + self.elements_retired
+            + self.relationships_created
+            + self.relationships_updated
+            + self.relationships_retired
+            + self.links_loaded
         )
 
 

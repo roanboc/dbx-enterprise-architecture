@@ -19,9 +19,12 @@ from ea.backend.branching import MAIN, current_branch
 from ea.importer.mapping import (
     CORE_ELEMENT_COLUMNS,
     CORE_RELATIONSHIP_COLUMNS,
+    DELETION_MODES,
+    OPERATIONS,
     Mapping,
     derive_current_state,
 )
+from ea.importer.runs import recorded
 from ea.metamodel.registry import Registry
 from ea.models import (
     CURRENT_STATES,
@@ -222,6 +225,23 @@ def _states(
     }
 
 
+#: What a long number looks like after a spreadsheet has opened and saved a file: an
+#: identifier turned into scientific notation. It is the one spreadsheet damage that can be
+#: recognised for certain, because no source issues an identifier in this shape.
+_SCIENTIFIC = re.compile(r"^-?\d+(\.\d+)?[eE][+-]?\d+$")
+
+
+def spreadsheet_damaged(identifier: str) -> bool:
+    """Whether an identifier carries the mark of having been through a spreadsheet.
+
+    Loading it would create an element under a name its source never issued, and quietly
+    leave the real one untouched — so it is worth a word even though the row is otherwise
+    perfectly well formed. Leading zeros lost from an identifier cannot be recognised this
+    way: `7` is a legitimate identifier, and nothing in the file says it was once `007`.
+    """
+    return bool(_SCIENTIFIC.match((identifier or "").strip()))
+
+
 MATCH_KEYS = ("id", "key")
 
 
@@ -260,6 +280,24 @@ def keys_in(frames: dict[str, list[tuple[str, pd.DataFrame]]], mapping: Mapping)
     return out
 
 
+def _operation(rec: dict, report: ImportReport, row: int, fname: str, entity: str) -> str:
+    """What the row says it is doing: `upsert` (the default) or `delete`."""
+    op = (rec.get("operation") or "upsert").strip().lower()
+    if op not in OPERATIONS:
+        report.add_issue(
+            Issue(
+                "warning",
+                "unknown_operation",
+                f"operation {op!r} not recognised; the row was loaded as content",
+                row=row,
+                entity=entity,
+                file=fname,
+            )
+        )
+        return "upsert"
+    return op
+
+
 def _resolve_type(registry: Registry, mapping: Mapping, label: str):
     if label in mapping.type_names:
         return registry.get_type(mapping.type_names[label])
@@ -273,10 +311,11 @@ def build_elements(
     source_system: str,
     report: ImportReport,
     by_key: dict[str, str] | None = None,
-) -> tuple[list[Element], list[Link]]:
+) -> tuple[list[Element], list[Link], list[tuple[str, int, str]]]:
     by_key = by_key or {}
     elements: dict[str, Element] = {}
     links: list[Link] = []
+    deletions: list[tuple[str, int, str]] = []
     for fname, raw in frames:
         df = _rename(raw, mapping.element_columns)
         if mapping.type_from_filename and "type" not in df.columns:
@@ -295,6 +334,19 @@ def build_elements(
             source_ident = (
                 rec.get("key") or "" if mapping.match_on == "key" else rec.get("id") or rec.get("key") or ""
             )
+            if spreadsheet_damaged(source_ident):
+                report.add_issue(
+                    Issue(
+                        "warning",
+                        "suspect_identifier",
+                        f"identifier {source_ident!r} is in scientific notation, which is what a "
+                        "spreadsheet does to a long number: the row would load under an identifier "
+                        "its source never issued. Format the column as text before saving",
+                        row=i,
+                        entity=source_ident,
+                        file=fname,
+                    )
+                )
             eid = element_ref(source_ident, mapping, by_key)
             if not eid:
                 report.add_issue(
@@ -309,6 +361,12 @@ def build_elements(
                     )
                 )
                 report.elements_skipped += 1
+                continue
+            if _operation(rec, report, i, fname, eid) == "delete":
+                # A source deleting a row sends the identifier and little else — it is saying
+                # the thing is gone, not describing it. Requiring a type and a name here would
+                # refuse the one row shape a deletion naturally has.
+                deletions.append((eid, i, fname))
                 continue
             t = _resolve_type(registry, mapping, rec.get("type", ""))
             if t is None:
@@ -381,7 +439,7 @@ def build_elements(
             for j, url in enumerate(u for u in _SPLIT_LINKS.split(rec.get("links") or "") if u):
                 report.links_read += 1
                 links.append(Link(element_id=eid, url=url, label="", sort_order=j))
-    return list(elements.values()), links
+    return list(elements.values()), links, deletions
 
 
 def build_relationships(
@@ -426,6 +484,11 @@ def build_relationships(
             label = mapping.rel_names.get(label, label)
             rt = registry.resolve_rel_type(label, known[src], known[dst])
             status = (rec.get("status") or "approved").lower()
+            if _operation(rec, report, i, fname, f"{src}->{dst}") == "delete":
+                # An edge's identity is derived from its ends and its type, so a delete row
+                # has to carry them anyway — there is nothing to look up, only a state to set.
+                status = "retired"
+                report.relationships_retired += 1
             attrs = {
                 k: v for k, v in rec.items() if k not in CORE_RELATIONSHIP_COLUMNS and v not in ("", None)
             }
@@ -638,6 +701,43 @@ def _identities_by_key(
     return out
 
 
+def _retire(
+    backend: DatabaseBackend, deletions: list[tuple[str, int, str]], report: ImportReport
+) -> list[Element]:
+    """The elements a source said are gone, read back and marked retired.
+
+    Retiring rather than removing is what a source is allowed to do today: the element, its
+    relationships and its history stay, and loading the row again undoes it. The rows go back
+    through the same upsert as everything else, so they are versioned and logged like any
+    other change rather than through a path of their own.
+    """
+    if not deletions:
+        return []
+    wanted = {eid for eid, _row, _file in deletions}
+    held = {e.element_id: e for e in backend.elements_by_ids(sorted(wanted))}
+    out: list[Element] = []
+    for eid, row, fname in deletions:
+        existing = held.get(eid)
+        if existing is None:
+            report.add_issue(
+                Issue(
+                    "warning",
+                    "delete_unknown",
+                    f"the row says {eid!r} is deleted, but the model does not hold it",
+                    row=row,
+                    entity=eid,
+                    file=fname,
+                )
+            )
+            continue
+        if existing.status == "retired":
+            continue  # already gone; nothing to write, and nothing to report as a change
+        existing.status = "retired"
+        out.append(existing)
+        report.elements_retired += 1
+    return out
+
+
 def import_frames(
     backend: DatabaseBackend,
     registry: Registry,
@@ -646,16 +746,35 @@ def import_frames(
     mapping: Mapping | None = None,
     actor: str = "import",
     dry_run: bool = False,
+    report: ImportReport | None = None,
 ) -> ImportReport:
+    """Load the frames, and say what that did.
+
+    `report` is for a caller that has to be able to read the counts even if this never returns:
+    the load writes elements, then relationships, then links, with no transaction around the
+    three (scope 17), so a failure between them leaves rows behind. A recorder holding the
+    report already sees what the earlier steps did; one waiting for the return value would
+    record a run that wrote nothing, over rows that are in the store.
+    """
     mapping = mapping or Mapping()
     source_system = source_system or mapping.source_system or "import"
-    report = ImportReport(source_system=source_system, dry_run=dry_run)
+    if report is None:
+        report = ImportReport(source_system=source_system, dry_run=dry_run)
+    else:
+        report.source_system, report.dry_run = source_system, dry_run
     if mapping.match_on not in MATCH_KEYS:
         raise ValueError(f"match_on must be one of {MATCH_KEYS}, not {mapping.match_on!r}")
+    if mapping.deletion_mode not in DELETION_MODES:
+        raise ValueError(
+            f"deletion_mode must be one of {DELETION_MODES}, not {mapping.deletion_mode!r}: "
+            "removing a row outright waits on what should happen to a relationship whose "
+            "endpoint went with it"
+        )
     by_key = _identities_by_key(backend, frames, mapping, report)
-    elements, inline_links = build_elements(
+    elements, inline_links, deletions = build_elements(
         registry, frames.get("elements", []), mapping, source_system, report, by_key
     )
+    elements += _retire(backend, deletions, report)
     known = {e.element_id: e.type_id for e in elements}
     # Endpoints may already be in the store from an earlier import. Every one of them is asked
     # for in one read rather than one apiece (decision 0019).
@@ -721,28 +840,51 @@ def import_directory(
     mapping: Mapping | None = None,
     actor: str = "import",
     dry_run: bool = False,
+    mapping_yaml: str = "",
 ) -> ImportReport:
+    """Read a directory of CSV files and load them, recording the run.
+
+    `mapping_yaml` is the mapping as text, for the run to keep. A run says what a source's
+    columns meant at the time it read them, and the file they were read from is free to say
+    something else by the time anybody opens the run.
+    """
     mapping = mapping or Mapping()
     problems: list[CsvShapeError] = []
     frames = read_directory(directory, mapping, problems)
     if not any(frames.values()) and not problems:
         raise FileNotFoundError(f"no CSV files matched in {directory}")
-    report = import_frames(
+    source = source_system or mapping.source_system or Path(directory).name
+    # The run is recorded around the whole of it rather than around `import_frames`, because a
+    # file this directory held and could not read is part of what the run was.
+    with recorded(
         backend,
-        registry,
-        frames,
-        source_system or mapping.source_system or Path(directory).name,
-        mapping,
-        actor,
-        dry_run,
-    )
-    for problem in problems:
-        report.add_issue(
-            Issue(
-                level="error",
-                code="ragged_row",
-                message=f"a row does not match the header this file declares: {problem.detail}",
-                file=problem.filename,
+        trigger="command",
+        actor=actor,
+        source_system=source,
+        inputs=_file_names(frames, problems),
+        mapping_yaml=mapping_yaml,
+        dry_run=dry_run,
+    ) as run:
+        # Handed in rather than taken back, so a load that stops half way is recorded with what
+        # it had already written rather than with zeros.
+        run.report = report = ImportReport(source_system=source, dry_run=dry_run)
+        import_frames(backend, registry, frames, source, mapping, actor, dry_run, report)
+        for problem in problems:
+            report.add_issue(
+                Issue(
+                    level="error",
+                    code="ragged_row",
+                    message=f"a row does not match the header this file declares: {problem.detail}",
+                    file=problem.filename,
+                )
             )
-        )
     return report
+
+
+def _file_names(
+    frames: dict[str, list[tuple[str, pd.DataFrame]]], problems: list[CsvShapeError]
+) -> list[str]:
+    """Every file the import touched, read or refused, each named once."""
+    names = {fname for pairs in frames.values() for fname, _ in pairs}
+    names |= {p.filename for p in problems}
+    return sorted(names)

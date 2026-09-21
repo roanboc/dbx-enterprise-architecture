@@ -30,3 +30,4 @@ alternative?".
 | [0017](./0017-keys-indexed-references-not.md) | The database holds the keys, and the references stay in the services | Adopted 2026-09-20, for the Requester to confirm | `ACMP2`, `DOBJ1.6`, `DOBJ2.1` |
 | [0018](./0018-a-schema-per-group.md) | A schema per group of tables | Adopted 2026-09-20, for the Requester to confirm | `ACMP2`, `ACMP2.1`, `ACMP2.3`, `DOBJ1`, `DOBJ2`, `DOBJ3` |
 | [0019](./0019-the-size-the-application-declares.md) | The application declares the size it is built for | Accepted 2026-09-20 (the Requester at initiative 16's Understanding gate) | `ASM6`, `ASVC4`, `ACMP3`, `DOBJ2`, `GAP18` |
+| [0020](./0020-staging-tables-live-in-the-store.md) | A staging table lives in the store, not in the catalogue | Adopted 2026-09-20, for the Requester to confirm | `DOBJ3.8`, `ASVC12`, `ACMP14`, `NODE2`, `GAP4` |

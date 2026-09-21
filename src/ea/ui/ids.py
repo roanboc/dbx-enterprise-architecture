@@ -170,6 +170,42 @@ IM_MAP_STORE = "im-map-store"
 IM_MAP_NAME = "im-map-name"
 IM_EXPORT = "im-export"  # the current content, written back out in the same contract
 
+# feeds
+FEED_LIST = "feed-list"
+FEED_FEEDBACK = "feed-feedback"
+FEED_RUN = "feed-run"  # pattern-matching: {"type": FEED_RUN, "id": <feed_id>}
+FEED_DELETE = "feed-delete"  # pattern-matching: {"type": FEED_DELETE, "id": <feed_id>}
+FEED_EDIT = "feed-edit"  # pattern-matching: {"type": FEED_EDIT, "id": <feed_id>}
+FEED_MODAL = "feed-modal"
+FEED_ID = "feed-id"  # store: the feed the modal is editing, empty for a new one
+FEED_NAME = "feed-name"
+FEED_SOURCE = "feed-source"
+FEED_EL_TABLE = "feed-el-table"
+FEED_REL_TABLE = "feed-rel-table"
+FEED_LINK_TABLE = "feed-link-table"
+FEED_BRANCH = "feed-branch"
+FEED_EVERY = "feed-every"  # the recurrence: hour, day, week, month
+FEED_HOUR = "feed-hour"
+FEED_MINUTE = "feed-minute"
+FEED_WEEKDAY = "feed-weekday"  # shown for a weekly schedule
+FEED_MONTHDAY = "feed-monthday"  # shown for a monthly one
+FEED_SHOW_CRON = "feed-show-cron"
+FEED_SCHEDULE = "feed-schedule"  # the expression itself, revealed by the checkbox
+FEED_SCHEDULE_SAID = "feed-schedule-said"  # the sentence the choices add up to
+FEED_TZ = "feed-tz"
+FEED_CLEAR = "feed-clear"
+FEED_ENABLED = "feed-enabled"
+FEED_MAPPING = "feed-mapping"
+FEED_EXAMPLE = "feed-example"  # the contract's example files, from the feed form
+FEED_MAPPING_SAID = "feed-mapping-said"  # what the mapping typed there would do
+FEED_SAVE = "feed-save"
+FEED_NEW = "feed-new"
+FEED_MODAL_FEEDBACK = "feed-modal-feedback"
+RUNS_LIST = "runs-list"
+RUNS_OFFSET = "runs-offset"  # store: how far into the history the page is
+RUNS_OLDER = "runs-older"
+RUNS_NEWER = "runs-newer"
+
 # ask
 ASK_INPUT = "ask-input"
 ASK_BUTTON = "ask-button"

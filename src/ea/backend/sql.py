@@ -32,10 +32,20 @@ BRANCH_TABLES = [
     "branch_review",
     "reviewer_assignment",
 ]
+# Where content arrives from, and what arrived: a feed's configuration and the history of every
+# run of it. Neither is content and neither hangs off a branch — they belong to the organisation
+# directly.
+FEED_TABLES = ["source_feed", "import_run"]
 # Every table whose rows belong to one organisation (decision 0014): the content, the change
-# log, the branches and everything that hangs off a branch. The organisation table itself and
-# the metamodel tables are shared by every organisation.
-ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES
+# log, the branches and everything that hangs off a branch, the feeds and their history. The
+# organisation table itself and the metamodel tables are shared by every organisation.
+ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES
+# What an organisation's deletion leaves behind. The change log is kept because it is the one
+# append-only record of what was done to the store. A run is *not* kept with it: an org_id may
+# be taken again by a later organisation, and a run carries the actor names, file names, issue
+# messages and whole mapping of the organisation that is gone — which would reappear as the new
+# organisation's own history. The change log has always had that hole; this does not widen it.
+AUDIT_TABLES = ["change_log"]
 
 # The tables are grouped the way `architecture/3_information/3_logical-data-model.md` groups
 # them, and each group is a schema of its own, named `<prefix>_<group>`. Someone who opens the
@@ -46,8 +56,17 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     "metamodel": list(META_TABLES),
     "content": ["organisation", "element", "relationship", "element_link"],
     "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
-    "governance": ["branch_review", "reviewer_assignment", "proposal"],
-    "audit": ["change_log"],
+    # A feed's configuration sits with the other things that govern how content arrives
+    # and is reviewed, rather than with the content itself.
+    "governance": ["branch_review", "reviewer_assignment", "proposal", "source_feed"],
+    # A run is what happened, beside the change log's what changed. Both are read by more
+    # people than may write content, which is what the group is for.
+    "audit": ["change_log", "import_run"],
+    # The store creates the schema and never a table in it. What lands here is put there
+    # from outside — a platform job writing Postgres, or a catalogue table replicated into
+    # it — and the application's contract with a source is the shape of the table, nothing
+    # more (decision 0020).
+    "staging": [],
 }
 TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t in tables}
 
@@ -55,6 +74,11 @@ TABLE_GROUP: dict[str, str] = {t: g for g, tables in SCHEMA_GROUPS.items() for t
 def schemas(prefix: str) -> list[str]:
     """Every schema of a store, in the order the search path reads them."""
     return [f"{prefix}_{group}" for group in SCHEMA_GROUPS]
+
+
+def staging_schema(prefix: str) -> str:
+    """Where a source's rows wait to be read. The one schema the store does not own."""
+    return f"{prefix}_staging"
 
 
 def schema_of(table: str, prefix: str) -> str:
@@ -395,6 +419,65 @@ DDL: dict[str, str] = {
             created_at TIMESTAMP,
             org_id VARCHAR
         )""",
+    "source_feed": """
+        CREATE TABLE IF NOT EXISTS source_feed (
+            feed_id VARCHAR NOT NULL,
+            name VARCHAR,
+            source_system VARCHAR,
+            elements_table VARCHAR,
+            relationships_table VARCHAR,
+            links_table VARCHAR,
+            mapping_yaml VARCHAR,
+            target_branch VARCHAR,
+            clear_after BOOLEAN,
+            enabled BOOLEAN,
+            schedule VARCHAR,
+            schedule_timezone VARCHAR,
+            last_run_at TIMESTAMP,
+            last_run_status VARCHAR,
+            last_run_summary VARCHAR,
+            created_at TIMESTAMP,
+            created_by VARCHAR,
+            updated_at TIMESTAMP,
+            updated_by VARCHAR,
+            org_id VARCHAR
+        )""",
+    # What a run was, kept after the request that produced it has gone. The counts are columns
+    # rather than a payload because a person opening the database with a SQL client is meant to
+    # be able to ask what last night loaded; only the issue sample and the per-code totals,
+    # which have no fixed shape, are JSON.
+    "import_run": """
+        CREATE TABLE IF NOT EXISTS import_run (
+            run_id VARCHAR NOT NULL,
+            source_system VARCHAR,
+            trigger_kind VARCHAR,
+            feed_id VARCHAR,
+            feed_name VARCHAR,
+            actor VARCHAR,
+            branch_id VARCHAR,
+            inputs VARCHAR,
+            mapping_yaml VARCHAR,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            status VARCHAR,
+            summary VARCHAR,
+            message VARCHAR,
+            elements_created INTEGER,
+            elements_updated INTEGER,
+            elements_unchanged INTEGER,
+            elements_retired INTEGER,
+            relationships_created INTEGER,
+            relationships_updated INTEGER,
+            relationships_unchanged INTEGER,
+            relationships_retired INTEGER,
+            links_loaded INTEGER,
+            error_count INTEGER,
+            warning_count INTEGER,
+            issues_json VARCHAR,
+            issue_counts_json VARCHAR,
+            truncated BOOLEAN,
+            org_id VARCHAR
+        )""",
 }
 
 ELEMENT_COLUMNS = [
@@ -526,6 +609,7 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("relationship_dst", "relationship", False, "(org_id, dst_id)"),
     ("element_link_key", "element_link", True, "(org_id, link_id)"),
     ("element_link_element", "element_link", False, "(org_id, element_id)"),
+    ("source_feed_key", "source_feed", True, "(org_id, feed_id)"),
     ("change_log_key", "change_log", True, "(org_id, change_id)"),
     ("change_log_entity", "change_log", False, "(org_id, entity_id)"),
     ("branch_key", "branch", True, "(org_id, branch_id)"),
@@ -538,6 +622,10 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("branch_review_key", "branch_review", True, "(org_id, review_id)"),
     ("reviewer_assignment_key", "reviewer_assignment", True, "(org_id, type_id, reviewer)"),
     ("proposal_key", "proposal", True, "(org_id, proposal_id)"),
+    ("import_run_key", "import_run", True, "(org_id, run_id)"),
+    # The history is read newest first, and a feed's own history is read the same way.
+    ("import_run_recent", "import_run", False, "(org_id, started_at)"),
+    ("import_run_feed", "import_run", False, "(org_id, feed_id, started_at)"),
 ]
 
 

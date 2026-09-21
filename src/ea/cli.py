@@ -287,7 +287,10 @@ def import_cmd(
     _readable_directory(directory)
     _, backend, registry, *_ = _ctx()
     m = load_mapping(mapping) if mapping else None
-    report = import_directory(backend, registry, directory, source, m, actor, dry_run)
+    # The text, not the path: a run has to say what the columns meant *then*, and the file it
+    # was read from may say something else by the time anybody reads the run.
+    said = mapping.read_text(encoding="utf-8") if mapping else ""
+    report = import_directory(backend, registry, directory, source, m, actor, dry_run, said)
     typer.echo(report.summary())
     shown = report.issues if issues <= 0 else report.issues[:issues]
     for iss in shown:
@@ -978,5 +981,203 @@ def run() -> None:
         raise SystemExit(1) from None
 
 
+feed_app = typer.Typer(
+    help="Source feeds: the staging tables a source writes to, and running one of them.",
+    no_args_is_help=True,
+)
+app.add_typer(feed_app, name="feed")
+
+
+@feed_app.command("list")
+def feed_list():
+    """Every configured feed, with its schedule and when it last ran, in the configured zone."""
+    from ea.importer.feeds import in_zone, schedule_in_words
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    feeds = backend.list_feeds()
+    if not feeds:
+        typer.echo("No feeds configured. `ea feed save` adds one.")
+        return
+    for f in feeds:
+        where = f.target_branch or "main"
+        typer.echo(f"{f.feed_id:22s} {f.name or f.source_system}  -> {where}")
+        typer.echo(f"    schedule: {schedule_in_words(f, settings.timezone)}")
+        tables = ", ".join(t for t in (f.elements_table, f.relationships_table, f.links_table) if t)
+        typer.echo(f"    staging : {tables or 'none named'}")
+        if f.last_run_at:
+            typer.echo(f"    last run: {in_zone(f.last_run_at, settings.timezone)} — {f.last_run_status}")
+
+
+@feed_app.command("save")
+def feed_save(
+    name: str,
+    source: str = typer.Option("", help="source system recorded on every row it loads"),
+    elements: str = typer.Option("", help="the staging table holding its elements"),
+    relationships: str = typer.Option("", help="the staging table holding its relationships"),
+    links: str = typer.Option("", help="the staging table holding its links"),
+    mapping: Path = typer.Option(None, help="mapping YAML, stored with the feed"),
+    branch: str = typer.Option("", help="the branch it writes to; empty writes to main"),
+    schedule: str = typer.Option("", help="a cron expression, as whatever triggers it writes them"),
+    timezone: str = typer.Option("", help="the zone the schedule is written in; EA_TIMEZONE by default"),
+    clear_after: bool = typer.Option(True, help="empty the staging tables once they are loaded"),
+    feed_id: str = typer.Option("", help="an existing feed to update; a new one by default"),
+):
+    """Configure a feed, or update one."""
+    from ea.models import SourceFeed
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    saved = backend.save_feed(
+        SourceFeed(
+            feed_id=feed_id,
+            name=name,
+            source_system=source or name,
+            elements_table=elements,
+            relationships_table=relationships,
+            links_table=links,
+            mapping_yaml=mapping.read_text(encoding="utf-8") if mapping else "",
+            target_branch=branch,
+            clear_after=clear_after,
+            schedule=schedule,
+            schedule_timezone=timezone or settings.timezone,
+        ),
+        actor="cli",
+    )
+    typer.echo(f"{saved.feed_id}  {saved.name}")
+
+
+@feed_app.command("run")
+def feed_run(
+    feed_id: str,
+    dry_run: bool = typer.Option(False, help="read and validate, load nothing"),
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
+):
+    """Run one configured feed now, on the branch it names."""
+    from ea.importer.feeds import run_configured_feed
+
+    _, backend, registry, *_ = _ctx()
+    report = run_configured_feed(backend, registry, feed_id, actor="cli", dry_run=dry_run)
+    typer.echo(report.summary())
+    shown = report.issues if issues <= 0 else report.issues[:issues]
+    for iss in shown:
+        typer.echo("  " + str(iss))
+    found = sum(report.counts.values())
+    if found > len(shown):
+        by_code = ", ".join(f"{c} {n}" for c, n in sorted(report.counts.items(), key=lambda kv: -kv[1]))
+        typer.echo(f"  … {found - len(shown)} more not shown ({by_code})")
+    raise typer.Exit(code=0 if report.ok else 1)
+
+
+@feed_app.command("delete")
+def feed_delete(feed_id: str):
+    """Forget a feed's configuration. Nothing it loaded is touched."""
+    _, backend, *_ = _ctx()
+    backend.delete_feed(feed_id, actor="cli")
+    typer.echo(f"{feed_id} deleted")
+
+
+runs_app = typer.Typer(
+    help="Import history: every run, what it read, what it did and how it went.",
+    no_args_is_help=True,
+)
+app.add_typer(runs_app, name="runs")
+
+
+@runs_app.command("list")
+def runs_list(
+    feed: str = typer.Option("", help="only this feed's runs; every run by default"),
+    limit: int = typer.Option(20, help="how many to show"),
+    offset: int = typer.Option(0, help="skip this many, for the page after"),
+):
+    """Every import run, newest first, in the configured zone. The history is read a page at a time."""
+    from ea import capacity
+    from ea.importer.feeds import in_zone
+    from ea.importer.runs import counts_in_words, describe_inputs
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    asked = max(1, int(limit))
+    # One request reads one page here as it does on the screen (decision 0019). A history is
+    # unbounded in a way the model is not — it only grows — so `--limit 1000000` is answered
+    # with a page and the offset to ask for the next, rather than with the whole table.
+    limit = min(asked, capacity.READ_CHUNK)
+    total = backend.count_runs(feed)
+    runs = backend.runs(limit, offset, feed)
+    if not runs:
+        # Three different silences, and they mean different things: nothing has ever run, this
+        # feed has never run, or the reader has paged past the end of a history that does exist.
+        if total:
+            typer.echo(f"No runs on this page. There are {total}; try --offset 0.")
+        elif feed:
+            typer.echo(f"No runs recorded for feed {feed!r}.")
+        else:
+            typer.echo("No imports have been recorded yet.")
+        return
+    for r in runs:
+        where = r.branch_id or "main"
+        typer.echo(f"{r.run_id:20s} {in_zone(r.started_at, settings.timezone)}  {r.status:7s} -> {where}")
+        typer.echo(
+            f"    source  : {r.source_system or '—'} ({r.trigger}{f', {r.feed_name}' if r.feed_name else ''})"
+        )
+        typer.echo(f"    read    : {describe_inputs(r)}")
+        typer.echo(f"    did     : {counts_in_words(r) if r.status != 'failed' else r.message}")
+        if r.error_count or r.warning_count:
+            typer.echo(f"    issues  : {r.error_count} errors, {r.warning_count} warnings")
+    if asked > limit:
+        typer.echo(f"… --limit is held to {limit} a request; ask for the next page with --offset")
+    shown = offset + len(runs)
+    if shown < total:
+        typer.echo(f"… {total - shown} older not shown (--offset {shown})")
+
+
+@runs_app.command("show")
+def runs_show(
+    run_id: str,
+    issues: int = typer.Option(50, help="how many issues to print; 0 for every one kept"),
+):
+    """One run in full: what it read, what it wrote, and the issues it kept."""
+    from ea.importer.feeds import in_zone
+    from ea.importer.runs import counts_in_words
+
+    settings = Settings.from_env()
+    _, backend, *_ = _ctx()
+    r = backend.get_run(run_id)
+    if r is None:
+        typer.echo(f"no run {run_id!r} in this organisation", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"{r.run_id}  {r.status}")
+    typer.echo(f"  started : {in_zone(r.started_at, settings.timezone)}")
+    typer.echo(f"  finished: {in_zone(r.finished_at, settings.timezone)}")
+    typer.echo(f"  source  : {r.source_system or '—'}   trigger: {r.trigger}   actor: {r.actor or '—'}")
+    if r.feed_id:
+        typer.echo(f"  feed    : {r.feed_name or r.feed_id} ({r.feed_id})")
+    typer.echo(f"  branch  : {r.branch_id or 'main'}")
+    typer.echo(f"  read    : {', '.join(r.inputs) or 'nothing named'}")
+    typer.echo(f"  did     : {counts_in_words(r)}")
+    if r.summary:
+        typer.echo(f"  said    : {r.summary}")
+    if r.message:
+        typer.echo(f"  stopped : {r.message}")
+    if r.mapping_yaml:
+        typer.echo("  mapping : " + r.mapping_yaml.strip().replace("\n", "\n            "))
+    shown = r.issues if issues <= 0 else r.issues[:issues]
+    for iss in shown:
+        typer.echo("  " + str(iss))
+    found = sum(r.issue_counts.values())
+    if found > len(shown):
+        by_code = ", ".join(f"{c} {n}" for c, n in sorted(r.issue_counts.items(), key=lambda kv: -kv[1]))
+        # Three numbers, and conflating any two of them misleads: what the run found, what it
+        # kept (a sample, most serious first), and what this printed.
+        held = len(r.issues)
+        if len(shown) < held:
+            typer.echo(f"  … the run kept {held} of the {found} issues it found; {len(shown)} printed")
+        else:
+            typer.echo(f"  … the run kept {held} of the {found} issues it found ({by_code})")
+
+
+# Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a
+# command group registered after this line would not exist by the time `run()` reads the
+# arguments. Everything the application offers has to be declared above it.
 if __name__ == "__main__":
     run()

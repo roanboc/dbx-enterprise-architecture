@@ -71,11 +71,12 @@ given per group.
 
 | Schema | Holds | Read by |
 | ------ | ----- | ------- |
-| `ea_metamodel` | the five `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
+| `ea_metamodel` | the six `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
 | `ea_content` | the organisations and their elements, relationships and links | everyone |
 | `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
-| `ea_governance` | reviews, reviewer assignments and proposals | reviewers and admins |
-| `ea_audit` | the change log | anyone who may read the content; never updated, only appended |
+| `ea_governance` | reviews, reviewer assignments, proposals and the feeds that say where content comes from | reviewers and admins |
+| `ea_audit` | the change log and the history of every import | anyone who may read the content; never updated, only appended |
+| `ea_staging` | **nothing the store makes.** The one schema it creates and never fills: a source leaves rows here in the contract's own shape and a feed reads them (decision 0020) | the store reads it; whatever writes it is outside the application |
 
 Every statement that makes or alters a table names its schema; everything else
 names the table alone and lets the search path find it, which is why the rest of
@@ -102,12 +103,17 @@ erDiagram
   branch ||--o{ branch_link : "holds"
   branch ||--o{ branch_review : "is decided by"
   branch ||--o{ proposal : "was written by"
+  organisation ||--o{ source_feed : "holds"
+  organisation ||--o{ import_run : "holds"
+  source_feed ||--o{ import_run : "was run as"
 ```
 
-Seventeen tables in one schema. The five `meta_` tables are shared by every
-organisation and keyed by pack and version, and so is the `organisation` table
-itself; the eleven others carry `org_id` and belong to exactly one organisation
-(decision 0014).
+Twenty tables. The six `meta_` tables are shared by every organisation and keyed
+by pack and version, and so is the `organisation` table itself; the thirteen
+others carry `org_id` and belong to exactly one organisation (decision 0014).
+A run names the feed it was of and keeps that feed's name beside the identifier,
+so the history survives the feed being deleted — the line above is what a run
+*was* run as, not a key it is read through.
 
 | Table | Holds | Key (a unique index) | Scoped by |
 | ----- | ----- | ----------- | --------- |
@@ -127,7 +133,9 @@ itself; the eleven others carry `org_id` and belong to exactly one organisation
 | `branch_review` | a reviewer's decision on a branch | `org_id`, `review_id` | `org_id` |
 | `reviewer_assignment` | who may approve changes to a type | `org_id`, `type_id`, `reviewer` | `org_id` |
 | `proposal` | what an architect handed in and what came of it | `org_id`, `proposal_id` | `org_id` |
+| `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
+| `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
 
 ## The metamodel tables
 

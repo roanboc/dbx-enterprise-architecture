@@ -7,6 +7,7 @@ takes, on every change.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -199,3 +200,138 @@ def test_loading_a_file_stores_a_version_and_applies_it(ea_env, tmp_path):
     dump_pack(pack, path)
     refused = runner.invoke(app, ["load-pack", str(path)])
     assert refused.exit_code == 1 and "frozen" in str(refused.exception)
+
+
+def test_every_command_group_is_registered_before_the_entry_point():
+    """`python -m ea.cli` runs the module top to bottom, so a group declared after the
+    `__main__` block does not exist by the time the arguments are read.
+
+    That is not theoretical: `feed` was added at the end of the file and vanished from
+    `python -m ea.cli` while still working through the console script, which is the kind of
+    difference nothing else here would have caught.
+    """
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "src" / "ea" / "cli.py"
+    text = source.read_text(encoding="utf-8")
+    guard = text.index('if __name__ == "__main__":')
+    after = text[guard:]
+    assert "add_typer" not in after, "a command group is registered after the entry point"
+    assert "@app.command" not in after, "a command is declared after the entry point"
+
+
+def test_the_feed_commands_are_reachable_as_a_module():
+    """The way the command-line scenarios invoke it, which is not the console script."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-m", "ea.cli", "feed", "--help"],
+        cwd=root,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(root / "src")},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for command in ("list", "save", "run", "delete"):
+        assert command in proc.stdout, command
+
+
+def test_the_runs_commands_are_reachable_as_a_module():
+    """`runs` was added after `feed`, at the same end of the same file, for the same reason."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-m", "ea.cli", "runs", "--help"],
+        cwd=root,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(root / "src")},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for command in ("list", "show"):
+        assert command in proc.stdout, command
+
+
+def test_the_history_lists_the_import_that_seeded_this_store(ea_env):
+    """The fixture seeds by importing a directory, so there is exactly one run to find."""
+    listed = runner.invoke(app, ["runs", "list"])
+    assert listed.exit_code == 0, listed.output
+    assert "sample" in listed.output and "command" in listed.output
+    assert "elements.csv" in listed.output
+
+
+def test_one_run_is_read_in_full_by_its_identifier(ea_env):
+    listed = runner.invoke(app, ["runs", "list"])
+    run_id = listed.output.split()[0]
+    shown = runner.invoke(app, ["runs", "show", run_id])
+    assert shown.exit_code == 0, shown.output
+    assert run_id in shown.output and "branch  : main" in shown.output
+    assert "read    :" in shown.output and "did     :" in shown.output
+
+
+def test_a_run_nobody_made_is_refused_by_name(ea_env):
+    shown = runner.invoke(app, ["runs", "show", "run-nothing"])
+    assert shown.exit_code == 1 and "no run 'run-nothing'" in shown.output
+
+
+def test_an_empty_history_says_so_rather_than_printing_nothing(ea_env, tmp_path, monkeypatch):
+    """A blank answer reads as a broken command; 'nothing has run yet' reads as an answer."""
+    empty = tmp_path / "empty.duckdb"
+    backend = DuckDBBackend(str(empty))
+    try:
+        backend.save_pack(load_pack(PACK))
+    finally:
+        backend.close()
+    monkeypatch.setenv("EA_DB_PATH", str(empty))
+
+    listed = runner.invoke(app, ["runs", "list"])
+    assert listed.exit_code == 0 and "No imports have been recorded yet." in listed.output
+
+
+def test_a_silent_history_says_which_silence_it_is(ea_env):
+    """'Nothing has ever run' and 'this feed has not run' are different answers."""
+    for_a_feed = runner.invoke(app, ["runs", "list", "--feed", "no-such-feed"])
+    assert for_a_feed.exit_code == 0
+    assert "No runs recorded for feed 'no-such-feed'" in for_a_feed.output
+
+    past_the_end = runner.invoke(app, ["runs", "list", "--offset", "500"])
+    assert past_the_end.exit_code == 0 and "No runs on this page" in past_the_end.output
+
+
+def test_the_history_holds_one_page_a_request_however_much_is_asked_for(ea_env):
+    """A history only grows, so `--limit 1000000` is answered with a page and an offset."""
+    from ea import capacity
+
+    big = runner.invoke(app, ["runs", "list", "--limit", "1000000"])
+    assert big.exit_code == 0
+    assert f"--limit is held to {capacity.READ_CHUNK} a request" in big.output
+    assert "--offset" in big.output
+
+
+def test_what_a_run_kept_and_what_was_printed_are_not_reported_as_the_same_thing(ea_env):
+    listed = runner.invoke(app, ["runs", "list"])
+    run_id = listed.output.split()[0]
+    shown = runner.invoke(app, ["runs", "show", run_id, "--issues", "0"])
+    assert shown.exit_code == 0
+    # the seeded import is clean, so there is nothing to miscount — the line must not appear
+    assert "not kept with the run" not in shown.output
+
+
+def test_a_directory_import_keeps_the_mapping_it_was_given(ea_env, tmp_path):
+    """A run says what the columns meant then; the file is free to say something else later."""
+    mapping = tmp_path / "m.yaml"
+    mapping.write_text('id_prefix: "MX-"\n', encoding="utf-8")
+    loaded = runner.invoke(app, ["import", str(SAMPLE), "--source", "mapped", "--mapping", str(mapping)])
+    assert loaded.exit_code in (0, 1), loaded.output
+
+    listed = runner.invoke(app, ["runs", "list", "--limit", "1"])
+    shown = runner.invoke(app, ["runs", "show", listed.output.split()[0]])
+    assert shown.exit_code == 0 and "MX-" in shown.output

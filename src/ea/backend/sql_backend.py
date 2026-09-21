@@ -24,6 +24,7 @@ import threading
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from dataclasses import fields
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,6 +34,7 @@ from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch, validate_branch_id
 from ea.backend.organisations import DEFAULT_ORG, current_org, validate_org_id
 from ea.backend.sql import (
+    AUDIT_TABLES,
     DDL,
     ELEMENT_COLUMNS,
     INDEXES,
@@ -48,6 +50,7 @@ from ea.backend.sql import (
     qualified,
     schema_of,
     schemas,
+    staging_schema,
     table_columns,
 )
 from ea.metamodel.loader import pack_from_dict, pack_to_dict
@@ -59,6 +62,8 @@ from ea.models import (
     ChangeSet,
     ConflictError,
     Element,
+    ImportRun,
+    Issue,
     Link,
     MergeResult,
     NotFoundError,
@@ -68,6 +73,7 @@ from ea.models import (
     Proposal,
     Relationship,
     Review,
+    SourceFeed,
     validate_identifier,
     validate_version,
 )
@@ -99,6 +105,59 @@ def _loads(value: Any) -> dict[str, Any]:
         return out if isinstance(out, dict) else {}
     except (TypeError, ValueError):
         return {}
+
+
+_ISSUE_FIELDS = tuple(f.name for f in fields(Issue))
+
+
+def _string_list(value: Any) -> list[str]:
+    """A JSON array of strings, degrading to empty rather than raising on anything else.
+
+    The names are stored as JSON rather than joined on a separator because a file name may
+    legitimately contain one: on POSIX it may contain a newline, and a separator would have
+    turned one file into two on the way back."""
+    try:
+        out = json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in out] if isinstance(out, list) else []
+
+
+def _issues(value: Any) -> list[Issue]:
+    """The issues a run kept, reading only the fields `Issue` declares.
+
+    A row written by a version whose `Issue` had one more field must not make every run
+    unreadable by this one: one unreadable row would take the whole history page with it."""
+    try:
+        raw = json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kept = {k: v for k, v in item.items() if k in _ISSUE_FIELDS}
+        if kept.get("level") and kept.get("code"):
+            out.append(Issue(**{"message": "", **kept}))
+    return out
+
+
+def _counts(value: Any) -> dict[str, int]:
+    """Issue totals by code, skipping anything that is not one rather than raising."""
+    out: dict[str, int] = {}
+    for code, count in _loads(value).items():
+        try:
+            out[str(code)] = int(count)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+#: A staging table is named by configuration, so its name is checked before it reaches a
+#: statement as a name rather than as a bound value.
+_STAGING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def new_id(prefix: str = "") -> str:
@@ -908,7 +967,10 @@ class SqlBackend(DatabaseBackend):
             raise NotFoundError(org_id, "organisation")
         with self._lock:
             for table in ORG_TABLES:
-                if table != "change_log":
+                # The change log stays and everything else goes, runs included: an org_id is
+                # free to be taken again, and a run carries the actor names, file names, issue
+                # messages and whole mapping of the organisation that is gone.
+                if table not in AUDIT_TABLES:
                     self._execute(f"DELETE FROM {table} WHERE org_id = ?", [org_id])
             self._execute("DELETE FROM organisation WHERE org_id = ?", [org_id])
             self._log("organisation", org_id, "delete", actor, None, None, None, MAIN, org_id)
@@ -2263,6 +2325,268 @@ class SqlBackend(DatabaseBackend):
                 for t in META_TABLES[1:]
             ]
         return ", ".join(ctes)
+
+    # ----------------------------------------------------------------- feeds
+    _FEED_COLUMNS = (
+        "feed_id",
+        "name",
+        "source_system",
+        "elements_table",
+        "relationships_table",
+        "links_table",
+        "mapping_yaml",
+        "target_branch",
+        "clear_after",
+        "enabled",
+        "schedule",
+        "schedule_timezone",
+        "last_run_at",
+        "last_run_status",
+        "last_run_summary",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "updated_by",
+    )
+
+    def save_feed(self, feed: SourceFeed, actor: str) -> SourceFeed:
+        feed.feed_id = feed.feed_id or new_id("feed")
+        now, org = _now(), self._org()
+        with self._lock:
+            existing = self.get_feed(feed.feed_id)
+            feed.created_at = existing.created_at if existing else now
+            feed.created_by = existing.created_by if existing else actor
+            feed.updated_at, feed.updated_by = now, actor
+            self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed.feed_id])
+            self._insert_rows("source_feed", [self._feed_values(feed) + [org]])
+            self._log("source_feed", feed.feed_id, "save", actor, None, self._public(feed), None)
+        return feed
+
+    def _feed_values(self, f: SourceFeed) -> list[Any]:
+        return [
+            f.feed_id,
+            f.name or None,
+            f.source_system or None,
+            f.elements_table or None,
+            f.relationships_table or None,
+            f.links_table or None,
+            f.mapping_yaml or None,
+            f.target_branch or None,
+            bool(f.clear_after),
+            bool(f.enabled),
+            f.schedule or None,
+            f.schedule_timezone or None,
+            f.last_run_at,
+            f.last_run_status or None,
+            f.last_run_summary or None,
+            f.created_at,
+            f.created_by or None,
+            f.updated_at,
+            f.updated_by or None,
+        ]
+
+    def _row_to_feed(self, r: tuple) -> SourceFeed:
+        return SourceFeed(
+            feed_id=r[0],
+            name=r[1] or "",
+            source_system=r[2] or "",
+            elements_table=r[3] or "",
+            relationships_table=r[4] or "",
+            links_table=r[5] or "",
+            mapping_yaml=r[6] or "",
+            target_branch=r[7] or "",
+            clear_after=bool(r[8]),
+            enabled=bool(r[9]),
+            schedule=r[10] or "",
+            schedule_timezone=r[11] or "",
+            last_run_at=r[12],
+            last_run_status=r[13] or "",
+            last_run_summary=r[14] or "",
+            created_at=r[15],
+            created_by=r[16] or "",
+            updated_at=r[17],
+            updated_by=r[18] or "",
+        )
+
+    def list_feeds(self) -> list[SourceFeed]:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._FEED_COLUMNS)} FROM source_feed WHERE org_id = ? ORDER BY name, feed_id",
+            [self._org()],
+        )
+        return [self._row_to_feed(r) for r in rows]
+
+    def get_feed(self, feed_id: str) -> SourceFeed | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._FEED_COLUMNS)} FROM source_feed WHERE org_id = ? AND feed_id = ?",
+            [self._org(), feed_id],
+        )
+        return self._row_to_feed(rows[0]) if rows else None
+
+    def delete_feed(self, feed_id: str, actor: str) -> None:
+        org = self._org()
+        with self._lock:
+            before = self.get_feed(feed_id)
+            self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed_id])
+            if before is not None:
+                self._log("source_feed", feed_id, "delete", actor, self._public(before), None, None)
+
+    # ------------------------------------------------------ import history
+    _RUN_COLUMNS = (
+        "run_id",
+        "source_system",
+        "trigger_kind",
+        "feed_id",
+        "feed_name",
+        "actor",
+        "branch_id",
+        "inputs",
+        "mapping_yaml",
+        "started_at",
+        "finished_at",
+        "status",
+        "summary",
+        "message",
+        "elements_created",
+        "elements_updated",
+        "elements_unchanged",
+        "elements_retired",
+        "relationships_created",
+        "relationships_updated",
+        "relationships_unchanged",
+        "relationships_retired",
+        "links_loaded",
+        "error_count",
+        "warning_count",
+        "issues_json",
+        "issue_counts_json",
+        "truncated",
+    )
+
+    def record_run(self, run: ImportRun) -> ImportRun:
+        run.run_id = run.run_id or new_id("run")
+        with self._lock:
+            self._insert_rows("import_run", [self._run_values(run) + [self._org()]])
+        return run
+
+    def _run_values(self, r: ImportRun) -> list[Any]:
+        return [
+            r.run_id,
+            r.source_system or None,
+            r.trigger or None,
+            r.feed_id or None,
+            r.feed_name or None,
+            r.actor or None,
+            r.branch_id or None,
+            json.dumps(r.inputs, ensure_ascii=False),
+            r.mapping_yaml or None,
+            r.started_at,
+            r.finished_at,
+            r.status or None,
+            r.summary or None,
+            r.message or None,
+            int(r.elements_created),
+            int(r.elements_updated),
+            int(r.elements_unchanged),
+            int(r.elements_retired),
+            int(r.relationships_created),
+            int(r.relationships_updated),
+            int(r.relationships_unchanged),
+            int(r.relationships_retired),
+            int(r.links_loaded),
+            int(r.error_count),
+            int(r.warning_count),
+            json.dumps([vars(i) for i in r.issues], ensure_ascii=False, default=str),
+            _dumps(r.issue_counts),
+            bool(r.truncated),
+        ]
+
+    @staticmethod
+    def _row_to_run(r: tuple) -> ImportRun:
+        return ImportRun(
+            run_id=r[0],
+            source_system=r[1] or "",
+            trigger=r[2] or "",
+            feed_id=r[3] or "",
+            feed_name=r[4] or "",
+            actor=r[5] or "",
+            branch_id=r[6] or "",
+            inputs=_string_list(r[7]),
+            mapping_yaml=r[8] or "",
+            started_at=r[9],
+            finished_at=r[10],
+            status=r[11] or "",
+            summary=r[12] or "",
+            message=r[13] or "",
+            elements_created=r[14] or 0,
+            elements_updated=r[15] or 0,
+            elements_unchanged=r[16] or 0,
+            elements_retired=r[17] or 0,
+            relationships_created=r[18] or 0,
+            relationships_updated=r[19] or 0,
+            relationships_unchanged=r[20] or 0,
+            relationships_retired=r[21] or 0,
+            links_loaded=r[22] or 0,
+            error_count=r[23] or 0,
+            warning_count=r[24] or 0,
+            issues=_issues(r[25]),
+            issue_counts=_counts(r[26]),
+            truncated=bool(r[27]),
+        )
+
+    def runs(self, limit: int, offset: int, feed_id: str = "") -> list[ImportRun]:
+        where, params = "org_id = ?", [self._org()]
+        if feed_id:
+            where, params = where + " AND feed_id = ?", [*params, feed_id]
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._RUN_COLUMNS)} FROM import_run WHERE {where} "
+            # `run_id` breaks the tie: two runs of the same second would otherwise come back
+            # in whatever order the engine felt like, and a page boundary would drop one.
+            f"ORDER BY started_at DESC, run_id DESC LIMIT {int(limit)} OFFSET {int(offset)}",
+            params,
+        )
+        return [self._row_to_run(r) for r in rows]
+
+    def get_run(self, run_id: str) -> ImportRun | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._RUN_COLUMNS)} FROM import_run WHERE org_id = ? AND run_id = ?",
+            [self._org(), run_id],
+        )
+        return self._row_to_run(rows[0]) if rows else None
+
+    def count_runs(self, feed_id: str = "") -> int:
+        where, params = "org_id = ?", [self._org()]
+        if feed_id:
+            where, params = where + " AND feed_id = ?", [*params, feed_id]
+        rows = self._fetch_all(f"SELECT COUNT(*) FROM import_run WHERE {where}", params)
+        return int(rows[0][0]) if rows else 0
+
+    # ------------------------------------------------------------- staging
+    def _staging(self, table: str) -> str:
+        """`<prefix>_staging.<table>`, refusing anything that is not a plain identifier.
+
+        A staging table is named by configuration rather than by the code, and it goes into a
+        statement as a name rather than as a bound value — so it is checked here, where the
+        statement is built, and not trusted from wherever it came."""
+        if not _STAGING_NAME.fullmatch(table or ""):
+            raise ValueError(f"{table!r} is not a staging table name: use letters, digits and _")
+        return f"{staging_schema(self.schema_prefix)}.{table}"
+
+    def staging_tables(self) -> list[str]:
+        rows = self._fetch_all(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name",
+            [staging_schema(self.schema_prefix)],
+        )
+        return [r[0] for r in rows]
+
+    def read_staging(self, table: str, limit: int, offset: int) -> pd.DataFrame:
+        return self._fetch_df(f"SELECT * FROM {self._staging(table)} LIMIT {int(limit)} OFFSET {int(offset)}")
+
+    def clear_staging(self, table: str) -> int:
+        name = self._staging(table)
+        with self._lock:
+            held = self._fetch_all(f"SELECT COUNT(*) FROM {name}")[0][0]
+            self._execute(f"DELETE FROM {name}")
+        return int(held)
 
     def query(
         self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True

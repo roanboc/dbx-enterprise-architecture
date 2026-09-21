@@ -23,6 +23,10 @@ class Settings:
     agent_model: str = "claude-opus-5"
     max_rows: int = 5000
     admin_contact: str = ""
+    #: The zone times are written and shown in. A schedule means what it says where the
+    #: people reading it are, so it is kept and displayed in this zone rather than in UTC.
+    #: An IANA name (`Australia/Brisbane`, `Europe/Madrid`); UTC when nothing says otherwise.
+    timezone: str = "UTC"
     # On lakebase: the prefix of the store's schemas, one per group of tables; the instance the
     # platform's identity signs in to (the SDK issues the token); or any Postgres instead, as
     # libpq reads a URL or a key=value string; and libpq's own PGHOST, PGPORT, PGDATABASE,
@@ -51,6 +55,7 @@ class Settings:
             agent_model=env.get("EA_AGENT_MODEL", "claude-opus-5"),
             max_rows=int(env.get("EA_MAX_ROWS", "5000")),
             admin_contact=env.get("EA_ADMIN_CONTACT", ""),
+            timezone=env.get("EA_TIMEZONE", "UTC"),
             store_schema=env.get("EA_SCHEMA", "ea"),
             lakebase_instance=env.get("EA_LAKEBASE_INSTANCE", ""),
             pg_dsn=env.get("EA_POSTGRES_DSN", ""),

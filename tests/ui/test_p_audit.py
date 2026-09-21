@@ -375,6 +375,7 @@ NAV_FOR = {
     "/target": "nav-target",
     "/propose": "nav-propose",
     "/import": "nav-import",
+    "/feeds": "nav-feeds",
     "/branches": "nav-branches",
     "/metamodel": "nav-metamodel",
     "/organisations": "nav-organisations",
@@ -857,6 +858,18 @@ def test_propose_audit(ui, record, finding):
 )
 def test_import_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Import", "/import", "src/ea/ui/pages/import_page.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P08b",
+    group="P",
+    title="Feeds against the usability checklist",
+    feature="Screen audit · Feeds",
+    expected="Feeds loads with its notice, its New feed button and a card per configured source, "
+    "and the seven automated checkpoints are applied to it.",
+)
+def test_feeds_audit(ui, record, finding):
+    audit_screen(ui, record, finding, "Feeds", "/feeds", "src/ea/ui/pages/feeds.py")
 
 
 @pytest.mark.scenario(

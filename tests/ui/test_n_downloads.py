@@ -1758,3 +1758,54 @@ def test_a_view_drawn_on_a_hidden_tab(ui, record, finding):
                 "the node rather than a constant — would make the first file as good as the second.",
             )
         )
+
+
+@pytest.mark.scenario(
+    scenario_id="N26",
+    group="N",
+    title="Download current content hands out the contract's own files, and they import back",
+    feature="Downloads · import · the content export",
+    expected=(
+        "Download current content returns a ZIP of elements.csv, relationships.csv, links.csv and "
+        "schema.csv. The three content files are what the importer reads, and the schema file "
+        "describes the columns they may carry rather than holding content itself."
+    ),
+)
+def test_content_export_archive(ui, record):
+    import csv
+    import io
+    import zipfile
+
+    ui.goto("/import")
+    path = ui.download("im-export", ".zip")
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(archive.namelist())
+        ui.check(
+            "the archive holds the three contract files and the schema",
+            names == ["elements.csv", "links.csv", "relationships.csv", "schema.csv"],
+            str(names),
+        )
+        elements = archive.read("elements.csv").decode("utf-8")
+        schema = archive.read("schema.csv").decode("utf-8")
+
+    header = elements.splitlines()[0].split(",")
+    ui.check(
+        "the elements file leads with the contract's own columns",
+        header[:3] == ["id", "type", "name"],
+        str(header[:6]),
+    )
+    ui.check("and carries the column that keeps a relationship's identity", "source_system" in header)
+    ui.check(
+        "it holds the model, not just a header",
+        len(elements.splitlines()) > 40,
+        f"{len(elements.splitlines())} lines",
+    )
+
+    rows = list(csv.DictReader(io.StringIO(schema)))
+    ui.check("the schema file describes every column", len(rows) > 20, f"{len(rows)} rows")
+    ui.check(
+        "and says what each one's parent and type are",
+        {"file", "column", "applies_to", "data_type"} <= set(rows[0]),
+        str(list(rows[0])),
+    )
+    ui.shot("The Import page, having handed out this organisation's content as the contract")

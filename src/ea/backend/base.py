@@ -11,6 +11,7 @@ from ea.models import (
     Branch,
     ChangeSet,
     Element,
+    ImportRun,
     Link,
     MergeResult,
     Organisation,
@@ -19,6 +20,7 @@ from ea.models import (
     Proposal,
     Relationship,
     Review,
+    SourceFeed,
 )
 
 
@@ -246,6 +248,57 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]: ...
+
+    # ---------------------------------------------------------------- feeds
+    @abstractmethod
+    def save_feed(self, feed: SourceFeed, actor: str) -> SourceFeed:
+        """Store a feed's configuration, by feed_id, in the current organisation."""
+
+    @abstractmethod
+    def list_feeds(self) -> list[SourceFeed]: ...
+
+    @abstractmethod
+    def get_feed(self, feed_id: str) -> SourceFeed | None: ...
+
+    @abstractmethod
+    def delete_feed(self, feed_id: str, actor: str) -> None: ...
+
+    # ------------------------------------------------------- import history
+    @abstractmethod
+    def record_run(self, run: ImportRun) -> ImportRun:
+        """Keep what an import did, in the current organisation. The run is written once and
+        never altered: an account of something that happened is not a row to edit."""
+
+    @abstractmethod
+    def runs(self, limit: int, offset: int, feed_id: str = "") -> list[ImportRun]:
+        """Runs newest first, a page at a time — the whole history of one is never read at once.
+
+        `feed_id` narrows it to one feed's own history; empty is every run, a feed's and a
+        person's alike."""
+
+    @abstractmethod
+    def get_run(self, run_id: str) -> ImportRun | None: ...
+
+    @abstractmethod
+    def count_runs(self, feed_id: str = "") -> int:
+        """How many runs there are, so a page can say what it is a page of."""
+
+    # -------------------------------------------------------------- staging
+    @abstractmethod
+    def staging_tables(self) -> list[str]:
+        """The tables waiting in the staging schema, which the store creates and never fills.
+
+        What puts rows there is outside the application — a platform job writing Postgres, or a
+        catalogue table replicated into it. The contract with a source is the shape of the
+        table and nothing else (decision 0020)."""
+
+    @abstractmethod
+    def read_staging(self, table: str, limit: int, offset: int) -> pd.DataFrame:
+        """One page of a staging table, in the order the source wrote it."""
+
+    @abstractmethod
+    def clear_staging(self, table: str) -> int:
+        """Empty a staging table once its rows are loaded. Returns how many rows went."""
 
     # ------------------------------------------------------------------ sql
     @abstractmethod

@@ -26,6 +26,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `target_work_package` | the id of the work package (initiative) that carries the change |
 | `target_note` | why, and into what for `merge` |
 | `source_ref`, `origin`, `source_system` | optional provenance overrides; `source_system` overrides `--source` for that row |
+| `operation` | `upsert` (default) loads the row; `delete` says the source no longer holds it |
 | anything else | an attribute; declared attributes are typed from the pack, others are kept as text |
 
 **relationships.csv**
@@ -38,6 +39,7 @@ Three kinds of file, matched by name: `*element*.csv`, `*relationship*.csv`,
 | `current_state`, `target_state`, `target_work_package`, `target_note` | the same state columns as elements, optional |
 | `status`, `source_ref` | optional |
 | `source_system` | which source declared the edge; optional, and it overrides `--source` for that row. A relationship's identity is derived from it, so a file that carries it updates the edge instead of creating a second one |
+| `operation` | `upsert` (default) loads the row; `delete` retires the edge |
 | anything else | an attribute of the relationship |
 
 **links.csv**: `element_id`, `url`, `label`.
@@ -128,6 +130,50 @@ solves, which is why a description with commas, quotes and newlines round-trips 
 The Import page takes a mapping YAML of your own as well as the two that ship with the
 repository; an uploaded mapping overrides the choice in the dropdown.
 
+## Editing an export in a spreadsheet
+
+The comma is the right separator and quoting handles everything a description can hold —
+commas, quotes, and the newlines of a fenced diagram. The risk in a CSV round trip is not the
+separator; it is what a spreadsheet does to the file when it saves it, and only some of it can
+be recognised afterwards:
+
+| What a spreadsheet does | What happens here |
+| ----------------------- | ----------------- |
+| Reformats a date (`2024-12-31` → `31/12/2024`) | **Caught** — a `wrong_type` warning naming the attribute, and the raw value is kept rather than guessed at |
+| Turns a long numeric identifier into scientific notation (`1.23457E+14`) | **Caught** — a `suspect_identifier` warning, because no source issues an identifier in that shape |
+| Strips leading zeros from an identifier (`007` → `7`) | **Not caught, and cannot be.** `7` is a legitimate identifier and nothing in the file records that it was once `007` |
+| Re-saves with the machine's list separator | **Caught** — the file parses as one column and is refused by naming the separator it was really written with |
+| Truncates a cell past 32,767 characters | **Not caught.** Only a very long description reaches it |
+
+Two things avoid all of it. Format the identifier columns as text before saving, which stops
+both the scientific notation and the lost zeros. And set `id_prefix`, which makes every
+identifier non-numeric (`CMDB-007`) so a spreadsheet has nothing to reinterpret — worth doing
+for the identity reasons below anyway.
+
+## Saying that something is gone
+
+A row whose `operation` is `delete` says the source no longer holds what it names. The row
+need carry nothing else — a source deleting something says it is gone, it does not describe it
+again — so `id,operation` with `E1,delete` is a complete deletion row. A relationship's row
+still carries its two ends and its type, because that is what its identity is derived from.
+
+**What `delete` does is retire, not remove.** The element keeps its relationships, its history
+and its place in every view; its `status` becomes `retired`. Three things follow, and they are
+why this is the only mode today:
+
+- **It is reversible.** Loading the row again without the indicator brings it back. A feed that
+  deletes half an estate by mistake is a re-run away from correct.
+- **Nothing is left pointing at nothing.** Removing an element would leave every relationship
+  that ended on it dangling, and what should happen to those is not yet settled.
+- **A re-sent deletion is not work.** Retiring what is already retired writes nothing and is
+  not counted, so a feed re-sending its deletions every night stays quiet.
+
+`deletion_mode` in the mapping names what a source may do. It takes `retire` today; a source
+naming anything else is refused with the reason rather than quietly retiring instead.
+
+Deleting something the model does not hold is a `delete_unknown` warning, not an error: a
+source is allowed to be sure about what it no longer has.
+
 ## Which column is the identity
 
 Every identifier a source brings — the elements it declares, the endpoints of its
@@ -173,3 +219,25 @@ Markdown descriptions survive the trip, fenced Mermaid diagrams included: commas
 newlines inside a quoted cell are what CSV is for. Two things to know before editing the file in
 a spreadsheet — Excel caps a cell at 32,767 characters, and it re-saves using the list separator
 of the machine that saved it, which is where `delimiter` comes in.
+
+## Feeds: the same load, from a table
+
+A source that runs on a schedule does not upload a file. It leaves rows in the **staging
+schema** of the store's own database — `<EA_SCHEMA>_staging`, which the application creates and
+never fills — and the application loads them through the same validation, the same report, the
+same identity rules and the same branch targeting a file gets.
+
+What puts the rows there is outside the application: a platform job writing to Postgres, or a
+catalogue table replicated into it. **The contract with a source is the shape of the table**,
+which is this document's columns, and nothing else. The application never reaches into a
+catalogue, which is why a feed costs no new dependency, resource, identity or grant
+(decision 0020) — and why the same feed works against DuckDB locally.
+
+A feed names the staging table holding its elements, its relationships and its links, and
+carries the same mapping a file import would use, so `id_prefix`, `match_on`, `deletion_mode`
+and the column renames are said once whichever way the rows arrive.
+
+Rows are emptied **after** they are loaded, and only when the load succeeded. A run that stops
+between the two repeats itself next time, and repeating a load changes nothing the first did
+not already change; clearing first would have lost them. A feed reading a table something else
+maintains — a replicated catalogue table — is configured to leave it alone.

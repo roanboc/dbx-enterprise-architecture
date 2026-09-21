@@ -24,6 +24,7 @@ CORE_ELEMENT_COLUMNS = (
     "source_ref",
     "origin",
     "source_system",
+    "operation",
     *STATE_COLUMNS,
 )
 CORE_RELATIONSHIP_COLUMNS = (
@@ -37,9 +38,20 @@ CORE_RELATIONSHIP_COLUMNS = (
     # that carries it re-imports onto the same edge instead of creating a second one. That is
     # what makes an export of this repository's own content a round trip.
     "source_system",
+    "operation",
     *STATE_COLUMNS,
 )
 CORE_LINK_COLUMNS = ("element_id", "url", "label")
+
+#: What a row says it is doing. A row that says nothing is loading content, which is what
+#: every row did before the column existed.
+OPERATIONS = ("upsert", "delete")
+
+#: What a source is allowed to do when a row says `delete`. Only `retire` today: it keeps the
+#: element, its relationships and its history, and is itself undone by loading the row again.
+#: Removing the row outright waits on what should happen to a relationship whose endpoint went
+#: with it — the open question scope document 18 records.
+DELETION_MODES = ("retire",)
 
 # How a source's lifecycle text maps onto the current state when the mapping says nothing:
 # the first keyword found in the lowercased text wins, in this order.
@@ -119,6 +131,8 @@ class Mapping:
     #: the source system knows its rows by is the human key (`DT007`). Merging on the key
     #: keeps the identity the store already gave the thing, so a reload updates it.
     match_on: str = "id"
+    #: What `operation: delete` does for this source. See DELETION_MODES.
+    deletion_mode: str = "retire"
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Mapping:
@@ -145,6 +159,7 @@ class Mapping:
             delimiter=str(d.get("delimiter") or ","),
             id_prefix=str(d.get("id_prefix") or ""),
             match_on=str(el.get("match_on") or d.get("match_on") or "id").strip().lower(),
+            deletion_mode=str(d.get("deletion_mode") or "retire").strip().lower(),
         )
 
 
