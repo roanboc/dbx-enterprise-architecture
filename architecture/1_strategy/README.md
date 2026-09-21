@@ -14,7 +14,12 @@ realises. The enterprise's own capabilities and value streams are content
 | --- | -------- | -------- | ------------------- |
 | 1   | [1_motivation.md](./1_motivation.md) | Stakeholders, Drivers, Assessments, Goals, Principles | Who cares, what pressures them, what must be true? |
 | 2   | [2_value-stream.md](./2_value-stream.md) | Capability, Value Stream and its stages | What is the repository for, stage by stage, and which processes realise each stage? |
+| 3   | [3_pitch.md](./3_pitch.md) | none — a brief derived from the two above | Why would a sponsor fund this, in one page, without identifiers or technical detail? |
 
 `1_motivation.md` is where **Principles** live — the constraints that a
 proposed change is checked against before anything else. They are few,
 load-bearing and testable.
+
+`3_pitch.md` defines nothing. It is the layer said once, in a sponsor's
+language, for a conversation where an identifier would get in the way — so it
+carries none, and stays answerable to the two documents above it.

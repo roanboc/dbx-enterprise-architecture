@@ -112,6 +112,21 @@ subject is still one application, and its strategy layer stays light.
   product's, and the public repository names no organisation, no sector scope
   and no phase.
 
+### WP4 — The layer said once, for a sponsor
+
+- **Deliverables:** [`architecture/1_strategy/3_pitch.md`](../1_strategy/3_pitch.md),
+  indexed in [`architecture/1_strategy/README.md`](../1_strategy/README.md) and
+  named on [`architecture/README.md`](../README.md).
+- **Outcome:** the reasons this exists can be put in front of someone who funds
+  it. The Requester asked for it after the layer was restated, and it is the
+  restatement's first use: the four pains are `DRV1`, `ASM11`, `ASM12` and
+  `ASM5`/`ASM9` in a sponsor's words, the five benefits are `G1`, `G7`, `G6`,
+  `G2` and the governed-change service, and the *why not buy* paragraph is
+  `ASM10`. **It defines no element and carries no identifier** — which is what
+  the request asked for, and what lets the validator ask it for no status line
+  (`architecture-document-style` § Document status). It is answerable to
+  `1_motivation.md`, never a second place a claim lives.
+
 ## In scope / out of scope
 
 | In scope | Out of scope (gaps, candidate future work) |
@@ -120,6 +135,7 @@ subject is still one application, and its strategy layer stays light.
 | The roadmap's plateaus and gaps bound to the new goals | `packs/higher_education/`, `data/sample/` and `tests/` |
 | Every document outside the coded test scenario de-organisation-ed | Merged scope documents and decision records |
 | `P7` restated without the phase clause | The archreator validators, two minor versions behind the plugin |
+| A one-page sponsor brief derived from the restated layer | Any claim the brief does not already stand on in `1_motivation.md` |
 
 ## Gap notes
 
@@ -145,6 +161,10 @@ subject is still one application, and its strategy layer stays light.
   example questions and each names an element of the seeded sample model, which
   is the coded test scenario. Changing it would make the examples not match what
   `make seed` loads.
+- **The brief is a derived view and will age with the layer.** Nothing checks that it still matches
+  `1_motivation.md`: the validators read identifiers and links, and the brief carries neither by
+  design. A change to a driver, an assessment or a goal should be read against it in the same
+  initiative, the way a diagram is.
 - **The validators are two minor versions behind the plugin** (`scripts/` are
   copies of archreator 0.4.0's scaffold; the plugin is at 0.6.0, whose document
   shape drops the legend and the `## Relationships` section). This initiative
