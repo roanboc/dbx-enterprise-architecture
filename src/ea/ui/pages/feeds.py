@@ -40,6 +40,11 @@ HISTORY_PAGE = 10
 #: run finished and wrote what it could, which is a different thing from one that stopped.
 RUN_STATUS_COLOURS = {"ok": "green", "errors": "yellow", "failed": "red"}
 
+#: How many of a run's issues the history shows. A run keeps up to `MAX_RUN_ISSUES`, and ten
+#: runs on a page each holding two hundred rows is two thousand rows shipped to a browser to
+#: sit inside collapsed panels. The rest are a command away, and the panel says so.
+PANEL_ISSUES = 20
+
 
 def schedule_notice(zone: str) -> str:
     """What the page says at the top about times and about what a schedule does.
@@ -238,16 +243,16 @@ def run_row(run: ImportRun, zone: str) -> Any:
                         )
                         if run.error_count or run.warning_count
                         else None,
-                        issues_table(run.issues) if run.issues else None,
-                        # A run keeps a sample of its issues; the counts beside it are the whole
-                        # of what it found. Saying so is what stops the sample passing for the total.
+                        issues_table(run.issues[:PANEL_ISSUES]) if run.issues else None,
+                        # Three numbers, and conflating any two of them misleads: what the run
+                        # found, what it kept (the most serious first, not the first found), and
+                        # what this panel is showing.
                         dmc.Text(
-                            f"The run kept the first {len(run.issues)} of "
-                            f"{sum(run.issue_counts.values())} issues it found.",
+                            _issues_in_brief(run),
                             size="xs",
                             c="dimmed",
                         )
-                        if run.truncated
+                        if run.truncated or len(run.issues) > PANEL_ISSUES
                         else None,
                     ],
                     gap=6,
@@ -256,6 +261,18 @@ def run_row(run: ImportRun, zone: str) -> Any:
         ],
         value=run.run_id or when,
     )
+
+
+def _issues_in_brief(run: ImportRun) -> str:
+    """What the panel is showing, against what the run kept, against what it found."""
+    found, kept, shown = sum(run.issue_counts.values()), len(run.issues), min(len(run.issues), PANEL_ISSUES)
+    said = f"Showing {shown} of the {kept} issues this run kept"
+    if found > kept:
+        # Ordered by severity rather than by when they were found, so 'the first N' would be
+        # the wrong words for it: an error found last is in the sample, a warning found first
+        # may not be.
+        said += f", the most serious of the {found} it found"
+    return said + f". `ea runs show {run.run_id}` has the rest."
 
 
 def history_list(ctx: AppContext, offset: int = 0) -> Any:

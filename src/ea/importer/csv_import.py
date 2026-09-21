@@ -746,10 +746,22 @@ def import_frames(
     mapping: Mapping | None = None,
     actor: str = "import",
     dry_run: bool = False,
+    report: ImportReport | None = None,
 ) -> ImportReport:
+    """Load the frames, and say what that did.
+
+    `report` is for a caller that has to be able to read the counts even if this never returns:
+    the load writes elements, then relationships, then links, with no transaction around the
+    three (scope 17), so a failure between them leaves rows behind. A recorder holding the
+    report already sees what the earlier steps did; one waiting for the return value would
+    record a run that wrote nothing, over rows that are in the store.
+    """
     mapping = mapping or Mapping()
     source_system = source_system or mapping.source_system or "import"
-    report = ImportReport(source_system=source_system, dry_run=dry_run)
+    if report is None:
+        report = ImportReport(source_system=source_system, dry_run=dry_run)
+    else:
+        report.source_system, report.dry_run = source_system, dry_run
     if mapping.match_on not in MATCH_KEYS:
         raise ValueError(f"match_on must be one of {MATCH_KEYS}, not {mapping.match_on!r}")
     if mapping.deletion_mode not in DELETION_MODES:
@@ -828,7 +840,14 @@ def import_directory(
     mapping: Mapping | None = None,
     actor: str = "import",
     dry_run: bool = False,
+    mapping_yaml: str = "",
 ) -> ImportReport:
+    """Read a directory of CSV files and load them, recording the run.
+
+    `mapping_yaml` is the mapping as text, for the run to keep. A run says what a source's
+    columns meant at the time it read them, and the file they were read from is free to say
+    something else by the time anybody opens the run.
+    """
     mapping = mapping or Mapping()
     problems: list[CsvShapeError] = []
     frames = read_directory(directory, mapping, problems)
@@ -843,9 +862,13 @@ def import_directory(
         actor=actor,
         source_system=source,
         inputs=_file_names(frames, problems),
+        mapping_yaml=mapping_yaml,
         dry_run=dry_run,
     ) as run:
-        report = import_frames(backend, registry, frames, source, mapping, actor, dry_run)
+        # Handed in rather than taken back, so a load that stops half way is recorded with what
+        # it had already written rather than with zeros.
+        run.report = report = ImportReport(source_system=source, dry_run=dry_run)
+        import_frames(backend, registry, frames, source, mapping, actor, dry_run, report)
         for problem in problems:
             report.add_issue(
                 Issue(
@@ -855,7 +878,6 @@ def import_directory(
                     file=problem.filename,
                 )
             )
-        run.report = report
     return report
 
 

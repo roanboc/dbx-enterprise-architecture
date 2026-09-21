@@ -24,6 +24,7 @@ import threading
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from dataclasses import fields
 from datetime import UTC, datetime
 from typing import Any
 
@@ -104,6 +105,54 @@ def _loads(value: Any) -> dict[str, Any]:
         return out if isinstance(out, dict) else {}
     except (TypeError, ValueError):
         return {}
+
+
+_ISSUE_FIELDS = tuple(f.name for f in fields(Issue))
+
+
+def _string_list(value: Any) -> list[str]:
+    """A JSON array of strings, degrading to empty rather than raising on anything else.
+
+    The names are stored as JSON rather than joined on a separator because a file name may
+    legitimately contain one: on POSIX it may contain a newline, and a separator would have
+    turned one file into two on the way back."""
+    try:
+        out = json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in out] if isinstance(out, list) else []
+
+
+def _issues(value: Any) -> list[Issue]:
+    """The issues a run kept, reading only the fields `Issue` declares.
+
+    A row written by a version whose `Issue` had one more field must not make every run
+    unreadable by this one: one unreadable row would take the whole history page with it."""
+    try:
+        raw = json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kept = {k: v for k, v in item.items() if k in _ISSUE_FIELDS}
+        if kept.get("level") and kept.get("code"):
+            out.append(Issue(**{"message": "", **kept}))
+    return out
+
+
+def _counts(value: Any) -> dict[str, int]:
+    """Issue totals by code, skipping anything that is not one rather than raising."""
+    out: dict[str, int] = {}
+    for code, count in _loads(value).items():
+        try:
+            out[str(code)] = int(count)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 #: A staging table is named by configuration, so its name is checked before it reaches a
@@ -2427,7 +2476,7 @@ class SqlBackend(DatabaseBackend):
             r.feed_name or None,
             r.actor or None,
             r.branch_id or None,
-            "\n".join(r.inputs) or None,
+            json.dumps(r.inputs, ensure_ascii=False),
             r.mapping_yaml or None,
             r.started_at,
             r.finished_at,
@@ -2452,10 +2501,6 @@ class SqlBackend(DatabaseBackend):
 
     @staticmethod
     def _row_to_run(r: tuple) -> ImportRun:
-        try:
-            raw = json.loads(r[25]) if r[25] else []
-        except (TypeError, ValueError):
-            raw = []
         return ImportRun(
             run_id=r[0],
             source_system=r[1] or "",
@@ -2464,7 +2509,7 @@ class SqlBackend(DatabaseBackend):
             feed_name=r[4] or "",
             actor=r[5] or "",
             branch_id=r[6] or "",
-            inputs=[line for line in (r[7] or "").split("\n") if line],
+            inputs=_string_list(r[7]),
             mapping_yaml=r[8] or "",
             started_at=r[9],
             finished_at=r[10],
@@ -2482,8 +2527,8 @@ class SqlBackend(DatabaseBackend):
             links_loaded=r[22] or 0,
             error_count=r[23] or 0,
             warning_count=r[24] or 0,
-            issues=[Issue(**i) for i in raw if isinstance(i, dict)],
-            issue_counts={k: int(v) for k, v in _loads(r[26]).items()},
+            issues=_issues(r[25]),
+            issue_counts=_counts(r[26]),
             truncated=bool(r[27]),
         )
 

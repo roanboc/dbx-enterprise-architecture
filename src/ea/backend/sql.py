@@ -40,9 +40,12 @@ FEED_TABLES = ["source_feed", "import_run"]
 # log, the branches and everything that hangs off a branch, the feeds and their history. The
 # organisation table itself and the metamodel tables are shared by every organisation.
 ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES
-# What an organisation's deletion leaves behind. The audit trail answers what happened, and
-# what happened does not stop having happened because the organisation was removed.
-AUDIT_TABLES = ["change_log", "import_run"]
+# What an organisation's deletion leaves behind. The change log is kept because it is the one
+# append-only record of what was done to the store. A run is *not* kept with it: an org_id may
+# be taken again by a later organisation, and a run carries the actor names, file names, issue
+# messages and whole mapping of the organisation that is gone — which would reappear as the new
+# organisation's own history. The change log has always had that hole; this does not widen it.
+AUDIT_TABLES = ["change_log"]
 
 # The tables are grouped the way `architecture/3_information/3_logical-data-model.md` groups
 # them, and each group is a schema of its own, named `<prefix>_<group>`. Someone who opens the

@@ -11,8 +11,8 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from ea.importer.runs import recorded
-from ea.models import ImportReport, ImportRun, Issue, SourceFeed
-from ea.ui.pages.feeds import HISTORY_PAGE, feed_row, history_list, run_row
+from ea.models import MAX_RUN_ISSUES, ImportReport, ImportRun, Issue, SourceFeed
+from ea.ui.pages.feeds import HISTORY_PAGE, PANEL_ISSUES, feed_row, history_list, run_row
 
 
 def _texts(component) -> str:
@@ -281,7 +281,7 @@ def test_a_run_that_stopped_says_why_instead_of_counting_nothing():
 
 
 def test_a_run_that_kept_only_a_sample_of_its_issues_says_so():
-    """The counts beside the sample are the whole of what it found; the sample is not."""
+    """Three numbers, and conflating any two of them misleads: found, kept, shown."""
     run = _a_run(
         status="errors",
         issues=[Issue("error", "bad_type", "no such type", row=1)],
@@ -290,7 +290,22 @@ def test_a_run_that_kept_only_a_sample_of_its_issues_says_so():
         truncated=True,
     )
     said = _texts(run_row(run, "UTC"))
-    assert "kept the first 1 of 900" in said and "900 errors" in said
+    assert "Showing 1 of the 1 issues this run kept" in said, said
+    assert "the most serious of the 900 it found" in said, said
+    assert "900 errors" in said
+    # and it says where the rest are, rather than leaving them unaccounted for
+    assert f"ea runs show {run.run_id}" in said
+
+
+def test_a_history_panel_does_not_ship_every_issue_a_run_kept():
+    """Ten runs on a page, each with a run's full sample, is two thousand rows in a browser."""
+    many = [Issue("warning", "soft", f"warning {i}", row=i) for i in range(MAX_RUN_ISSUES)]
+    run = _a_run(status="errors", issues=many, issue_counts={"soft": MAX_RUN_ISSUES}, warning_count=200)
+    said = _texts(run_row(run, "UTC"))
+    # every issue the panel drew put its own message on the page; count those, not the word
+    drawn = sum(1 for i in range(MAX_RUN_ISSUES) if f"warning {i} |" in said)
+    assert drawn == PANEL_ISSUES, drawn
+    assert f"Showing {PANEL_ISSUES} of the {MAX_RUN_ISSUES} issues this run kept" in said, said
 
 
 def test_an_empty_history_explains_what_would_appear_there(backend):

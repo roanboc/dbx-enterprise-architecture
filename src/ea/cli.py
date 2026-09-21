@@ -287,7 +287,10 @@ def import_cmd(
     _readable_directory(directory)
     _, backend, registry, *_ = _ctx()
     m = load_mapping(mapping) if mapping else None
-    report = import_directory(backend, registry, directory, source, m, actor, dry_run)
+    # The text, not the path: a run has to say what the columns meant *then*, and the file it
+    # was read from may say something else by the time anybody reads the run.
+    said = mapping.read_text(encoding="utf-8") if mapping else ""
+    report = import_directory(backend, registry, directory, source, m, actor, dry_run, said)
     typer.echo(report.summary())
     shown = report.issues if issues <= 0 else report.issues[:issues]
     for iss in shown:
@@ -1088,11 +1091,17 @@ def runs_list(
     offset: int = typer.Option(0, help="skip this many, for the page after"),
 ):
     """Every import run, newest first, in the configured zone. The history is read a page at a time."""
+    from ea import capacity
     from ea.importer.feeds import in_zone
     from ea.importer.runs import counts_in_words, describe_inputs
 
     settings = Settings.from_env()
     _, backend, *_ = _ctx()
+    asked = max(1, int(limit))
+    # One request reads one page here as it does on the screen (decision 0019). A history is
+    # unbounded in a way the model is not — it only grows — so `--limit 1000000` is answered
+    # with a page and the offset to ask for the next, rather than with the whole table.
+    limit = min(asked, capacity.READ_CHUNK)
     total = backend.count_runs(feed)
     runs = backend.runs(limit, offset, feed)
     if not runs:
@@ -1115,6 +1124,8 @@ def runs_list(
         typer.echo(f"    did     : {counts_in_words(r) if r.status != 'failed' else r.message}")
         if r.error_count or r.warning_count:
             typer.echo(f"    issues  : {r.error_count} errors, {r.warning_count} warnings")
+    if asked > limit:
+        typer.echo(f"… --limit is held to {limit} a request; ask for the next page with --offset")
     shown = offset + len(runs)
     if shown < total:
         typer.echo(f"… {total - shown} older not shown (--offset {shown})")
@@ -1148,15 +1159,21 @@ def runs_show(
         typer.echo(f"  said    : {r.summary}")
     if r.message:
         typer.echo(f"  stopped : {r.message}")
+    if r.mapping_yaml:
+        typer.echo("  mapping : " + r.mapping_yaml.strip().replace("\n", "\n            "))
     shown = r.issues if issues <= 0 else r.issues[:issues]
     for iss in shown:
         typer.echo("  " + str(iss))
     found = sum(r.issue_counts.values())
     if found > len(shown):
         by_code = ", ".join(f"{c} {n}" for c, n in sorted(r.issue_counts.items(), key=lambda kv: -kv[1]))
-        # A run keeps a sample of its issues and the full count of them, so this says both
-        # rather than letting the sample pass for the total.
-        typer.echo(f"  … {found - len(shown)} more not kept with the run ({by_code})")
+        # Three numbers, and conflating any two of them misleads: what the run found, what it
+        # kept (a sample, most serious first), and what this printed.
+        held = len(r.issues)
+        if len(shown) < held:
+            typer.echo(f"  … the run kept {held} of the {found} issues it found; {len(shown)} printed")
+        else:
+            typer.echo(f"  … the run kept {held} of the {found} issues it found ({by_code})")
 
 
 # Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a

@@ -12,7 +12,12 @@ stored is worth saying rather than implying: a feed may be configured onto `main
 Three things start an import and all three are recorded the same way: somebody on the Import
 page, `ea import` on the command line, and a feed. The recorder is a context manager so that a
 run which *stops* is recorded too — a refused branch, a frozen review, a mapping that would not
-read. A run that vanished because it failed is the one a reader most wants to find.
+read, a store that went away mid-load. A run that vanished because it failed is the one a
+reader most wants to find.
+
+The one thing not recorded is an attempt by somebody who may not import at all. That is not a
+run; it is a refusal at the door, and writing it would make the history a place the one
+principal `allowed()` denies every write to could fill at will.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from datetime import UTC, datetime
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import current_branch
 from ea.models import MAX_RUN_ISSUES, ImportReport, ImportRun, Issue, SourceFeed
+from ea.services.roles import allowed
 
 log = logging.getLogger(__name__)
 
@@ -129,7 +135,12 @@ def recorded(
     recording = Recording(run)
     try:
         yield recording
-    except Exception as exc:
+    except GeneratorExit:
+        # The generator was closed without the body finishing. Nothing ran, so nothing happened.
+        raise
+    except BaseException as exc:
+        # `BaseException`, not `Exception`: a Ctrl-C during a long import leaves whatever the
+        # load had already written, and that is exactly the run a reader has to be able to find.
         if not dry_run:
             run.status, run.message = "failed", f"{type(exc).__name__}: {exc}"
             # Failing to record a failure must not replace it. What the caller needs to see is
@@ -154,6 +165,16 @@ def recorded(
 
 
 def _close(backend: DatabaseBackend, recording: Recording) -> None:
+    if not allowed("import"):
+        # The one write on the store's contract with no `require()` above it, because it is
+        # reached *by* a refusal: the import gate raises, and the recorder catches it on the way
+        # past. So the gate is read here instead. A caller the application would never let write
+        # content does not get to write the history of trying — otherwise the one principal
+        # `allowed()` denies every write to is the one who can grow the store without bound.
+        # A refusal of *state* — a frozen branch, `main` when the role may not edit it — is a
+        # different thing and is still recorded: those callers may import.
+        log.info("not recording a run: %s", recording.run.message or "the caller may not import")
+        return
     if recording.report is not None:
         _fill(recording.run, recording.report)
     recording.run.finished_at = _utc_now()

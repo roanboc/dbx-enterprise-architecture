@@ -112,7 +112,7 @@ a relationship type and an attribute each have one.
 | `DOBJ3.4` | **Change log** — who changed what, when, from which version to which, with the before and after payload | `history()` in `src/ea/backend/base.py` | table `change_log` | internal |
 | `DOBJ3.5` | **Answer document** — a Markdown document composed from an agent answer: question, answer, elements involved, views as Mermaid, identifiers returned by the tools, ungrounded identifiers, tool trace | `AnswerDocument` and `compose()` in `src/ea/agent/document.py` | not persisted; downloadable as Markdown (question 10, resolved: answer documents are not stored in the repository) | as the content it cites |
 | `DOBJ3.6` | **Proposal** — the sources an architect handed in (text, files, links), the change set the agent derived from them (elements linked or new, relationships, states, work package), the pushback when the sources were insufficient, who proposed and when, and the branch it went to | `Proposal` in `src/ea/models.py`; `ProposalResult` and `ProposalService` in `src/ea/agent/proposal.py`; the Proposal Template in `templates/proposal-template.md` | table `proposal`, kept with the branch | as the content it carries |
-| `DOBJ3.7` | **Import run** — one execution of an import: what started it (an upload, a command, a feed), who by, the organisation and branch it wrote to, the mapping it used, the files or staging tables it read, the counts of what it created, updated, left unchanged and retired, a bounded sample of its issues and the complete count of them by code, and whether it finished or stopped and why. It does **not** hold the before-image of any row it changed, so it is an account of a run rather than the means to reverse one (`GAP19`) | `ImportRun` in `src/ea/models.py`; `recorded()` in `src/ea/importer/runs.py`; `ASVC12` | table `import_run`; kept when its organisation is deleted, as the change log is | internal |
+| `DOBJ3.7` | **Import run** — one execution of an import: what started it (an upload, a command, a feed), who by, the organisation and branch it wrote to, the mapping it used, the files or staging tables it read, the counts of what it created, updated, left unchanged and retired, a bounded sample of its issues and the complete count of them by code, and whether it finished or stopped and why. It does **not** hold the before-image of any row it changed, so it is an account of a run rather than the means to reverse one (`GAP19`) | `ImportRun` in `src/ea/models.py`; `recorded()` in `src/ea/importer/runs.py`; `ASVC12` | table `import_run`; deleted with its organisation, unlike the change log — an `org_id` may be taken again, and a run carries the actor names, file names, issue messages and whole mapping of the organisation that is gone | internal |
 | `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`; `src/ea/importer/feeds.py` | table `source_feed` | internal |
 
 ## Exchange, audit and intake
@@ -190,6 +190,11 @@ spending the memory (assessment `ASM6`, decision 0019).
   a nightly feed writes one a day, so the table grows slowly — but it does grow,
   and no retention is enforced today. Deciding the period is the same decision
   as the change log's, and it is open (`GAP19` names the larger part of it).
+  What bounds it meanwhile is who may write one: a run is recorded only for a
+  caller the application would let import, so the one role `allowed()` denies
+  every write to cannot fill the table by being refused over and over. A refusal
+  of *state* — a frozen branch, `main` where the role may not edit it — is a run
+  and is kept; a refusal at the door is not.
 
 ## Relationships
 

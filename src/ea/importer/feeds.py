@@ -183,29 +183,44 @@ def run_configured_feed(
 
     Two things are recorded, and they are not the same thing. The feed keeps *how its last run
     went*, which is what its card shows without reading anything else; the history keeps *what
-    every run was*, which outlives the feed (`DOBJ3.7`). The recorder sits inside `use_branch`
-    on purpose — a run recorded outside it would name the caller's branch, not the feed's.
+    every run was* (`DOBJ3.7`). The recorder sits inside `use_branch` on purpose — a run
+    recorded outside it would name the caller's branch, not the feed's.
+
+    **Everything that can fail is inside the recorder**, including reading the feed's own
+    mapping. A stored mapping is not parsed when it is saved, so a feed can be configured with
+    YAML that will not read; parsing it outside would have left the one run a reader needs to
+    see — the nightly one that has been failing since Tuesday — in no record at all. And the
+    card is written on the way out whatever happened, so it cannot go on saying `ok` over a
+    feed the history shows failing.
     """
     stored = backend.get_feed(feed_id)
     if stored is None:
         raise NotFoundError(feed_id, "feed")
-    feed = feed_from_config(stored)
-    with use_branch(stored.target_branch or MAIN):
-        with recorded(
-            backend,
-            trigger="feed",
-            actor=actor,
-            feed=stored,
-            inputs=[t for t in (stored.elements_table, stored.relationships_table, stored.links_table) if t],
-            dry_run=dry_run,
-        ) as run:
-            report = run_feed(backend, registry, feed, actor, dry_run)
-            run.report = report
-    if not dry_run:
-        stored.last_run_at = _utc_now()
-        stored.last_run_status = "ok" if report.ok else "errors"
-        stored.last_run_summary = report.summary()
-        backend.save_feed(stored, actor)
+    status, summary = "failed", ""
+    try:
+        with use_branch(stored.target_branch or MAIN):
+            with recorded(
+                backend,
+                trigger="feed",
+                actor=actor,
+                feed=stored,
+                inputs=[
+                    t for t in (stored.elements_table, stored.relationships_table, stored.links_table) if t
+                ],
+                dry_run=dry_run,
+            ) as run:
+                report = run_feed(backend, registry, feed_from_config(stored), actor, dry_run)
+                run.report = report
+        status, summary = ("ok" if report.ok else "errors"), report.summary()
+    except Exception as exc:
+        summary = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        if not dry_run:
+            stored.last_run_at = _utc_now()
+            stored.last_run_status = status
+            stored.last_run_summary = summary
+            backend.save_feed(stored, actor)
     return report
 
 

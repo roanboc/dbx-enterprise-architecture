@@ -70,15 +70,16 @@ def test_a_dry_run_records_nothing(backend, registry):
     assert backend.count_runs() == 0 and backend.runs(10, 0) == []
 
 
-def test_a_run_that_was_refused_is_recorded_as_stopped(backend, registry):
-    """The run a reader most wants to find is the one that failed, so it is the one kept hardest."""
-    with use_role("reader"), pytest.raises(Forbidden):
-        import_directory(backend, registry, SAMPLE, "sample", actor="rita")
+def test_a_caller_who_may_not_import_at_all_writes_no_history(backend, registry):
+    """A refusal at the door is not a run.
 
-    runs = backend.runs(10, 0)
-    assert len(runs) == 1
-    assert runs[0].status == "failed" and "may not" in runs[0].message
-    assert runs[0].elements_created == 0 and runs[0].summary == ""
+    Recording it would make the history the one thing the one principal `allowed()` denies
+    every write to could fill at will, a row of free text at a time."""
+    for _ in range(3):
+        with use_role("reader"), pytest.raises(Forbidden):
+            import_directory(backend, registry, SAMPLE, "sample", actor="mallory")
+
+    assert backend.count_runs() == 0
 
 
 def test_the_run_of_a_frozen_branch_says_why_it_stopped(backend, registry):
@@ -90,6 +91,20 @@ def test_the_run_of_a_frozen_branch_says_why_it_stopped(backend, registry):
     run = backend.runs(10, 0)[0]
     assert run.status == "failed" and run.branch_id == branch.branch_id
     assert "frozen" in run.message
+
+
+def test_a_refusal_of_state_is_recorded_because_the_caller_may_import(backend, registry):
+    """`main` refused to an architect is not the same as a reader refused everything.
+
+    The architect may load content; what stopped them is where they were pointing. That is a
+    run, and the history is where they find out it did not land."""
+    with use_role("architect"), pytest.raises(Forbidden):
+        import_directory(backend, registry, SAMPLE, "sample", actor="alex")
+
+    runs = backend.runs(10, 0)
+    assert len(runs) == 1
+    assert runs[0].status == "failed" and runs[0].actor == "alex"
+    assert "main" in runs[0].message and runs[0].branch_id == MAIN
 
 
 # ------------------------------------------------------------------ a feed's run
@@ -215,21 +230,26 @@ def test_a_run_belongs_to_its_organisation(backend, registry):
     assert backend.count_runs() == 1
 
 
-def test_the_history_survives_the_organisation_it_belonged_to(backend):
-    """The audit trail answers what happened, and it did happen."""
+def test_an_organisations_history_goes_with_the_organisation(backend):
+    """Kept rows would come back as the next organisation's own.
+
+    An org_id is free to be taken again once its organisation is deleted, and every read of the
+    history scopes by org_id alone. A run carries the actor names, the file names, the issue
+    messages and the whole mapping of the organisation that is gone, so keeping it would hand
+    all of that to whoever takes the identifier next."""
     orgs = OrganisationService(backend)
     other = orgs.create("second", "t")
     with use_org(other.org_id):
         with recorded(backend, trigger="command", actor="t", source_system="gone") as run:
             run.report = _empty("gone")
-        assert backend.count_runs() == 1
+        backend.save_feed(SourceFeed(name="Gone", source_system="gone"), "t")
+        assert backend.count_runs() == 1 and len(backend.list_feeds()) == 1
 
     orgs.delete(other.org_id, "t")
 
-    # `use_org` is the context variable, not a check that the organisation is still there —
-    # which is what makes the audit trail readable after the organisation has gone.
     with use_org(other.org_id):
-        assert backend.count_runs() == 1
+        assert backend.count_runs() == 0
+        # the feed goes too: it used to be left behind, because it was in no table group
         assert backend.list_feeds() == []
 
 
@@ -286,3 +306,85 @@ def test_a_store_that_cannot_take_the_row_does_not_replace_the_failure_it_was_re
     with pytest.raises(ValueError, match="what the caller must see"):
         with recorded(backend, trigger="command", actor="t"):
             raise ValueError("what the caller must see")
+
+
+# --------------------------------------------------- what a run says when it stopped
+def test_a_load_that_stops_half_way_is_recorded_with_what_it_had_already_written(
+    backend, registry, monkeypatch
+):
+    """Elements land, then relationships, then links, with no transaction around the three.
+
+    A recorder waiting for the return value would record zeros over rows that are in the store,
+    which is the one thing an account of a run must not do."""
+
+    def fall_over(*_args, **_kwargs):
+        raise RuntimeError("the connection went away")
+
+    monkeypatch.setattr(backend, "upsert_relationships", fall_over)
+    with pytest.raises(RuntimeError):
+        import_directory(backend, registry, SAMPLE, "sample", actor="t")
+
+    run = backend.runs(10, 0)[0]
+    assert run.status == "failed" and "the connection went away" in run.message
+    # the elements the first step wrote are in the store, and the run says so
+    assert run.elements_created > 0
+    assert len(backend.elements_by_ids([e.element_id for e in backend.find_elements(limit=5)])) > 0
+
+
+def test_a_run_interrupted_by_hand_is_recorded(backend):
+    """Ctrl-C during a long import leaves whatever had landed. That is a run, not a non-event."""
+    with pytest.raises(KeyboardInterrupt):
+        with recorded(backend, trigger="command", actor="t", source_system="s"):
+            raise KeyboardInterrupt
+
+    run = backend.runs(10, 0)[0]
+    assert run.status == "failed" and "KeyboardInterrupt" in run.message
+
+
+def test_a_feed_whose_mapping_will_not_read_is_recorded_and_its_card_says_so(backend, registry):
+    """A mapping is stored without being parsed, so a feed can be configured with YAML that
+    will not read. The nightly run that has been failing since Tuesday is the one to find."""
+    feed = backend.save_feed(
+        SourceFeed(name="Broken", source_system="broken", mapping_yaml="id_prefix: [unclosed\n"), "t"
+    )
+    with pytest.raises(Exception, match="(?i)yaml|mapping|scan|pars"):
+        run_configured_feed(backend, registry, feed.feed_id, actor="scheduler")
+
+    run = backend.runs(10, 0)[0]
+    assert run.status == "failed" and run.feed_id == feed.feed_id
+    # and the card cannot go on saying nothing while the history says it failed
+    assert backend.get_feed(feed.feed_id).last_run_status == "failed"
+
+
+def test_a_feed_that_ran_cleanly_says_ok_on_its_card(backend, registry):
+    _land(backend, "ok_elements", COLUMNS, _an_element())
+    feed = backend.save_feed(SourceFeed(name="Fine", source_system="fine", elements_table="ok_elements"), "t")
+    run_configured_feed(backend, registry, feed.feed_id, actor="t")
+    assert backend.get_feed(feed.feed_id).last_run_status == "ok"
+
+
+# ------------------------------------------------------------- reading a row back
+def test_a_file_name_with_a_newline_in_it_is_one_file_on_the_way_back(backend):
+    """A separator would have turned one file into two. POSIX allows the newline."""
+    with recorded(backend, trigger="command", actor="t", inputs=["elements\n-final.csv", "links.csv"]) as run:
+        run.report = _empty("s")
+
+    assert backend.runs(10, 0)[0].inputs == ["elements\n-final.csv", "links.csv"]
+
+
+def test_one_unreadable_row_does_not_take_the_whole_history_with_it(backend):
+    """A row written by a version whose `Issue` had one more field must still read."""
+    with recorded(backend, trigger="command", actor="t", source_system="older") as run:
+        report = _empty("older")
+        report.add_issue(Issue("error", "c", "m"))
+        run.report = report
+    run_id = backend.runs(1, 0)[0].run_id
+    backend._execute(
+        "UPDATE import_run SET issues_json = ?, issue_counts_json = ? WHERE run_id = ?",
+        ['[{"level":"error","code":"c","message":"m","severity":"high"}]', '{"c": "not a number"}', run_id],
+    )
+
+    kept = backend.get_run(run_id)
+    assert [i.code for i in kept.issues] == ["c"]  # the field it does not know is dropped
+    assert kept.issue_counts == {}  # and a count that is not one is skipped, not raised over
+    assert len(backend.runs(10, 0)) == 1

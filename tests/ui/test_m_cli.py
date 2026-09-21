@@ -3850,7 +3850,7 @@ def test_m72_runs(cli, record):
     check(record, "it names the branch it wrote to", "branch  :" in shown, ev)
     check(record, "and when it started, in the configured zone", "started :" in shown, ev)
 
-    rc_missing, missing, ev = run(cli, "runs", "show", "run-nobody-made-this", limit=120)
+    rc_missing, missing, ev = run(cli, "runs", "show", "run-nobody-made-this", expect=1, limit=120)
     check(
         record,
         "an identifier nobody issued is refused by name",
