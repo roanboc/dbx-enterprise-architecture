@@ -167,7 +167,11 @@ until the PoC has users and runs on Databricks. The enterprise content it holds
   0012) — or the debug persona under mock authentication, and from `--as` on
   the command line. `allowed()` is the only
   place that knows what a role may do; every writing path calls `require()`
-  and the pages hide what the role may not use. A branch in review is frozen.
+  and the pages hide what the role may not use. **One write reads `allowed()`
+  instead, and only one:** an import run is recorded *because* the import gate
+  raised, so `require()` there would refuse the very row that says a caller was
+  refused (`importer/runs.py`). It reads the same gate and writes nothing for a
+  caller who may not import at all. A branch in review is frozen.
   Never add a write path without its `require()`.
 - `tests/` — pytest on an in-memory DuckDB, and the command-line scenarios;
   both run in `make check` on every change, and **every behavioural fix has a

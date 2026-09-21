@@ -388,3 +388,47 @@ def test_one_unreadable_row_does_not_take_the_whole_history_with_it(backend):
     assert [i.code for i in kept.issues] == ["c"]  # the field it does not know is dropped
     assert kept.issue_counts == {}  # and a count that is not one is skipped, not raised over
     assert len(backend.runs(10, 0)) == 1
+
+
+def test_a_feed_that_stops_half_way_is_recorded_with_what_it_had_already_written(
+    backend, registry, monkeypatch
+):
+    """The file paths hand a report in so partial counts survive; a feed has to do the same."""
+    _land(backend, "half_elements", COLUMNS, _an_element("H1"), _an_element("H2"))
+    _land(
+        backend,
+        "half_relationships",
+        "src_id VARCHAR, rel_type VARCHAR, dst_id VARCHAR",
+        "'H1','encapsulates','H2'",
+    )
+    feed = backend.save_feed(
+        SourceFeed(
+            name="Half",
+            source_system="half",
+            elements_table="half_elements",
+            relationships_table="half_relationships",
+        ),
+        "t",
+    )
+
+    def fall_over(*_args, **_kwargs):
+        raise RuntimeError("the connection went away")
+
+    monkeypatch.setattr(backend, "upsert_relationships", fall_over)
+    with pytest.raises(RuntimeError):
+        run_configured_feed(backend, registry, feed.feed_id, actor="scheduler")
+
+    run = backend.runs(10, 0)[0]
+    assert run.status == "failed" and run.feed_id == feed.feed_id
+    assert run.elements_created == 2, "the elements the first step wrote are not in the run"
+
+
+def test_a_feed_that_names_a_table_that_is_not_there_still_reports_it(backend, registry):
+    """The staging read's own issues have to survive the report being handed in, not replaced."""
+    feed = backend.save_feed(
+        SourceFeed(name="Absent", source_system="absent", elements_table="never_created"), "t"
+    )
+    report = run_configured_feed(backend, registry, feed.feed_id, actor="t")
+
+    assert [i.code for i in report.issues] == ["no_staging_table"]
+    assert backend.runs(10, 0)[0].issue_counts == {"no_staging_table": 1}

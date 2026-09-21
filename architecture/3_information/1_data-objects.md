@@ -53,7 +53,7 @@ flowchart LR
 | -- | ------ | ----- | ----- |
 | `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the IT division's enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had; two ship — `higher_education` and `archimate_core`, a second framework carried by the same engine |
 | `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (for the PoC, everything is sourced from the current EA tool) | About 4,600 elements in the curriculum slice and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
-| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log |
+| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals, the history of every import and the feeds content arrives on |
 
 ## Objects
 
@@ -191,8 +191,9 @@ spending the memory (assessment `ASM6`, decision 0019).
   and no retention is enforced today. Deciding the period is the same decision
   as the change log's, and it is open (`GAP19` names the larger part of it).
   What bounds it meanwhile is who may write one: a run is recorded only for a
-  caller the application would let import, so the one role `allowed()` denies
-  every write to cannot fill the table by being refused over and over. A refusal
+  caller the application would let import, so neither of the two roles
+  `allowed()` denies every write to — a reader and the agent — can fill the
+  table by being refused over and over. A refusal
   of *state* — a frozen branch, `main` where the role may not edit it — is a run
   and is kept; a refusal at the door is not.
 
@@ -209,6 +210,7 @@ spending the memory (assessment `ASM6`, decision 0019).
 | `DOBJ1.6` | ▤ «Data Object» Metamodel version | `DOBJ1.1` | ▤ «Data Object» Element type | holds | with the relationship types, attributes and domains of the same version |
 | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | `DOBJ2.1` | ▤ «Data Object» Element | imported as | idempotent on source system and reference |
 | `DOBJ3.2` | ▤ «Data Object» Column mapping | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | normalises | |
+| `DOBJ3.1` | ▤ «Data Object» CSV exchange files | `DOBJ3.3` | ▤ «Data Object» Import report | reported in | counts read, loaded and skipped, and every issue |
 | `DOBJ3.4` | ▤ «Data Object» Change log | `DOBJ2.1` | ▤ «Data Object» Element | records changes of | and of relationships and the pack |
 | `DOBJ3.7` | ▤ «Data Object» Import run | `DOBJ3.3` | ▤ «Data Object» Import report | accounts for | the report is what a run said while somebody watched; the run is what it was afterwards |
 | `DOBJ3.8` | ▤ «Data Object» Source feed | `DOBJ3.7` | ▤ «Data Object» Import run | run as | one run per execution; the run outlives the feed, keeping its name |

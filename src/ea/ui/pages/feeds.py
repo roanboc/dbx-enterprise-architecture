@@ -645,6 +645,22 @@ def render(ctx: AppContext) -> html.Div:
     )
 
 
+def _run_failed(feed: SourceFeed | None, feed_id: str, exc: Exception) -> str:
+    """Why Run now did not run, in the reader's terms rather than the exception's.
+
+    A refusal already says what it means. Everything else is named with the feed it was of, so
+    the reader knows which card to open — and told where the account of it is, since the run
+    was recorded before the exception reached here.
+    """
+    if isinstance(exc, Forbidden):
+        return str(exc)
+    who = (feed.name if feed else "") or feed_id
+    return (
+        f"{who} did not run: {type(exc).__name__}: {exc}. "
+        "It is in the history below, and the feed's card says when it last tried."
+    )
+
+
 def _report_view(report: Any, name: str) -> Any:
     colour = "green" if report.ok else "red"
     found = sum(report.counts.values())
@@ -927,23 +943,26 @@ def register(app: dash.Dash) -> None:
         Output(ids.FEED_FEEDBACK, "children"),
         Output(ids.FEED_LIST, "children", allow_duplicate=True),
         Output(ids.RUNS_LIST, "children", allow_duplicate=True),
+        # A run is inserted at the newest end, so the reader is taken back there. Re-rendering
+        # at whatever offset they were on would shift every row down by one and hide the very
+        # run they just started.
+        Output(ids.RUNS_OFFSET, "data", allow_duplicate=True),
         Input({"type": ids.FEED_RUN, "id": dash.ALL}, "n_clicks"),
         Input({"type": ids.FEED_DELETE, "id": dash.ALL}, "n_clicks"),
-        State(ids.RUNS_OFFSET, "data"),
         prevent_initial_call=True,
     )
-    def run_or_delete(run_clicks, delete_clicks, offset):
+    def run_or_delete(run_clicks, delete_clicks):
         """Run one feed now, or forget one. Running honours the branch the feed names."""
         trigger = dash.ctx.triggered_id
         if not isinstance(trigger, dict):
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update
         ctx = get_context()
         feed_id = trigger["id"]
         if trigger.get("type") == ids.FEED_DELETE:
             if not any(delete_clicks or []):
-                return no_update, no_update, no_update
+                return no_update, no_update, no_update, no_update
             if not ctx.can("manage_feeds"):
-                return alert(_why_not_configure(ctx), "red"), no_update, no_update
+                return alert(_why_not_configure(ctx), "red"), no_update, no_update, no_update
             ctx.backend.delete_feed(feed_id, ctx.actor)
             # The feed goes; its history does not. What it loaded happened, and a run that
             # named a feed nobody kept still says what it did.
@@ -952,21 +971,31 @@ def register(app: dash.Dash) -> None:
                     "Feed deleted. Nothing it loaded was touched, and its runs stay in the history.", "blue"
                 ),
                 feed_list(ctx),
-                history_list(ctx, offset),
+                history_list(ctx, 0),
+                0,
             )
         if not any(run_clicks or []):
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update
         feed = ctx.backend.get_feed(feed_id)
         try:
             report = run_configured_feed(ctx.backend, ctx.registry, feed_id, ctx.actor)
-        except Forbidden as exc:
-            # The run was recorded as it failed, so the history is refreshed here too.
-            return alert(str(exc), "red"), no_update, history_list(ctx, offset)
+        except Exception as exc:  # noqa: BLE001 — every way a run can fail belongs on the screen
+            # Not only Forbidden: a stored mapping is never parsed when it is saved, so reading
+            # it is one of the ways Run now fails, and the feed may have been deleted between
+            # the render and the click. The run was recorded and the feed's card rewritten
+            # either way, so both are re-read rather than left showing the run before this one.
+            return (
+                alert(_run_failed(feed, feed_id, exc), "red"),
+                feed_list(ctx),
+                history_list(ctx, 0),
+                0,
+            )
         ctx.graph.invalidate()
         return (
             _report_view(report, feed.name if feed else feed_id),
             feed_list(ctx),
-            history_list(ctx, offset),
+            history_list(ctx, 0),
+            0,
         )
 
     @app.callback(

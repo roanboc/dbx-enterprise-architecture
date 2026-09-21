@@ -967,8 +967,9 @@ class SqlBackend(DatabaseBackend):
             raise NotFoundError(org_id, "organisation")
         with self._lock:
             for table in ORG_TABLES:
-                # The audit trail stays: what an organisation's imports did does not stop
-                # having happened because the organisation was removed.
+                # The change log stays and everything else goes, runs included: an org_id is
+                # free to be taken again, and a run carries the actor names, file names, issue
+                # messages and whole mapping of the organisation that is gone.
                 if table not in AUDIT_TABLES:
                     self._execute(f"DELETE FROM {table} WHERE org_id = ?", [org_id])
             self._execute("DELETE FROM organisation WHERE org_id = ?", [org_id])

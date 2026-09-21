@@ -123,29 +123,33 @@ def run_feed(
     feed: Feed,
     actor: str = "feed",
     dry_run: bool = False,
+    report: ImportReport | None = None,
 ) -> ImportReport:
     """Read the feed's staging tables, load them, then clear what was loaded.
 
     Clearing last is what makes a stopped run safe: the rows are still there, and loading them
     again changes nothing that the first load did not already change.
+
+    **One report throughout.** The staging read raises its issues against it and the load fills
+    its counts into the same object, so a caller holding it — the recorder — sees what the load
+    wrote even if the load never returns. The three writes of an import share no transaction, so
+    a run that stopped between them has counts worth keeping.
     """
-    report = ImportReport(source_system=feed.source_system or feed.mapping.source_system or "feed")
+    if report is None:
+        report = ImportReport(source_system="")
+    report.source_system = feed.source_system or feed.mapping.source_system or "feed"
     frames = frames_from_staging(backend, feed, report)
     if not any(frames.values()):
         return report
-    loaded = import_frames(backend, registry, frames, report.source_system, feed.mapping, actor, dry_run)
-    # The staging read's own issues were raised against `report`; keep them ahead of the
-    # import's so a reader sees what was not read before what was.
-    loaded.issues = report.issues + loaded.issues
-    for code, count in report.counts.items():
-        loaded.counts[code] = loaded.counts.get(code, 0) + count
-    loaded.warning_count += report.warning_count
-    if not dry_run and feed.clear_after and loaded.ok:
+    # The staging read's issues were raised against this report first, so they stay ahead of
+    # the load's: a reader sees what was not read before what was.
+    import_frames(backend, registry, frames, report.source_system, feed.mapping, actor, dry_run, report)
+    if not dry_run and feed.clear_after and report.ok:
         for kind in KINDS:
             table = feed.table_for(kind)
             if table and frames.get(kind):
                 backend.clear_staging(table)
-    return loaded
+    return report
 
 
 def feed_from_config(stored: SourceFeed) -> Feed:
@@ -209,8 +213,10 @@ def run_configured_feed(
                 ],
                 dry_run=dry_run,
             ) as run:
-                report = run_feed(backend, registry, feed_from_config(stored), actor, dry_run)
-                run.report = report
+                # Handed in rather than taken back, so a load that stops half way is recorded
+                # with what it had already written rather than with zeros.
+                run.report = report = ImportReport(source_system=stored.source_system or stored.name)
+                run_feed(backend, registry, feed_from_config(stored), actor, dry_run, report)
         status, summary = ("ok" if report.ok else "errors"), report.summary()
     except Exception as exc:
         summary = f"{type(exc).__name__}: {exc}"

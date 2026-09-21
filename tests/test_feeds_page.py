@@ -11,7 +11,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from ea.importer.runs import recorded
-from ea.models import MAX_RUN_ISSUES, ImportReport, ImportRun, Issue, SourceFeed
+from ea.models import MAX_RUN_ISSUES, Forbidden, ImportReport, ImportRun, Issue, SourceFeed
 from ea.ui.pages.feeds import HISTORY_PAGE, PANEL_ISSUES, feed_row, history_list, run_row
 
 
@@ -326,3 +326,22 @@ def test_the_history_says_which_page_of_how_many_it_is_showing(backend):
 
     second = _texts(history_list(SimpleNamespace(backend=backend), HISTORY_PAGE))
     assert f"{HISTORY_PAGE + 1}–{HISTORY_PAGE + 3} of {HISTORY_PAGE + 3}" in second
+
+
+def test_a_run_that_did_not_run_is_named_with_the_feed_it_was_of():
+    """`Run now` fails in more ways than a refusal, and each belongs on the screen.
+
+    A stored mapping is never parsed when it is saved, so reading it is one of them — and the
+    exception's own words are no help to a reader looking at a page of cards."""
+    from ea.ui.pages.feeds import _run_failed
+
+    said = _run_failed(SourceFeed(name="Reference model"), "feed-1", ValueError("mapping is not YAML"))
+    assert "Reference model did not run" in said and "mapping is not YAML" in said
+    assert "in the history below" in said
+
+    # a refusal already says what it means; it is not dressed up as something else
+    refused = _run_failed(None, "feed-1", Forbidden("A Reader may not load content"))
+    assert refused == "A Reader may not load content"
+
+    # a feed deleted between the render and the click still names something a reader can use
+    assert "feed-1 did not run" in _run_failed(None, "feed-1", RuntimeError("gone"))

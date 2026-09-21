@@ -15,9 +15,9 @@ run which *stops* is recorded too — a refused branch, a frozen review, a mappi
 read, a store that went away mid-load. A run that vanished because it failed is the one a
 reader most wants to find.
 
-The one thing not recorded is an attempt by somebody who may not import at all. That is not a
-run; it is a refusal at the door, and writing it would make the history a place the one
-principal `allowed()` denies every write to could fill at will.
+The one thing not recorded is an attempt by somebody who may not import at all — a reader, or
+the agent. That is not a run; it is a refusal at the door, and writing it would make the
+history the one place a principal `allowed()` denies every write to could fill at will.
 """
 
 from __future__ import annotations
@@ -169,8 +169,8 @@ def _close(backend: DatabaseBackend, recording: Recording) -> None:
         # The one write on the store's contract with no `require()` above it, because it is
         # reached *by* a refusal: the import gate raises, and the recorder catches it on the way
         # past. So the gate is read here instead. A caller the application would never let write
-        # content does not get to write the history of trying — otherwise the one principal
-        # `allowed()` denies every write to is the one who can grow the store without bound.
+        # content does not get to write the history of trying — otherwise a reader or the agent,
+        # the two `allowed()` denies every write to, could grow the store without bound.
         # A refusal of *state* — a frozen branch, `main` when the role may not edit it — is a
         # different thing and is still recorded: those callers may import.
         log.info("not recording a run: %s", recording.run.message or "the caller may not import")

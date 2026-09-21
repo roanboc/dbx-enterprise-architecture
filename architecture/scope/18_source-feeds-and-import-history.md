@@ -49,7 +49,7 @@ per-row before-images. Nothing could be reversed from that. This is the item
 with the largest hidden cost, and the one the feed-target decision below
 mostly removes.
 
-## The three calls the Requester made
+## The calls the Requester made
 
 | Question | Call | What follows from it |
 | -------- | ---- | -------------------- |
@@ -69,8 +69,8 @@ are current without anyone draining a queue of branches.
 | Identifier | Element | Why it is not an existing one |
 | ---------- | ------- | ----------------------------- |
 | `DOBJ3.7` | **Import run** — one execution: its source, actor, organisation, branch, mapping, the files or staging tables it read, the counts, and the issues. **Built without two of the things first listed here:** the before-images of the rows it changed, which are what reversal needs, and a content hash of what it read. Both are named under *what was deliberately left* | `DOBJ3.3` Import report is what a run *said*; this is what a run *was*, and it has to outlive the request that produced it |
-| `DOBJ3.8` | **Source feed** — a configured source: where its staging table is, which mapping it uses, its merge mode, its deletion mode, its target branch or `main`, its trigger, and its watermark | Nothing today configures a source. A mapping (`DOBJ3.2`) says how a file's columns read; it says nothing about where the data comes from or when |
-| `ASVC12` | **Source feeds and import history** — configure a feed, run it on demand or on its trigger, see every run with what it did and what it changed, and reverse one | `ASVC3` is the contract in both directions and this *uses* it. Putting the schedule, the configuration and the run history inside `ASVC3` would make one service own four unrelated things |
+| `DOBJ3.8` | **Source feed** — a configured source: where its staging tables are, which mapping it uses (inline), its target branch or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in. **Three things proposed here are not on it:** a merge mode and a deletion mode, which travel inside the mapping where a source's shape belongs, and a watermark, which nothing needed once a feed empties what it loaded | Nothing today configures a source. A mapping (`DOBJ3.2`) says how a file's columns read; it says nothing about where the data comes from or when |
+| `ASVC12` | **Source feeds** — configure a feed, run it on demand, and see every run with what it read, what it changed and why it stopped. Proposed as *Source feeds and import history*, running "on its trigger" and able to "reverse one"; **shipped as neither**: nothing in the application fires a schedule (decision 0020 puts that outside it) and reversal is not built (`GAP19`) | `ASVC3` is the contract in both directions and this *uses* it. Putting the schedule, the configuration and the run history inside `ASVC3` would make one service own four unrelated things |
 | `ACMP14` | **Feed runner** — reads a staging table into frames, drives `ACMP4` over them, records the run | `ACMP4` is the importer and exporter; it reads files and frames and knows nothing about where they come from |
 | `GAP19` | **A run that landed on `main` cannot be reversed** — opened by this initiative and **left open** | Names the cost the second call above incurs, so it is visible rather than implied. Defined in [1_target-state.md](../6_transition/1_target-state.md), which is where a gap lives |
 
@@ -87,7 +87,7 @@ is an ordinary initiative at the **Understanding** gate.
 | 1_strategy | **No change.** No driver, goal, principle or assessment moves. `P5` holds: a feed's configuration names a table and a mapping, never a type or an institution. |
 | 2_business | **One change to assess.** Review before merge is a business rule, and a feed configured onto `main` writes without a human. The rule is not removed — it is made a property of the feed, and `BPROC1` **Load content from a source** gains an unattended path. The information architect should see this row before anything is built. |
 | 3_information | Two objects added under `DOBJ3` **Exchange and audit**: `DOBJ3.7` Import run and `DOBJ3.8` Source feed. `DOBJ3.4` Change log is unchanged — a bulk import still writes one summary entry, and the before-images a reversible run would need are not written, which is what `GAP19` says. Retention of runs is stated as unenforced rather than implied. |
-| 4_application | `ASVC12` and `ACMP14` added; `ASVC3` and `ACMP4` re-worded for the deletion indicator they would read. `ACMP6`'s page list gains a Feeds page; `ACMP7`'s command list gains `ea feed …`. |
+| 4_application | `ASVC12` and `ACMP14` added; `ASVC3` and `ACMP4` re-worded for the deletion indicator they would read. `ACMP6`'s page list gains a Feeds page, carrying the import history under the feeds; `ACMP7`'s command list gains `ea feed …` and `ea runs …`. |
 | 5_technology | **No change, and the open question is closed.** The application cannot read a catalogue table and will not learn how: decision [0020](../decisions/0020-staging-tables-live-in-the-store.md) puts a staging table in the store's own database, in a schema of its own, reached over the connection the store already holds. No warehouse, no new dependency, no new identity. `NODE2` gains a clause naming the staging schema. |
 | Transition | `GAP4` **No source feeds** is **narrowed, not closed**: a source's rows are read, validated and loaded on a branch or on `main` as the feed is configured, and every run is kept — but nothing in the application fires a schedule, and the per-type source-of-record semantics still wait on the table agreed outside the repository. `GAP19` **opens and stays open**. Roadmap step 3 moves from waiting to in flight, for that same part only. |
 
@@ -122,11 +122,18 @@ is an ordinary initiative at the **Understanding** gate.
 
 ## What the capacity rule requires of it
 
-A staging table is read in pages with `capacity.pages()` and folded into frames
-a page at a time, never held whole. A run's before-images are written as the
-rows are written, not accumulated in the request. The run list is paged like
-every other read. `tests/test_capacity.py` fails a new unbounded read, and it
-would have to cover the feed runner.
+Written before the work; **what shipped differs in two places, and the code says
+so where it differs.** A staging table is read from the store in pages of
+`capacity.READ_CHUNK` and then joined into one frame, not folded a page at a
+time — because the frame is what the importer takes, and a staging table is the
+same size class as an uploaded file. `frames_from_staging` states that bound in
+its own docstring rather than implying a smaller one. Before-images are not
+written at all: that is `GAP19`.
+
+What did hold: the run list is paged like every other read, on the screen and on
+the command line, and one request reads one page however far back a reader goes.
+`tests/test_capacity.py` holds that with a test of its own. It does **not** yet
+cover the feed runner's own read, which is the honest gap in this paragraph.
 
 ## What was built, and what was deliberately left
 
@@ -154,4 +161,5 @@ every kind kept as `DOBJ3.7`, read a page at a time on the Feeds page and throug
 
 | Gate | Approved by | Date | What was approved |
 | ---- | ----------- | ---- | ----------------- |
-| **Understanding** | The product owner (the Requester), in the session | 2026-09-20 | This document, presented with the three findings that shaped it — deletion needs no new mechanism, reversal is impossible from what is logged today, and the catalogue read was unverified — and with the three calls recorded above. Granted after initiative 17 merged |
+| **Understanding** | The product owner (the Requester), in the session | 2026-09-20 | This document, presented with the three findings that shaped it — deletion needs no new mechanism, reversal is impossible from what is logged today, and the catalogue read was unverified — and with the first three calls recorded above. Granted after initiative 17 merged |
+| **Understanding, narrowed** | The product owner (the Requester), in the session | 2026-09-21 | The fourth call: the feeds, the page and the command line having been built and reviewed, what remained of item 5 was put to the Requester as history-then-reversal or both together. **The history was directed, the reversal deferred** — "we should add at least the run history, I'll defer the reversal for when really needed". Narrowing an approved scope needs no new gate; it is recorded here because `GAP19` opens and stays open because of it |
