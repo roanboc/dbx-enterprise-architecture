@@ -31,8 +31,13 @@ def _query(search: str | None) -> dict[str, str]:
 
 
 def _version_options(ctx: AppContext, usable_only: bool = True) -> list[dict[str, str]]:
+    """The versions to pick from: named as a reader knows them, keyed as the store does.
+
+    The value stays the canonical `<pack id>@<version>` because that is what the service
+    takes; only what the reader sees changes.
+    """
     return [
-        {"value": v.ref, "label": f"{v.ref} ({v.status})"}
+        {"value": v.ref, "label": f"{v.label} ({v.status})"}
         for v in ctx.metamodels.versions()
         if not usable_only or v.status != "retired"
     ]
@@ -54,10 +59,23 @@ def _action(label: str, action: str, org_id: str, enabled: bool, colour: str = "
     )
 
 
+def _version_label(ctx: AppContext, ref: str) -> str:
+    """A metamodel version as a reader knows it: its name and its version, never its key.
+
+    Falls back to the reference itself, so a row pointing at a version the store no longer
+    holds still says something rather than nothing.
+    """
+    for v in ctx.metamodels.versions():
+        if v.ref == ref:
+            return v.label
+    return ref or "none"
+
+
 def organisations_table(ctx: AppContext) -> Any:
     here = ctx.org()
     can_manage = ctx.can("manage_organisations")
-    statuses = {v.ref: v.status for v in ctx.metamodels.versions()}
+    held = {v.ref: v for v in ctx.metamodels.versions()}
+    statuses = {ref: v.status for ref, v in held.items()}
     rows = []
     for o in ctx.orgs.list():
         rows.append(
@@ -74,9 +92,20 @@ def organisations_table(ctx: AppContext) -> Any:
                 ),
                 # an identifier broken across two lines reads as two words
                 dmc.Code(o.org_id, style={"whiteSpace": "nowrap"}),
+                # The metamodel by the name it goes by, not by the key it is stored under:
+                # the identifier is opaque (decision 0021) and says nothing to a reader here.
+                # The full reference is on the cell for whoever needs to paste it.
                 dmc.Group(
                     [
-                        dmc.Code(o.pack_ref or "none"),
+                        dmc.Tooltip(
+                            dmc.Text(
+                                held[o.pack_ref].label if o.pack_ref in held else (o.pack_ref or "none"),
+                                size="sm",
+                                fw=500,
+                            ),
+                            label=o.pack_ref or "none",
+                            withArrow=True,
+                        ),
                         dmc.Badge(
                             statuses.get(o.pack_ref, "unknown"),
                             color=STATUS_COLOUR.get(statuses.get(o.pack_ref, ""), "red"),
@@ -379,7 +408,7 @@ def register(app: dash.Dash) -> None:
         return refreshed(
             ctx,
             alert(
-                f"Organisation {o.name} created, applying {o.pack_ref}"
+                f"Organisation {o.name} created, applying {_version_label(ctx, o.pack_ref)}"
                 + (
                     f", with {o.elements} elements and {o.relationships} relationships copied from {o.copied_from}"
                     if o.copied_from

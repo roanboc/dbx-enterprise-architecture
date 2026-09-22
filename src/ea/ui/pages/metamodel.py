@@ -27,7 +27,16 @@ from dash import ctx as dash_ctx
 from ea.metamodel import Registry, pack_to_dict, pack_yaml
 from ea.metamodel.diff import PackDiff
 from ea.metamodel.loader import pack_from_dict, suspect_split_descriptions
-from ea.models import ANY, ATTRIBUTE_TYPES, ConflictError, Forbidden, NotFoundError, Pack, PackVersion
+from ea.models import (
+    ANY,
+    ATTRIBUTE_TYPES,
+    ConflictError,
+    Forbidden,
+    NotFoundError,
+    Pack,
+    PackVersion,
+    slugify,
+)
 from ea.services.roles import a_role
 from ea.ui import graph as gp
 from ea.ui import ids, layout
@@ -507,14 +516,18 @@ def _status_badge(status: str, size: str = "sm") -> dmc.Badge:
 
 
 def _version_options(ctx: AppContext) -> list[dict[str, str]]:
-    """Every stored version; the pack id is said only when the store holds more than one pack."""
+    """Every stored version; the metamodel is named only when the store holds more than one.
+
+    Named, not keyed: the identifier is opaque (decision 0021), so it would tell a reader
+    choosing between two versions nothing at all. The value stays the canonical reference.
+    """
     org = ctx.organisation()
     versions = ctx.metamodels.versions()
     several = len({v.pack_id for v in versions}) > 1
     return [
         {
             "value": v.ref,
-            "label": (f"{v.pack_id} · " if several else "")
+            "label": (f"{v.name} · " if several else "")
             + f"{v.version} · {v.status}"
             + (" · applied here" if v.ref == org.pack_ref else ""),
         }
@@ -566,6 +579,8 @@ def render(ctx: AppContext) -> html.Div:
             html.Div(id=ids.MM_FEEDBACK),
             html.Div(_body(ctx, reg, "manage", FIRST_LIST), id=ids.MM_BODY),
             _draft_modal(ctx),
+            _rename_modal(),
+            dcc.Store(id=ids.MM_RENAME_REF, data=""),
             _confirm_modal(),
         ]
     )
@@ -607,6 +622,41 @@ def _draft_modal(ctx: AppContext) -> dmc.Modal:
                             "Create the draft", id=ids.MM_DRAFT_SAVE, leftSection=icon("tabler:device-floppy")
                         )
                     ],
+                    justify="flex-end",
+                ),
+            ]
+        ),
+    )
+
+
+def _rename_modal() -> dmc.Modal:
+    """Correct what a version is called — at any status, and it says why that is allowed.
+
+    A reader who has been told a published version is frozen will not believe a field that
+    edits one unless the dialog explains the distinction, so it does.
+    """
+    return dmc.Modal(
+        id=ids.MM_RENAME_MODAL,
+        title=modal_title("Rename this metamodel", ids.MM_RENAME_MODAL),
+        closeButtonProps={"aria-label": "Close this dialog"},
+        children=dmc.Stack(
+            [
+                dmc.Text(
+                    "A name is a label: nothing is stored against it and nothing looks anything up by "
+                    "it, so correcting one changes no definition and no organisation. That is why a "
+                    "published version can be renamed while everything it defines stays frozen.",
+                    size="sm",
+                    c="dimmed",
+                ),
+                dmc.TextInput(
+                    id=ids.MM_RENAME_NAME,
+                    label="Name",
+                    required=True,
+                    description="What this metamodel is called wherever a reader sees it",
+                ),
+                html.Div(id=ids.MM_RENAME_FEEDBACK),
+                dmc.Group(
+                    [dmc.Button("Rename", id=ids.MM_RENAME_SAVE, leftSection=icon("tabler:pencil"))],
                     justify="flex-end",
                 ),
             ]
@@ -1003,9 +1053,18 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
         applied = v.applied_by
         rows.append(
             [
+                # This is the one screen where the identifier earns its space: it is where a
+                # person picks up a reference to paste into `ea metamodel …`. So the version
+                # reads plainly and the short identifier sits beside it as something to copy,
+                # with the whole canonical reference on the cell for anyone who needs it.
                 dmc.Group(
                     [
-                        dmc.Code(v.ref),
+                        dmc.Text(v.version, size="sm", fw=600),
+                        dmc.Tooltip(
+                            dmc.Code(v.short_id, style={"whiteSpace": "nowrap"}),
+                            label=v.ref,
+                            withArrow=True,
+                        ),
                         dmc.Badge("shown", color="indigo", size="xs", variant="outline")
                         if v.ref == shown
                         else None,
@@ -1050,6 +1109,9 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
                             "red",
                             "tabler:trash",
                         ),
+                        # At any status: a freeze is on what a version defines, and a name
+                        # defines nothing (decision 0022).
+                        _action("Rename", "rename", v.ref, can_edit, "gray", "tabler:pencil"),
                         _action("Export", "export", v.ref, True, "gray", "tabler:download"),
                     ],
                     gap=4,
@@ -1063,7 +1125,7 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
 
 def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
     versions = ctx.metamodels.versions()
-    options = [{"value": v.ref, "label": f"{v.ref} ({v.status})"} for v in versions]
+    options = [{"value": v.ref, "label": f"{v.label} ({v.status})"} for v in versions]
     shown = reg.pack.ref
     derived = reg.pack.derived_from if any(v.ref == reg.pack.derived_from for v in versions) else ""
     # A draft is compared from what it was copied from; anything else from itself to the newest other version.
@@ -2002,6 +2064,9 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_CONFIRM_TEXT, "children"),
         Output(ids.MM_CONFIRM_STORE, "data"),
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Output(ids.MM_RENAME_MODAL, "opened"),
+        Output(ids.MM_RENAME_NAME, "value"),
+        Output(ids.MM_RENAME_REF, "data"),
         Input({"type": ids.MM_VER_ACTION, "action": ALL, "ref": ALL}, "n_clicks"),
         State(ids.MM_TABS, "value"),
         State(ids.MM_LISTS, "value"),
@@ -2010,52 +2075,110 @@ def register(app: dash.Dash) -> None:
     def version_action(clicks, tab, list_tab):
         trigger = dash_ctx.triggered_id
         if not isinstance(trigger, dict) or not any(n for n in (clicks or []) if n):
-            return (no_update,) * 11
+            return (no_update,) * 14
         ctx = get_context()
         action, ref = trigger.get("action"), trigger.get("ref")
         quiet = (no_update,) * 7
         try:
             if action == "show":
-                return rerender(ctx, ref, tab, list_tab) + (no_update, no_update, no_update, no_update)
+                return rerender(ctx, ref, tab, list_tab) + (no_update,) * 7
             if action == "export":
                 pack = ctx.metamodels.get(ref)
-                return quiet + (
-                    no_update,
-                    no_update,
-                    no_update,
-                    dcc.send_string(pack_yaml(pack), f"{pack.id}-{pack.version}-metamodel.yaml"),
+                # Named for the reader who has to find the file afterwards, not keyed: an
+                # opaque identifier in a file name is a file nobody can pick out of a folder.
+                stem = slugify(pack.name) if pack.name else pack.id
+                return (
+                    quiet
+                    + (
+                        no_update,
+                        no_update,
+                        no_update,
+                        dcc.send_string(pack_yaml(pack), f"{stem}-{pack.version}-metamodel.yaml"),
+                    )
+                    + (no_update,) * 3
                 )
             if action == "draft":
                 draft = ctx.metamodels.draft(ref, ctx.actor)
                 ctx.reload_registry()
-                return rerender(
-                    ctx,
-                    draft.ref,
-                    "manage",
-                    list_tab,
-                    alert(f"Draft {draft.ref} created from {ref}; it is shown now.", "green"),
-                ) + (no_update, no_update, no_update, no_update)
+                return (
+                    rerender(
+                        ctx,
+                        draft.ref,
+                        "manage",
+                        list_tab,
+                        alert(f"Draft {draft.name} {draft.version} created; it is shown now.", "green"),
+                    )
+                    + (no_update,) * 7
+                )
             if action == "publish":
                 v = ctx.metamodels.publish(ref, ctx.actor)
                 ctx.reload_registry()
-                return rerender(
-                    ctx, ref, tab, list_tab, alert(f"{v.ref} is published and frozen.", "green")
-                ) + (
-                    no_update,
-                    no_update,
-                    no_update,
-                    no_update,
+                return (
+                    rerender(
+                        ctx,
+                        ref,
+                        tab,
+                        list_tab,
+                        alert(f"{v.label} is published: what it defines is frozen from now on.", "green"),
+                    )
+                    + (no_update,) * 7
                 )
+            if action == "rename":
+                v = ctx.metamodels.version(ref)
+                return quiet + (no_update,) * 4 + (True, v.name, ref)
             if action in ("retire", "delete"):
+                label = ctx.metamodels.version(ref).label
                 what = (
-                    f"Retire {ref}? It stays in the store for the record but can no longer be applied."
+                    f"Retire {label}? It stays in the store for the record but can no longer be applied."
                     if action == "retire"
-                    else f"Delete {ref}? A draft nobody applies is removed for good."
+                    else f"Delete {label}? A draft nobody applies is removed for good."
                 )
-                return quiet + (True, dmc.Text(what, size="sm"), {"action": action, "ref": ref}, no_update)
+                return (
+                    quiet
+                    + (True, dmc.Text(what, size="sm"), {"action": action, "ref": ref}, no_update)
+                    + (no_update,) * 3
+                )
         except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 10
-        return (no_update,) * 11
+            return (alert(str(exc), "red"),) + (no_update,) * 13
+        return (no_update,) * 14
+
+    @app.callback(
+        *body_outputs,
+        Output(ids.MM_RENAME_MODAL, "opened", allow_duplicate=True),
+        Output(ids.MM_RENAME_FEEDBACK, "children"),
+        Input(ids.MM_RENAME_SAVE, "n_clicks"),
+        State(ids.MM_RENAME_NAME, "value"),
+        State(ids.MM_RENAME_REF, "data"),
+        State(ids.MM_VERSION, "data"),
+        State(ids.MM_TABS, "value"),
+        State(ids.MM_LISTS, "value"),
+        prevent_initial_call=True,
+    )
+    def rename_version(n, name, ref, shown, tab, list_tab):
+        """Write the new name, and leave the reader on the version they were looking at.
+
+        The dialog keeps its own feedback so a refusal — an empty name, or a role that may
+        not edit the metamodel — is answered where the reader is typing rather than behind
+        a dialog they then have to close to read.
+        """
+        if not n or not ref:
+            return (no_update,) * 9
+        ctx = get_context()
+        try:
+            v = ctx.metamodels.rename(ref, name or "", ctx.actor)
+        except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
+            return (no_update,) * 7 + (no_update, alert(str(exc), "red"))
+        # The registry holds the pack's name too, so the header and every subtitle are stale
+        # until it is read again — but only when the version renamed is the one being shown.
+        if ref == shown:
+            ctx.reload_registry()
+        return rerender(
+            ctx,
+            shown,
+            tab,
+            list_tab,
+            alert(f"Renamed to {v.name}. Nothing it defines changed, and no organisation moved.", "green"),
+        ) + (False, None)
 
     @app.callback(
         *body_outputs,
