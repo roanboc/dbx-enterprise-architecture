@@ -12,7 +12,10 @@
 # LOCAL (the institution's own additions and sub-types).
 
 pack:
-  id: higher_education
+  # Opaque and permanent (decision 0021): minted once, carried by this file, and never
+  # recomputed — so the name below is free to change and a store that already held this
+  # framework as `higher_education` is brought forward onto the same key rather than forking it.
+  id: mm_9mqjcx2s4h8y5cx0
   name: Higher Education EA Metamodel
   version: "2026-08-11"
   status: published

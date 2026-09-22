@@ -19,16 +19,23 @@ from ea.backend.organisations import use_org
 from ea.metamodel.diff import PackDiff, diff_packs
 from ea.metamodel.registry import Registry
 from ea.models import (
+    PACK_ID_PREFIX,
     CompatibilityReport,
     ConflictError,
     Issue,
     NotFoundError,
     Pack,
     PackVersion,
+    slugify,
     split_pack_ref,
     validate_version,
 )
 from ea.services.roles import require
+
+#: How many characters of an identifier, past its prefix, a person has to give before the
+#: service will act on it. Six of a Crockford base32 alphabet is thirty bits — unmistakable in
+#: any store worth the name, and short enough to read off a screen and type back.
+MIN_ID_PREFIX = 6
 
 #: The most issues one compatibility report keeps. Past it the report counts rather than
 #: lists: a reader deciding whether to apply a version needs the shape of the damage, and
@@ -51,11 +58,52 @@ class MetamodelService:
                 return v
         raise NotFoundError(ref, "metamodel version")
 
+    def resolve_pack(self, text: str) -> str:
+        """The pack a person means, from an identifier or from a name.
+
+        An identifier is opaque now (decision 0021), so nobody types one in full: the rule is
+        one look at the first characters. A token beginning `mm_` is an identifier — exact, or
+        a prefix long enough to be unmistakable, the way a commit is named by its first few
+        characters. Anything else is a name, matched through `slugify` so that
+        `Higher Education EA Metamodel`, `higher education ea metamodel` and
+        `higher_education_ea_metamodel` all reach the same pack.
+
+        Two packs matching is a refusal that lists them, never a silent pick: choosing one for
+        somebody who was ambiguous is how the wrong metamodel gets applied to an organisation.
+        """
+        token = (text or "").strip()
+        if not token:
+            raise NotFoundError("(empty)", "metamodel")
+        held = self.backend.list_pack_versions()
+        if token.startswith(PACK_ID_PREFIX):
+            if len(token) < len(PACK_ID_PREFIX) + MIN_ID_PREFIX:
+                raise NotFoundError(
+                    token, f"metamodel (an identifier needs {MIN_ID_PREFIX} characters after the prefix)"
+                )
+            matches = {v.pack_id for v in held if v.pack_id.startswith(token)}
+        else:
+            wanted = slugify(token) if any(c.isalnum() for c in token) else token
+            matches = {v.pack_id for v in held if v.name and slugify(v.name) == wanted}
+        if not matches:
+            raise NotFoundError(token, "metamodel")
+        if len(matches) > 1:
+            named = sorted({f"{v.name or v.pack_id} ({v.short_id})" for v in held if v.pack_id in matches})
+            raise ConflictError(f"{token!r} names more than one metamodel: " + ", ".join(named))
+        return matches.pop()
+
     def resolve(self, ref: str) -> tuple[str, str]:
-        """`pack@version` to the pair, or a bare pack id to its most recently loaded version; refused when unknown."""
-        pack_id, version = split_pack_ref(ref)
-        if not pack_id:
+        """A reference to the canonical `(pack id, version)` pair; refused when unknown.
+
+        The pack half is whatever `resolve_pack` accepts; the version half, when it is left
+        off, is the most recently loaded version of that pack.
+        """
+        token, version = split_pack_ref(ref)
+        if not token:
             raise NotFoundError(ref or "(empty)", "metamodel version")
+        try:
+            pack_id = self.resolve_pack(token)
+        except NotFoundError:
+            raise NotFoundError(ref, "metamodel version") from None
         held = self.backend.list_pack_versions(pack_id)
         if not held:
             raise NotFoundError(ref, "metamodel version")
@@ -110,6 +158,27 @@ class MetamodelService:
         self.backend.save_pack(draft, actor)
         return draft
 
+    def rename(self, ref: str, name: str, actor: str) -> PackVersion:
+        """Correct what a version is called, whatever its status (decision 0022).
+
+        A freeze is on what a version *defines*, and a name defines nothing: nothing keys off
+        it, because the identifier does that and it is opaque (decision 0021). So a published
+        version — or a retired one, kept to be read by whoever applied it — is renamed where it
+        is wrong, rather than by copying a whole definition into a new version to carry the
+        correction. The rename is recorded in the change log with the name it had.
+        """
+        require("edit_metamodel", what="rename a metamodel version")
+        wanted = (name or "").strip()
+        if not wanted:
+            raise ValueError("a metamodel needs a name — it is what a reader sees")
+        pack = self.get(ref)
+        if pack.name != wanted:
+            pack.name = wanted
+            # Through `save_pack`, not around it: on a draft this rewrites the row like any
+            # other edit, and on a frozen version it takes the one path that writes a name.
+            self.backend.save_pack(pack, actor)
+        return self.version(f"{pack.id}@{pack.version}")
+
     def publish(self, ref: str, actor: str) -> PackVersion:
         """Freeze a draft: from now on its content cannot change, only be copied into a new draft."""
         require("publish_metamodel", what="publish a metamodel version")
@@ -152,7 +221,9 @@ class MetamodelService:
         ends the version no longer allows — before anything is applied.
         """
         registry = Registry(pack)
-        report = CompatibilityReport(org_id=org_id, pack_id=pack.id, version=pack.version)
+        report = CompatibilityReport(
+            org_id=org_id, pack_id=pack.id, pack_name=pack.name, version=pack.version
+        )
 
         def keep(issue: Issue) -> None:
             # what a pack does not declare is kept, as the importer keeps it

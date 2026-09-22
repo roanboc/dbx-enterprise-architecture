@@ -9,7 +9,18 @@ from typing import Any
 
 import yaml
 
-from ea.models import ANY, AttributeDef, AttributeGroup, Domain, ElementType, Pack, RelationshipType, slugify
+from ea.models import (
+    ANY,
+    AttributeDef,
+    AttributeGroup,
+    Domain,
+    ElementType,
+    Pack,
+    RelationshipType,
+    is_pack_id,
+    pack_id_from_legacy,
+    slugify,
+)
 
 log = logging.getLogger(__name__)
 
@@ -126,10 +137,30 @@ PACK_KEYS = {
 }
 
 
+def _pack_id_of(meta: dict[str, Any]) -> str:
+    """The identifier a pack file is stored under.
+
+    A file written since decision 0021 carries an opaque one and is taken at its word. Anything
+    else is folded into one deterministically rather than minted: a file exported before the
+    identifier changed, and a file somebody wrote by hand with a readable `id:` or none at all,
+    each land on the same key however many times they are loaded and on whatever machine — so
+    loading one twice is the no-op it looks like, not a second framework.
+    """
+    given = str(meta.get("id") or "").strip()
+    if is_pack_id(given):
+        return given
+    # No identifier at all is a framework the store has not met; its name is the only stable
+    # thing about it, so that is what the key is folded from.
+    legacy = given or slugify(str(meta.get("name") or ""))
+    derived = pack_id_from_legacy(legacy)
+    log.info("pack %r carries no opaque identifier; reading it as %s", legacy, derived)
+    return derived
+
+
 def pack_from_dict(data: dict[str, Any]) -> Pack:
     meta = data.get("pack") or {}
-    if "id" not in meta:
-        raise ValueError("pack file needs a `pack:` block with an `id`")
+    if not (meta.get("id") or meta.get("name")):
+        raise ValueError("pack file needs a `pack:` block with an `id` or a `name`")
     domains = [
         Domain(
             id=d["id"],
@@ -199,8 +230,8 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
         )
     return resolve_attribute_groups(
         Pack(
-            id=meta["id"],
-            name=meta.get("name", meta["id"]),
+            id=_pack_id_of(meta),
+            name=meta.get("name") or str(meta.get("id") or ""),
             version=str(meta.get("version") or "1"),
             description=meta.get("description", ""),
             source=meta.get("source", ""),
