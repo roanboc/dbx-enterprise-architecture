@@ -215,6 +215,19 @@ class Ui:
         self.page.keyboard.press("Escape")
         self.settle()
 
+    def multi_values(self, selector: str) -> list[str]:
+        """What a MultiSelect is showing as chosen: its pills, not its search box.
+
+        `input_value()` reads the search box, which is empty whatever has been chosen — the
+        choices are pills beside it — so a scenario that reads the value sees nothing and
+        reports a filter that is plainly set as unset. A reader looks at the pills.
+        """
+        field = self.page.locator(self._sel(selector)).first
+        wrapper = field.locator("xpath=ancestor::*[contains(@class, 'mantine-MultiSelect-input')][1]")
+        root = wrapper.first if wrapper.count() else field
+        labels = root.locator("[class*='mantine-Pill-label']")
+        return [t.strip() for t in labels.all_inner_texts() if t.strip()]
+
     def clear_multi(self, selector: str) -> None:
         """Empty a MultiSelect by taking every pill off it, which is what a reader does."""
         field = self.page.locator(self._sel(selector)).first

@@ -255,7 +255,7 @@ def test_m03_find(cli, record, finding):
     check(
         record,
         "every word must match, so an impossible pair lists nothing",
-        not [ln for ln in none_lines if not ln.startswith("no elements")],
+        not [ln for ln in none_lines if not ln.startswith("nothing matches")],
         none_ev,
     )
     # `branch list` and `reviewers list` both say so when they have nothing; `find` used to
@@ -263,7 +263,7 @@ def test_m03_find(cli, record, finding):
     check(
         record,
         "and it says so rather than answering with an empty screen",
-        any(ln.startswith("no elements") and "'course lakehouse'" in ln for ln in none_lines),
+        any(ln.startswith("nothing matches") and "'course lakehouse'" in ln for ln in none_lines),
         trim(none_out, 120) or "(nothing at all)",
     )
     if not none_out.strip():
@@ -2094,8 +2094,18 @@ def test_m41_find_options(cli, record, finding):
     must(record, "the unrestricted search returned a ranked list", rc == 0 and len(all_lines) > 3, ev)
 
     _, capped, capped_ev = run(cli, "find", "course", "--limit", "2", limit=120)
-    capped_lines = [ln for ln in capped.splitlines() if ln.strip()]
+    capped_all = [ln for ln in capped.splitlines() if ln.strip()]
+    # A cut list ends in the footer saying how much was cut and how to read on — the same
+    # footer the empty-query listing below asserts. It is not a row.
+    capped_cut = [ln for ln in capped_all if ln.lstrip().startswith("…")]
+    capped_lines = [ln for ln in capped_all if ln not in capped_cut]
     check(record, "--limit caps the list", len(capped_lines) == 2, f"{len(capped_lines)} rows for --limit 2")
+    check(
+        record,
+        "and says the list was cut, with how to read on",
+        len(capped_cut) == 1 and "--offset 2" in capped_cut[0] and f"of {len(all_lines)}" in capped_cut[0],
+        trim(capped_cut[0] if capped_cut else "(nothing said the list was cut)", 120),
+    )
     check(
         record,
         "the rows it keeps are the top of the ranking, not an arbitrary two",

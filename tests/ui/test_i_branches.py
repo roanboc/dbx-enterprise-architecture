@@ -520,8 +520,9 @@ def test_merge_a_subset(ui, record):
     feature="Branches · conflict",
     expected=(
         "With the same two elements changed on a branch and then on main, the merge log marks both "
-        "rows conflict, the head counts two, base and main versions differ, and the accordion says "
-        "main moved since the branch took its copy."
+        "rows conflict, the head counts two, base and main versions differ, each row arrives "
+        "undecided and unticked because a person has to settle it, and the accordion says main "
+        "moved since the branch took its copy."
     ),
 )
 def test_conflict_is_flagged(ui, record, finding):
@@ -564,11 +565,14 @@ def test_conflict_is_flagged(ui, record, finding):
             base.isdigit() and main_v.isdigit() and int(main_v) > int(base),
             f"base {base}, main {main_v}",
         )
+        # A conflict is nobody's to settle but a person's, so it arrives with no take chosen
+        # and its tick off — a default here would merge a decision the reader never made.
         ui.check(
-            f"{element_id} offers a take, defaulting to the branch's row",
-            _row(ui, key, "resolution") == "branch",
-            _row(ui, key, "resolution"),
+            f"{element_id} offers a take and chooses none of it for you",
+            _row(ui, key, "resolution") == "",
+            _row(ui, key, "resolution") or "(undecided)",
         )
+        ui.check(f"{element_id} is not ticked to merge either", not _included(ui, key))
     ui.shot("Both rows are flagged conflict, with the base version beside main's")
     item = _accordion_item(ui, D1)
     item.locator("[class*='Accordion-control']").first.click()

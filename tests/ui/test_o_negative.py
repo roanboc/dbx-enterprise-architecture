@@ -1135,8 +1135,8 @@ UNKNOWN_TYPE = "o_not_a_real_type"
     feature="Negative · browse · a type in the address",
     expected=(
         f"/browse?type={UNKNOWN_TYPE} keeps the filter it was given rather than dropping it: the grid "
-        "holds no rows and the count says so; the type box can then be put back to All types and the "
-        "model returns."
+        "holds no rows, the count says so, and the note names the type the pack does not hold and "
+        "offers the way back; taking the filter off then brings the model back."
     ),
 )
 def test_browse_type_that_the_pack_does_not_hold(ui, record, finding):
@@ -1158,33 +1158,35 @@ def test_browse_type_that_the_pack_does_not_hold(ui, record, finding):
     ui.check("and the count says so rather than counting something else", count == "0 of 0", count)
     ui.shot("An address naming a type the pack does not hold: an empty grid, counted as empty")
 
-    box = ui.page.locator("#browse-type").first.input_value()
-    names_it = UNKNOWN_TYPE in _page(ui) or bool(re.search(r"unknown|no such type", _page(ui), re.I))
-    _pick(ui, "browse-type", "All types")
+    # Finding O-7 of an earlier round — an unknown type emptied the grid without a word — has
+    # been answered: `_filter_note` names the type and offers the way back. It is a check now.
+    note = ui.text("browse-filter-note") or _page(ui)
+    ui.check(
+        "the page says which type it was asked for and that the pack does not hold it",
+        UNKNOWN_TYPE in note and "does not hold" in note,
+        _brief(note),
+    )
+    ui.check(
+        "and offers the way back rather than leaving the reader with an empty model",
+        ui.page.locator("#browse-filter-note a[href='/browse']").count() > 0,
+        _brief(note),
+    )
+
+    # The type filter is a MultiSelect: nothing is chosen by taking the pill off it, and its
+    # placeholder is not an option anybody can pick.
+    ui.clear_multi("browse-type")
     back = ui.grid_row_count(GRID)
     ui.check(
-        "the reader is not stuck: All types brings the model back",
+        "the reader is not stuck: taking the type off brings the model back",
         back > 0,
         f"{back} rows after clearing the filter",
     )
-    ui.shot("The same page with the type filter put back to All types: the model returns")
-    if not names_it:
-        finding.append(
-            _finding(
-                finding_id="O-7",
-                where="src/ea/ui/pages/browse.py · render(), the ?type= parameter",
-                severity="usability",
-                summary="A type in the address that the pack does not hold empties the grid without a word",
-                detail=(
-                    f"render() passes the ?type= straight into the filter, so /browse?type={UNKNOWN_TYPE} "
-                    f"counts '0 of 0' and shows nothing, while the type box reads {box!r} because the "
-                    "value matches no option. A stale bookmark, or a link to a type since renamed in the "
-                    "pack, therefore reads as a repository with nothing in it. The Impact page refuses an "
-                    "element it does not hold out loud ('Unknown element.'); Browse should say the same "
-                    "about a type rather than answer with an empty model."
-                ),
-            )
-        )
+    ui.check(
+        "and no type is left chosen",
+        ui.multi_values("browse-type") == [],
+        str(ui.multi_values("browse-type")),
+    )
+    ui.shot("The same page with the type filter taken off: the model returns")
 
 
 # ------------------------------------------------- a branch name the proposal cannot be applied to

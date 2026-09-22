@@ -1,7 +1,7 @@
 """Group A — the shell: the header, the four navigation groups, routing and the narrow viewport.
 
 Every other group works inside this frame, so these scenarios prove the frame itself: that Home
-summarises the model, that all ten links reach their page and say which one the reader is on,
+summarises the model, that every link reaches its page and says which one the reader is on,
 that an address nobody typed correctly still lands somewhere, and that the header keeps its
 badges, its branch selector and its persona switcher at 1600 px and at 480 px.
 
@@ -31,15 +31,17 @@ HEADER = ".mantine-AppShell-header"
 NAVBAR = ".mantine-AppShell-navbar"
 
 # label, path, the id layout.py gives the link, and the heading the page answers with
+# In the order `layout.NAV_SECTIONS` draws them, because A03 compares the two lists whole.
 NAV = [
     ("Home", "/", "nav-home", "Default organisation"),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
     ("Impact", "/impact", "nav-impact", "Impact"),
     ("Target state", "/target", "nav-target", "Target state"),
-    ("Propose", "/propose", "nav-propose", "Propose a change"),
-    ("Import", "/import", "nav-import", "Import"),
     ("Branches", "/branches", "nav-branches", "Branches"),
+    ("Import", "/import", "nav-import", "Import"),
+    ("Feeds", "/feeds", "nav-feeds", "Feeds"),
+    ("Propose", "/propose", "nav-propose", "Propose a change"),
     ("Metamodel", "/metamodel", "nav-metamodel", "Metamodel"),
     ("Organisations", "/organisations", "nav-organisations", "Organisations"),
     ("Health", "/health", "nav-health", "Health"),
@@ -311,7 +313,8 @@ def test_navigation_routes(ui, record):
     group="A",
     title="The navigation is grouped Home, Discover, Contribute, Manage",
     feature="Shell · navigation",
-    expected="The four group headings are present, in that order, with all ten links under them.",
+    expected="The four group headings are present, in that order, with every link the shell offers "
+    "under them, labelled as the page it opens and in the order the shell draws them.",
 )
 def test_navigation_groups(ui, record):
     ui.goto("/")
@@ -324,7 +327,13 @@ def test_navigation_groups(ui, record):
         f"found: {found}",
     )
     links = ui.page.locator(f"{NAVBAR} a[href]")
-    ui.check("ten links are offered", links.count() == 10, f"{links.count()} links")
+    # Counted from NAV rather than a literal: the navigation has gained a link three times
+    # and a number written here is stale the next time it does.
+    ui.check(
+        f"{len(NAV)} links are offered",
+        links.count() == len(NAV),
+        f"{links.count()} links, NAV has {len(NAV)}",
+    )
     hrefs = {links.nth(i).get_attribute("href") for i in range(links.count())}
     ui.check(
         "every page in the model is linked",
@@ -656,9 +665,11 @@ def test_home_type_link_filters_browse(ui, record):
     ui.check("the address carries the type as a query parameter", ui.page.url.endswith(href), ui.page.url)
     ui.check("Browse is the page that opened", _page_heading(ui) == "Browse", _page_heading(ui))
     ui.check("nothing reports a failure", "This page failed to render" not in ui.body())
-    value = ui.page.locator("#browse-type").first.input_value() or ""
-    ui.check(f"the type filter is set to {name}", value.startswith(name), f"the filter reads {value!r}")
-    ui.check("the filter says how many that type has", f"({count})" in value, f"the filter reads {value!r}")
+    chosen = ui.multi_values("browse-type")
+    value = chosen[0] if chosen else ""
+    ui.check(f"the type filter is set to {name}", value.startswith(name), f"the filter reads {chosen!r}")
+    ui.check("the filter says how many that type has", f"({count})" in value, f"the filter reads {chosen!r}")
+    ui.check("and it is the only type chosen", len(chosen) == 1, f"the filter reads {chosen!r}")
     ui.check(
         f"the grid holds the {count} elements Home counted",
         ui.grid_row_count("browse-grid") == int(count),

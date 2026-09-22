@@ -221,7 +221,7 @@ def shell(
             dmc.NotificationContainer(id=ids.NOTIFY, position="top-right"),
             new_branch_modal(work_packages or []),
             # The first thing the keyboard reaches, so a reader working without a mouse is
-            # not walked through the header and the ten navigation links on every screen.
+            # not walked through the header and every navigation link on every screen.
             html.A("Skip to the page", href="#page", className="ea-skip-link"),
             dmc.AppShell(
                 [

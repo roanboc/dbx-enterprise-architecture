@@ -1860,9 +1860,10 @@ def test_browse_result_set_export(ui, record):
     title="A feed's example comes down beside the field that asks for a staging table",
     feature="Downloads · feeds · the staging example",
     expected=(
-        "The example beside the staging-table field downloads as the contract's own archive, so "
-        "somebody filling a staging table has its shape in front of them rather than having to go "
-        "and find the Import page."
+        "The example beside the staging-table field downloads as the contract's own archive — the "
+        "three contract files, the generated schema and the README — so somebody filling a staging "
+        "table has its shape and its columns in front of them rather than having to go and find "
+        "the Import page."
     ),
 )
 def test_feed_staging_example(ui, record):
@@ -1875,9 +1876,12 @@ def test_feed_staging_example(ui, record):
     path = ui.download("feed-example", ".zip")
     with zipfile.ZipFile(path) as archive:
         names = sorted(archive.namelist())
+        # Five, not four: `contract_example` puts the template's own README.md in beside the
+        # three contract files and the generated schema. R12 asserts the same list from the
+        # Feeds side; what this scenario adds is that the columns inside are the contract's.
         ui.check(
-            "the example holds the three contract files and the schema",
-            names == ["elements.csv", "links.csv", "relationships.csv", "schema.csv"],
+            "the example holds the three contract files, the schema and the README",
+            names == ["README.md", "elements.csv", "links.csv", "relationships.csv", "schema.csv"],
             str(names),
         )
         header = archive.read("elements.csv").decode("utf-8").splitlines()[0]

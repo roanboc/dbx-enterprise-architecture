@@ -9,6 +9,7 @@ with a `B-` prefix so it cannot collide with another group's data.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -205,9 +206,11 @@ def test_row_click_opens_element(ui, record):
     element_id = ui.grid_cell(GRID, 0, "element_id")
     ui.must("there is a row to click", bool(element_id))
     ui.grid_click_cell(GRID, 0, "sel")
+    # The path only: Browse writes its filters into the address now, so the search above
+    # leaves a query string behind and the reader has still not gone anywhere.
     ui.check(
         "clicking the tick column does not navigate away",
-        ui.page.url.rstrip("/").endswith("/browse"),
+        urlsplit(ui.page.url).path.rstrip("/").endswith("/browse"),
         ui.page.url,
     )
     ui.shot("Ticking a row keeps the reader on Browse")
@@ -676,8 +679,9 @@ def test_address_presets_the_filters(ui, record):
     ui.goto("/browse")
     _, whole_model = _counts(ui)
     ui.goto("/browse?type=data_entity")
-    label = _value(ui, "browse-type")
-    ui.check("the type filter shows the type the address named", label.startswith("Data Entity"), label)
+    chosen = ui.multi_values("browse-type")
+    label = chosen[0] if chosen else ""
+    ui.check("the type filter shows the type the address named", label.startswith("Data Entity"), str(chosen))
     _, of_that_type = _counts(ui)
     ui.must("the address narrowed the grid to one type", 0 < of_that_type < whole_model, label)
     types = _column(ui, "type")
@@ -875,35 +879,35 @@ def test_unreadable_days(ui, record):
 @pytest.mark.scenario(
     scenario_id="B23",
     group="B",
-    title="A column header sorts the grid without changing what is in it",
+    title="The sort control orders the whole result set without changing what is in it",
     feature="Browse · the grid",
-    expected="Clicking the Name header sorts the rows by name, clicking it again reverses them, and "
-    "the 'N of M' count never moves.",
+    expected="Choosing Name orders the rows by name, the Reverse switch turns them around, and the "
+    "'N of M' count never moves. The order is the store's, over every matching row, not the "
+    "grid's over the page it happens to hold — so the column headers do not sort.",
 )
 def test_column_sorting(ui, record):
     ui.goto("/browse")
     ui.must("there are rows to sort", ui.grid_row_count(GRID) > 2)
     before = ui.text("browse-count")
-    header = _header_cell(ui, "name")
-    header.locator(".ag-header-cell-label").first.click()
-    ui.settle()
+    ui.check(
+        "the column headers do not offer a sort of their own",
+        not ui.page.locator(f"#{GRID} .ag-header-cell-sortable").count(),
+        f"{ui.page.locator(f'#{GRID} .ag-header-cell-sortable').count()} sortable header(s)",
+    )
+    ui.select("browse-sort", "Name", exact=True)
     ascending = _column(ui, "name")
     ui.check(
-        "one click sorts the names upwards",
+        "choosing Name sorts the names upwards",
         ascending == sorted(ascending) or ascending == sorted(ascending, key=str.lower),
         str(ascending[:4]),
     )
-    ui.check(
-        "and the header says which way it is sorted",
-        (_header_cell(ui, "name").get_attribute("aria-sort") or "") == "ascending",
-        f"aria-sort={_header_cell(ui, 'name').get_attribute('aria-sort')}",
-    )
-    ui.shot("The grid sorted by name, upwards")
-    header.locator(".ag-header-cell-label").first.click()
-    ui.settle()
+    ui.check("and the address carries the order", "sort=name" in ui.page.url, ui.page.url)
+    ui.shot("The grid ordered by name, upwards")
+
+    ui.toggle("browse-desc", True)
     descending = _column(ui, "name")
     ui.check(
-        "a second click sorts them downwards",
+        "the Reverse switch sorts them downwards",
         descending == sorted(descending, reverse=True)
         or descending == sorted(descending, key=str.lower, reverse=True),
         str(descending[:4]),
@@ -913,17 +917,14 @@ def test_column_sorting(ui, record):
         bool(descending) and bool(ascending) and descending[0] != ascending[0],
         f"{ascending[0]!r} upwards, {descending[0]!r} downwards",
     )
-    ui.check(
-        "and the header says so too",
-        (_header_cell(ui, "name").get_attribute("aria-sort") or "") == "descending",
-        f"aria-sort={_header_cell(ui, 'name').get_attribute('aria-sort')}",
-    )
+    ui.check("and the address carries the reversal too", "desc=1" in ui.page.url, ui.page.url)
     ui.check(
         "sorting changes no count",
         ui.text("browse-count") == before,
         f"{ui.text('browse-count')} against {before}",
     )
-    ui.shot("The same rows sorted by name, downwards")
+    ui.shot("The same rows ordered by name, downwards")
+    ui.toggle("browse-desc", False)
 
 
 @pytest.mark.scenario(
