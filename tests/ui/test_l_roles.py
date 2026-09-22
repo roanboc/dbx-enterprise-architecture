@@ -1193,7 +1193,7 @@ def test_new_element_forced_by_a_reader(ui, record):
     title="The Metamodel's lists are read-only for a Reader, and every write behind them is refused",
     feature="Metamodel · role gating",
     expected=(
-        "A Reader reads all four lists and can open none of their cells; Add, Delete and Save are "
+        "A Reader reads all five lists and can open none of their cells; Add, Delete and Save are "
         "disabled with the reason beside them; and the save and the deletion forced past the disabled "
         "buttons, and the file a Load would store, are each refused by the server, naming the role."
     ),
@@ -1202,14 +1202,18 @@ def test_new_element_forced_by_a_reader(ui, record):
 def test_metamodel_write_paths_as_reader(ui, record, finding):
     _as(ui, READER)
     ui.goto("/metamodel")
-    ui.must("the type grid is on the page", ui.visible("mm-types-grid"))
+    # Manage opens on Domains, its first pill.
+    ui.must("the metamodel lists are on the page", ui.visible("mm-domains-grid"))
     # The whole tab is read-only, not half of it: a cell that takes an edit nobody may store
-    # is a dead end, so the controls that write are off and the cells do not open.
+    # is a dead end, so the controls that write are off and the cells do not open. All five
+    # lists, in the order the pills are drawn — a list left out here is a list whose Add and
+    # Delete nothing has ever checked a role against.
     for label, add, delete in (
+        ("Domains", "mm-add-domain", "mm-del-domain"),
         ("Element types", "mm-add-type", "mm-del-type"),
         ("Relationship types", "mm-add-rel", "mm-del-rel"),
         ("Attributes", "mm-add-attr", "mm-del-attr"),
-        ("Domains", "mm-add-domain", "mm-del-domain"),
+        ("Attribute groups", "mm-add-group", "mm-del-group"),
     ):
         _mm_tab(ui, label)
         ui.check(f"a Reader may not add a row to {label}", _blocked(ui, add))

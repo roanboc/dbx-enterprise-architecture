@@ -1462,15 +1462,25 @@ def test_element_tabs_audit(ui, record, finding):
 @pytest.mark.scenario(
     scenario_id="P17",
     group="P",
-    title="The Metamodel tabs behind Element types, against the usability checklist",
+    title="The Metamodel tabs behind Domains, against the usability checklist",
     feature="Screen audit · Metamodel tabs",
-    expected="Relationship types, Attributes, Notation and Reviewers each open their own panel, and the "
-    "checkpoints that a state can change are applied to each — four grids and a notation preview that the "
-    "screen audit never sees, because the panels behind the first tab are hidden.",
+    expected="Element types, Relationship types, Attributes, Attribute groups, Notation and Reviewers "
+    "each open their own panel, and the checkpoints that a state can change are applied to each — five "
+    "grids and a notation preview that the screen audit never sees, because the panels behind the first "
+    "tab are hidden.",
 )
 def test_metamodel_tabs_audit(ui, record, finding):
     ui.goto("/metamodel")
-    for label in ("Relationship types", "Attributes", "Notation", "Reviewers"):
+    # Everything except the pill Manage opens on, which the screen audit of /metamodel already
+    # reaches. The list moves with the pills: a tab dropped from here is a tab nothing audits.
+    for label in (
+        "Element types",
+        "Relationship types",
+        "Attributes",
+        "Attribute groups",
+        "Notation",
+        "Reviewers",
+    ):
         opened = _open_tab(ui, "#page", label)
         ui.check(f"the {label} tab opens its own panel", opened, f"aria-selected is {opened}")
         text = _panel_text(ui, "#page")

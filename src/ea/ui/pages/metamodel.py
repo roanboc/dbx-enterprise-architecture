@@ -1,7 +1,7 @@
 """Metamodel manager: one version at a time.
 
-Six tabs over the version shown: **Manage** (the lists: element types, relationship types,
-attributes, domains — edited in grids and saved), **Graph** (the type graph, grouped and
+Six tabs over the version shown: **Manage** (the five lists: domains, element types,
+relationship types, attributes, attribute groups — edited in grids and saved), **Graph** (the type graph, grouped and
 laid out like every other network graph), **Architecture view** (the metamodel drawn in the
 notation it declares, downloadable), **Notation** (how each domain and type is drawn),
 **Versions** (every stored version, its state, who applies it, drafts, publishing and the
@@ -60,6 +60,10 @@ TABS = [
     ("versions", "Versions", "tabler:versions"),
     ("reviewers", "Reviewers", "tabler:user"),
 ]
+
+#: The list the Manage tab opens on. It is the first pill, so a reader is never dropped on
+#: the second one; `_manage_panel` draws the pills in this order.
+FIRST_LIST = "domains"
 
 TYPE_COLS = [
     # An id is fixed once saved (rows are matched by it, and content is typed by it); a row the
@@ -560,7 +564,7 @@ def render(ctx: AppContext) -> html.Div:
             dcc.Store(id=ids.MM_VERSION, data=reg.pack.ref),
             dcc.Store(id=ids.MM_CONFIRM_STORE, data=None),
             html.Div(id=ids.MM_FEEDBACK),
-            html.Div(_body(ctx, reg, "manage", "types"), id=ids.MM_BODY),
+            html.Div(_body(ctx, reg, "manage", FIRST_LIST), id=ids.MM_BODY),
             _draft_modal(ctx),
             _confirm_modal(),
         ]
@@ -626,7 +630,7 @@ def _confirm_modal() -> dmc.Modal:
     )
 
 
-def _body(ctx: AppContext, reg: Registry, tab: str, list_tab: str = "types") -> Any:
+def _body(ctx: AppContext, reg: Registry, tab: str, list_tab: str = FIRST_LIST) -> Any:
     pack = reg.pack
     org = ctx.organisation()
     applied = org.pack_ref == pack.ref
@@ -727,10 +731,14 @@ def _manage_panel(ctx: AppContext, reg: Registry, list_tab: str) -> Any:
                 [
                     dmc.TabsList(
                         [
+                            # In the order a metamodel is read rather than the order it was built:
+                            # a domain groups element types, a type carries attributes, an
+                            # attribute names one of the groups. The panels below are matched to
+                            # these by `value`, so their own order is not what a reader sees.
+                            dmc.TabsTab(f"Domains ({len(pack.domains)})", value="domains"),
                             dmc.TabsTab(f"Element types ({len(pack.element_types)})", value="types"),
                             dmc.TabsTab(f"Relationship types ({len(pack.relationship_types)})", value="rels"),
                             dmc.TabsTab(f"Attributes ({n_attrs})", value="attrs"),
-                            dmc.TabsTab(f"Domains ({len(pack.domains)})", value="domains"),
                             dmc.TabsTab(f"Attribute groups ({len(pack.attribute_groups)})", value="groups"),
                         ]
                     ),
@@ -1581,7 +1589,7 @@ def register(app: dash.Dash) -> None:
         reg = _shown(ctx, ref)
         return (
             message,
-            _body(ctx, reg, tab or "manage", list_tab or "types"),
+            _body(ctx, reg, tab or "manage", list_tab or FIRST_LIST),
             _counts(reg, ctx),
             reg.pack.ref,
             _version_options(ctx),

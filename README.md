@@ -23,7 +23,7 @@ identifiers it came from.
 
 | Deliverable | Where |
 | ----------- | ----- |
-| **Metamodel manager** — one version at a time under six tabs: four editable lists (element types, relationship types, attributes, domains) where rows are added, edited and deleted with whatever depended on them; the type graph; the metamodel drawn as an architecture view; the notation editor; the versions and their lifecycle; and who reviews what. Export as a YAML pack, load one back | Metamodel page |
+| **Metamodel manager** — one version at a time under six tabs: five editable lists (domains, element types, relationship types, attributes, attribute groups) where rows are added, edited and deleted with whatever depended on them; the type graph; the metamodel drawn as an architecture view; the notation editor; the versions and their lifecycle; and who reviews what. Export as a YAML pack, load one back | Metamodel page |
 | **A metamodel in versions** — a pack is stored per version, drafted from another, compared with another row by row, published (and then frozen, so what was validated against it stays validated) or retired. Every part of a pack — the pack, a domain, a type, a relationship type, an attribute — carries a `properties` bag the engine keeps and never interprets, and an attribute declares its own rules: a default, several values, a unit, a pattern, bounds, a group and help | Metamodel page (Versions tab), `ea metamodel …` |
 | **Organisations** — the store holds more than one enterprise, one of them the default: each has its own elements, relationships, branches and reviews, and applies exactly one metamodel version. A change to the metamodel is tried in an organisation copied from the default, on the real content, and applied to the default when it is right — no second environment, and the check before applying says what the change would leave invalid | Organisations page, header selector, `ea org …`, `--org` on every command |
 | **Browse and edit elements** — search by type, text and status; Markdown descriptions, links, typed attributes read and edited in the groups the metamodel declares, relationships in and out with the attributes their type carries, neighbourhood graph, history; optimistic concurrency | Browse and Element pages |
@@ -75,7 +75,7 @@ seeded by `make seed`.
 
 | | |
 | --- | --- |
-| **Metamodel** — one version at a time: four editable lists, the type graph, the architecture view, the notation, the versions and the reviewers ![Metamodel](docs/screenshots/metamodel.png) | **Organisations** — who applies which version of the metamodel, and where a change is tried before it reaches the default ![Organisations](docs/screenshots/organisations.png) |
+| **Metamodel** — one version at a time: five editable lists, the type graph, the architecture view, the notation, the versions and the reviewers ![Metamodel](docs/screenshots/metamodel.png) | **Organisations** — who applies which version of the metamodel, and where a change is tried before it reaches the default ![Organisations](docs/screenshots/organisations.png) |
 | **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) | |
 
 ## Quick start

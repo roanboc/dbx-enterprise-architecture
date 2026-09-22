@@ -66,7 +66,9 @@ ORG = "Default organisation"
 SHIPPED_FILE = Path(__file__).resolve().parents[2] / "packs" / PACK / "metamodel.yaml"
 
 TABS = ["Manage", "Graph", "Architecture view", "Notation", "Versions", "Reviewers"]
-LISTS = ["Element types", "Relationship types", "Attributes", "Domains"]
+# In the order the Manage tab draws its pills: a domain groups element types, a type carries
+# attributes, an attribute names one of the groups. The page opens on the first of them.
+LISTS = ["Domains", "Element types", "Relationship types", "Attributes", "Attribute groups"]
 DOMAINS = ["Information", "Process", "Integration", "Objects of enterprise concern"]
 COUNTS = re.compile(r"(\d+) active types, (\d+) inactive, (\d+) relationship types, (\d+) attributes")
 
@@ -94,10 +96,17 @@ def _action_id(action: str, ref: str) -> str:
 
 
 def _open(ui) -> None:
-    """A fresh Metamodel page, showing the version the organisation applies, on the Manage tab.
+    """A fresh Metamodel page, on the Manage tab with the element types open.
+
+    Manage opens on Domains, its first pill; nearly every scenario below works in the element
+    types grid, so this puts them there. J04 is the one that reads which pill a fresh page
+    opens on, so the click here is not asserted — a default that moves again should move one
+    scenario, not abort forty.
 
     Anything typed into a grid and not saved is gone."""
     ui.goto("/metamodel")
+    ui.click('#mm-lists [role="tab"]:has-text("Element types")')
+    ui.page.wait_for_timeout(250)
     ui.must("the Metamodel page rendered its lists", ui.visible("mm-types-grid"))
 
 
@@ -108,7 +117,7 @@ def _tab(ui, label: str) -> None:
 
 
 def _list(ui, label: str) -> None:
-    """One of the four lists inside Manage."""
+    """One of the five lists inside Manage."""
     _tab(ui, "Manage")
     ui.click(f'#mm-lists [role="tab"]:has-text("{label}")')
     ui.page.wait_for_timeout(250)
@@ -768,16 +777,21 @@ def test_tapping_a_type_fills_the_detail(ui, record):
 @pytest.mark.scenario(
     scenario_id="J04",
     group="J",
-    title="Six tabs over the version, and four lists inside Manage",
+    title="Six tabs over the version, and five lists inside Manage",
     feature="Metamodel · tabs",
     expected=(
         "Manage, Graph, Architecture view, Notation, Versions and Reviewers each open, mark themselves "
-        "current and show their own panel; inside Manage the four lists each open their own grid, "
-        "with the count of rows in the pill's label."
+        "current and show their own panel; inside Manage the five lists are drawn in the order a "
+        "metamodel is read — domains, element types, relationship types, attributes, attribute "
+        "groups — a fresh page opens on the first of them, and each opens its own grid with the "
+        "count of rows in the pill's label."
     ),
 )
 def test_the_tabs_and_the_lists(ui, record):
-    _open(ui)
+    # Not `_open`, which clicks onto the element types for the scenarios that follow: this is
+    # the one scenario that reads a fresh page, so it goes there itself.
+    ui.goto("/metamodel")
+    ui.must("the Metamodel page rendered its lists", ui.visible("mm-domains-grid"))
     tabs = ui.page.locator('#mm-tabs > [role="tablist"] [role="tab"]')
     ui.check(
         "the page offers the six tabs",
@@ -786,7 +800,7 @@ def test_the_tabs_and_the_lists(ui, record):
     )
     ui.check("Manage is open to begin with", _active_tab(ui) == "Manage", _active_tab(ui))
     proof = {
-        "Manage": lambda: ui.visible("mm-types-grid"),
+        "Manage": lambda: ui.visible("mm-domains-grid"),
         "Graph": lambda: ui.visible(GP_CY),
         "Architecture view": lambda: (ui.wait_mermaid(), ui.visible(VIEW))[1],
         "Notation": lambda: ui.visible("mm-notation-domains-grid"),
@@ -798,17 +812,25 @@ def test_the_tabs_and_the_lists(ui, record):
         ui.check(f"the {label} tab marks itself current", _active_tab(ui) == label, _active_tab(ui))
         ui.check(f"the {label} tab shows its own panel", proof[label]())
     ui.shot("The Reviewers tab, the last of the six, open over its own grid")
+    # Attribute groups is drawn and counted like the rest, so it is read like the rest. It can
+    # be legitimately empty, which is why its rows are not required below.
     grids = {
+        "Domains": "mm-domains-grid",
         "Element types": "mm-types-grid",
         "Relationship types": "mm-rels-grid",
         "Attributes": "mm-attrs-grid",
-        "Domains": "mm-domains-grid",
+        "Attribute groups": "mm-groups-grid",
     }
     _tab(ui, "Manage")
     pills = ui.page.locator('#mm-lists [role="tab"]').all_inner_texts()
     ui.check(
         "each list says how many rows it holds",
         all(re.search(r"\(\d+\)$", p.strip()) for p in pills),
+        str(pills),
+    )
+    ui.check(
+        "the lists are drawn in the order a metamodel is read",
+        [re.sub(r"\s*\(\d+\)$", "", p.strip()) for p in pills] == LISTS,
         str(pills),
     )
     for label, grid in grids.items():
@@ -821,8 +843,9 @@ def test_the_tabs_and_the_lists(ui, record):
             not any(ui.visible(g) for g in others),
             f"visible: {[g for g in others if ui.visible(g)]}",
         )
-        ui.check(f"the {label} grid has rows", ui.grid_row_count(grid) > 0, f"{grid} is empty")
-    ui.shot("Manage: the Domains list, the last of the four, open over its own grid")
+        if label != "Attribute groups":
+            ui.check(f"the {label} grid has rows", ui.grid_row_count(grid) > 0, f"{grid} is empty")
+    ui.shot("Manage: the Attribute groups list, the last of the five, open over its own grid")
 
 
 @pytest.mark.scenario(
