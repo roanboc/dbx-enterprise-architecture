@@ -35,7 +35,7 @@ import pytest
 import yaml
 from tests.conftest import HIGHER_ED
 
-from ea.models import slugify
+from ea.models import short_pack_id, slugify
 
 pytestmark = pytest.mark.gui
 
@@ -444,8 +444,11 @@ def _row_of(ui, ref: str) -> str:
         row = rows.nth(i)
         first = row.locator("td").first
         # A draft names the version it was derived from in a column of its own, so a row is
-        # found by the version it *is* — its first cell — not by one it mentions.
-        if first.count() and ref in first.inner_text():
+        # found by the version it *is* — its first cell — not by one it mentions. That cell
+        # prints the version and the short identifier, never the whole key (decision 0021).
+        pack_id, _, version = ref.partition("@")
+        text = first.inner_text() if first.count() else ""
+        if version and version in text.split() and short_pack_id(pack_id) in text:
             return re.sub(r"\s+", " ", row.inner_text()).strip().lower()
     return ""
 
@@ -1492,8 +1495,10 @@ def test_versions_tab(ui, record):
     )
     cmp_from = ui.page.locator("#mm-cmp-a").first.input_value()
     cmp_to = ui.page.locator("#mm-cmp-b").first.input_value()
-    ui.check("Compare starts from the version shown", PUBLISHED in cmp_from, cmp_from)
-    ui.check("to the other version in the store", DRAFT_REF in cmp_to, cmp_to)
+    ui.check(
+        "Compare starts from the version shown", f"{SHIPPED_NAME} {PUBLISHED_VERSION}" in cmp_from, cmp_from
+    )
+    ui.check("to the other version in the store", f"{SHIPPED_NAME} {DRAFT}" in cmp_to, cmp_to)
     ui.click("mm-cmp-run")
     result = ui.text("mm-cmp-result")
     ui.check(
@@ -1508,7 +1513,7 @@ def test_versions_tab(ui, record):
     )
     ui.check("and counts what changed", "element type: 1 changed" in result, result[:200])
     ui.shot("The Versions tab: both versions, and the difference between them")
-    ui.select("mm-cmp-b", PUBLISHED, exact=False)
+    ui.select("mm-cmp-b", f"{SHIPPED_NAME} {PUBLISHED_VERSION}", exact=False)
     ui.click("mm-cmp-run")
     ui.check(
         "a version compared with itself is reported as the same",
@@ -2263,7 +2268,11 @@ def test_publish_retire_and_delete(ui, record):
     _open(ui)
     _versions(ui)
     feedback = _act(ui, "publish", DRAFT_REF)
-    ui.must("the draft was published", f"{DRAFT_REF} is published and frozen." in feedback, feedback)
+    ui.must(
+        "the draft was published",
+        f"{SHIPPED_NAME} {DRAFT} is published: what it defines is frozen" in feedback,
+        feedback,
+    )
     row = _row_of(ui, DRAFT_REF)
     ui.check("the row says it is published", "published" in row, row)
     ui.check("Publish is off once it is published", ui.disabled(_action_id("publish", DRAFT_REF)))
@@ -2297,23 +2306,23 @@ def test_publish_retire_and_delete(ui, record):
     _act(ui, "retire", DRAFT_REF)
     ui.check(
         "Retire asks first, naming the version",
-        f"Retire {DRAFT_REF}?" in ui.text("mm-confirm-text"),
+        f"Retire {SHIPPED_NAME} {DRAFT}?" in ui.text("mm-confirm-text"),
         ui.text("mm-confirm-text"),
     )
     feedback = _confirm(ui)
-    ui.must("the version was retired", f"{DRAFT_REF} is retired." in feedback, feedback)
+    ui.must("the version was retired", f"{SHIPPED_NAME} {DRAFT} is retired." in feedback, feedback)
     ui.check("the row says so", "retired" in _row_of(ui, DRAFT_REF), _row_of(ui, DRAFT_REF))
     ui.check("a retired version may be deleted", not ui.disabled(_action_id("delete", DRAFT_REF)))
     ui.shot("The version retired: kept for the record, no longer applicable")
     _act(ui, "delete", DRAFT_REF)
     ui.check(
         "Delete asks first, naming the version",
-        f"Delete {DRAFT_REF}?" in ui.text("mm-confirm-text"),
+        f"Delete {SHIPPED_NAME} {DRAFT}?" in ui.text("mm-confirm-text"),
         ui.text("mm-confirm-text"),
     )
     feedback = _confirm(ui)
-    ui.must("the version was deleted", f"{DRAFT_REF} deleted." in feedback, feedback)
-    ui.check("the table no longer lists it", DRAFT_REF not in ui.text("mm-versions-table"))
+    ui.must("the version was deleted", f"{SHIPPED_NAME} {DRAFT} deleted." in feedback, feedback)
+    ui.check("the table no longer lists it", DRAFT not in ui.text("mm-versions-table"))
     ui.check(
         "the page fell back to the version the organisation applies",
         f"version {PUBLISHED_VERSION} (published)" in ui.text("mm-subtitle"),
@@ -2429,7 +2438,7 @@ def test_load_a_yaml_file(ui, record):
     feedback = _upload(ui, SHIPPED_FILE)
     ui.must(
         "the shipped file is loaded again",
-        feedback.startswith(f"Loaded {PUBLISHED} (published) from metamodel.yaml."),
+        feedback.startswith(f"Loaded {SHIPPED_NAME} {PUBLISHED_VERSION} (published) from metamodel.yaml."),
         feedback,
     )
     ui.check(

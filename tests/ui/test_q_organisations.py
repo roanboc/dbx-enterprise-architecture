@@ -150,7 +150,7 @@ def test_the_list(ui, record):
     ui.must("the default organisation is listed", bool(row), ui.text("orgs-list")[:300])
     ui.check("it is marked as the default", "default" in row, row)
     ui.check("and as where the reader is", "you are here" in row, row)
-    ui.check("it says which version it applies", PUBLISHED_LABEL in row, row)
+    ui.check("it says which version it applies", PUBLISHED_LABEL.lower() in row, row)
     ui.check("and that the version is published", "published" in row, row)
     ui.check("it counts what the organisation holds", re.search(r"\b47\b", row) is not None, row)
     ui.check("the header names the organisation", _org_badge(ui) == DEFAULT_NAME, _org_badge(ui))
@@ -283,7 +283,9 @@ def test_check_a_version(ui, record):
         said[:300],
     )
     ui.check("nothing was applied", "Applied" not in said, said[:300])
-    ui.check("the row is unchanged", PUBLISHED_LABEL in _row(ui, DEFAULT_NAME), _row(ui, DEFAULT_NAME))
+    ui.check(
+        "the row is unchanged", PUBLISHED_LABEL.lower() in _row(ui, DEFAULT_NAME), _row(ui, DEFAULT_NAME)
+    )
     ui.shot("A version checked against the default organisation: nothing would be left invalid")
 
 
@@ -302,7 +304,7 @@ def test_apply_a_version(ui, record):
     _draft(ui, TRIAL)
     said = ui.text("mm-feedback")
     ui.must("a draft was made from the published version", "created from" in said, said or "(no feedback)")
-    draft_ref = re.search(r"Draft (\S+) created", said)
+    draft_ref = re.search(r"\((mm_[0-9a-z]+@[^)]+)\)", said)
     ui.must("the draft is named in the message", draft_ref is not None, said)
     ref = draft_ref.group(1)
     ui.goto(f"/organisations?version={ref}")
@@ -329,12 +331,12 @@ def test_apply_a_version(ui, record):
     )
     ui.check(
         "the sandbox's row follows",
-        f"{SHIPPED_NAME} {ref.split('@')[1]}" in _row(ui, SANDBOX),
+        f"{SHIPPED_NAME} {ref.split('@')[1]}".lower() in _row(ui, SANDBOX),
         _row(ui, SANDBOX),
     )
     ui.check(
         "the default organisation is left on the published version",
-        PUBLISHED_LABEL in _row(ui, DEFAULT_NAME),
+        PUBLISHED_LABEL.lower() in _row(ui, DEFAULT_NAME),
         _row(ui, DEFAULT_NAME),
     )
     ui.shot("A draft applied to the sandbox alone")

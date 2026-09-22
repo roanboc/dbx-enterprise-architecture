@@ -2112,6 +2112,7 @@ def register(app: dash.Dash) -> None:
                     + (no_update,) * 3
                 )
             if action == "draft":
+                source = ctx.metamodels.version(ref)
                 draft = ctx.metamodels.draft(ref, ctx.actor)
                 ctx.reload_registry()
                 return (
@@ -2120,7 +2121,14 @@ def register(app: dash.Dash) -> None:
                         draft.ref,
                         "manage",
                         list_tab,
-                        alert(f"Draft {draft.name} {draft.version} created; it is shown now.", "green"),
+                        # Named for the reader, with the canonical reference beside it for
+                        # whoever pastes it into an address or a command — the same rule the
+                        # command line follows.
+                        alert(
+                            f"Draft {draft.name} {draft.version} created from "
+                            f"{source.name} {source.version} ({draft.ref}); it is shown now.",
+                            "green",
+                        ),
                     )
                     + (no_update,) * 7
                 )
@@ -2213,12 +2221,15 @@ def register(app: dash.Dash) -> None:
             # Anything else is a dialog nobody wrote: never fall through to deleting a version.
             return (no_update,) * 7 + (False,)
         try:
+            # Named before anything happens to it: a deleted version cannot be looked up
+            # afterwards, and a key is not a name anyway (decision 0021).
+            label = ctx.metamodels.version(ref).label
             if action == "retire":
                 ctx.metamodels.retire(ref, ctx.actor)
-                message = f"{ref} is retired."
+                message = f"{label} is retired."
             else:
                 ctx.metamodels.delete(ref, ctx.actor)
-                message = f"{ref} deleted."
+                message = f"{label} deleted."
             ctx.reload_registry()
         except (ConflictError, Forbidden, NotFoundError) as exc:
             return (alert(str(exc), "red"),) + (no_update,) * 6 + (False,)

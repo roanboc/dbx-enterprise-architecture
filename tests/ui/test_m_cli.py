@@ -3971,11 +3971,13 @@ def test_m73_metamodel_rename(cli, record):
     )
 
     _, listed, listed_ev = run(cli, "metamodel", "versions", limit=300)
-    row = next((ln for ln in listed.splitlines() if "2026-08-11" in ln and "M renamed edition" in ln), "")
+    # The row whose VERSION column is the shipped one: another row's "(from … 2026-08-11)"
+    # suffix carries the same two strings, so a substring match picks the wrong version.
+    row = next((ln for ln in listed.splitlines() if ln.split()[1:2] == ["2026-08-11"]), "")
     check(
         record,
         "the listing shows the new name under the same short identifier, still published",
-        row.startswith(HIGHER_ED[:9]) and " published " in row,
+        row.startswith(HIGHER_ED[:9]) and " published " in row and "M renamed edition" in row,
         row.strip() or listed_ev,
     )
 
