@@ -17,6 +17,7 @@ import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, html, no_update
 from dash import ctx as dash_ctx
 
+from ea.metamodel.catalogue import Starter
 from ea.models import CompatibilityReport, ConflictError, Forbidden, NotFoundError
 from ea.services.roles import a_role
 from ea.ui import ids, layout
@@ -188,6 +189,85 @@ def report_view(report: CompatibilityReport, applied: bool) -> Any:
     )
 
 
+def _starter_note(s: Starter | None) -> Any:
+    """What the chosen starter is, in the reader's terms, before they commit to it."""
+    if s is None:
+        return None
+    return dmc.Text(
+        f"{s.name} {s.version}: {s.element_types} element types, "
+        f"{s.relationship_types} relationship types." + (f" {s.description}" if s.description else ""),
+        size="xs",
+        c="dimmed",
+    )
+
+
+def _starters_card(ctx: AppContext, can_manage: bool, why_manage: str) -> Any:
+    """Start an organisation on a metamodel the repository ships.
+
+    A separate card from New organisation because it answers a different question. New
+    organisation offers the versions the store already holds, which is no help at all to
+    somebody who has just arrived and holds none.
+    """
+    found = ctx.orgs.starters()
+    return dmc.Paper(
+        [
+            dmc.Title("Start from a metamodel that ships", order=2, size="h5", mb="xs"),
+            dmc.Text(
+                "Pick one and get a new, empty organisation typed against it. The organisation you "
+                "are in is not touched: content typed against one framework does not fit another, so "
+                "a starter is somewhere to begin rather than a change to what you already have.",
+                size="sm",
+                c="dimmed",
+                mb="xs",
+            ),
+            dmc.Stack(
+                [
+                    dmc.Select(
+                        id=ids.ORGS_START_PACK,
+                        allowDeselect=False,
+                        label="Metamodel",
+                        data=[{"value": s.pack_id, "label": s.label} for s in found],
+                        value=found[0].pack_id if found else None,
+                        comboboxProps={"withinPortal": True},
+                        # Said on the control rather than only in an empty card, because a
+                        # wheel install genuinely has none and silence would read as a fault.
+                        placeholder="none ship with this installation",
+                        disabled=not found,
+                    ),
+                    html.Div(_starter_note(found[0] if found else None), id=ids.ORGS_START_NOTE),
+                    dmc.TextInput(
+                        id=ids.ORGS_START_NAME,
+                        label="Name the new organisation",
+                        required=True,
+                        placeholder="Trial: the core framework",
+                    ),
+                    dmc.Group(
+                        [
+                            dmc.Button(
+                                "Start",
+                                id=ids.ORGS_START_SAVE,
+                                leftSection=icon("tabler:sparkles"),
+                                disabled=not (can_manage and found),
+                            ),
+                            dmc.Text(
+                                why_manage or ("" if found else "No metamodels ship with this installation."),
+                                id=ids.ORGS_START_WHY,
+                                size="xs",
+                                c="dimmed",
+                            ),
+                        ],
+                        gap="sm",
+                        align="center",
+                    ),
+                ],
+                gap="xs",
+            ),
+        ],
+        p="md",
+        withBorder=True,
+    )
+
+
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     q = _query(search)
     can_manage = ctx.can("manage_organisations")
@@ -273,6 +353,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         p="md",
                         withBorder=True,
                     ),
+                    _starters_card(ctx, can_manage, why_manage),
                     dmc.Paper(
                         [
                             dmc.Title("Apply a metamodel version", order=2, size="h5", mb="xs"),
@@ -383,6 +464,51 @@ def register(app: dash.Dash) -> None:
             [{"value": "", "label": "Nobody: start empty"}] + _org_options(ctx),
             layout.pack_badge(ctx.pack_label()),
         )
+
+    @app.callback(
+        Output(ids.ORGS_START_NOTE, "children"),
+        Input(ids.ORGS_START_PACK, "value"),
+        prevent_initial_call=True,
+    )
+    def describe_starter(pack_id):
+        """What the chosen starter holds, so the size of the thing is known before it is taken."""
+        ctx = get_context()
+        return _starter_note(next((s for s in ctx.orgs.starters() if s.pack_id == pack_id), None))
+
+    @app.callback(
+        *list_outputs,
+        Output(ids.ORGS_NEW_VERSION, "data", allow_duplicate=True),
+        Input(ids.ORGS_START_SAVE, "n_clicks"),
+        State(ids.ORGS_START_PACK, "value"),
+        State(ids.ORGS_START_NAME, "value"),
+        prevent_initial_call=True,
+        running=[(Output(ids.ORGS_START_SAVE, "loading"), True, False)],
+    )
+    def start_from_starter(n, pack_id, name):
+        """Store the shipped metamodel if the store has not met it, then begin an organisation on it."""
+        if not n:
+            return (no_update,) * 7
+        ctx = get_context()
+        if not (name or "").strip():
+            return (alert("Name the organisation this metamodel starts.", "yellow"),) + (no_update,) * 6
+        if not pack_id:
+            return (alert("Pick one of the metamodels that ship.", "yellow"),) + (no_update,) * 6
+        try:
+            o = ctx.orgs.start_from(pack_id, name, ctx.actor)
+        except (ConflictError, Forbidden, NotFoundError, ValueError, OSError) as exc:
+            return (alert(str(exc), "red"),) + (no_update,) * 6
+        # The registry is re-read because the store may now hold a version it did not before,
+        # which the New organisation card offers and the header counts.
+        ctx.reload_registry()
+        return refreshed(
+            ctx,
+            alert(
+                f"Organisation {o.name} started on {_version_label(ctx, o.pack_ref)}, with nothing in it "
+                "yet. Switch to it with the selector in the header, then import or create content. "
+                f"The organisation you are in ({ctx.organisation().name}) is unchanged.",
+                "green",
+            ),
+        ) + (_version_options(ctx),)
 
     @app.callback(
         *list_outputs,
