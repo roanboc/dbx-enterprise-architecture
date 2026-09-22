@@ -9,6 +9,7 @@ compatibility check; the roles guard the lot.
 from __future__ import annotations
 
 import pytest
+from tests.conftest import HIGHER_ED
 
 from ea.backend.branching import use_branch
 from ea.backend.organisations import DEFAULT_ORG, current_org, org_id_from_name, use_org
@@ -25,7 +26,7 @@ from ea.services import (
     use_role,
 )
 
-PUBLISHED = "higher_education@2026-08-11"
+PUBLISHED = f"{HIGHER_ED}@2026-08-11"
 
 
 @pytest.fixture
@@ -162,9 +163,7 @@ def test_applying_a_version_checks_the_content_first(loaded, registry, orgs):
     forced = orgs.apply(DEFAULT_ORG, draft.ref, "ada", force=True)
     assert forced.errors and orgs.get(DEFAULT_ORG).pack_ref == draft.ref
     assert orgs.applied_pack().ref == draft.ref
-    assert [v.applied_by for v in metamodels.versions("higher_education") if v.version == "lean"] == [
-        [DEFAULT_ORG]
-    ]
+    assert [v.applied_by for v in metamodels.versions(HIGHER_ED) if v.version == "lean"] == [[DEFAULT_ORG]]
     # the version that fits applies without a word
     clean = orgs.apply(DEFAULT_ORG, PUBLISHED, "ada")
     assert clean.ok and not clean.issues
@@ -179,7 +178,7 @@ def test_a_sandbox_applies_the_version_it_is_created_with(loaded, orgs):
         assert orgs.applied_pack().notes == "try things"
         assert Registry(orgs.applied_pack()).pack.status == "draft"
     with pytest.raises(NotFoundError):
-        orgs.create("Nowhere", "ada", pack_ref="higher_education@nope")
+        orgs.create("Nowhere", "ada", pack_ref=f"{HIGHER_ED}@nope")
 
 
 def test_the_roles_guard_organisations_and_versions(loaded, orgs):

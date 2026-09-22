@@ -6,13 +6,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from tests.conftest import HIGHER_ED
 
 from ea.backend.organisations import DEFAULT_ORG
 from ea.metamodel.loader import pack_to_dict
 from ea.models import ConflictError, NotFoundError
 from ea.services import MetamodelService, OrganisationService
 
-PUBLISHED = "higher_education@2026-08-11"
+PUBLISHED = f"{HIGHER_ED}@2026-08-11"
 
 
 @pytest.fixture
@@ -24,9 +25,9 @@ def test_versions_are_listed_with_their_state_and_who_applies_them(loaded, metam
     (v,) = metamodels.versions()
     assert (v.ref, v.status, v.applied_by) == (PUBLISHED, "published", [DEFAULT_ORG])
     assert v.published_at is not None and v.name == "Higher Education EA Metamodel"
-    assert metamodels.resolve("higher_education") == ("higher_education", "2026-08-11")
-    assert metamodels.get("higher_education").version == "2026-08-11"
-    for ref in ("higher_education@nope", "nope", "nope@1", ""):
+    assert metamodels.resolve(HIGHER_ED) == (HIGHER_ED, "2026-08-11")
+    assert metamodels.get(HIGHER_ED).version == "2026-08-11"
+    for ref in (f"{HIGHER_ED}@nope", "nope", "nope@1", ""):
         with pytest.raises(NotFoundError):
             metamodels.resolve(ref)
 
@@ -50,7 +51,7 @@ def test_a_draft_is_edited_in_place_then_published(loaded, metamodels):
     draft = metamodels.draft(PUBLISHED, "ada", notes="a trial")
     today = datetime.now(UTC).date().isoformat()
     assert draft.version == today and draft.status == "draft" and draft.derived_from == PUBLISHED
-    assert metamodels.suggest_version("higher_education") == f"{today}-1"
+    assert metamodels.suggest_version(HIGHER_ED) == f"{today}-1"
     with pytest.raises(ConflictError, match="already exists"):
         metamodels.draft(PUBLISHED, "ada", version=today)
     draft.element_types[0].description = "edited on the draft"
@@ -86,7 +87,7 @@ def test_retire_and_delete_respect_who_applies_a_version(loaded, metamodels):
     metamodels.publish(draft.ref, "ada")
     spare = metamodels.draft(draft.ref, "ada", version="spare")
     metamodels.delete(spare.ref, "ada")
-    assert {v.version for v in metamodels.versions("higher_education")} == {"2026-08-11", "next"}
+    assert {v.version for v in metamodels.versions(HIGHER_ED)} == {"2026-08-11", "next"}
     with pytest.raises(NotFoundError):
         metamodels.get(spare.ref)
 
@@ -112,7 +113,7 @@ def test_the_difference_between_two_versions(loaded, metamodels):
     assert by_key[("attribute", "data_entity.steward")].change == "added"
     assert by_key[("attribute", "common.alias")].change == "removed"
     assert [f for f, _, _ in by_key[("relationship_type", rel.id)].fields] == ["name"]
-    assert ("pack", "higher_education") not in by_key  # the header did not change
+    assert ("pack", HIGHER_ED) not in by_key  # the header did not change
     counts = diff.counts()
     assert counts["element_type"] == {"added": 0, "removed": 1, "changed": 1}
     assert "element types" in diff.summary()
@@ -125,7 +126,7 @@ def test_a_loaded_file_with_a_new_version_sits_beside_the_old_one(loaded, pack, 
     other.status = "draft"
     other.name = "The next edition"
     metamodels.save(other, "ada")
-    assert [v.version for v in loaded.list_pack_versions("higher_education")] == ["2027-01-01", "2026-08-11"]
-    assert loaded.load_pack("higher_education").name == "The next edition"  # the most recently loaded
-    assert loaded.load_pack("higher_education", "2026-08-11").name == pack.name
-    assert loaded.load_pack("higher_education", "nope") is None
+    assert [v.version for v in loaded.list_pack_versions(HIGHER_ED)] == ["2027-01-01", "2026-08-11"]
+    assert loaded.load_pack(HIGHER_ED).name == "The next edition"  # the most recently loaded
+    assert loaded.load_pack(HIGHER_ED, "2026-08-11").name == pack.name
+    assert loaded.load_pack(HIGHER_ED, "nope") is None

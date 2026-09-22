@@ -9,6 +9,7 @@ a visible row instead of an invisible section.
 from __future__ import annotations
 
 import pytest
+from tests.conftest import a_pack_id
 
 from ea.metamodel import Registry
 from ea.metamodel.diff import diff_packs
@@ -68,14 +69,20 @@ def test_a_group_nothing_declares_is_added_rather_than_dropped():
 
 def test_a_group_that_cannot_be_an_identifier_is_dropped_rather_than_breaking_the_pack():
     pack = resolve_attribute_groups(
-        Pack(id="p", name="P", common_attributes=[AttributeDef(name="owner", group="   !!!   ")])
+        Pack(
+            id=a_pack_id("groups"),
+            name="P",
+            common_attributes=[AttributeDef(name="owner", group="   !!!   ")],
+        )
     )
     assert pack.common_attributes[0].group == "" and pack.attribute_groups == []
 
 
 def test_the_registry_refuses_a_group_no_version_declares():
     """Nothing reaches the registry ungrouped by accident: the loader declares what it finds."""
-    pack = Pack(id="p", name="P", common_attributes=[AttributeDef(name="owner", group="ghost")])
+    pack = Pack(
+        id=a_pack_id("groups"), name="P", common_attributes=[AttributeDef(name="owner", group="ghost")]
+    )
     with pytest.raises(ValueError, match="unknown attribute group ghost"):
         Registry(pack)
 

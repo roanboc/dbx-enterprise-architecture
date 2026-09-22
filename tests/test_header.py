@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from tests.conftest import a_pack_id
 
 from ea.backend.organisations import DEFAULT_ORG
 from ea.config import Settings
@@ -34,7 +35,13 @@ def test_a_version_that_is_not_published_says_so(ctx, loaded):
     assert ctx.pack_label() == "2026-09-20 · draft"
 
 
-def test_a_second_pack_in_the_store_brings_the_pack_id_back(ctx, loaded):
-    second = replace(ctx.registry.pack, id="second_framework")
+def test_a_second_pack_in_the_store_brings_the_pack_name_back(ctx, loaded):
+    """With one metamodel the header need not name it; with two it must, and by NAME.
+
+    Never by identifier: it is opaque (decision 0021), so in the header it would be a string
+    a reader cannot act on, in the width the organisation's own name needs.
+    """
+    second = replace(ctx.registry.pack, id=a_pack_id("second-framework"), name="Second Framework")
     loaded.save_pack(second, "ada")
-    assert ctx.pack_label() == f"{ctx.registry.pack.id} · {ctx.registry.pack.version}"
+    assert ctx.pack_label() == f"{ctx.registry.pack.name} · {ctx.registry.pack.version}"
+    assert ctx.registry.pack.id not in ctx.pack_label()

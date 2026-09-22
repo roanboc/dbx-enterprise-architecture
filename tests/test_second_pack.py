@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.conftest import ARCHIMATE as ARCHIMATE_ID
 
 from ea.backend.organisations import use_org
 from ea.metamodel import Registry, load_pack
@@ -31,7 +32,7 @@ def archimate():
 
 def test_it_loads_and_is_a_valid_pack(archimate):
     reg = Registry(archimate)
-    assert archimate.id == "archimate_core" and archimate.version == "3.2"
+    assert archimate.id == ARCHIMATE_ID and archimate.version == "3.2"
     assert len(archimate.element_types) >= 25
     assert len(archimate.relationship_types) >= 10
     assert {d.id for d in archimate.domains} == {
@@ -80,13 +81,13 @@ def test_both_frameworks_live_in_one_store_each_in_its_own_organisation(backend,
     orgs = OrganisationService(backend, MetamodelService(backend))
     trial = orgs.create("ArchiMate trial", "tester", org_id="archimate")
     assert trial  # created applying the default organisation's version
-    orgs.apply("archimate", "archimate_core@3.2", "tester")
+    orgs.apply("archimate", f"{ARCHIMATE_ID}@3.2", "tester")
 
     assert orgs.applied_pack("default").id == pack.id
-    assert orgs.applied_pack("archimate").id == "archimate_core"
+    assert orgs.applied_pack("archimate").id == ARCHIMATE_ID
     assert {v.ref for v in MetamodelService(backend).versions()} == {
         f"{pack.id}@{pack.version}",
-        "archimate_core@3.2",
+        f"{ARCHIMATE_ID}@3.2",
     }
 
 
@@ -95,7 +96,7 @@ def test_content_in_the_second_framework_is_written_and_read_by_the_same_code(ba
     backend.save_pack(archimate, "tester")
     orgs = OrganisationService(backend, MetamodelService(backend))
     orgs.create("ArchiMate trial", "tester", org_id="archimate")
-    orgs.apply("archimate", "archimate_core@3.2", "tester")
+    orgs.apply("archimate", f"{ARCHIMATE_ID}@3.2", "tester")
     repo = RepositoryService(backend, Registry(archimate))
     with use_org("archimate"):
         goal = repo.create_element("goal", "One record per customer", "tester")

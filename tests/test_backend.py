@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from tests.conftest import HIGHER_ED
 
 from ea.backend.organisations import DEFAULT_ORG
 from ea.backend.sql import column_types, qualified
@@ -8,7 +9,7 @@ from ea.models import ConflictError, Element, Relationship
 
 
 def test_pack_round_trips_through_store(backend, pack):
-    stored = backend.load_pack("higher_education")
+    stored = backend.load_pack(HIGHER_ED)
     assert len(stored.element_types) == len(pack.element_types)
     assert len(stored.relationship_types) == len(pack.relationship_types)
     assert [a.name for a in stored.common_attributes] == [a.name for a in pack.common_attributes]

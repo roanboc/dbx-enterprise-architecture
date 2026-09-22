@@ -948,6 +948,9 @@ def metamodel_versions(
     rows = svc.versions(pack_id)
     if not rows:
         typer.echo("no metamodel versions")
+    # What a draft was copied from is stored as a canonical reference. Every version is in
+    # hand here, so it is shown as the name and version a reader would recognise instead.
+    labels = {v.ref: v.label for v in rows}
     # By name, then newest first inside it — here and not in the store, whose order is what
     # `resolve()` reads to answer "the most recent version of this pack".
     for v in sorted(
@@ -956,7 +959,8 @@ def metamodel_versions(
         applied = ", ".join(v.applied_by) or "-"
         typer.echo(
             f"{v.short_id:12s} {v.version:20s} {v.status:10s} applied by {applied:24s} "
-            f"{str(v.loaded_at)[:16]}  {v.name}" + (f"  (from {v.derived_from})" if v.derived_from else "")
+            f"{str(v.loaded_at)[:16]}  {v.name}"
+            + (f"  (from {labels.get(v.derived_from, v.derived_from)})" if v.derived_from else "")
         )
 
 
@@ -972,7 +976,10 @@ def metamodel_draft(
     """Start a draft from a stored version; edit it in the app or as YAML, try it, then publish it."""
     _, _, svc, _ = _metamodels()
     p = svc.draft(from_ref, actor, version, notes)
-    typer.echo(f"draft {p.name} {p.version} created from {p.derived_from} ({p.ref})")
+    source = svc.version(p.derived_from) if p.derived_from else None
+    typer.echo(
+        f"draft {p.name} {p.version} created from {source.label if source else p.derived_from} ({p.ref})"
+    )
 
 
 @metamodel_app.command("rename")
@@ -1125,7 +1132,10 @@ def org_apply(
     """Make an organisation apply a metamodel version, after checking its content against it."""
     _, _, _, orgs = _metamodels()
     report = orgs.apply(org_id, ref, actor, force=force)
-    typer.echo(f"organisation '{org_id}' now applies {report.summary()}")
+    # The summary already names the metamodel, the version AND the organisation, so this says
+    # what happened and lets the summary say what was checked — rather than naming the
+    # organisation twice in one sentence.
+    typer.echo(f"applied. {report.summary()}")
     for iss in report.issues[:20]:
         typer.echo("  " + str(iss))
 

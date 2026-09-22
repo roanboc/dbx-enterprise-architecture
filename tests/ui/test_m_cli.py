@@ -31,6 +31,7 @@ header says what it adds.
 from __future__ import annotations
 
 import pytest
+from tests.conftest import HIGHER_ED
 from tests.ui.evidence import Check, Finding
 
 pytestmark = pytest.mark.cli  # no browser: this group runs in `make check` as well as in the round
@@ -899,7 +900,7 @@ def test_m16_summary(cli, record):
     check(
         record,
         "the heading names the pack and its version",
-        "pack `higher_education`" in out and "version" in out,
+        SHIPPED_NAME in out and "version" in out,
         out.splitlines()[0],
     )
     check(
@@ -1326,13 +1327,13 @@ def test_m26_pack_round_trip(cli, record, tmp_path):
     check(
         record,
         "it says which pack it wrote and where",
-        "higher_education" in said and str(out_file) in said,
+        SHIPPED_NAME in said and str(out_file) in said,
         trim(said),
     )
     check(
         record,
         "the file opens with the pack's identity",
-        text.startswith("pack:") and "id: higher_education" in text,
+        text.startswith("pack:") and f"id: {HIGHER_ED}" in text,
         trim(text[:90], 90),
     )
     check(
@@ -1348,14 +1349,14 @@ def test_m26_pack_round_trip(cli, record, tmp_path):
     check(
         record,
         "the pack and its version are named on the way in",
-        "higher_education" in loaded and "version" in loaded,
+        SHIPPED_NAME in loaded and "version" in loaded,
         trim(loaded),
     )
     _, summary_out, summary_ev = run(cli, "summary", limit=80)
     check(
         record,
         "the metamodel still reads the same after the round trip",
-        "pack `higher_education`" in summary_out,
+        SHIPPED_NAME in summary_out,
         summary_ev,
     )
     _, stats_out, stats_ev = run(cli, "stats", limit=60)
@@ -1377,7 +1378,7 @@ def test_m27_init(cli, record, tmp_path):
     check(
         record,
         "it says which pack it loaded and how big it is",
-        "higher_education" in out and "element types" in out and "relationship types" in out,
+        SHIPPED_NAME in out and "element types" in out and "relationship types" in out,
         trim(out),
     )
     check(record, "the file is not empty", fresh.stat().st_size > 0, f"{fresh.stat().st_size} bytes")
@@ -1390,7 +1391,7 @@ def test_m27_init(cli, record, tmp_path):
         stats_ev,
     )
     _, summary_out, summary_ev = run(cli, "summary", EA_DB_PATH=str(fresh), limit=80)
-    check(record, "but it does hold the metamodel", "pack `higher_education`" in summary_out, summary_ev)
+    check(record, "but it does hold the metamodel", SHIPPED_NAME in summary_out, summary_ev)
     _, here, here_ev = run(cli, "stats", limit=60)
     check(record, "--db did not touch the database the round is using", int(here.split()[0]) > 0, here_ev)
 
@@ -2684,32 +2685,34 @@ def test_m51_import_dry_run_and_actor(cli, record, tmp_path):
 @pytest.mark.scenario(
     scenario_id="M52",
     group="M",
-    title="export-pack writes the pack named by --pack-id, and destroys the destination when the id is wrong",
+    title="export-pack writes the pack named by --pack, and leaves the destination alone when the name is wrong",
     feature="Command line · export-pack",
-    expected="`--pack-id higher_education` writes that pack; a pack id the store does not hold is refused by name and the file it was told to write is left as it was.",
+    expected="`--pack` takes the metamodel's NAME, because an identifier is opaque; it writes that pack, and a name the store does not hold is refused by name with the file it was told to write left as it was.",
 )
 def test_m52_export_pack_by_id(cli, record, tmp_path, finding):
     out_file = tmp_path / "m-by-id.yaml"
-    rc, said, ev = run(cli, "export-pack", str(out_file), "--pack-id", "higher_education", limit=130)
-    must(record, "the pack was written by id", rc == 0 and out_file.exists(), ev)
+    # `--pack`, not `--pack-id`: nobody types an opaque identifier, so the option takes the
+    # name — or a prefix of the identifier, which M66 covers.
+    rc, said, ev = run(cli, "export-pack", str(out_file), "--pack", SHIPPED_NAME, limit=130)
+    must(record, "the pack was written by name", rc == 0 and out_file.exists(), ev)
     text = out_file.read_text(encoding="utf-8")
-    check(record, "it says which pack it wrote", "higher_education" in said, trim(said))
+    check(record, "it says which pack it wrote", SHIPPED_NAME in said, trim(said))
     check(
         record,
-        "the file holds that pack",
-        text.startswith("pack:") and "id: higher_education" in text and "element_types:" in text,
+        "the file holds that pack, carrying the identifier it is stored under",
+        text.startswith("pack:") and f"id: {HIGHER_ED}" in text and "element_types:" in text,
         f"{len(text.splitlines())} lines",
     )
 
     keep = tmp_path / "m-keep.yaml"
     keep.write_text("# M: a file that was already here\n", encoding="utf-8")
     rc_bad, bad, bad_ev = run(
-        cli, "export-pack", str(keep), "--pack-id", "m-no-such-pack", expect=None, limit=140
+        cli, "export-pack", str(keep), "--pack", "m-no-such-pack", expect=None, limit=140
     )
-    check(record, "a pack id the store does not hold fails", rc_bad == 1, bad_ev)
+    check(record, "a metamodel the store does not hold fails", rc_bad == 1, bad_ev)
     check(
         record,
-        "the failure names the pack id it could not find",
+        "the failure names what it could not find",
         "m-no-such-pack" in bad,
         f"the refusal reads {refusal(bad)!r}",
     )
@@ -2726,10 +2729,10 @@ def test_m52_export_pack_by_id(cli, record, tmp_path, finding):
             "M-14",
             "src/ea/cli.py · export-pack, src/ea/metamodel/loader.py:153 (dump_pack)",
             "defect",
-            "An unknown --pack-id truncates the destination file first and then crashes with an AttributeError that never names the pack.",
+            "An unknown --pack truncates the destination file first and then crashes with an AttributeError that never names the pack.",
             "`export_pack` passes `backend.load_pack(pack_id)` straight to `dump_pack`; the store returns None "
             "for an id it does not hold, and `dump_pack` opens the destination with 'w' before it touches the "
-            "pack. So `ea export-pack <file> --pack-id <typo>` empties <file> and ends 'AttributeError: "
+            "pack. So `ea export-pack <file> --pack <typo>` empties <file> and ends 'AttributeError: "
             "'NoneType' object has no attribute 'element_types''. Pointed at a pack under version control, a "
             "mistyped id destroys it.",
         )
@@ -2751,13 +2754,11 @@ def test_m53_init_pack(cli, record, tmp_path, finding):
     check(
         record,
         "it names the pack it loaded and how big it is",
-        "higher_education" in out and "element types" in out and "relationship types" in out,
+        SHIPPED_NAME in out and "element types" in out and "relationship types" in out,
         trim(out),
     )
     _, summary_out, summary_ev = run(cli, "summary", EA_DB_PATH=str(fresh), limit=90)
-    check(
-        record, "the new database holds that metamodel", "pack `higher_education`" in summary_out, summary_ev
-    )
+    check(record, "the new database holds that metamodel", SHIPPED_NAME in summary_out, summary_ev)
     _, stats_out, stats_ev = run(cli, "stats", EA_DB_PATH=str(fresh), limit=90)
     check(record, "and no content", stats_out.strip().startswith("0 elements, 0 relationships"), stats_ev)
 
@@ -3549,8 +3550,11 @@ def test_m64_branch_list_status(cli, record, finding):
 
 SANDBOX = "m-sandbox"
 SANDBOX_NAME = "M sandbox"
-SHIPPED_VERSION = "higher_education@2026-08-11"
-DRAFT_VERSION = "higher_education@m-trial"
+# A pack identifier is opaque now (decision 0021), so these are built rather than written:
+# `HIGHER_ED` is what the shipped file carries and what a store migrated in place lands on.
+SHIPPED_VERSION = f"{HIGHER_ED}@2026-08-11"
+DRAFT_VERSION = f"{HIGHER_ED}@m-trial"
+SHIPPED_NAME = "Higher Education EA Metamodel"
 
 
 @pytest.mark.scenario(
@@ -3602,10 +3606,14 @@ def test_m65_org_list_and_create(cli, record):
 )
 def test_m66_metamodel_versions_and_draft(cli, record):
     rc, listed, ev = run(cli, "metamodel", "versions", limit=200)
-    must(record, "the versions are listed", rc == 0 and SHIPPED_VERSION in listed, ev)
-    row = next((ln for ln in listed.splitlines() if ln.startswith(SHIPPED_VERSION)), "")
+    # The listing leads with the SHORT identifier and the version, because an identifier is
+    # opaque now (decision 0021) and nobody reads one in full.
+    must(record, "the versions are listed", rc == 0 and SHIPPED_NAME in listed, ev)
+    row = next((ln for ln in listed.splitlines() if "2026-08-11" in ln and SHIPPED_NAME in ln), "")
     check(record, "the shipped version is published", " published " in row, row.strip())
     check(record, "and applied by the default organisation", "default" in row, row.strip())
+    check(record, "it is named, not keyed", SHIPPED_NAME in row and HIGHER_ED not in row, row.strip())
+    check(record, "with the short identifier to copy", row.split()[0] == HIGHER_ED[:9], row.strip())
 
     rc, out, ev = run(
         cli,
@@ -3618,24 +3626,43 @@ def test_m66_metamodel_versions_and_draft(cli, record):
         "the round's trial",
         limit=160,
     )
-    must(record, "the draft was created", rc == 0 and f"draft {DRAFT_VERSION} created" in out, ev)
+    must(record, "the draft was created", rc == 0 and "created" in out and DRAFT_VERSION in out, ev)
     _, listed, _ = run(cli, "metamodel", "versions", limit=300)
-    draft_row = next((ln for ln in listed.splitlines() if ln.startswith(DRAFT_VERSION)), "")
+    draft_row = next((ln for ln in listed.splitlines() if "m-trial" in ln), "")
     check(
         record,
         "the draft is listed as a draft nobody applies",
         " draft " in draft_row and "applied by -" in draft_row,
         draft_row.strip(),
     )
-    check(record, "it names the version it came from", SHIPPED_VERSION in draft_row, draft_row.strip())
-
-    rc, diff, diff_ev = run(cli, "metamodel", "diff", SHIPPED_VERSION, DRAFT_VERSION, limit=160)
+    # Named, not keyed, here too: what it came from reads as the name and version a person
+    # would recognise rather than the reference the store passes around.
     check(
         record,
-        "a fresh draft defines the same metamodel as its source",
+        "it names the version it came from",
+        f"(from {SHIPPED_NAME} 2026-08-11)" in draft_row,
+        draft_row.strip(),
+    )
+
+    rc, diff, diff_ev = run(cli, "metamodel", "diff", SHIPPED_VERSION, DRAFT_VERSION, limit=160)
+    # The draft was created WITH notes, and it still defines the same metamodel: a note and a
+    # name are labels on a version, not part of what it defines (decision 0022).
+    check(
+        record,
+        "a fresh draft defines the same metamodel as its source, notes and all",
         rc == 0 and "define the same metamodel" in diff,
         diff_ev,
     )
+    check(record, "and the comparison names both sides", SHIPPED_NAME in diff, trim(diff))
+
+    rc, by_name, name_ev = run(
+        cli, "metamodel", "diff", f"{SHIPPED_NAME}@2026-08-11", DRAFT_VERSION, limit=160
+    )
+    check(record, "a version is reached by its name", rc == 0 and by_name == diff, name_ev)
+    rc, by_prefix, prefix_ev = run(
+        cli, "metamodel", "diff", f"{HIGHER_ED[:9]}@2026-08-11", DRAFT_VERSION, limit=160
+    )
+    check(record, "or by a prefix of its identifier", rc == 0 and by_prefix == diff, prefix_ev)
 
     rc_bad, bad, bad_ev = run(
         cli, "metamodel", "draft", SHIPPED_VERSION, "--version", "m-trial", expect=1, limit=140
@@ -3652,7 +3679,12 @@ def test_m66_metamodel_versions_and_draft(cli, record):
 )
 def test_m67_apply_and_check(cli, record):
     rc, out, ev = run(cli, "org", "apply", SANDBOX, DRAFT_VERSION, limit=200)
-    must(record, "the sandbox applies the draft", rc == 0 and f"now applies {DRAFT_VERSION}" in out, ev)
+    must(
+        record,
+        "the sandbox applies the draft",
+        rc == 0 and "applied." in out and f"{SHIPPED_NAME} m-trial on {SANDBOX}" in out,
+        ev,
+    )
     check(
         record,
         "the check counted every element and relationship",
@@ -3671,14 +3703,14 @@ def test_m67_apply_and_check(cli, record):
     check(
         record,
         "checking applied nothing to the default organisation",
-        SHIPPED_VERSION in default_row,
+        "2026-08-11" in default_row and "m-trial" not in default_row,
         default_row.strip(),
     )
     check(
         record, "the sandbox is listed applying the draft", DRAFT_VERSION in sandbox_row, sandbox_row.strip()
     )
 
-    rc_bad, bad, bad_ev = run(cli, "org", "apply", SANDBOX, "higher_education@m-nope", expect=1, limit=140)
+    rc_bad, bad, bad_ev = run(cli, "org", "apply", SANDBOX, f"{HIGHER_ED}@m-nope", expect=1, limit=140)
     check(
         record, "a version nobody stored is refused by name", rc_bad == 1 and "m-nope" in refusal(bad), bad_ev
     )
@@ -3689,7 +3721,7 @@ def test_m67_apply_and_check(cli, record):
     group="M",
     title="metamodel publish freezes the draft, and retire is refused while an organisation applies it",
     feature="Command line · metamodel publish, metamodel retire, load-pack",
-    expected="`metamodel publish` reports the version published; `metamodel retire` is refused naming the sandbox that applies it; a file that differs from a published version is refused by `load-pack` as frozen.",
+    expected="`metamodel publish` reports the version published; `metamodel retire` is refused naming the sandbox that applies it; a file that renames a published version is accepted, because a name is a label and not part of what a version defines; a file that changes what it DEFINES is refused by `load-pack` as frozen.",
 )
 def test_m68_publish_and_retire(cli, record, tmp_path):
     rc, out, ev = run(cli, "metamodel", "publish", DRAFT_VERSION, limit=120)
@@ -3704,14 +3736,41 @@ def test_m68_publish_and_retire(cli, record, tmp_path):
 
     exported = tmp_path / "m-trial.yaml"
     run(cli, "export-pack", str(exported), "-v", DRAFT_VERSION, limit=120)
-    text = exported.read_text(encoding="utf-8").replace(
-        "name: Higher Education EA Metamodel", "name: M edited edition", 1
+    original = exported.read_text(encoding="utf-8")
+
+    # A name-only edit is a RENAME, not an edit to a frozen definition (decision 0022). It is
+    # accepted and takes effect; the alternative — accepting the file and silently dropping
+    # the one field it changed — would be the worst of the three outcomes.
+    exported.write_text(
+        original.replace(f"name: {SHIPPED_NAME}", "name: M edited edition", 1), encoding="utf-8"
     )
-    exported.write_text(text, encoding="utf-8")
+    rc_named, named, named_ev = run(cli, "--org", SANDBOX, "load-pack", str(exported), limit=180)
+    check(
+        record,
+        "a file that only renames a published version is accepted",
+        rc_named == 0 and "M edited edition" in named,
+        named_ev,
+    )
+    _, listed, listed_ev = run(cli, "metamodel", "versions", limit=300)
+    renamed_row = next((ln for ln in listed.splitlines() if "m-trial" in ln), "")
+    check(
+        record,
+        "and the rename took effect without unfreezing anything",
+        "M edited edition" in renamed_row and " published " in renamed_row,
+        renamed_row.strip() or listed_ev,
+    )
+
+    # What a version DEFINES is still frozen, which is the whole of what was narrowed. An
+    # element type's own name is part of a definition — content was validated under it.
+    definition_changed = original.replace(
+        "\n- id: actor\n  name: Actor\n", "\n- id: actor\n  name: Participant\n", 1
+    )
+    assert definition_changed != original, "the exported file should hold the actor type"
+    exported.write_text(definition_changed, encoding="utf-8")
     rc_frozen, frozen, frozen_ev = run(cli, "--org", SANDBOX, "load-pack", str(exported), expect=1, limit=160)
     check(
         record,
-        "a file that differs from a published version is refused as frozen",
+        "a file that changes what a published version defines is refused as frozen",
         rc_frozen == 1 and "frozen" in refusal(frozen),
         frozen_ev,
     )
@@ -3779,7 +3838,7 @@ def test_m70_delete(cli, record):
         pub_ev,
     )
     run(cli, "metamodel", "draft", SHIPPED_VERSION, "--version", "m-spare", limit=120)
-    rc, out, ev = run(cli, "metamodel", "delete", "higher_education@m-spare", limit=120)
+    rc, out, ev = run(cli, "metamodel", "delete", f"{HIGHER_ED}@m-spare", limit=120)
     check(record, "a spare draft nobody applies is deleted", rc == 0 and "deleted" in out, ev)
     _, listed, list_ev = run(cli, "metamodel", "versions", limit=300)
     check(record, "the listing no longer holds it", "m-spare" not in listed, list_ev)

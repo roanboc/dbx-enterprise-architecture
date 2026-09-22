@@ -59,6 +59,8 @@ first identifier, and never recomputed.
 | **Does `description` leave the frozen definition with `name`?** | No | The Requester approved the name. `description` is arguably the same kind of thing and would move by the same mechanism, but widening an approval is not the agent's to do. Named below as left |
 | **What happens to identifiers already in a store?** | Re-keyed | Grandfathering them would let `DOBJ1.6` claim only that an identifier is never *derived*, not that it is opaque — and the store would carry two kinds of key indefinitely, which every read path would then have to tolerate |
 | **Does the command line gain a starter verb?** | No | `ea load-pack <file>` followed by `ea org create --metamodel <ref>` already does it. The approval covers the application control, and a second way to say the same thing owes its own scenario |
+| **Does the version diff still compare the name and the notes?** | No | The suite found it: `diff.summary()` ends "define the same metamodel", and a diff that reported a difference in what neither version *defines* was contradicting its own sentence. The same line decision 0022 draws for the freeze is drawn here. A rename is visible in the versions listing and in the change log, and it changes nothing content validates against. This closes a scenario (`M68`) that had never passed, because behaviour and assertion shipped disagreeing |
+| **What does the metamodel summary say the pack is?** | Its name | `Registry.summary_markdown` opened `# <name> (pack \`<id>\`, …)`. That line is read by people and by the agent, and neither can do anything with an opaque key |
 
 ## What changed in the model
 
