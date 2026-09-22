@@ -1027,8 +1027,11 @@ class NotFoundError(Exception):
     refused. An identifier on its own answers nothing.
     """
 
-    def __init__(self, identifier: str, kind: str = "element") -> None:
-        super().__init__(f"no {kind} with id {identifier}")
+    def __init__(self, identifier: str, kind: str = "element", message: str = "") -> None:
+        # `message` is for the cases where "with id X" is the wrong sentence — a metamodel is
+        # named as readily as it is keyed, so a refusal that says "id" sends the reader looking
+        # for the wrong thing.
+        super().__init__(message or f"no {kind} with id {identifier}")
         self.identifier = identifier
         self.kind = kind
 

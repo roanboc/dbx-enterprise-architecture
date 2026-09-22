@@ -201,9 +201,9 @@ def init(
             Path(settings.db_path).unlink(missing_ok=True)
         raise
     typer.echo(
-        f"database {settings.db_path}: pack '{p.id}' version {p.version} loaded "
+        f"database {settings.db_path}: {p.name} version {p.version} loaded "
         f"({len(p.element_types)} element types, {len(p.relationship_types)} relationship types); "
-        f"organisation '{default.org_id}' ({default.name}) applies {default.pack_ref}"
+        f"organisation '{default.org_id}' ({default.name}) applies it ({default.pack_ref})"
     )
 
 
@@ -228,17 +228,17 @@ def load_pack_cmd(
     _, backend, *_ = _ctx()
     loaded = load_pack(path)
     p = MetamodelService(backend).save(loaded, "cli")
-    typer.echo(f"pack '{p.id}' version {p.version} loaded ({p.status})")
+    typer.echo(f"{p.name} version {p.version} loaded ({p.status}) as {p.ref}")
     for line in suspect_split_descriptions(loaded):
         typer.echo(f"  warning: {line}")
     if apply:
         orgs = OrganisationService(backend)
         org = orgs.current()
         if org.pack_ref == p.ref:
-            typer.echo(f"organisation '{org.org_id}' already applies {p.ref}")
+            typer.echo(f"organisation '{org.org_id}' already applies {p.name} {p.version}")
             return
         report = orgs.apply(org.org_id, p.ref, "cli", force=force)
-        typer.echo(f"organisation '{org.org_id}' now applies {p.ref}: {report.summary()}")
+        typer.echo(f"organisation '{org.org_id}' now applies {p.name} {p.version}: {report.summary()}")
         for iss in report.issues[:20]:
             typer.echo("  " + str(iss))
 
@@ -246,29 +246,37 @@ def load_pack_cmd(
 @app.command("export-pack")
 def export_pack(
     out: Path,
-    pack_id: str = typer.Option(None, help="pack id (default: the version this organisation applies)"),
-    version: str = typer.Option(None, "--version", "-v", help="a stored version as pack@version"),
+    pack: str = typer.Option(
+        None, "--pack", help="a metamodel by name, or by its identifier (default: the one applied here)"
+    ),
+    version: str = typer.Option(
+        None, "--version", "-v", help="a stored version, as a name or identifier with @version"
+    ),
 ):
     """Write a stored metamodel version back to YAML."""
     from ea.metamodel import dump_pack
+    from ea.services import MetamodelService
 
     _, backend, registry, *_ = _ctx()
-    ref = version or pack_id
-    p = backend.load_pack(*_split_ref(ref)) if ref else registry.pack
+    ref = version or pack
+    p = None
+    if ref:
+        # Through the service, not the store: the store takes a canonical identifier and must
+        # go on taking one, and resolving a name is the service's job.
+        try:
+            p = MetamodelService(backend).get(ref)
+        except Exception:
+            p = None
+    else:
+        p = registry.pack
     if p is None:
         # Refused before the destination is opened: a pack that cannot be found must not
-        # cost the reader the file they were writing over.
-        held = ", ".join(v.ref for v in backend.list_pack_versions()) or "none"
+        # cost the reader the file they were writing over. Held versions are listed by the
+        # name a person would type, with the identifier beside it.
+        held = ", ".join(f"{v.label} ({v.short_id})" for v in backend.list_pack_versions()) or "none"
         _refuse(f"no metamodel version {ref!r} in this database; it holds: {held}")
     dump_pack(p, out)
-    typer.echo(f"pack '{p.id}' version {p.version} written to {out}")
-
-
-def _split_ref(ref: str) -> tuple[str, str | None]:
-    from ea.models import split_pack_ref
-
-    pack_id, version = split_pack_ref(ref)
-    return pack_id, version or None
+    typer.echo(f"{p.name} version {p.version} written to {out}")
 
 
 def _readable_directory(directory: Path) -> None:
@@ -927,23 +935,34 @@ def _metamodels():
 
 
 @metamodel_app.command("versions")
-def metamodel_versions(pack_id: str = typer.Option(None, help="one pack only")):
-    """Every stored version, newest first, with its state and the organisations that apply it."""
+def metamodel_versions(
+    pack: str = typer.Option(None, "--pack", help="one metamodel only, by name or identifier"),
+):
+    """Every stored version, with its state and the organisations that apply it.
+
+    The listing leads with what the next command takes: the short identifier, which is what a
+    person copies, and the name and version, which are what they read.
+    """
     _, _, svc, _ = _metamodels()
+    pack_id = svc.resolve_pack(pack) if pack else None
     rows = svc.versions(pack_id)
     if not rows:
         typer.echo("no metamodel versions")
-    for v in rows:
+    # By name, then newest first inside it — here and not in the store, whose order is what
+    # `resolve()` reads to answer "the most recent version of this pack".
+    for v in sorted(
+        rows, key=lambda v: (v.name or v.pack_id, -(v.loaded_at.timestamp() if v.loaded_at else 0))
+    ):
         applied = ", ".join(v.applied_by) or "-"
         typer.echo(
-            f"{v.ref:40s} {v.status:10s} applied by {applied:24s} {str(v.loaded_at)[:16]}  {v.name}"
-            + (f"  (from {v.derived_from})" if v.derived_from else "")
+            f"{v.short_id:12s} {v.version:20s} {v.status:10s} applied by {applied:24s} "
+            f"{str(v.loaded_at)[:16]}  {v.name}" + (f"  (from {v.derived_from})" if v.derived_from else "")
         )
 
 
 @metamodel_app.command("draft")
 def metamodel_draft(
-    from_ref: str = typer.Argument(..., help="the version to copy, as pack@version"),
+    from_ref: str = typer.Argument(..., help="the version to copy, by name or identifier with @version"),
     version: str = typer.Option(
         None, "--version", "-v", help="the new version's name (default: today's date)"
     ),
@@ -953,7 +972,28 @@ def metamodel_draft(
     """Start a draft from a stored version; edit it in the app or as YAML, try it, then publish it."""
     _, _, svc, _ = _metamodels()
     p = svc.draft(from_ref, actor, version, notes)
-    typer.echo(f"draft {p.ref} created from {p.derived_from}")
+    typer.echo(f"draft {p.name} {p.version} created from {p.derived_from} ({p.ref})")
+
+
+@metamodel_app.command("rename")
+def metamodel_rename(
+    ref: str = typer.Argument(..., help="the version to rename, by name or identifier, with @version"),
+    name: str = typer.Argument(..., help="what it should be called"),
+    actor: str = typer.Option("cli"),
+):
+    """Correct what a metamodel version is called, whatever its status.
+
+    A published version is frozen in what it *defines*; its name is a label and nothing keys
+    off it, so it is corrected here rather than by copying the definition into a new version
+    (decisions 0021 and 0022). The old name goes into the change log.
+    """
+    _, _, svc, _ = _metamodels()
+    was = svc.version(ref)
+    v = svc.rename(ref, name, actor)
+    if was.name == v.name:
+        typer.echo(f"{v.label} is already called that")
+        return
+    typer.echo(f"{was.name or was.pack_id} {v.version} is now {v.name} ({v.ref})")
 
 
 @metamodel_app.command("publish")
@@ -961,7 +1001,7 @@ def metamodel_publish(ref: str, actor: str = typer.Option("cli")):
     """Freeze a draft: its content cannot change from now on."""
     _, _, svc, _ = _metamodels()
     v = svc.publish(ref, actor)
-    typer.echo(f"{v.ref} is {v.status}")
+    typer.echo(f"{v.label} is {v.status} ({v.ref})")
 
 
 @metamodel_app.command("retire")
@@ -969,7 +1009,7 @@ def metamodel_retire(ref: str, actor: str = typer.Option("cli")):
     """Take a version out of use; refused while an organisation applies it."""
     _, _, svc, _ = _metamodels()
     v = svc.retire(ref, actor)
-    typer.echo(f"{v.ref} is {v.status}")
+    typer.echo(f"{v.label} is {v.status} ({v.ref})")
 
 
 @metamodel_app.command("delete")
@@ -1036,7 +1076,9 @@ def org_create(
     name: str,
     description: str = typer.Option("", help="what the organisation is for"),
     metamodel: str = typer.Option(
-        "", help="the version it applies, as pack@version (default: the copied or the default organisation's)"
+        "",
+        help="the version it applies, by name or identifier with @version "
+        "(default: the copied or the default organisation's)",
     ),
     copy_from: str = typer.Option(
         None, "--copy-from", help="an organisation whose main content is copied in"
@@ -1076,14 +1118,14 @@ def org_default(org_id: str, actor: str = typer.Option("cli")):
 @org_app.command("apply")
 def org_apply(
     org_id: str,
-    ref: str = typer.Argument(..., help="the version to apply, as pack@version"),
+    ref: str = typer.Argument(..., help="the version to apply, by name or identifier with @version"),
     force: bool = typer.Option(False, help="apply it even when the compatibility check finds errors"),
     actor: str = typer.Option("cli"),
 ):
     """Make an organisation apply a metamodel version, after checking its content against it."""
     _, _, _, orgs = _metamodels()
     report = orgs.apply(org_id, ref, actor, force=force)
-    typer.echo(f"organisation '{org_id}' now applies {ref}: {report.summary()}")
+    typer.echo(f"organisation '{org_id}' now applies {report.summary()}")
     for iss in report.issues[:20]:
         typer.echo("  " + str(iss))
 

@@ -73,19 +73,30 @@ class MetamodelService:
         """
         token = (text or "").strip()
         if not token:
-            raise NotFoundError("(empty)", "metamodel")
+            raise NotFoundError("(empty)", "metamodel", "name a metamodel, by its name or its identifier")
         held = self.backend.list_pack_versions()
         if token.startswith(PACK_ID_PREFIX):
             if len(token) < len(PACK_ID_PREFIX) + MIN_ID_PREFIX:
                 raise NotFoundError(
-                    token, f"metamodel (an identifier needs {MIN_ID_PREFIX} characters after the prefix)"
+                    token,
+                    "metamodel",
+                    f"{token!r} is too short to name a metamodel: an identifier needs at least "
+                    f"{MIN_ID_PREFIX} characters after {PACK_ID_PREFIX!r}",
                 )
             matches = {v.pack_id for v in held if v.pack_id.startswith(token)}
         else:
             wanted = slugify(token) if any(c.isalnum() for c in token) else token
             matches = {v.pack_id for v in held if v.name and slugify(v.name) == wanted}
         if not matches:
-            raise NotFoundError(token, "metamodel")
+            # The listing matters here more than anywhere: an identifier was a readable slug
+            # before decision 0021, so somebody with a script or a note from before lands
+            # exactly here, and what they need is what to type instead.
+            names = sorted({f"{v.name or v.pack_id} ({v.short_id})" for v in held})
+            raise NotFoundError(
+                token,
+                "metamodel",
+                f"no metamodel called {token!r} — this store holds: " + (", ".join(names) or "none"),
+            )
         if len(matches) > 1:
             named = sorted({f"{v.name or v.pack_id} ({v.short_id})" for v in held if v.pack_id in matches})
             raise ConflictError(f"{token!r} names more than one metamodel: " + ", ".join(named))
