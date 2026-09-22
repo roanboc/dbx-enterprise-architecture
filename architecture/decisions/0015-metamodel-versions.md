@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Accepted 2026-09-19 (initiative 15) — adopted by the agent, for the Requester to confirm or override at the initiative's gate. **Touches:** `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP13`; extends decision [0003](./0003-metamodel-as-data.md).
+**Status:** Accepted 2026-09-19 (initiative 15) — adopted by the agent, for the Requester to confirm or override at the initiative's gate; what a published version freezes narrowed by [0022](./0022-a-name-is-not-frozen.md), which takes the name out of it. **Touches:** `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP13`; extends decision [0003](./0003-metamodel-as-data.md).
 
 ## Context
 

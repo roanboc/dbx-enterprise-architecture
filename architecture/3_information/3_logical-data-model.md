@@ -11,7 +11,7 @@ to one changes the other in the same commit.
 
 **Status: `◐` draft** — read from `src/ea/backend/sql.py` and
 `src/ea/backend/sql_backend.py` as they run today, and from decisions 0006,
-0011, 0014 and 0015. It defines no element of its own.
+0011, 0014, 0015, 0021 and 0022. It defines no element of its own.
 
 ## How to read this document
 
@@ -117,7 +117,7 @@ so the history survives the feed being deleted — the line above is what a run
 
 | Table | Holds | Key (a unique index) | Scoped by |
 | ----- | ----- | ----------- | --------- |
-| `meta_pack` | one version of one metamodel, with its lifecycle | `pack_id`, `version` | the version itself |
+| `meta_pack` | one version of one metamodel, with its lifecycle | `pack_id`, `version` — the pack identifier minted once and never read for meaning | the version itself |
 | `meta_domain` | the domains of that version | `pack_id`, `pack_version`, `domain_id` | `pack_id`, `pack_version` |
 | `meta_element_type` | the element types of that version | `pack_id`, `pack_version`, `type_id` | `pack_id`, `pack_version` |
 | `meta_relationship_type` | the relationship types of that version | `pack_id`, `pack_version`, `rel_type_id` | `pack_id`, `pack_version` |
@@ -142,7 +142,7 @@ so the history survives the feed being deleted — the line above is what a run
 ```mermaid
 erDiagram
   meta_pack {
-    varchar pack_id PK
+    varchar pack_id PK "opaque, minted once"
     varchar version PK
     varchar status "draft, published, retired"
     varchar derived_from "the version this draft was copied from"
@@ -192,7 +192,7 @@ erDiagram
 
 | Table | Its other columns | References | Notes |
 | ----- | ----------------- | ---------- | ----- |
-| `meta_pack` | `name`, `description`, `source`, `provenance_values`, `loaded_at`, `notes`, `created_by`, `created_at`, `published_by`, `published_at` | `derived_from` names another version of the same pack | the version column is called `version` here and `pack_version` everywhere else, which is the one naming seam in the schema |
+| `meta_pack` | `name`, `description`, `source`, `provenance_values`, `loaded_at`, `notes`, `created_by`, `created_at`, `published_by`, `published_at` | `derived_from` names another version of the same pack | `name` is a label, and it is the one column of a published version an update may still touch (decision 0022); the version column is called `version` here and `pack_version` everywhere else, which is the one naming seam in the schema |
 | `meta_domain` | `name`, `description`, `sort_order`, `properties` | — | |
 | `meta_element_type` | `name`, `plural`, `deactivation_reason`, `provenance`, `prefix`, `description`, `examples`, `source_of_record`, `type_owner`, `instance_owner`, `sort_order`, `notation`, `properties` | `domain_id` → `meta_domain`; `supertype_id` → `meta_element_type`, of the same version | a deactivated type keeps its rows: `active` is false and `deactivation_reason` says why |
 | `meta_relationship_type` | `name`, `inverse_name`, `provenance`, `qualifiers`, `diagrams`, `description`, `dst_max`, `sort_order`, `properties` | `source_type_id`, `target_type_id` → `meta_element_type`, or the literal `ANY` | the identifier is `<source>__<verb>__<target>`, so it is unique without a surrogate |

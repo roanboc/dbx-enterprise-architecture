@@ -197,7 +197,14 @@ provenance, attributes of their own). Anything the format does not name is kept
 in a `properties` bag rather than dropped. See
 [`packs/README.md`](./packs/README.md). Load it with
 `uv run ea init --pack packs/<name>/metamodel.yaml`, or edit any pack in the
-Metamodel page and export it.
+Metamodel page and export it. The two packs that ship are also offered on the
+Organisations page: pick one and it starts a new, empty organisation typed
+against it.
+
+A pack's `id:` is opaque and permanent, so its `name:` is a label that is
+corrected at any point in a version's life, a published one included. Name a
+version on the command line by its name or by the first few characters of its
+identifier.
 
 A pack is stored under a version, and a version is a draft until it is
 published, after which it is frozen. To try a change: draft a version from the

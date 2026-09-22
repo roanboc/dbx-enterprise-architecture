@@ -8,8 +8,10 @@ gate (recorded in [initiative 1](../scope/1_curriculum-poc.md)); `PLAT1` and
 `PLAT5` restated and `GAP20` opened by
 [initiative 19](../scope/19_the-product-not-the-phase.md), which returns those
 two rows to **Direction**; `GAP21` opened and closed by
-[initiative 20](../scope/20_browse-filters-and-branch-safety.md). The gaps
-beyond `PLAT1` are intent, not work.
+[initiative 20](../scope/20_browse-filters-and-branch-safety.md); `GAP22`
+opened and closed by
+[initiative 21](../scope/21_metamodel-identity-renaming-and-starters.md). The
+gaps beyond `PLAT1` are intent, not work.
 
 ## How to read this document
 
@@ -58,6 +60,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+  p1["≡ The repository running locally [PLAT1]"]:::implementation
   p2["≡ Same application on Databricks [PLAT2]"]:::implementation
   p3["≡ Real content with provenance [PLAT3]"]:::implementation
   p5["≡ Semantic front doors [PLAT5]"]:::implementation
@@ -74,6 +77,7 @@ flowchart LR
   g19["⊘ A run that landed on main cannot be reversed [GAP19]"]:::implementation
   g20["⊘ No source is reached over a protocol [GAP20]"]:::implementation
   g21["⊘ A search cannot be narrowed, shared or carried past its first page [GAP21]"]:::implementation
+  g22["⊘ A metamodel is known by a name that cannot change [GAP22]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
   g16 -.-> p2
@@ -86,6 +90,7 @@ flowchart LR
   g19 -.-> p3
   g20 -.-> p3
   g21 -.-> p3
+  g22 -.-> p1
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -113,6 +118,7 @@ flowchart LR
 | `GAP18` | **The services are sized for today’s content, not for the assessed capacity** — the store answers a traversal in milliseconds at a hundred thousand elements (decisions 0016 to 0018), but six services above it read every element and every relationship of the organisation into one request, a trace still builds the whole in-process graph the store made unnecessary, and nothing declares the capacity the application is assessed for, so nothing fails when it is exceeded | `PLAT1` and `PLAT3` | Initiative 16 (built 2026-09-20): the capacity declared in one place and read by the services, the traversal unwrapped from the in-process graph, the other five whole-model reads bounded or declared deliberate, and a seeded scale fixture holding the figure |
 | `GAP20` | **No source is reached over a protocol** — content arrives as an uploaded file or as a staging table somebody else fills (initiative 18). A system that already answers an API, and one the platform can already reach on a user's behalf, both still wait for a pipeline to be written and maintained for them, so the cost of a new source is code rather than configuration (assessment `ASM12`) | `PLAT1` and `PLAT3` | A source connected over a protocol the platform already speaks — its rows put through the same validation, report, branch targeting, provenance and review an uploaded file gets, so nothing about the pipeline is reimplemented per source. Not started |
 | `GAP21` | **A search cannot be narrowed, shared or carried past its first page** — Browse filtered by one type, one status and a word; every other field an element carries (both states, the work package, the source, the lifecycle, every attribute, when it was last touched) was invisible to the search. Ranking happened in Python over the alphabetically first 5,000 rows, so above that the best match could not reach the first screen and the count offered a page two that did not exist; the filters never reached the address bar, so a result set could be neither shared nor returned to, and nothing but the whole model could be exported | `PLAT1` and `PLAT3` | Initiative 20 (built 2026-09-21): `ElementFilter` as the one thing that says what narrows a list, read by the store, the services, the page and the command line; ranking, narrowing and ordering in SQL so a page is the rows after the page before it; the criteria named on the screen and carried in the address; the result set exported as CSV from the page and as JSON or CSV from `ea find`. Left open: a **saved or named query**, which needs somewhere per reader to keep one, and a **relationship as a criterion** ("applications that support no capability"), which needs a predicate over the edge table rather than over the element row |
+| `GAP22` | **A metamodel is known by a name that cannot change, and nothing starts from one that ships** — a pack's identifier was a readable slug, so it read like a name while being the key of `meta_pack`, of the five `meta_` tables under it and of every organisation that applied a version; correcting the name meant restating the key, and a published version refused even that, because the name counted as part of the definition it freezes. And the two packs committed under `packs/` reached a store only by a file path typed into a command, so an adopter's first act was a command line rather than a choice on a screen (`DRV4`, `G5`) | `PLAT1` | Initiative 21 (built 2026-09-22): the pack identifier opaque, minted once and never recomputed (decision 0021); the name out of what a published version freezes, so it is corrected in place at any point in a version's life (decision 0022); and the packs the repository ships offered on a screen as starters, each beginning a new, empty organisation on the one picked, never re-pointing the one the reader is in |
 
 ## Gaps closed so far, and by what
 
@@ -132,6 +138,8 @@ flowchart LR
   g14["⊘ No roles, no review before merge [GAP14]"]:::implementation
   g15["⊘ Nothing tells the model's health [GAP15]"]:::implementation
   g17["⊘ A metamodel change cannot be tried without changing what everybody reads [GAP17]"]:::implementation
+  g21["⊘ A search cannot be narrowed, shared or carried past its first page [GAP21]"]:::implementation
+  g22["⊘ A metamodel is known by a name that cannot change [GAP22]"]:::implementation
   g9 -->|closed, initiative 2| p1
   g11 -->|closed, initiative 3| p1
   g12 -->|closed, initiative 4| p4
@@ -143,6 +151,8 @@ flowchart LR
   g2 -->|closed in code, initiatives 13 and 14| p2
   g16 -->|closed in code, initiative 14| p2
   g17 -->|closed in code, initiative 15| p1
+  g21 -->|closed, initiative 20| p1
+  g22 -->|closed, initiative 21| p1
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```

@@ -30,13 +30,15 @@ flowchart LR
   s1g["1g — roles and review"]:::implementation
   s1h["1h — metamodel versions and organisations"]:::implementation
   s1i["1i — prepared for real content"]:::implementation
+  s1j["1j — browse filters and branch safety"]:::implementation
+  s1k["1k — metamodel identity and starters"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s3b["3b — sources reached over a protocol"]:::implementation
   s4["4 — governed change on the platform"]:::implementation
   s5["5 — semantic front doors"]:::implementation
   s6["6 — the current EA tool retired"]:::implementation
-  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i
+  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i --> s1j --> s1k
   s1g --> s2
   s1g --> s3
   s3 --> s3b
@@ -57,6 +59,8 @@ flowchart LR
   s1g["1g — roles and review"]:::implementation
   s1h["1h — metamodel versions and organisations"]:::implementation
   s1i["1i — prepared for real content"]:::implementation
+  s1j["1j — browse filters and branch safety"]:::implementation
+  s1k["1k — metamodel identity and starters"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s5["5 — semantic front doors"]:::implementation
@@ -70,6 +74,8 @@ flowchart LR
   s1h -->|extends on DuckDB| p1
   s1i -->|extends on DuckDB, and prepares| p1
   s1i -.->|prepares| p3
+  s1j -->|extends on DuckDB| p1
+  s1k -->|extends on DuckDB| p1
   s2 -.->|reaches, in flight| p2
   s3 -.->|reaches, in flight| p3
   s5 -.->|reaches| p5
@@ -89,6 +95,7 @@ flowchart LR
 | 1h — metamodel versions and organisations (initiative 15, built 2026-09-19) | `GAP17` | `PLAT1`, extended | Step 1g | An architect copies the default organisation, drafts a version of the metamodel in the copy, reads in a compatibility check what the change would leave invalid, publishes it and applies it to the default organisation; a reader in the default organisation sees none of the trial |
 | 1i — prepared for real content (initiative 16, built 2026-09-20) | `GAP18` | `PLAT1`, extended | Step 1h, and the store measured by decisions 0016 to 0018 | The Health page says how large the model is against the capacity the application is assessed for; a trace on a seeded hundred thousand elements answers from the store without building the graph; an attribute's group is picked from a list the metamodel declares, not typed; and a second pack, in a different framework, is loaded into an organisation of its own |
 | 1j — browse filters and branch safety (initiative 20, built 2026-09-21) | `GAP21` | `PLAT1`, extended | Step 1i | An architect narrows the model by type, state, work package, source and an attribute at once, sends the address to a colleague and exports the result set; two architects edit different fields of one element and both changes survive the merge, because a conflict is a field both of them moved rather than a version that went up |
+| 1k — metamodel identity and starters (initiative 21, built 2026-09-22) | `GAP22` | `PLAT1`, extended | Step 1j | An admin corrects the name of a published metamodel and every organisation applying it keeps working, because nothing ever keyed off the name; and a newcomer picks the ArchiMate Core from the starters on a screen and lands in a new, empty organisation typed against it, with the organisation they were in untouched |
 | 2 — Databricks (initiatives 13 and 14, built 2026-09-09 and 2026-09-11; the workspace run pending) | `GAP1`, `GAP2`, `GAP16` | `PLAT2` | A workspace with Apps enabled and Lakebase available; a service principal | The same app on Databricks Apps, the same data in a Lakebase database, the same tests green |
 | 3 — provenance and feeds (initiative 18, built 2026-09-21; in flight) | `GAP4`, and `GAP19` opened | `PLAT3` | The per-type source-of-record table agreed with the enterprise architecture team (open question 5); read access to the extracts of the CMDB, the HR system, the project portfolio tool, the information asset register and the data platform's metadata catalogue (the last through its existing platform pipelines); and, outside the application, whatever fires a schedule | A source leaves rows in the store's own staging schema and a configured feed loads them through the same validation, report, branch and role rules a file gets — on demand today, on its schedule once something outside fires it; every run is kept and readable afterwards. **Still to come:** a CMDB change appearing without anyone pressing anything, which needs the source-of-record table and a trigger; and a source reached over a protocol rather than through a table somebody else fills (`GAP20`) |
 | 3b — sources reached over a protocol | `GAP20` | `PLAT3` | Step 3 (the pipeline a connected source is put through is the one step 3 built) and `PLAT2` (the platform is what reaches the source on a user's behalf); the source-of-record table, so a connected source knows which types it masters | A source is added by filling in where it lives and what it masters — no pipeline written for it — and its rows arrive validated, attributed to it, and on the branch its configuration names |

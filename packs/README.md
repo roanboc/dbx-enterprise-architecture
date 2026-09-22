@@ -28,11 +28,22 @@ Both live in one store, each applied by an organisation of its own
 
 ```bash
 uv run ea load-pack packs/archimate_core/metamodel.yaml
-uv run ea org create "ArchiMate trial" --metamodel archimate_core@3.2
+uv run ea org create "ArchiMate trial" --metamodel "ArchiMate Core@3.2"
 uv run ea --org archimate-trial summary
 ```
 
-A further pack lands beside them with the same shape.
+A further pack lands beside them with the same shape — and either of these two
+is picked from the Organisations page instead, which stores it and starts a new,
+empty organisation on it.
+
+**A pack's `id:` is opaque.** It is minted once, carried by the file and never
+recomputed, so the `name:` beside it is free to change and nothing breaks
+(decisions [0021](../architecture/decisions/0021-an-opaque-pack-identifier.md)
+and [0022](../architecture/decisions/0022-a-name-is-not-frozen.md)). A file
+written with a readable `id:`, or with none at all, is folded onto a permanent
+one deterministically, so loading it twice is one framework rather than two.
+Name a version by its name, or by the first few characters of its identifier —
+both reach the same place.
 
 **Watch the commas.** A `description:` inside a `{...}` flow mapping ends at
 the first comma, and the rest becomes a key of its own that the engine keeps in

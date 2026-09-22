@@ -124,7 +124,7 @@ flowchart LR
 | ID | Artifact | Path | Notes |
 | -- | -------- | ---- | ----- |
 | `ART1` | **Repository file** — the DuckDB database holding the metamodel tables, the content tables, the branch overlays, the proposals and the change log | `data/ea.duckdb` (`EA_DB_PATH`) | Not committed; rebuilt by `make seed` |
-| `ART2` | **Metamodel pack** — the framework as YAML, loaded into the store on `ea init` and on reload | `packs/higher_education/metamodel.yaml` | Committed; the store holds the copy the app uses |
+| `ART2` | **Metamodel pack** — a framework as YAML, carrying the opaque identifier its framework is stored under (decision 0021), loaded into the store on `ea init`, on reload, and when one is picked as a starter; a file with no identifier is a framework the store has not met, and is given one folded from its name | `packs/*/metamodel.yaml` — one directory per pack, and every one of them a starter | Committed; the store holds the copy the app uses |
 | `ART3` | **Exchange files** — the CSV files of the contract and a source's mapping | `data/sample/`, `connectors/` | The sample is committed; institutional exports are not |
 | `ART4` | **Source repository** — the code, the packs, the connectors and this model, in git | the repository root | Apache-2.0; public |
 | `ART5` | **Bundled assets** — the Mermaid renderer, the icon set, the styles and the view-arranging script the browser runs | `assets/` | Attributed in `NOTICE` |
@@ -142,7 +142,7 @@ flowchart LR
 | `NODE1.3` | ⬡ «System Software» Browser | `TSVC3` | ⚙ «Technology Service» In-browser rendering | provides | |
 | `NODE1.1` | ⬡ «System Software» Python process | `TSVC2` | ⚙ «Technology Service» Embedded SQL store | uses | |
 | `NODE1.2` | ⬡ «System Software» DuckDB engine | `ART1` | ▤ «Artifact» Repository file | holds | one writer per file |
-| `NODE1.1` | ⬡ «System Software» Python process | `ART2` | ▤ «Artifact» Metamodel pack | reads | on `ea init` and reload |
+| `NODE1.1` | ⬡ «System Software» Python process | `ART2` | ▤ «Artifact» Metamodel pack | reads | on `ea init`, on reload, and when a starter is picked |
 | `NODE1.1` | ⬡ «System Software» Python process | `ART3` | ▤ «Artifact» Exchange files | reads | on import |
 | `ART4` | ▤ «Artifact» Source repository | `NODE1.1` | ⬡ «System Software» Python process | deployed as | `uv sync`, `app.py` |
 | `NODE1.1` | ⬡ «System Software» Python process | `ART5` | ▤ «Artifact» Bundled assets | serves | |
