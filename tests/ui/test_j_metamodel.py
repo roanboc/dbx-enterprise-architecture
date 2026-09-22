@@ -2453,12 +2453,17 @@ def test_load_a_yaml_file(ui, record):
     _act(ui, "delete", FILE_REF)
     feedback = _confirm(ui)
     ui.check(
-        "the loaded draft, applied by nobody now, is deleted", f"{FILE_REF} deleted." in feedback, feedback
+        "the loaded draft, applied by nobody now, is deleted",
+        f"{SHIPPED_NAME} {FILE_VERSION} deleted." in feedback,
+        feedback,
     )
+    # A row prints the version and the short identifier, not the whole key, so "one version
+    # left" is one short identifier in the table — and the deleted version's name gone from it.
+    table = ui.text("mm-versions-table")
     ui.check(
         "one version is left, the shipped one",
-        ui.text("mm-versions-table").count(PACK + "@") == 1,
-        ui.text("mm-versions-table")[:200],
+        table.count(PACK[:9]) == 1 and PUBLISHED_VERSION in table and FILE_VERSION not in table,
+        table[:200],
     )
     _open(ui)
     _list(ui, "Element types")
