@@ -83,6 +83,20 @@ GRID_OPTIONS = {
     "tooltipShowDelay": 300,
 }
 
+
+def _grid_defaults() -> dict[str, bool]:
+    """What every column of the Browse grid may do.
+
+    Neither sorting nor filtering, and for one reason: **the grid holds one page of the
+    result set, not the result set.** The store orders and narrows the whole of it, so a
+    column header that sorted or a funnel that filtered would act on the hundred rows on
+    screen while the count beside them went on reporting the store's total — and the two
+    would disagree from row 101 on, silently. Sorting is the control beside the search box;
+    narrowing is the filters, which the address carries and the chips name.
+    """
+    return {"sortable": False, "filter": False, "resizable": True}
+
+
 SORT_LABELS = {
     "relevance": "Best match",
     "name": "Name",
@@ -152,8 +166,15 @@ def _since(raw: str) -> datetime | None:
 def filter_from_query(search: str | None) -> tuple[ElementFilter, dict]:
     """The filter an address describes, and the raw query beside it for the notes below."""
     q = parse_qs((search or "").lstrip("?"))
+    # A Health drill-down written before it had a key of its own says `source=`, and means a
+    # bucket rather than a stored value. Reading that as a `sources` predicate asked the
+    # store for rows carrying the literal `(authored)`, so the figure opened empty. An
+    # address that names a facet and nothing else keeps `source` for the drill-down.
+    drill_down = bool((q.get("missing") or q.get("facet")) and not q.get("facetsource"))
     kwargs: dict = {}
     for key, field in QUERY_KEYS.items():
+        if key == "source" and drill_down:
+            continue
         values = [v for v in q.get(key, []) if v != ""]
         if not values:
             continue
@@ -311,6 +332,19 @@ def _unknown_type(ctx: AppContext, filt: ElementFilter) -> str:
     return ""
 
 
+def facet_source(q: dict) -> str:
+    """The source bucket a Health drill-down names, under its own key.
+
+    Health counts freshness per source and calls an element with no source system
+    `(authored)`. That is a label of its own, never a value `source_system` holds, so it
+    travels as `facetsource` and never reaches the store as a `sources` predicate.
+    """
+    if q.get("facetsource"):
+        return q["facetsource"][0]
+    # the older spelling, kept so a link somebody saved still opens the rows it names
+    return (q.get("source") or [""])[0] if (q.get("missing") or q.get("facet")) else ""
+
+
 def _filter_note(ctx: AppContext, filt: ElementFilter, q: dict) -> str:
     facet = (q.get("missing") or q.get("facet") or [""])[0]
     unknown_type = _unknown_type(ctx, filt)
@@ -330,8 +364,8 @@ def _filter_note(ctx: AppContext, filt: ElementFilter, q: dict) -> str:
             "from the Health page and may name a filter that has since been renamed."
         )
     where = ""
-    if q.get("source"):
-        where = f" from source {q['source'][0]}"
+    if facet_source(q):
+        where = f" from source {facet_source(q)}"
     if facet == "stale":
         label = f"not updated for {_days(q)} days or more"
     return f"Showing only the elements {label}{where} (from the Health page)."
@@ -367,9 +401,7 @@ def _chips(ctx: AppContext, filt: ElementFilter, facet: str):
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
     filt, q = filter_from_query(search)
     facet = (q.get("missing") or q.get("facet") or [""])[0]
-    health_filter = (
-        {"facet": facet, "source": (q.get("source") or [""])[0], "days": _days(q)} if facet else None
-    )
+    health_filter = {"facet": facet, "source": facet_source(q), "days": _days(q)} if facet else None
     frozen = ctx.frozen_reason()
     can_write = ctx.can("edit_content") and (ctx.on_branch() or ctx.can("edit_main")) and not frozen
     address_note = _filter_note(ctx, filt, q)
@@ -602,7 +634,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 columnDefs=_columns(can_write, DEFAULT_COLUMNS),
                 rowData=[],
                 getRowId="params.data.element_id",
-                defaultColDef={"sortable": False, "filter": True, "resizable": True},
+                defaultColDef=_grid_defaults(),
                 dashGridOptions=GRID_OPTIONS,
                 className="ag-theme-alpine",
                 style={"height": "64vh", "width": "100%"},
@@ -840,7 +872,7 @@ def register(app: dash.Dash) -> None:
         extra = (
             {
                 "missing": facet,
-                "source": (health_filter or {}).get("source"),
+                "facetsource": (health_filter or {}).get("source"),
                 "days": (health_filter or {}).get("days"),
             }
             if facet

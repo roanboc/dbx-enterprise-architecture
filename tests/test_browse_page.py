@@ -119,3 +119,40 @@ def test_only_the_columns_a_reader_chose_are_built(loaded):
     with_ticks = [c.get("field") for c in browse._columns(True, chosen)]
     assert with_ticks[0] == "sel", "a role that can write gets the tick column"
     assert [c.get("field") for c in browse._columns(False, None)] == browse.DEFAULT_COLUMNS
+
+
+def test_the_health_drill_down_source_is_not_also_a_store_predicate(app_context):
+    """Health's `source=` names a bucket of its own, not a value the store holds.
+
+    Health labels an element with no source system `(authored)`, so a drill-down link reads
+    `?missing=never_updated&source=(authored)`. Once `source` became a filter criterion in
+    its own right the one key meant two things at once: the store was asked for rows whose
+    `source_system` is the literal `(authored)`, which is nothing, so every authored figure
+    opened a grid reading `0 of 0` beside a page that had just said 1.
+    """
+    ctx = app_context
+    filt, q = browse.filter_from_query("?missing=never_updated&source=(authored)")
+    assert filt.sources == [], "the drill-down's bucket is not a source_system predicate"
+    assert q.get("missing") == ["never_updated"]
+
+    facet = {"facet": "never_updated", "source": "(authored)", "days": 90}
+    rows, total, applied = browse._load(ctx, filt, facet, page=0)
+    expected = ctx.health.ids_for("never_updated", None, "(authored)", 90)
+    assert applied.only_ids is not None
+    assert set(applied.only_ids) == expected
+    assert total == len(expected), "the count is the figure the reader clicked"
+
+
+def test_a_source_filter_still_narrows_when_no_drill_down_is_on(app_context):
+    """The criterion itself is unharmed: it is only the drill-down's key that is not it."""
+    filt, _ = browse.filter_from_query("?source=sample")
+    assert filt.sources == ["sample"]
+    rows, total, _ = browse._load(app_context, filt, None, page=0)
+    assert total > 0 and all(r["source_system"] == "sample" for r in rows)
+
+
+def test_the_drill_down_and_a_source_filter_can_both_be_in_the_address(app_context):
+    """They are different questions, so they get different keys and narrow together."""
+    filt, q = browse.filter_from_query("?missing=never_updated&facetsource=(authored)&source=sample")
+    assert filt.sources == ["sample"], "the reader's own filter"
+    assert q.get("facetsource") == ["(authored)"], "and the figure they came from"

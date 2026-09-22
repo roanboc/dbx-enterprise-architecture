@@ -66,7 +66,11 @@ def _freshness(ctx: AppContext) -> html.Div:
         src = r["source"]
         # Every row carries its source into the link, `(authored)` included: without it the
         # figure for the rows nobody imported opened the rows everybody did.
-        q = f"&source={quote(src)}"
+        # `facetsource`, not `source`: Browse filters by `source` on a value the store
+        # holds, and this is a bucket of Health's own — `(authored)` is what it calls an
+        # element with no source system, which no row carries. One key meaning both asked
+        # the store for rows that cannot exist, and every authored figure opened empty.
+        q = f"&facetsource={quote(src)}"
         body.append(
             dmc.TableTr(
                 [
