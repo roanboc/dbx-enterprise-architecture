@@ -162,7 +162,7 @@ def organisations_table(ctx: AppContext) -> Any:
 def report_view(report: CompatibilityReport, applied: bool) -> Any:
     counts = report.by_code()
     verdict = (
-        f"{report.pack_id}@{report.version} fits {report.org_id}: {report.elements} elements and "
+        f"{report.pack_name or report.pack_id} {report.version} fits {report.org_id}: {report.elements} elements and "
         f"{report.relationships} relationships checked, nothing would be left invalid."
         if not report.issues
         else report.summary()
@@ -631,6 +631,6 @@ def register(app: dash.Dash) -> None:
         except (ConflictError, Forbidden, NotFoundError) as exc:
             return (no_update,) * 6 + (alert(str(exc), "red"),)
         ctx.reload_registry()
-        return refreshed(ctx, alert(f"{ctx.orgs.get(org_id).name} now applies {ref}.", "green")) + (
-            report_view(report, applied=True),
-        )
+        return refreshed(
+            ctx, alert(f"{ctx.orgs.get(org_id).name} now applies {_version_label(ctx, ref)}.", "green")
+        ) + (report_view(report, applied=True),)

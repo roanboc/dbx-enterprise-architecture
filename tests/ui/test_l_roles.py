@@ -877,6 +877,8 @@ def test_branches_as_admin(ui, record):
 def test_metamodel_as_architect(ui, record, finding):
     _as(ui, ARCHITECT)
     ui.goto("/metamodel")
+    # Manage opens on Domains, its first pill; these checks read the element types list.
+    _mm_tab(ui, "Element types")
     ui.check("the metamodel is readable", ui.visible("mm-types-grid"))
     ui.check("an Architect may not save the metamodel", _blocked(ui, "mm-save"))
     ui.check("nor add a row to a list", _blocked(ui, "mm-add-type"))
@@ -926,6 +928,7 @@ def test_metamodel_per_persona(ui, record):
     ui.goto("/metamodel")
     for persona in (READER, REVIEWER):
         _as(ui, persona)
+        _mm_tab(ui, "Element types")
         ui.check(f"{_a(persona)} may not save the metamodel", _blocked(ui, "mm-save"))
         ui.check(f"{_a(persona)} may not delete a row from a list", _blocked(ui, "mm-del-type"))
         ui.check(f"{_a(persona)} may still export the pack", _usable(ui, "mm-export"))
@@ -933,6 +936,7 @@ def test_metamodel_per_persona(ui, record):
         ui.check(f"{_a(persona)} may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
         ui.shot(f"The Metamodel as {_a(persona)}: both Save buttons refused")
     _as(ui, ADMIN)
+    _mm_tab(ui, "Element types")
     ui.check("an Admin may save the metamodel", _usable(ui, "mm-save"))
     ui.check(
         "an Admin may add a row and delete one", _usable(ui, "mm-add-type") and _usable(ui, "mm-del-type")

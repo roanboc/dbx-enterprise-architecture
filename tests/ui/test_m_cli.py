@@ -3947,3 +3947,58 @@ def test_m72_runs(cli, record):
         rc_feed == 0 and "No runs recorded for feed 'no-such-feed'" in narrowed,
         ev,
     )
+
+
+@pytest.mark.scenario(
+    scenario_id="M73",
+    group="M",
+    title="metamodel rename corrects what a version is called, whatever its status, and moves no key",
+    feature="Command line · metamodel rename",
+    expected="`metamodel rename` renames the published shipped version in place; `metamodel versions` lists the new name under the same identifier; the new name reaches the version; renaming it to the name it already has says nothing changed; and it is renamed back the same way.",
+)
+def test_m73_metamodel_rename(cli, record):
+    # A published version: the freeze is on what it defines, and a name defines nothing
+    # (decision 0022), so this is allowed and moves no key (decision 0021).
+    rc, out, ev = run(cli, "metamodel", "rename", SHIPPED_VERSION, "M renamed edition", limit=160)
+    must(
+        record,
+        "the published version was renamed in place",
+        rc == 0 and "is now M renamed edition" in out,
+        ev,
+    )
+    check(
+        record, "the reply carries the canonical reference beside the name", SHIPPED_VERSION in out, trim(out)
+    )
+
+    _, listed, listed_ev = run(cli, "metamodel", "versions", limit=300)
+    row = next((ln for ln in listed.splitlines() if "2026-08-11" in ln and "M renamed edition" in ln), "")
+    check(
+        record,
+        "the listing shows the new name under the same short identifier, still published",
+        row.startswith(HIGHER_ED[:9]) and " published " in row,
+        row.strip() or listed_ev,
+    )
+
+    rc_name, by_name, by_name_ev = run(cli, "metamodel", "versions", "--pack", "M renamed edition", limit=200)
+    check(
+        record,
+        "the new name reaches the version",
+        rc_name == 0 and "M renamed edition" in by_name,
+        by_name_ev,
+    )
+
+    rc_same, same, same_ev = run(cli, "metamodel", "rename", SHIPPED_VERSION, "M renamed edition", limit=160)
+    check(
+        record,
+        "renaming it to the name it has says nothing changed",
+        rc_same == 0 and "already called that" in same,
+        same_ev,
+    )
+
+    rc_back, back, back_ev = run(cli, "metamodel", "rename", SHIPPED_VERSION, SHIPPED_NAME, limit=160)
+    check(
+        record,
+        "and it is renamed back the same way, so the rest of the round reads the shipped name",
+        rc_back == 0 and f"is now {SHIPPED_NAME}" in back,
+        back_ev,
+    )

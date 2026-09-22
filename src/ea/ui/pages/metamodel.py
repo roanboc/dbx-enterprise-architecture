@@ -1727,7 +1727,9 @@ def register(app: dash.Dash) -> None:
             return no_update
         reg = _shown(get_context(), ref)
         view = view_from_metamodel(reg, domain or None, bool(inactive))
-        stem = f"{reg.pack.id}-{reg.pack.version}-metamodel"
+        # Named for the reader who has to find the file afterwards: an opaque identifier in a
+        # file name is a file nobody can pick out of a folder (decision 0021).
+        stem = f"{slugify(reg.pack.name) if reg.pack.name else reg.pack.id}-{reg.pack.version}-metamodel"
         if trigger == ids.MM_VIEW_MD:
             return dcc.send_string(to_markdown(view, legend=True), f"{stem}.md")
         return dcc.send_string(to_drawio(view, positions=positions or None), f"{stem}.drawio")
@@ -1993,7 +1995,7 @@ def register(app: dash.Dash) -> None:
             if any(v.version == pack.version for v in ctx.metamodels.versions(pack.id)):
                 raise ConflictError(f"version {pack.version} of {pack.id} already exists; pick another name")
             ctx.metamodels.save(pack, ctx.actor)
-            message = f"Draft {pack.ref} created from {shown.ref}."
+            message = f"Draft {pack.name} {pack.version} created from {shown.name} {shown.version}."
             if apply_here:
                 report = ctx.orgs.apply(ctx.org(), pack.ref, ctx.actor, force=True)
                 message += f" Applied to {ctx.organisation().name}: {report.summary()}."
@@ -2012,7 +2014,8 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update
         pack = _shown(get_context(), ref).pack
-        return dcc.send_string(pack_yaml(pack), f"{pack.id}-{pack.version}-metamodel.yaml")
+        stem = slugify(pack.name) if pack.name else pack.id
+        return dcc.send_string(pack_yaml(pack), f"{stem}-{pack.version}-metamodel.yaml")
 
     @app.callback(
         *body_outputs,
@@ -2037,10 +2040,21 @@ def register(app: dash.Dash) -> None:
             data = yaml.safe_load(base64.b64decode(b64).decode("utf-8")) or {}
             read = pack_from_dict(data)
             suspect = suspect_split_descriptions(read)
+            # What the store called this version before the file arrived, so a file that only
+            # renames a frozen version is reported as the rename it is (decision 0022).
+            try:
+                was = ctx.metamodels.version(read.ref).name
+            except NotFoundError:
+                was = ""
             pack = ctx.metamodels.save(read, ctx.actor)
         except (OSError, ValueError, KeyError, yaml.YAMLError, ConflictError, Forbidden) as exc:
             return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 6
-        message = f"Loaded {pack.ref} ({pack.status}) from {filename}."
+        # The status the STORE holds, not the one the file claims: a file that renames a
+        # published version may say `draft` in its header, and the version stays published.
+        stored = ctx.metamodels.version(pack.ref)
+        message = f"Loaded {pack.name} {pack.version} ({stored.status}) from {filename}."
+        if was and was != pack.name:
+            message += f" Renamed from {was}; what it defines is unchanged."
         colour = "green"
         if suspect:
             # The file loaded; something in it looks mis-typed, and saying nothing would

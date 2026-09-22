@@ -18,6 +18,7 @@ import json
 import re
 
 import pytest
+from tests.conftest import HIGHER_ED
 
 pytestmark = pytest.mark.gui
 
@@ -25,8 +26,13 @@ DEFAULT = "default"
 DEFAULT_NAME = "Default organisation"
 SANDBOX = "Q sandbox"
 SANDBOX_ID = "q-sandbox"
-PACK = "higher_education"
-PUBLISHED = "higher_education@2026-08-11"
+# The identifier is opaque (decision 0021), so it is derived rather than written, and a
+# screen names a version by its NAME and version: that label is what the rows and the
+# selectors are read for below.
+PACK = HIGHER_ED
+SHIPPED_NAME = "Higher Education EA Metamodel"
+PUBLISHED = f"{PACK}@2026-08-11"
+PUBLISHED_LABEL = f"{SHIPPED_NAME} 2026-08-11"
 PUBLISHED_VERSION = "2026-08-11"
 TRIAL = "q-trial"
 TRIAL_REF = f"{PACK}@{TRIAL}"
@@ -144,7 +150,7 @@ def test_the_list(ui, record):
     ui.must("the default organisation is listed", bool(row), ui.text("orgs-list")[:300])
     ui.check("it is marked as the default", "default" in row, row)
     ui.check("and as where the reader is", "you are here" in row, row)
-    ui.check("it says which version it applies", PUBLISHED in row, row)
+    ui.check("it says which version it applies", PUBLISHED_LABEL in row, row)
     ui.check("and that the version is published", "published" in row, row)
     ui.check("it counts what the organisation holds", re.search(r"\b47\b", row) is not None, row)
     ui.check("the header names the organisation", _org_badge(ui) == DEFAULT_NAME, _org_badge(ui))
@@ -169,7 +175,7 @@ def test_create_a_sandbox(ui, record):
     _open(ui)
     said = _create(ui, SANDBOX, DEFAULT_NAME, description="Where group Q tries a metamodel version.")
     ui.must("the sandbox was created", f"Organisation {SANDBOX} created" in said, said or "(no feedback)")
-    ui.check("it applies the version it was given", PUBLISHED in said, said)
+    ui.check("it applies the version it was given", PUBLISHED_LABEL in said, said)
     ui.check("it says what was copied", "47 elements" in said and "99 relationships" in said, said)
     ui.check("and where it was copied from", f"copied from {DEFAULT}" in said, said)
     ui.check("it says how to work in it", "Switch to it with the selector in the header" in said, said)
@@ -262,7 +268,7 @@ def test_switching_and_isolation(ui, record):
 def test_check_a_version(ui, record):
     _open(ui)
     ui.select("orgs-apply-org", DEFAULT_NAME)
-    ui.select("orgs-apply-version", PUBLISHED)
+    ui.select("orgs-apply-version", PUBLISHED_LABEL)
     ui.click("orgs-apply-check")
     ui.page.wait_for_timeout(400)
     ui.settle()
@@ -277,7 +283,7 @@ def test_check_a_version(ui, record):
         said[:300],
     )
     ui.check("nothing was applied", "Applied" not in said, said[:300])
-    ui.check("the row is unchanged", PUBLISHED in _row(ui, DEFAULT_NAME), _row(ui, DEFAULT_NAME))
+    ui.check("the row is unchanged", PUBLISHED_LABEL in _row(ui, DEFAULT_NAME), _row(ui, DEFAULT_NAME))
     ui.shot("A version checked against the default organisation: nothing would be left invalid")
 
 
@@ -303,7 +309,7 @@ def test_apply_a_version(ui, record):
     ui.must("the page opened", ui.visible("orgs-list"))
     ui.check(
         "the version is preselected from the address",
-        ref in ui.page.locator("#orgs-apply-version").first.input_value(),
+        f"{SHIPPED_NAME} {ref.split('@')[1]}" in ui.page.locator("#orgs-apply-version").first.input_value(),
         ui.page.locator("#orgs-apply-version").first.input_value(),
     )
     ui.select("orgs-apply-org", SANDBOX)
@@ -314,17 +320,21 @@ def test_apply_a_version(ui, record):
     feedback = ui.text("orgs-feedback")
     ui.must(
         "the version was applied",
-        f"{SANDBOX} now applies {ref}" in feedback,
+        f"{SANDBOX} now applies {SHIPPED_NAME} {ref.split('@')[1]}" in feedback,
         feedback or applied or "(nothing said anywhere)",
     )
     ui.check("the report says it was applied", applied.startswith("Applied."), applied[:200])
     ui.check(
         "and what it checked", "elements and" in applied and "relationships checked" in applied, applied[:300]
     )
-    ui.check("the sandbox's row follows", ref in _row(ui, SANDBOX), _row(ui, SANDBOX))
+    ui.check(
+        "the sandbox's row follows",
+        f"{SHIPPED_NAME} {ref.split('@')[1]}" in _row(ui, SANDBOX),
+        _row(ui, SANDBOX),
+    )
     ui.check(
         "the default organisation is left on the published version",
-        PUBLISHED in _row(ui, DEFAULT_NAME),
+        PUBLISHED_LABEL in _row(ui, DEFAULT_NAME),
         _row(ui, DEFAULT_NAME),
     )
     ui.shot("A draft applied to the sandbox alone")

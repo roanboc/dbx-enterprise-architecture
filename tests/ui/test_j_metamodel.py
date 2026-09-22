@@ -33,6 +33,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.conftest import HIGHER_ED
+
+from ea.models import slugify
 
 pytestmark = pytest.mark.gui
 
@@ -55,15 +58,21 @@ DELETED_TYPE = "measure"  # J21 deletes it from the draft: the sample model uses
 NEW_DOMAIN = "j_domain"
 NEW_DOMAIN_NAME = "J Domain"
 
-PACK = "higher_education"
-PUBLISHED = "higher_education@2026-08-11"  # the shipped version, published
+# The directory the shipped pack lives in, and the identifier it is stored under. The two
+# parted at decision 0021: an identifier is opaque now, so it is derived the way the file and
+# the store derive it rather than written down, and a screen or a file name carries the NAME.
+PACK_DIR = "higher_education"
+PACK = HIGHER_ED
+SHIPPED_NAME = "Higher Education EA Metamodel"
+SLUG = slugify(SHIPPED_NAME)  # what a downloaded file is named for
+PUBLISHED = f"{PACK}@2026-08-11"  # the shipped version, published
 PUBLISHED_VERSION = "2026-08-11"
 DRAFT = "j-draft"
 DRAFT_REF = f"{PACK}@{DRAFT}"
 FILE_VERSION = "j-file"
 FILE_REF = f"{PACK}@{FILE_VERSION}"
 ORG = "Default organisation"
-SHIPPED_FILE = Path(__file__).resolve().parents[2] / "packs" / PACK / "metamodel.yaml"
+SHIPPED_FILE = Path(__file__).resolve().parents[2] / "packs" / PACK_DIR / "metamodel.yaml"
 
 TABS = ["Manage", "Graph", "Architecture view", "Notation", "Versions", "Reviewers"]
 # In the order the Manage tab draws its pills: a domain groups element types, a type carries
@@ -969,7 +978,11 @@ def test_save_on_the_published_version_creates_a_draft(ui, record):
     ui.page.wait_for_timeout(300)
     ui.settle()
     feedback = ui.text("mm-feedback")
-    ui.must("the draft was created", f"Draft {DRAFT_REF} created from {PUBLISHED}" in feedback, feedback)
+    ui.must(
+        "the draft was created",
+        f"Draft {SHIPPED_NAME} {DRAFT} created from {SHIPPED_NAME} {PUBLISHED_VERSION}" in feedback,
+        feedback,
+    )
     ui.check("the dialog closed", not ui.visible("mm-draft-modal-body"))
     ui.check("nothing was applied", "Applied to" not in feedback, feedback)
     subtitle = ui.text("mm-subtitle")
@@ -1376,7 +1389,7 @@ def test_export_the_pack(ui, record):
     path = ui.download("mm-export", ".yaml")
     ui.check(
         "the file is named for the pack and the version",
-        path.name == f"{PACK}-{DRAFT}-metamodel.yaml",
+        path.name == f"{SLUG}-{DRAFT}-metamodel.yaml",
         path.name,
     )
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -1418,7 +1431,7 @@ def test_export_the_pack(ui, record):
     shipped = ui.download(_action_id("export", PUBLISHED), ".yaml")
     ui.check(
         "a row's Export names its own version",
-        shipped.name == f"{PACK}-{PUBLISHED_VERSION}-metamodel.yaml",
+        shipped.name == f"{SLUG}-{PUBLISHED_VERSION}-metamodel.yaml",
         shipped.name,
     )
     shipped_data = yaml.safe_load(shipped.read_text(encoding="utf-8"))
@@ -1446,7 +1459,13 @@ def test_versions_tab(ui, record):
     _open(ui)
     table = _versions(ui)
     ui.check("the tab says what a version's state means", "a published version is frozen" in ui.body())
-    ui.must("both versions are listed", PUBLISHED in table and DRAFT_REF in table, table[:300])
+    # Version, short identifier and name: the full reference is on the row's tooltip, not in
+    # its text, because an opaque key is not something a reader reads (decision 0021).
+    ui.must(
+        "both versions are listed",
+        PUBLISHED_VERSION in table and DRAFT in table and SHIPPED_NAME in table and PACK[:9] in table,
+        table[:300],
+    )
     published = _row_of(ui, PUBLISHED)
     draft = _row_of(ui, DRAFT_REF)
     ui.check(
@@ -1640,7 +1659,7 @@ def test_architecture_view(ui, record):
     md = ui.download("mm-view-md", ".md")
     ui.check(
         "the Markdown is named for the version",
-        md.name == f"{PACK}-{PUBLISHED_VERSION}-metamodel.md",
+        md.name == f"{SLUG}-{PUBLISHED_VERSION}-metamodel.md",
         md.name,
     )
     text = md.read_text(encoding="utf-8")
@@ -2325,10 +2344,14 @@ def test_load_a_yaml_file(ui, record):
         version=PUBLISHED_VERSION,
         name="J edited edition",
     )
+    # A file that differs from a published version only in its NAME is a rename, and takes
+    # effect: a name is a label, not part of what a version defines (decision 0022). The file
+    # says `draft` in its header; the store's own status is what is reported.
     feedback = _upload(ui, frozen)
     ui.check(
-        "a file that differs from a published version is refused",
-        feedback.startswith("j-frozen.yaml not loaded:") and "frozen" in feedback,
+        "a file that only renames a published version is accepted as a rename",
+        feedback.startswith(f"Loaded J edited edition {PUBLISHED_VERSION} (published)")
+        and f"Renamed from {SHIPPED_NAME}" in feedback,
         feedback,
     )
     ui.check(
@@ -2336,11 +2359,43 @@ def test_load_a_yaml_file(ui, record):
         _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
+    ui.check(
+        "and the subtitle carries the new name",
+        "J edited edition" in ui.text("mm-subtitle"),
+        ui.text("mm-subtitle"),
+    )
+
+    # What a version DEFINES is still frozen — the narrowing is exactly one field wide.
+    broken = _pack_file(
+        ui.run_dir,
+        "j-broken",
+        "J: a definition changed under a published version",
+        version=PUBLISHED_VERSION,
+        name="J edited edition",
+    )
+    data = yaml.safe_load(broken.read_text(encoding="utf-8"))
+    data["element_types"][0]["name"] = "J Participant"
+    broken.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    feedback = _upload(ui, broken)
+    ui.check(
+        "a file that changes what a published version defines is refused as frozen",
+        feedback.startswith("j-broken.yaml not loaded:") and "frozen" in feedback,
+        feedback,
+    )
+
+    # Renamed back the same way, so the rest of the round reads the shipped name — which is
+    # itself the rename proved in the other direction.
+    back = _pack_file(
+        ui.run_dir, "j-back", "J: the shipped name restored", version=PUBLISHED_VERSION, name=SHIPPED_NAME
+    )
+    feedback = _upload(ui, back)
+    ui.check("and renamed back", "Renamed from J edited edition" in feedback, feedback)
+
     trial = _pack_file(ui.run_dir, FILE_VERSION, "J: loaded from a file")
     feedback = _upload(ui, trial)
     ui.must(
         "the file's version was stored",
-        feedback.startswith(f"Loaded {FILE_REF} (draft) from {FILE_VERSION}.yaml."),
+        feedback.startswith(f"Loaded {SHIPPED_NAME} {FILE_VERSION} (draft) from {FILE_VERSION}.yaml."),
         feedback,
     )
     ui.check(
