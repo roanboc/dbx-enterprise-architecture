@@ -27,6 +27,10 @@ STATUS_COLOURS = {
 }
 CHANGE_COLOURS = {"added": "green", "changed": "orange", "deleted": "red"}
 
+#: The merge log's columns. Every width here is spent against about 1265px of card at the
+#: viewport the round is taken at, and `tests/test_ui_grids.py` holds the sum to it: the
+#: 'take' cell is the one control that settles a conflict, and a column added without the
+#: arithmetic pushed it to the card's edge and the two version columns past it.
 GRID_COLUMNS = [
     {
         "field": "include",
@@ -49,10 +53,10 @@ GRID_COLUMNS = [
             "ea-deleted": "params.value == 'deleted'",
         },
     },
-    {"field": "kind", "width": 120},
-    {"field": "entity_id", "headerName": "id", "width": 210},
-    {"field": "label", "headerName": "what", "flex": 2, "minWidth": 260},
-    {"field": "fields", "headerName": "fields changed", "flex": 1, "minWidth": 160},
+    {"field": "kind", "width": 100},
+    {"field": "entity_id", "headerName": "id", "width": 170},
+    {"field": "label", "headerName": "what", "flex": 2, "minWidth": 210},
+    {"field": "fields", "headerName": "fields changed", "flex": 1, "minWidth": 130},
     {
         "field": "conflict",
         "width": 100,
@@ -65,7 +69,7 @@ GRID_COLUMNS = [
         "field": "disputed",
         "headerName": "both changed",
         "flex": 1,
-        "minWidth": 140,
+        "minWidth": 120,
         "tooltipField": "disputed",
     },
     {
@@ -77,8 +81,8 @@ GRID_COLUMNS = [
         "cellEditorParams": {"values": ["", "branch", "main"]},
         "cellClassRules": {"ea-editable": "params.data.conflict == 'conflict'"},
     },
-    {"field": "base_version", "headerName": "base", "width": 80},
-    {"field": "main_version", "headerName": "main", "width": 80},
+    {"field": "base_version", "headerName": "base", "width": 70},
+    {"field": "main_version", "headerName": "main", "width": 70},
 ]
 
 
