@@ -766,7 +766,7 @@ class SqlBackend(DatabaseBackend):
         self._execute(
             "UPDATE meta_pack SET viewpoints = ?, loaded_at = ? WHERE pack_id = ? AND version = ?",
             [
-                json.dumps([_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False)
+                json.dumps([_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False, default=str)
                 if pack.viewpoints
                 else None,
                 now,
@@ -865,7 +865,9 @@ class SqlBackend(DatabaseBackend):
                         created_at,
                         published_by,
                         published_at,
-                        json.dumps([_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False)
+                        json.dumps(
+                            [_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False, default=str
+                        )
                         if pack.viewpoints
                         else None,
                     ]

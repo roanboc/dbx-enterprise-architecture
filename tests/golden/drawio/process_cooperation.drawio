@@ -92,8 +92,8 @@
         <mxCell id="edge_0" value="relates to" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=none;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="IA-COURSE-CAT" target="CAP-CURR-DEV">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="324" y="730" />
-              <mxPoint x="838" y="730" />
+              <mxPoint x="324" y="758" />
+              <mxPoint x="838" y="758" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -112,8 +112,8 @@
         <mxCell id="edge_5" value="contributes to" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=none;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CMS" target="IA-COURSE-CAT">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1058" y="730" />
-              <mxPoint x="432" y="730" />
+              <mxPoint x="1058" y="758" />
+              <mxPoint x="432" y="758" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -123,8 +123,8 @@
         <mxCell id="edge_7" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="CAP-ENROL-MGMT">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="548" y="860" />
-              <mxPoint x="156" y="860" />
+              <mxPoint x="548" y="888" />
+              <mxPoint x="156" y="888" />
             </Array>
           </mxGeometry>
         </mxCell>

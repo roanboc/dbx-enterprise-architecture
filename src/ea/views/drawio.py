@@ -27,6 +27,7 @@ from ea.views.layout import (
     Box,
     Layout,
     band_members,
+    hide_band_edges,
     layout,
     node_size,
     routes_for,
@@ -264,7 +265,10 @@ def _placed(view: View, vp: Viewpoint, positions: dict[str, dict[str, float]]) -
         width=max((b.right for b in everything), default=0.0) + PAGE_MARGIN,
         height=max((b.bottom for b in everything), default=0.0) + PAGE_MARGIN,
     )
-    lay.routes = routes_for(view, boxes)
+    # An edge to a band element is the membership the band shows, here as on the laid-out
+    # path: a line from a band background to a shape is not a relationship anybody drew.
+    hide_band_edges(view, bands, lay, {n.id: n for n in view.nodes})
+    lay.routes = routes_for(view, boxes, hidden=lay.hidden_edges)
     return lay
 
 
@@ -438,6 +442,10 @@ def _decoration(kind: str, reversed_: bool) -> str:
         elif key.startswith("end"):
             key = "start" + key[len("end") :]
         out.append(f"{key}={value}")
+    # A style that names no endArrow gets draw.io's default, a classic arrowhead at the
+    # target; the swapped decoration must say "none" where the standard draws nothing.
+    if not any(piece.startswith("endArrow=") for piece in out):
+        out.append("endArrow=none")
     return ";".join(out) + ";"
 
 

@@ -139,15 +139,18 @@ def export_view(
     registry: Registry,
     narrow: bool = True,
 ) -> View:
-    """The view that goes to the file: narrowed, with the focus the reader marked and nothing
-    else marked. The nodes are copied, so the view the page holds is not marked with them."""
-    out = narrowed_view(view, viewpoint, layers, registry, narrow)
+    """The view that goes to the file: the focus the reader marked and nothing else marked,
+    then narrowed, so the note about a focus the viewpoint leaves out speaks of the reader's
+    focus. The nodes are copied, so the view the page holds is not marked with them."""
     chosen = list(focus or [])
     wanted = set(chosen)
-    out.nodes = [replace(n, focus=n.id in wanted) for n in out.nodes]
-    present = {n.id for n in out.nodes}
-    out.focus_ids = [i for i in chosen if i in present]
-    return out
+    present = {n.id for n in view.nodes}
+    marked = replace(
+        view,
+        nodes=[replace(n, focus=n.id in wanted) for n in view.nodes],
+        focus_ids=[i for i in chosen if i in present],
+    )
+    return narrowed_view(marked, viewpoint, layers, registry, narrow)
 
 
 # ------------------------------------------------------------------ the dialogue

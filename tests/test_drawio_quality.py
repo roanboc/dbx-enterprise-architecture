@@ -581,3 +581,42 @@ def test_golden_file(registry, graph, name):
     assert text == golden, (
         f"{path.name} differs from the export; EA_UPDATE_GOLDEN=1 rewrites it when the change is meant"
     )
+
+
+def test_a_reversed_decoration_names_a_tail_end_so_the_tool_draws_no_default_arrowhead():
+    """draw.io draws a classic arrowhead wherever a style names no endArrow. A kind whose
+    forward style decorates the end alone, swapped to the start, must say endArrow=none."""
+    from ea.models import ARCHIMATE_RELATIONSHIPS
+    from ea.views.drawio import _decoration
+
+    for kind in ARCHIMATE_RELATIONSHIPS:
+        style = _decoration(kind, True)
+        assert "endArrow=" in style, kind
+    assert "startArrow=block" in _decoration("realization", True)
+    assert "endArrow=none" in _decoration("realization", True)
+    assert "endArrow=diamondThin" in _decoration("composition", True)
+
+
+def test_the_arranged_path_draws_no_line_from_a_band_to_a_shape(registry):
+    """Under bands by a related element the band element is a band, not a shape, on the
+    arranged path as on the laid-out one: its edges are the membership the band shows."""
+    from ea.models import Viewpoint
+
+    vp = Viewpoint(id="v", name="v", bands="related", band_type="t", band_relationships=["r"])
+    view = View(
+        "v",
+        nodes=[
+            ViewNode("R", "Role", "t", "T", "business", is_band=True),
+            ViewNode("P", "Process", "p", "P", "business", band="R"),
+            ViewNode("Q", "Other", "p", "P", "business"),
+        ],
+        edges=[ViewEdge("R", "P", "performs", "r"), ViewEdge("P", "Q", "triggers", "s")],
+    )
+    positions = {
+        "R": {"x": 100, "y": 100, "w": 160, "h": 60},
+        "P": {"x": 300, "y": 100, "w": 160, "h": 60},
+        "Q": {"x": 500, "y": 100, "w": 160, "h": 60},
+    }
+    root = ET.fromstring(to_drawio(view, "", positions, viewpoint=vp, modified=STAMP))
+    edges = [c for c in root.findall(".//mxCell[@edge='1']") if not (c.get("id") or "").startswith("legend_")]
+    assert [(e.get("source"), e.get("target")) for e in edges] == [("P", "Q")]

@@ -175,8 +175,8 @@
         <mxCell id="edge_12" value="constitutes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=diamondThin;endFill=0;startArrow=none;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="LDC-CURR" target="LDC-TEACH">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1153" y="997" />
-              <mxPoint x="1880" y="997" />
+              <mxPoint x="1153" y="1025" />
+              <mxPoint x="1880" y="1025" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -210,7 +210,7 @@
         <mxCell id="edge_23" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-EDW" target="DE-EDW-DIM-COURSE">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="edge_24" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-EDW" target="INT-SRS-EDW">
+        <mxCell id="edge_24" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;endArrow=none;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-EDW" target="INT-SRS-EDW">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge_25" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-LMS" target="DE-LMS-UNIT-SITE">
@@ -231,7 +231,7 @@
         <mxCell id="edge_30" value="provides to / uses" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=none;exitX=0.275;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="IF-CMS-SRS">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="edge_31" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;exitX=0.35;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="INT-CMS-SRS">
+        <mxCell id="edge_31" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;endArrow=none;exitX=0.35;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="INT-CMS-SRS">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge_32" value="is source for" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;exitX=0.65;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="INT-SRS-EDW">

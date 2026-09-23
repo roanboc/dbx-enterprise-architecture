@@ -104,7 +104,7 @@ agent as well as from a page, and none of those has a browser.
 | Plateau | State |
 | ------- | ----- |
 | **Baseline** (before) | A view exported to draw.io is a grid: one band per layer stacked on an A4 page, every box one size, no font size, one arrowhead, edges leaving wherever the tool decides, no title, no legend; the reader cannot say what the diagram is for |
-| **Target** (delivered) | The reader names a viewpoint the pack declares, the focus, the depth and the layers; the file carries a title, bands the viewpoint defines, shapes sized to their names in a readable font, nesting and spanning where the viewpoint says so, an arrowhead per kind of relationship, a labelled edge with ports at both ends, a legend, and a page sized to the drawing — deterministically, so two exports of one view are one file |
+| **Target** (delivered) | The reader names a viewpoint the pack declares, the focus, the depth and the layers; the file carries a title, bands the viewpoint defines, shapes sized to their names in a readable font, nesting and spanning where the viewpoint says so, an arrowhead per kind of relationship, a labelled edge with ports at both ends, a legend, and a page sized to the drawing — deterministically, so two exports of one view are one drawing, the file differing only in the time it says it was exported |
 
 ## Work packages and deliverables
 

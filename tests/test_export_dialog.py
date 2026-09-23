@@ -182,3 +182,16 @@ def test_export_view_applies_the_layers_and_the_viewpoint(registry, graph):
     assert out.nodes and {n.layer for n in out.nodes} == {"application"}
     assert out.viewpoint == "application_cooperation" and out.focus_ids == [APPLICATION]
     assert "outside the Application cooperation viewpoint not shown" in out.note
+
+
+def test_the_file_speaks_of_the_focus_the_reader_chose(registry, graph):
+    """The note about a focus the viewpoint leaves out names the reader's focus, not the page's."""
+    from ea.ui.export import export_view
+    from ea.views import view_from_neighbourhood
+
+    view = view_from_neighbourhood(registry, graph, "LDC-CURR", 1)
+    vp = registry.viewpoint("staged_delivery")  # admits no logical data component
+    chosen = next(n.id for n in view.nodes if n.type_id == "data_entity")
+    out = export_view(view, vp, None, [chosen], registry)
+    assert "LDC-CURR" not in out.note and out.focus_ids == [chosen]
+    assert [n.id for n in out.nodes if n.focus] == [chosen]

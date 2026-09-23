@@ -175,11 +175,11 @@ anywhere below admits its sub-types too.
 | `element_types` | The element types the drawing admits. Empty or absent: every type |
 | `relationship_types` | The relationship types drawn. Empty or absent: every type |
 | `bands` | What the drawing is banded by. `layer`, the default, is a band per ArchiMate layer of the notation; `type` is a band per element type; `related` is a band per element of `band_type`, each holding the elements reached from it through `band_relationships` — a swimlane per role, a band per stage |
-| `band_order` | The bands from the top: layer names for `layer`, type ids for `type`. Absent: the pack's own order |
+| `band_order` | The bands from the top: layer names for `layer`, type ids for `type`. Absent: the layers in the standard's order from motivation down, or the types in the order the view meets them |
 | `band_type` | With `bands: related`, the element type whose elements are the bands. Required there |
 | `band_relationships` | With `bands: related`, the relationship types that place an element in a band, in either direction |
 | `other_band` | The title of the last band, which takes every element the rule cannot place. `Other` unless named; a drawing that silently dropped an element would lie about the model |
-| `nest` | The relationship types drawn as one shape inside another: the whole end holds the part end, which is the source unless the type's notation says `direction: reverse` |
+| `nest` | The relationship types drawn as one shape inside another: the whole end holds the part end. The whole is the source unless the type's notation says `direction: reverse`, when it is the target |
 | `span` | The relationship types drawn as a bar: the target end becomes a bar across the sources related to it, or the source end when the notation runs in reverse |
 | `properties` | Anything else the framework keeps with the viewpoint |
 
@@ -187,7 +187,7 @@ The four each shipped pack declares are the worked examples. In
 `higher_education/`: **Layered** (every element, a band per layer, the
 capability, organisation unit and process hierarchies nested); **Application
 cooperation** (the application, interface, integration, data and technology
-types in a band per type, a data entity inside the component that encapsulates
+types in a band per type, a data entity inside the logical data component that encapsulates
 it); **Process cooperation** (a swimlane per role that performs a process,
 `Not performed by a role` for the rest); and **Staged delivery** (a band per
 capability holding what realises it, a data entity spanning the applications

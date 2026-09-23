@@ -133,7 +133,7 @@ def layout(
     bands = band_members(view, vp)
     out = Layout(boxes={}, bands=bands, band_elements={b.element_id for b in bands if b.element_id})
     drawn = {n.id for n in view.nodes if n.id not in out.band_elements}
-    _hide_band_edges(view, bands, out, by_id)
+    hide_band_edges(view, bands, out, by_id)
     sources = _spans(view, vp, drawn, out)
     _nest(view, vp, drawn, out, by_id)
     sizes_grown, offsets, children = _grow(own, out.parents, by_id)
@@ -180,12 +180,12 @@ def layout(
 
     for bi, band in enumerate(bands):
         band.nodes = [n for row in rows_of[bi] for n in row]
-    # The bars' rows are known only now, once every source has its final x: a band grows by
-    # the rows its bars take, and every band under it moves down by the same amount.
-    _place_bars(bands, bars_of, rows_of, sources, own, out, by_id)
-    for band in bands:
         for n in band.nodes:
             _place_children(n, out.boxes, sizes_grown, offsets, children)
+    # The bars' rows are known only now, once every source (a nested one included) has its
+    # final x: a band grows by the rows its bars take, and every band under it moves down by
+    # the same amount, its nested children with it.
+    _place_bars(bands, bars_of, rows_of, sources, own, out, by_id)
 
     content_right = max((b.right for b in out.boxes.values()), default=MARGIN + NODE_W + BAND_PAD)
     width = content_right + BAND_PAD - MARGIN
@@ -314,7 +314,7 @@ def routes_for(
         points: list[tuple[float, float]] = []
         if i in detour:
             a, b = boxes[e.src], boxes[e.dst]
-            wy = min(a.y, b.y) - BAND_PAD - BAND_HEADER / 2  # the band's title line, above the shapes
+            wy = min(a.y, b.y) - BAND_PAD / 2  # between the band's title and its shapes
             points = [(round(a.x + exit_port[0] * a.w), wy), (round(b.x + entry_port[0] * b.w), wy)]
         routes[i] = Route(exit=exit_port, entry=entry_port, points=points)
     return routes
@@ -328,7 +328,7 @@ def _order_key(by_id: dict[str, ViewNode]):
     return lambda nid: (not by_id[nid].focus, by_id[nid].name.lower(), nid)
 
 
-def _hide_band_edges(view: View, bands: list[Band], out: Layout, by_id: dict[str, ViewNode]) -> None:
+def hide_band_edges(view: View, bands: list[Band], out: Layout, by_id: dict[str, ViewNode]) -> None:
     """Under bands by a related element, an edge to a band element cannot be a line: the
     element is a band, not a shape. To the node's own band it is the membership the band already
     shows; to another band it is said in a note, once per node."""
@@ -629,11 +629,19 @@ def _place_bars(
             place(pending[0], force=True)
             placed = [pending[0]]
         pending = [bar for bar in pending if bar not in placed]
+
+    def outermost(nid: str) -> str:
+        while nid in out.parents:
+            nid = out.parents[nid]
+        return nid
+
     shift = 0.0
     for bi, band in enumerate(bands):
         band.box.y += shift
-        for n in (n for row in rows_of[bi] for n in row):
-            out.boxes[n].y += shift
+        top_level = {n for row in rows_of[bi] for n in row}
+        for n, box in out.boxes.items():
+            if n not in out.spans and outermost(n) in top_level:
+                box.y += shift
         bars = sorted(bars_of[bi], key=lambda n: (bar_x[n][0], *key(n)))
         rows: list[list[str]] = []
         for bar in bars:

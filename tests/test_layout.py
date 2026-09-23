@@ -475,7 +475,8 @@ def test_side_by_side_shapes_join_sideways_or_over_a_neighbour():
     detour = lay.routes[1]
     assert detour.exit[1] == 0.0 and detour.entry[1] == 0.0 and len(detour.points) == 2
     band = lay.bands[0]
-    assert all(y == band.box.y + BAND_HEADER / 2 for _, y in detour.points)
+    # The bends run between the band's title and its shapes, through neither.
+    assert all(y == band.box.y + BAND_HEADER + BAND_PAD / 2 for _, y in detour.points)
     (x0, _), (x1, _) = detour.points
     assert (
         x0 == port_point(lay.boxes["A"], detour.exit)[0] and x1 == port_point(lay.boxes["C"], detour.entry)[0]
@@ -505,3 +506,19 @@ def test_routes_for_leaves_out_hidden_edges_and_uses_the_child_box():
     )  # up from O into the child's own box
     assert set(routes_for(view, boxes, hidden={0})) == {1}
     assert routes_for(view, boxes, hidden={0, 1}) == {}
+
+
+def test_a_bar_spans_a_source_that_is_nested_inside_a_whole():
+    """A span's source may sit inside a whole; the bar still reaches it, and both move together
+    when the bars add rows to the band."""
+    view = View(
+        "v",
+        nodes=[node("W", "application"), node("P", "application"), node("Q", "application"), node("BAR")],
+        edges=[edge("W", "P", "contains"), edge("P", "BAR", "feeds"), edge("Q", "BAR", "feeds")],
+    )
+    lay = layout(view, Viewpoint(id="v", name="v", nest=["contains"], span=["feeds"]))
+    assert_well_formed(view, lay)
+    assert lay.parents == {"P": "W"} and lay.spans == {"BAR"}
+    bar, p, q, w = (lay.boxes[k] for k in ("BAR", "P", "Q", "W"))
+    assert bar.x <= min(p.x, q.x) and bar.right >= max(p.right, q.right)
+    assert w.x <= p.x and p.right <= w.right and w.y <= p.y and p.bottom <= w.bottom  # still inside its whole

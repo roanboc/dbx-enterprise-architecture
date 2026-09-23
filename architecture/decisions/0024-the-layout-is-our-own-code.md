@@ -30,7 +30,8 @@ change nobody here made.
 **The layered layout is written in `src/ea/views/layout.py`, on the graph
 library the application already depends on, and no layout dependency is
 added.** It is deterministic: the same view and the same viewpoint give the
-same file, and the golden files under `tests/golden/drawio/` hold it to that.
+same drawing, and the golden files under `tests/golden/drawio/` hold it to
+that; the file differs only in the time it says it was exported.
 
 ## Consequences
 
