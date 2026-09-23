@@ -163,11 +163,20 @@ def _export_drawio(ui, opener: str, arranged: bool = False) -> Path:
     layout rather than the viewpoint's.
     """
     prefix = opener.split("-", 1)[0]
+    # The five producers, named in full: `tests/test_ui_coverage.py` reads the suite for
+    # every control that writes a file, and a name built at run time is one it cannot see.
+    go = {
+        "el-view-drawio": "el-export-go",
+        "imp-view-drawio": "imp-export-go",
+        "tg-view-drawio": "tg-export-go",
+        "ask-doc-drawio": "ask-export-go",
+        "mm-view-drawio": "mm-export-go",
+    }.get(opener, f"{prefix}-export-go")
     ui.click(opener)
-    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    ui.page.wait_for_selector(f"#{go}", state="visible", timeout=10_000)
     if arranged:
         ui.toggle(f"{prefix}-export-arranged", True)
-    return ui.download(f"{prefix}-export-go", ".drawio")
+    return ui.download(go, ".drawio")
 
 
 def _untick_layer(ui, prefix: str, label: str) -> None:
@@ -287,7 +296,23 @@ def _check_linking_contract(ui, root: ET.Element, base_url: str) -> list[str]:
     ui.check(
         "no element is drawn twice", len(set(ids)) == len(ids), f"{len(ids)} shapes, {len(set(ids))} ids"
     )
-    edges = root.findall(".//mxCell[@edge='1']")
+    # The legend draws one sample line per kind of relationship between two cells of its
+    # own; a relationship is an edge that is not the legend's, and it joins element shapes.
+    every_edge = root.findall(".//mxCell[@edge='1']")
+    vertices = {c.get("id") for c in root.findall(".//mxCell[@vertex='1']")} | {
+        o.get("id") for o in root.findall(".//object")
+    }
+    loose = [
+        f"{e.get('source')}→{e.get('target')}"
+        for e in every_edge
+        if e.get("source") not in vertices or e.get("target") not in vertices
+    ]
+    ui.check(
+        "every line in the file joins two cells the file holds",
+        not loose,
+        f"{len(every_edge)} lines; loose: {loose[:5]}" if loose else f"{len(every_edge)} lines",
+    )
+    edges = [e for e in every_edge if not (e.get("id") or "").startswith("legend_")]
     dangling = [
         f"{e.get('source')}→{e.get('target')}"
         for e in edges
