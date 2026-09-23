@@ -48,7 +48,11 @@ the reader is; nothing is decided for them.
 
 - A viewpoint is part of what a version *defines*: a published version's
   viewpoints are frozen with its types, a draft's are edited in place, and the
-  version diff reports a change to them.
+  version diff reports a change to them. One exception, once: a version stored
+  before drawing rules existed holds none, and the next load of its file gives
+  it them, logged like a rename, because a viewpoint and an arrowhead govern
+  drawings and nothing content validates against. A file that also changes a
+  type is refused whole.
 - Every pack the repository ships carries four, and a pack with none exports
   the layered drawing, which is what every pack did before.
 - The application's own architecture documents keep drawing with Mermaid; the

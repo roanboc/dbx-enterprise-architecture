@@ -13,7 +13,7 @@ import pytest
 from tests.conftest import HIGHER_ED
 
 from ea.backend.sql import META_TABLES, table_columns
-from ea.models import pack_id_from_legacy
+from ea.models import ConflictError, pack_id_from_legacy
 
 LEGACY = "higher_education"
 
@@ -101,3 +101,57 @@ def test_any_readable_identifier_is_folded_not_only_the_shipped_ones(loaded, pac
     _push_back_to_a_slug(loaded, pack.id, slug)
     loaded._migrate_pack_identifiers()
     assert loaded._fetch_all("SELECT DISTINCT pack_id FROM meta_pack")[0][0] == pack_id_from_legacy(slug)
+
+
+# --------------------------------------------------- a store from before drawing rules existed
+# Initiative 22 gave a version viewpoints and a notation on its relationship types (decision
+# 0023). A store seeded before that holds the published version without either, and `ea init`
+# re-loads the shipped file routinely: the version gains its drawing rules once, and what it
+# defines for validation stays frozen.
+
+
+def _strip_drawing_rules(backend, pack) -> None:
+    backend._execute(
+        "UPDATE meta_pack SET viewpoints = NULL WHERE pack_id = ? AND version = ?", [pack.id, pack.version]
+    )
+    backend._execute(
+        "UPDATE meta_relationship_type SET notation = NULL WHERE pack_id = ? AND pack_version = ?",
+        [pack.id, pack.version],
+    )
+
+
+def test_a_published_version_stored_without_drawing_rules_gains_them_on_the_next_load(loaded, pack):
+    from dataclasses import replace
+
+    assert pack.status == "published" and pack.viewpoints and any(r.notation for r in pack.relationship_types)
+    _strip_drawing_rules(loaded, pack)
+    before = loaded.load_pack(pack.id, pack.version)
+    assert before.viewpoints == [] and not any(r.notation for r in before.relationship_types)
+
+    loaded.save_pack(pack, actor="init")  # the routine re-load of the shipped file: accepted, not refused
+    after = loaded.load_pack(pack.id, pack.version)
+    assert [v.id for v in after.viewpoints] == [v.id for v in pack.viewpoints]
+    assert [r.notation for r in after.relationship_types] == [r.notation for r in pack.relationship_types]
+    assert after.status == "published"
+    loaded.save_pack(pack, actor="init")  # and again is the no-op it always was
+
+    # What the version defines is still frozen: a changed type is refused as before.
+    changed = replace(
+        pack, element_types=[replace(pack.element_types[0], name="Renamed type")] + pack.element_types[1:]
+    )
+    with pytest.raises(ConflictError):
+        loaded.save_pack(changed, actor="init")
+
+
+def test_drawing_rules_are_not_a_back_door_for_a_changed_definition(loaded, pack):
+    """A file that adds the drawing rules AND changes a type is refused whole."""
+    from dataclasses import replace
+
+    _strip_drawing_rules(loaded, pack)
+    changed = replace(
+        pack, element_types=[replace(pack.element_types[0], name="Renamed type")] + pack.element_types[1:]
+    )
+    with pytest.raises(ConflictError):
+        loaded.save_pack(changed, actor="init")
+    still = loaded.load_pack(pack.id, pack.version)
+    assert still.viewpoints == [] and still.element_types[0].name == pack.element_types[0].name

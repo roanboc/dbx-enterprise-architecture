@@ -207,6 +207,20 @@ def pack_content(pack: Pack) -> dict[str, Any]:
     return d
 
 
+def without_drawing_rules(content: dict[str, Any]) -> dict[str, Any]:
+    """A version's content with its drawing rules left out: the viewpoints, and the notation on
+    its relationship types (decision 0023). Content is never validated against either."""
+    out = {k: v for k, v in content.items() if k != "viewpoints"}
+    out["relationship_types"] = [
+        {k: v for k, v in r.items() if k != "notation"} for r in content.get("relationship_types") or []
+    ]
+    return out
+
+
+def has_drawing_rules(pack: Pack) -> bool:
+    return bool(pack.viewpoints) or any(r.notation for r in pack.relationship_types)
+
+
 log = logging.getLogger(__name__)
 
 
@@ -746,6 +760,40 @@ class SqlBackend(DatabaseBackend):
             None,
         )
 
+    def _add_drawing_rules(self, pack: Pack, actor: str, now: Any) -> None:
+        """Write the viewpoints and the relationship notation onto a version stored without any
+        (decision 0023), logged like a rename: what the version defines is untouched."""
+        self._execute(
+            "UPDATE meta_pack SET viewpoints = ?, loaded_at = ? WHERE pack_id = ? AND version = ?",
+            [
+                json.dumps([_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False)
+                if pack.viewpoints
+                else None,
+                now,
+                pack.id,
+                pack.version,
+            ],
+        )
+        for r in pack.relationship_types:
+            if r.notation:
+                self._execute(
+                    "UPDATE meta_relationship_type SET notation = ? "
+                    "WHERE pack_id = ? AND pack_version = ? AND rel_type_id = ?",
+                    [json.dumps(r.notation), pack.id, pack.version, r.id],
+                )
+        self._log(
+            "metamodel",
+            pack.ref,
+            "drawing_rules",
+            actor or "system",
+            None,
+            {
+                "viewpoints": len(pack.viewpoints),
+                "notated_relationship_types": sum(1 for r in pack.relationship_types if r.notation),
+            },
+            None,
+        )
+
     def save_pack(self, pack: Pack, actor: str = "") -> None:
         validate_pack_id(pack.id)
         validate_version(pack.version, "pack version")
@@ -759,7 +807,23 @@ class SqlBackend(DatabaseBackend):
                 _, _, status, created_by, created_at, published_by, published_at, _, stored_name, *_ = header
                 if status in ("published", "retired"):
                     stored = self.load_pack(pack.id, pack.version)
-                    if stored is not None and pack_content(stored) == pack_content(pack):
+                    same = stored is not None and pack_content(stored) == pack_content(pack)
+                    if (
+                        stored is not None
+                        and not same
+                        and not has_drawing_rules(stored)
+                        and without_drawing_rules(pack_content(stored))
+                        == without_drawing_rules(pack_content(pack))
+                    ):
+                        # A version stored before drawing rules existed, offered the same
+                        # definition with its viewpoints and relationship notation added. Those
+                        # govern drawings only and nothing content validates against, so the
+                        # frozen version gains them once, the way it gains a corrected name —
+                        # `ea init` and `make seed` re-load the shipped file routinely, and a
+                        # refusal here would stop every store from before initiative 22.
+                        self._add_drawing_rules(pack, actor, now)
+                        same = True
+                    if same:
                         # The same definition again. The name is not part of a definition
                         # (decision 0022), so a save that changes only that is a rename, and
                         # is written rather than refused or silently dropped.

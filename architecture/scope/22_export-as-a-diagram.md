@@ -65,6 +65,8 @@ agent as well as from a page, and none of those has a browser.
 | **Does the reader choose the focus as well as the viewpoint?** | The focus is the element the page is about, and the reader may add to it | A neighbourhood or an impact grows from one element and the page already names it; the export dialogue shows it, takes the viewpoint, the depth and the layers, and lets the reader mark further elements as focus. Re-growing from a different element is picking a different element on the page |
 | **Does the on-screen diagram follow the viewpoint?** | No | The screen is drawn by the browser's layout and stays so. Applying a viewpoint's element and relationship filter on screen is named below as left |
 | **Is a viewpoint editable on the Metamodel page?** | Not in this initiative | It is edited in the pack file and loaded, like any other section, and read on the page. The page's Manage lists were reordered at the Requester's word and a sixth list owes its own scenario |
+| **What happens to a store seeded before this initiative?** | Its published version gains the drawing rules once, on the next load of the shipped file | The store holds that version without viewpoints or notation, and `ea init` and `make seed` re-load the file routinely. Refusing it as a change to a frozen version would stop every store from before this initiative. A viewpoint and an arrowhead govern drawings and nothing content validates against, so the version takes them the way it takes a corrected name, logged; a file that also changes a type is refused whole |
+| **May a relationship type's notation be edited on the Metamodel page?** | Not in this initiative | The Notation tab edits how a domain and an element type are drawn; a relationship type's arrowhead is edited in the pack file. The Manage grids carry no column for it and keep what the version has when they save. Named below as left |
 | **Does the sample model gain process content?** | No | The process cooperation viewpoint has nothing in the sample to draw. The test builds its own handful of processes and roles, because seventeen assertions pin the sample at 47 elements and a viewpoint is not a reason to move them |
 | **A dependency for the layout?** | No | Decision 0024: the two candidates ship compiled extensions, are under a year old, and solve the part of a layered layout the bands already decide |
 | **How far may an export reach?** | As far as the page it is taken from | The Element page's dialogue reaches three hops, like its Graph tab; the Impact page's reaches six, like its own depth control, so an impact the tables answer in full is exported in full |
@@ -158,6 +160,7 @@ agent as well as from a page, and none of those has a browser.
 | Viewpoints as pack data, four per shipped pack, picked by the reader | A viewpoint editor on the Metamodel page |
 | The on-screen export dialogue and the command line | The viewpoint applied to the on-screen diagram |
 | Bands by layer, by type and by a related element; nest and span | Bands by an attribute's value |
+| The relationship notation kept by the page, and a version from before this initiative upgraded once | The relationship notation edited on the page |
 | A legend of the layers and the relationship kinds present | A guided tour of the export (initiative 23, proposed) |
 
 ## Gap notes
@@ -173,6 +176,10 @@ agent as well as from a page, and none of those has a browser.
 - **Bands by an attribute.** A stage that is an attribute value rather than an
   element (a lifecycle, a tier) cannot band a diagram yet. It is one more
   `bands` mode in the grammar and a lookup in the layout.
+- **A relationship type's notation on the page.** Two cells on the
+  relationship types grid, the ArchiMate relationship and its direction, and
+  the Notation tab's preview drawing one sample edge per kind. Nothing in the
+  store stands in its way; the page keeps the notation it cannot show.
 - **A drawing as a source.** Every shape carries `ea_id`; nothing reads a
   file back. Proposed as initiative 24, behind its own gate.
 
