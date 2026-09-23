@@ -866,5 +866,5 @@ viewpoints:
     band_type: capability
     band_relationships: [process__realises__capability, physical_application_component__realises__capability,
                          integration__supports__capability, information_asset__relates_to__capability]
-    other_band: Data
+    other_band: Not under a capability
     span: [physical_application_component__processes__data_entity, data_entity__contributes_to__data_product]

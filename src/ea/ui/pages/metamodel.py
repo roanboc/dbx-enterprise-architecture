@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import asdict
 from typing import Any
 
 import dash
@@ -53,8 +54,9 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.export import export_modal, register_export
 from ea.views import view_from_metamodel
-from ea.views.drawio import STENCIL, to_drawio
+from ea.views.drawio import STENCIL
 from ea.views.mermaid import SHAPES, to_markdown, to_mermaid
 from ea.views.model import LAYER_ORDER, View, ViewNode, layer_rank
 
@@ -582,6 +584,7 @@ def render(ctx: AppContext) -> html.Div:
             _rename_modal(),
             dcc.Store(id=ids.MM_RENAME_REF, data=""),
             _confirm_modal(),
+            export_modal("mm"),
         ]
     )
 
@@ -1414,6 +1417,9 @@ def _pack_from_grids(
         if r.get("id")
     }
     keep_notation = {t.id: dict(t.notation) for t in pack.element_types}
+    # The grids carry no notation for a relationship type (the arrowhead it is drawn with,
+    # decision 0023), so a save keeps what the version had rather than dropping it.
+    keep_rel_notation = {r.id: dict(r.notation) for r in pack.relationship_types}
     type_ids = {t["id"] for t in types if t.get("id")}
     rel_ids = {r["id"] for r in rels if r.get("id")}
     attr_by_owner: dict[str, list[dict]] = {}
@@ -1472,11 +1478,55 @@ def _pack_from_grids(
             "dst_max": _int_or_none(r.get("dst_max")),
             "attributes": attr_by_owner.get(r["id"], []),
             "properties": _json_cell(r.get("properties"), f"relationship type {r['id']}"),
+            "notation": keep_rel_notation.get(r["id"], {}),
         }
         for r in rels
         if r.get("id")
     ]
+    d["viewpoints"], _ = prune_viewpoints(d.get("viewpoints") or [], type_ids, rel_ids)
     return d
+
+
+def prune_viewpoints(
+    viewpoints: list[dict[str, Any]], type_ids: set[str], rel_ids: set[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The viewpoints with every reference to a type the grids no longer hold cleared, and a
+    sentence per viewpoint that lost one.
+
+    A viewpoint is pack data the grids do not edit (decision 0023), so deleting a type must
+    reach into it the way it reaches into a relationship type's ends: what a viewpoint names
+    and the version no longer declares is cleared rather than left to fail the save. One that
+    banded by a type now gone bands by layer instead, which is the drawing every pack gets.
+    """
+    out: list[dict[str, Any]] = []
+    said: list[str] = []
+    for v in viewpoints:
+        v = dict(v)
+        lost: list[str] = []
+        for key, known in (
+            ("element_types", type_ids),
+            ("band_order", type_ids if v.get("bands") == "type" else None),
+            ("relationship_types", rel_ids),
+            ("band_relationships", rel_ids),
+            ("nest", rel_ids),
+            ("span", rel_ids),
+        ):
+            if known is None:
+                continue
+            kept = [i for i in (v.get(key) or []) if i in known]
+            lost += [i for i in (v.get(key) or []) if i not in known]
+            v[key] = kept
+        if v.get("band_type") and v["band_type"] not in type_ids:
+            lost.append(v["band_type"])
+            v["band_type"] = ""
+            v["band_relationships"] = []
+            v["bands"] = "layer"
+        if lost:
+            said.append(
+                f"viewpoint {v.get('name') or v.get('id')} no longer names {', '.join(sorted(set(lost)))}"
+            )
+        out.append(v)
+    return out, said
 
 
 GRID_STATES = [
@@ -1711,28 +1761,54 @@ def register(app: dash.Dash) -> None:
         view = view_from_metamodel(reg, domain or None, bool(inactive))
         return to_mermaid(view, direction="BT", legend=True), layer_chips(view)
 
+    def view_file(reg: Registry) -> str:
+        # Named for the reader who has to find the file afterwards: an opaque identifier in a
+        # file name is a file nobody can pick out of a folder (decision 0021).
+        return f"{slugify(reg.pack.name) if reg.pack.name else reg.pack.id}-{reg.pack.version}-metamodel"
+
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.MM_VIEW_MD, "n_clicks"),
-        Input(ids.MM_VIEW_DRAWIO, "n_clicks"),
         State(ids.MM_VIEW_DOMAIN, "value"),
         State(ids.MM_VIEW_INACTIVE, "checked"),
         State(ids.MM_VERSION, "data"),
-        State({"type": ids.MERMAID_POS, "id": ids.MM_VIEW}, "data"),
         prevent_initial_call=True,
     )
-    def download_view(n_md, n_drawio, domain, inactive, ref, positions):
-        trigger = dash_ctx.triggered_id
-        if (trigger == ids.MM_VIEW_MD and not n_md) or (trigger == ids.MM_VIEW_DRAWIO and not n_drawio):
+    def download_view(n_md, domain, inactive, ref):
+        if not n_md:
             return no_update
         reg = _shown(get_context(), ref)
         view = view_from_metamodel(reg, domain or None, bool(inactive))
-        # Named for the reader who has to find the file afterwards: an opaque identifier in a
-        # file name is a file nobody can pick out of a folder (decision 0021).
-        stem = f"{slugify(reg.pack.name) if reg.pack.name else reg.pack.id}-{reg.pack.version}-metamodel"
-        if trigger == ids.MM_VIEW_MD:
-            return dcc.send_string(to_markdown(view, legend=True), f"{stem}.md")
-        return dcc.send_string(to_drawio(view, positions=positions or None), f"{stem}.drawio")
+        return dcc.send_string(to_markdown(view, legend=True), f"{view_file(reg)}.md")
+
+    def metamodel_view(ctx: AppContext, depth: int | None, domain: str | None, inactive: bool, ref: str):
+        return view_from_metamodel(_shown(ctx, ref), domain or None, bool(inactive))
+
+    def metamodel_file(ctx: AppContext, domain: str | None, inactive: bool, ref: str) -> str:
+        return view_file(_shown(ctx, ref))
+
+    def shown_registry(ctx: AppContext, domain: str | None, inactive: bool, ref: str) -> Registry:
+        return _shown(ctx, ref)
+
+    # The draw.io button opens the export dialogue (decision 0023) on the viewpoints of the
+    # version shown. The metamodel view is not narrowed by the viewpoint — every type is
+    # drawn and the viewpoint governs the bands only — and a type has no page to link to.
+    register_export(
+        app,
+        "mm",
+        ids.MM_VIEW_DRAWIO,
+        metamodel_view,
+        metamodel_file,
+        [
+            State(ids.MM_VIEW_DOMAIN, "value"),
+            State(ids.MM_VIEW_INACTIVE, "checked"),
+            State(ids.MM_VERSION, "data"),
+        ],
+        positions_id={"type": ids.MERMAID_POS, "id": ids.MM_VIEW},
+        registry_for=shown_registry,
+        narrow=False,
+        linked=False,
+    )
 
     @app.callback(
         Output(ids.MM_TYPES_GRID, "rowTransaction"),
@@ -1877,16 +1953,18 @@ def register(app: dash.Dash) -> None:
         State(ids.MM_DOMAINS_GRID, "selectedRows"),
         State(ids.MM_GROUPS_GRID, "selectedRows"),
         *GRID_STATES,
+        State(ids.MM_VERSION, "data"),
         prevent_initial_call=True,
     )
     def delete_rows(*args):
         """Take the ticked rows out of the version being edited, with whatever depended on them.
 
         Nothing is stored here: the grids are rewritten and the save writes the version, so a
-        deletion is undone by leaving the page. `remove_rows` decides what goes with what.
+        deletion is undone by leaving the page. `remove_rows` decides what goes with what, and
+        the viewpoints (pack data the grids do not show) are told what they lost on the save.
         """
         buttons = (ids.MM_DEL_TYPE, ids.MM_DEL_REL, ids.MM_DEL_ATTR, ids.MM_DEL_DOMAIN, ids.MM_DEL_GROUP)
-        clicks, selections, grids = args[:5], args[5:10], args[10:]
+        clicks, selections, grids, ref = args[:5], args[5:10], args[10:-1], args[-1]
         trigger = dash_ctx.triggered_id
         if trigger not in buttons or not clicks[buttons.index(trigger)]:
             return (no_update,) * 8
@@ -1903,6 +1981,12 @@ def register(app: dash.Dash) -> None:
                 *(no_update,) * 7,
             )
         rows, said = remove_rows(which, picked, _rows_from_states(grids))
+        _, lost = prune_viewpoints(
+            [asdict(v) for v in _shown(ctx, ref).pack.viewpoints],
+            {r.get("id") for r in rows["types"]},
+            {r.get("id") for r in rows["rels"]},
+        )
+        said += lost
         return (
             alert(
                 "Taken out of the grids: "

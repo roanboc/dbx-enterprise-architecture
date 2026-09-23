@@ -226,6 +226,19 @@ def _source(ui) -> str:
     return (block.text_content() or "") if block.count() else ""
 
 
+def _export_drawio(ui, opener: str):
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
 def _drawn_ids(ui) -> set[str]:
     """Every element identifier the view draws, from the label on each shape."""
     return set(re.findall(r"\[([A-Za-z0-9][A-Za-z0-9_.-]*)\]", ui.text(VIEW_SVG)))
@@ -787,7 +800,7 @@ def test_downloads(ui, record):
         next((line for line in text.splitlines() if "PTC-FORMS" in line), "no row"),
     )
 
-    drawio = ui.download("tg-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "tg-view-drawio")
     ui.check("the draw.io file is named for it too", drawio.name == f"target-state-{WP}.drawio", drawio.name)
     diagram = drawio.read_text(encoding="utf-8")
     ui.check(
@@ -1288,7 +1301,7 @@ def test_downloads_follow_the_picker(ui, record):
     ui.goto("/target")
     ui.wait_mermaid()
     drawn = _drawn_ids(ui)
-    drawio = ui.download("tg-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "tg-view-drawio")
     ui.check(
         "the whole model's diagram is named for all of them",
         drawio.name == "target-state-all.drawio",

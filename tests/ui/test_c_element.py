@@ -183,6 +183,19 @@ def _view_scale(ui) -> float:
     return float(match.group(1)) if match else -1.0
 
 
+def _export_drawio(ui, opener: str):
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
 def _open_graph_tab(ui) -> None:
     _tab(ui, "Graph")
     ui.wait_graph()
@@ -1053,7 +1066,7 @@ def test_view_downloads(ui, record):
     body = md.read_text(encoding="utf-8")
     ui.check("the Markdown holds the mermaid source", "```mermaid" in body, body[:120])
     ui.check("the Markdown names this element", EL in body, body[:200])
-    drawio = ui.download("el-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "el-view-drawio")
     ui.check("the draw.io file is named for the element", EL in drawio.name, drawio.name)
     xml = drawio.read_text(encoding="utf-8")
     ui.check("the draw.io file is a diagram", "<mxGraphModel" in xml, xml[:120])
@@ -1639,7 +1652,7 @@ def test_downloads_follow_the_depth(ui, record):
     added = sorted(deep - shallow)
     ui.must("depth 2 reached something new", bool(added), str(sorted(deep)))
     ui.check("the view on screen widened with it", added[0] in _view_text(ui, added[0]), added[0])
-    drawio = ui.download("el-view-drawio", ".drawio").read_text(encoding="utf-8")
+    drawio = _export_drawio(ui, "el-view-drawio").read_text(encoding="utf-8")
     ui.check("the draw.io file was drawn at the same depth", all(i in drawio for i in added), str(added))
     ui.shot("The generated view at depth 2, and the two files taken from it")
 

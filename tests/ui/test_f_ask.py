@@ -83,6 +83,19 @@ def _type_question(ui, text: str) -> None:
     ui.settle()
 
 
+def _export_drawio(ui, opener: str):
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
 def _ask(ui, text: str) -> None:
     """Put a question and press Ask, then wait for the document the callback returns."""
     _type_question(ui, text)
@@ -718,7 +731,7 @@ def test_copy_and_downloads(ui, record):
             "" if needle in text else f"{needle!r} is missing",
         )
 
-    drawio = ui.download("ask-doc-drawio", ".drawio")
+    drawio = _export_drawio(ui, "ask-doc-drawio")
     xml = drawio.read_text(encoding="utf-8")
     ui.check(
         "the draw.io file is a draw.io document",

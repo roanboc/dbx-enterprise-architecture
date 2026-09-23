@@ -11,7 +11,7 @@ to one changes the other in the same commit.
 
 **Status: `◐` draft** — read from `src/ea/backend/sql.py` and
 `src/ea/backend/sql_backend.py` as they run today, and from decisions 0006,
-0011, 0014, 0015, 0021 and 0022. It defines no element of its own.
+0011, 0014, 0015, 0021, 0022 and 0023. It defines no element of its own.
 
 ## How to read this document
 
@@ -117,7 +117,7 @@ so the history survives the feed being deleted — the line above is what a run
 
 | Table | Holds | Key (a unique index) | Scoped by |
 | ----- | ----- | ----------- | --------- |
-| `meta_pack` | one version of one metamodel, with its lifecycle | `pack_id`, `version` — the pack identifier minted once and never read for meaning | the version itself |
+| `meta_pack` | one version of one metamodel, with its lifecycle and its viewpoints | `pack_id`, `version` — the pack identifier minted once and never read for meaning | the version itself |
 | `meta_domain` | the domains of that version | `pack_id`, `pack_version`, `domain_id` | `pack_id`, `pack_version` |
 | `meta_element_type` | the element types of that version | `pack_id`, `pack_version`, `type_id` | `pack_id`, `pack_version` |
 | `meta_relationship_type` | the relationship types of that version | `pack_id`, `pack_version`, `rel_type_id` | `pack_id`, `pack_version` |
@@ -146,6 +146,7 @@ erDiagram
     varchar version PK
     varchar status "draft, published, retired"
     varchar derived_from "the version this draft was copied from"
+    varchar viewpoints "JSON: what a diagram of this version admits, bands by, nests and spans"
     varchar properties "JSON: what the framework declares and the engine keeps"
   }
   meta_domain {
@@ -170,6 +171,7 @@ erDiagram
     varchar source_type_id FK
     varchar target_type_id FK
     integer src_max "cardinality hint, or null"
+    varchar notation "JSON: the ArchiMate relationship it is drawn as, and its direction"
   }
   meta_attribute {
     varchar pack_id PK
@@ -192,10 +194,10 @@ erDiagram
 
 | Table | Its other columns | References | Notes |
 | ----- | ----------------- | ---------- | ----- |
-| `meta_pack` | `name`, `description`, `source`, `provenance_values`, `loaded_at`, `notes`, `created_by`, `created_at`, `published_by`, `published_at` | `derived_from` names another version of the same pack | `name` is a label, and it is the one column of a published version an update may still touch (decision 0022); the version column is called `version` here and `pack_version` everywhere else, which is the one naming seam in the schema |
+| `meta_pack` | `name`, `description`, `source`, `provenance_values`, `loaded_at`, `notes`, `created_by`, `created_at`, `published_by`, `published_at` | `derived_from` names another version of the same pack | `name` is a label, and it is the one column of a published version an update may still touch (decision 0022); `viewpoints` is part of what the version defines and freezes with it (decision 0023); the version column is called `version` here and `pack_version` everywhere else, which is the one naming seam in the schema |
 | `meta_domain` | `name`, `description`, `sort_order`, `properties` | — | |
 | `meta_element_type` | `name`, `plural`, `deactivation_reason`, `provenance`, `prefix`, `description`, `examples`, `source_of_record`, `type_owner`, `instance_owner`, `sort_order`, `notation`, `properties` | `domain_id` → `meta_domain`; `supertype_id` → `meta_element_type`, of the same version | a deactivated type keeps its rows: `active` is false and `deactivation_reason` says why |
-| `meta_relationship_type` | `name`, `inverse_name`, `provenance`, `qualifiers`, `diagrams`, `description`, `dst_max`, `sort_order`, `properties` | `source_type_id`, `target_type_id` → `meta_element_type`, or the literal `ANY` | the identifier is `<source>__<verb>__<target>`, so it is unique without a surrogate |
+| `meta_relationship_type` | `name`, `inverse_name`, `provenance`, `qualifiers`, `diagrams`, `description`, `dst_max`, `sort_order`, `properties` | `source_type_id`, `target_type_id` → `meta_element_type`, or the literal `ANY` | the identifier is `<source>__<verb>__<target>`, so it is unique without a surrogate; `notation` names the ArchiMate relationship the export draws the type as, and a type with none is drawn as a plain directed line |
 | `meta_attribute` | `label`, `required`, `enum_values`, `description`, `sensitivity`, `sort_order` | `type_id` → `meta_element_type` or the reserved `common`; `rel_type_id` → `meta_relationship_type` | exactly one of the two is set; `extra` carries the rules a value is held to, so a new rule is not a migration |
 
 Adding an element type, an edge or an attribute is a row in one of these tables
@@ -354,7 +356,8 @@ SQL client (principle `P4`).
 | ------ | -- | ------- |
 | `attrs` | `element`, `relationship` | the values of the attributes the type declares |
 | `external_ids` | `element` | the identifiers the element has in other systems |
-| `notation` | `meta_element_type`, `meta_domain` | glyph, stereotype, ArchiMate element, shape, colour |
+| `notation` | `meta_element_type`, `meta_domain`, `meta_relationship_type` | glyph, stereotype, ArchiMate element, shape, colour; on a relationship type the ArchiMate relationship it is drawn as, and its direction |
+| `viewpoints` | `meta_pack` | the viewpoints of the version: a list, each one the element and relationship types a diagram admits, what it bands by, what nests, what spans and the band for what cannot be placed (decision 0023) |
 | `properties` | the five `meta_` tables | what a framework declares beyond the fields above, kept and never read |
 | `extra` | `meta_attribute` | the group the attribute is read in, and the rules a value is held to |
 | `enum_values`, `examples`, `qualifiers`, `diagrams`, `provenance_values`, `type_ids` | the metamodel tables and `branch_review` | lists |
@@ -419,6 +422,9 @@ of a hub that every element depends on.
 | CHANGE_LOG_ENTRY | `change_log` | [`DOBJ3.4`] Change log |
 
 The notation [`DOBJ1.5`] has no table: it is the `notation` column of
-`meta_element_type` and `meta_domain`. The architecture view [`DOBJ2.4`], the
+`meta_element_type`, `meta_domain` and `meta_relationship_type`. The viewpoint
+[`DOBJ1.8`] has none either: it is the `viewpoints` column of `meta_pack`, so a
+published version freezes its viewpoints with its types and the version diff
+compares them. The architecture view [`DOBJ2.4`], the
 change set [`DOBJ2.6`], the import report [`DOBJ3.3`] and the answer document
 [`DOBJ3.5`] have none either — they are computed, never stored.

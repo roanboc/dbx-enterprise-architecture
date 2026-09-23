@@ -23,8 +23,8 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.export import export_modal, register_export
 from ea.views import view_from_ids
-from ea.views.drawio import to_drawio
 from ea.views.mermaid import state_legend, to_markdown, to_mermaid
 
 
@@ -304,6 +304,8 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 mb="md",
             ),
             html.Div(_body(ctx, preset or None, not preset), id=ids.TG_BODY),
+            # Outside the body, which the picker re-renders: the dialogue outlives a change of scope.
+            export_modal("tg"),
         ]
     )
 
@@ -341,19 +343,30 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.TG_VIEW_MD, "n_clicks"),
-        Input(ids.TG_VIEW_DRAWIO, "n_clicks"),
         State(ids.TG_WP, "value"),
-        State({"type": ids.MERMAID_POS, "id": "tg-view"}, "data"),
         prevent_initial_call=True,
     )
-    def download(n_md, n_drawio, wp, positions):
-        if not (n_md or n_drawio):
+    def download(n_md, wp):
+        if not n_md:
             return no_update
-        ctx = get_context()
-        view = _view(ctx, wp or None)
-        name = f"target-state-{wp or 'all'}"
-        if dash_ctx.triggered_id == ids.TG_VIEW_DRAWIO:
-            return dcc.send_string(
-                to_drawio(view, ctx.base_url(), positions or None, marked=True), f"{name}.drawio"
-            )
-        return dcc.send_string(to_markdown(view, marked=True), f"{name}.md")
+        view = _view(get_context(), wp or None)
+        return dcc.send_string(to_markdown(view, marked=True), f"target-state-{wp or 'all'}.md")
+
+    def scope_view(ctx: AppContext, depth: int | None, wp: str | None):
+        return _view(ctx, wp or None)
+
+    def scope_file(ctx: AppContext, wp: str | None) -> str:
+        return f"target-state-{wp or 'all'}"
+
+    # The draw.io button opens the export dialogue (decision 0023); the file stays marked
+    # with the states, as the Markdown is.
+    register_export(
+        app,
+        "tg",
+        ids.TG_VIEW_DRAWIO,
+        scope_view,
+        scope_file,
+        [State(ids.TG_WP, "value")],
+        positions_id={"type": ids.MERMAID_POS, "id": "tg-view"},
+        marked=True,
+    )

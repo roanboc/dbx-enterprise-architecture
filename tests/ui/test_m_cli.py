@@ -74,6 +74,7 @@ COMMANDS = [
     "trace",
     "impact",
     "view",
+    "viewpoints",
     "target",
     "sql",
     "summary",
@@ -4003,4 +4004,107 @@ def test_m73_metamodel_rename(cli, record):
         "and it is renamed back the same way, so the rest of the round reads the shipped name",
         rc_back == 0 and f"is now {SHIPPED_NAME}" in back,
         back_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M74",
+    group="M",
+    title="viewpoints lists what the metamodel declares, and view --viewpoint draws through one",
+    feature="Command line · viewpoints and view --viewpoint",
+    expected="`ea viewpoints` lists the shipped pack's four viewpoints by id and name with how each bands; "
+    "`ea view PAC-CMS --viewpoint application_cooperation --fmt md` narrows the view and says how many "
+    "elements are outside the viewpoint; the name reaches the same viewpoint as the id whatever its case; "
+    "`--layers application` keeps that layer alone; `--fmt drawio` writes the file through the viewpoint; "
+    "and an unknown viewpoint is refused with the ids.",
+)
+def test_m74_viewpoints(cli, record, tmp_path):
+    rc, out, ev = run(cli, "viewpoints", limit=400)
+    must(record, "the viewpoints are listed", rc == 0 and "application_cooperation" in out, ev)
+    check(
+        record,
+        "each by id and name, with how it bands",
+        "Application cooperation" in out
+        and "bands: by element type" in out
+        and "bands: by architecture layer" in out,
+        trim(out, 300),
+    )
+    check(
+        record,
+        "a swimlane viewpoint names the type it bands by, the relationship that places an element, and its other band",
+        "by role via role__performs__process; other: Not performed by a role" in out,
+        trim(next((ln for ln in out.splitlines() if "via" in ln), ""), 160),
+    )
+    check(
+        record,
+        "what a viewpoint nests and spans is said too",
+        "nests: " in out and "spans: " in out,
+        trim(out, 200),
+    )
+
+    def rows(text: str) -> int:
+        return len([ln for ln in text.splitlines() if ln.startswith("| `")])
+
+    _, whole, _ = run(cli, "view", APPLICATION, "--fmt", "md", limit=120)
+    rc_v, narrowed, ev_v = run(
+        cli, "view", APPLICATION, "--viewpoint", "application_cooperation", "--fmt", "md", limit=160
+    )
+    must(record, "the view is drawn through the viewpoint", rc_v == 0 and "flowchart" in narrowed, ev_v)
+    check(
+        record,
+        "it holds fewer elements than the whole neighbourhood",
+        0 < rows(narrowed) < rows(whole),
+        f"{rows(narrowed)} rows against {rows(whole)}",
+    )
+    check(
+        record,
+        "and says how many are outside the viewpoint",
+        "outside the Application cooperation viewpoint not shown" in narrowed,
+        trim(next((ln for ln in narrowed.splitlines() if "viewpoint" in ln), ""), 160),
+    )
+    rc_n, by_name, ev_n = run(
+        cli, "view", APPLICATION, "--viewpoint", "Application COOPERATION", "--fmt", "md", limit=160
+    )
+    check(
+        record,
+        "the name reaches the same viewpoint as the id, whatever its case",
+        rc_n == 0 and by_name == narrowed,
+        ev_n,
+    )
+
+    rc_l, layered, ev_l = run(cli, "view", APPLICATION, "--layers", "application", "--fmt", "md", limit=160)
+    styled = [ln for ln in layered.splitlines() if ":::" in ln]
+    check(
+        record,
+        "--layers keeps the layer named and no other",
+        rc_l == 0 and styled and all(ln.rstrip().endswith(":::application") for ln in styled),
+        f"{len(styled)} styled nodes: {sorted({ln.rsplit(':::', 1)[-1].strip() for ln in styled})}",
+    )
+
+    out_file = tmp_path / "m-viewpoint.drawio"
+    rc_d, said, ev_d = run(
+        cli,
+        "view",
+        APPLICATION,
+        "--viewpoint",
+        "application_cooperation",
+        "--fmt",
+        "drawio",
+        "--out",
+        str(out_file),
+        limit=120,
+    )
+    check(
+        record,
+        "--fmt drawio writes the file through the viewpoint",
+        rc_d == 0 and out_file.exists() and "<mxfile" in out_file.read_text(encoding="utf-8"),
+        ev_d,
+    )
+
+    rc_x, refused, ev_x = run(cli, "view", APPLICATION, "--viewpoint", "swimlanes", expect=1, limit=200)
+    check(
+        record,
+        "an unknown viewpoint is refused with the ids, rather than drawn as the default",
+        rc_x == 1 and "no viewpoint 'swimlanes'" in refused and "application_cooperation" in refused,
+        ev_x,
     )

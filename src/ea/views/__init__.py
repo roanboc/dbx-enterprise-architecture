@@ -2,8 +2,10 @@
 
 One view model (:mod:`ea.views.model`), several renderers: Mermaid in the
 notation of this repository's own architecture documents (:mod:`ea.views.mermaid`)
-and a draft draw.io file (:mod:`ea.views.drawio`). Nothing here draws by hand:
-every node is an element of the model and carries its identifier.
+and a draw.io file a solution architect edits rather than redraws
+(:mod:`ea.views.drawio`), laid out under a viewpoint the pack declares by
+:mod:`ea.views.layout`. Nothing here draws by hand: every node is an element of
+the model and carries its identifier.
 """
 
 from ea.views.model import (

@@ -25,7 +25,7 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
-from ea.views.drawio import to_drawio
+from ea.ui.export import export_modal, register_export
 from ea.views.mermaid import to_mermaid
 from ea.views.model import view_from_dict, view_to_dict
 
@@ -109,6 +109,9 @@ def render(ctx: AppContext) -> html.Div:
             html.Div(id=ids.ASK_TRACE),
             dcc.Store(id=ids.ASK_HISTORY, data=[]),
             dcc.Store(id=ids.ASK_DOC_STORE, data=None),
+            # In the page rather than the document card, which is drawn per answer: the
+            # dialogue is there before the button that opens it.
+            export_modal("ask"),
         ]
     )
 
@@ -308,25 +311,35 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.ASK_DOC_MD, "n_clicks"),
-        Input(ids.ASK_DOC_DRAWIO, "n_clicks"),
         State(ids.ASK_DOC_STORE, "data"),
-        # ALL, not the one id: an answer that drew no diagram has no such component, and
-        # naming a component that is not there fails the callback before it runs.
-        State({"type": ids.MERMAID_POS, "id": dash.ALL}, "data"),
         prevent_initial_call=True,
     )
-    def download_doc(n_md, n_drawio, stored, positions):
-        if not stored or not (n_md or n_drawio):
+    def download_doc(n_md, stored):
+        if not stored or not n_md:
             return no_update
-        if dash.ctx.triggered_id == ids.ASK_DOC_DRAWIO:
-            if not stored.get("view"):
-                return no_update
-            view = view_from_dict(stored["view"])
-            placed = next((p for p in (positions or []) if p), None)
-            return dcc.send_string(
-                to_drawio(view, get_context().base_url(), placed), f"{stored['name']}.drawio"
-            )
         return dcc.send_string(stored["md"], f"{stored['name']}.md")
+
+    def answer_view(ctx: AppContext, depth: int | None, stored: dict | None):
+        """The view the answer document stored, or None for an answer that drew no diagram."""
+        if not stored or not stored.get("view"):
+            return None
+        return view_from_dict(stored["view"])
+
+    def answer_file(ctx: AppContext, stored: dict) -> str:
+        return stored["name"]
+
+    # The draw.io button opens the export dialogue (decision 0023). The positions are read
+    # through ALL, not the one id: an answer that drew no diagram has no such component, and
+    # naming a component that is not there fails the callback before it runs.
+    register_export(
+        app,
+        "ask",
+        ids.ASK_DOC_DRAWIO,
+        answer_view,
+        answer_file,
+        [State(ids.ASK_DOC_STORE, "data")],
+        positions_id={"type": ids.MERMAID_POS, "id": dash.ALL},
+    )
 
     @app.callback(
         Output(ids.ASK_ANSWER, "children", allow_duplicate=True),

@@ -104,6 +104,19 @@ def _action_id(action: str, ref: str) -> str:
 # --------------------------------------------------------------------------- the controls
 
 
+def _export_drawio(ui, opener: str):
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
 def _open(ui) -> None:
     """A fresh Metamodel page, on the Manage tab with the element types open.
 
@@ -1671,7 +1684,7 @@ def test_architecture_view(ui, record):
     ui.check("the Markdown holds the drawing", "```mermaid" in text and f"[{TYPE}]" in text)
     ui.check("with the legend a document opens with", "%% legend" in text)
     ui.check("and the state the view was in", "[gateway]" in text)
-    drawio = ui.download("mm-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "mm-view-drawio")
     root = ET.fromstring(drawio.read_text(encoding="utf-8"))
     cells = root.findall(".//mxCell")
     shapes = root.findall(".//object")

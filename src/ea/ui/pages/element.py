@@ -43,9 +43,9 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.export import export_modal, register_export
 from ea.ui.pages.target import current_badge, target_badge
 from ea.views import view_from_neighbourhood
-from ea.views.drawio import to_drawio
 from ea.views.mermaid import to_markdown, to_mermaid
 
 QUALIFIER_HINT = "Only some relationship types declare qualifiers; the list fills when one does."
@@ -645,6 +645,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 ids.EL_VIEW_DRAWIO,
                 "Every shape is an element of the model; the draw.io file is a draft to reuse, not a store.",
             ),
+            export_modal("el", with_depth=True),
             dmc.Text("Tap a node to open it.", size="xs", c="dimmed"),
         ],
         p="md",
@@ -995,22 +996,36 @@ def register(app: dash.Dash) -> None:
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.EL_VIEW_MD, "n_clicks"),
-        Input(ids.EL_VIEW_DRAWIO, "n_clicks"),
         State(ids.EL_ID, "data"),
         State(ids.EL_GRAPH_DEPTH, "value"),
-        State({"type": ids.MERMAID_POS, "id": "el-view"}, "data"),
         prevent_initial_call=True,
     )
-    def download_view(n_md, n_drawio, element_id, depth, positions):
-        if not (n_md or n_drawio):
+    def download_view(n_md, element_id, depth):
+        if not n_md:
             return no_update
         ctx = get_context()
         view = view_from_neighbourhood(ctx.registry, ctx.graph, element_id, int(depth or 1))
-        if dash_ctx.triggered_id == ids.EL_VIEW_DRAWIO:
-            return dcc.send_string(
-                to_drawio(view, ctx.base_url(), positions or None), f"{element_id}-view.drawio"
-            )
         return dcc.send_string(to_markdown(view), f"{element_id}-view.md")
+
+    def neighbourhood_view(ctx: AppContext, depth: int | None, element_id: str):
+        return view_from_neighbourhood(ctx.registry, ctx.graph, element_id, int(depth or 1))
+
+    def view_file(ctx: AppContext, element_id: str) -> str:
+        return f"{element_id}-view"
+
+    # The draw.io button opens the export dialogue (decision 0023): the reader names the
+    # viewpoint, the focus, the depth and the layers, and the file is drawn from them.
+    register_export(
+        app,
+        "el",
+        ids.EL_VIEW_DRAWIO,
+        neighbourhood_view,
+        view_file,
+        [State(ids.EL_ID, "data")],
+        positions_id={"type": ids.MERMAID_POS, "id": "el-view"},
+        with_depth=True,
+        depth_id=ids.EL_GRAPH_DEPTH,
+    )
 
     @app.callback(
         Output(ids.URL, "pathname", allow_duplicate=True),

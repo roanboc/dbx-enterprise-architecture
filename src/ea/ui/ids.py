@@ -247,6 +247,19 @@ ASK_DOC_MD = "ask-doc-md"
 ASK_DOC_DRAWIO = "ask-doc-drawio"
 ASK_DOC_STORE = "ask-doc-store"
 
+# The export dialogue (initiative 22): one per page that exports a view, opened by that page's
+# draw.io button. Its ids are built by `ui.export.export_ids(prefix)` as <prefix>-<suffix>
+# (el-export-go, ask-export-viewpoint, …), so five dialogues never collide.
+EXPORT_MODAL = "export-modal"
+EXPORT_ABOUT = "export-about"  # the elements the diagram is about
+EXPORT_VIEWPOINT = "export-viewpoint"
+EXPORT_FOCUS = "export-focus"
+EXPORT_DEPTH = "export-depth"  # only on a page whose view grows from an element
+EXPORT_LAYERS = "export-layers"
+EXPORT_ARRANGED = "export-arranged"  # keep the arrangement on screen rather than lay the file out
+EXPORT_SUMMARY = "export-summary"  # what the file will hold under the current choices
+EXPORT_GO = "export-go"  # the Download button of the dialogue
+
 # Branches (initiative 4)
 BRANCH_SELECT = "branch-select"  # header: the branch the reader is on
 BRANCH_BADGE = "branch-badge"

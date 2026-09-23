@@ -25,16 +25,16 @@ SRC = ROOT / "src" / "ea"
 # scenario downloads it.
 DOWNLOAD_TRIGGERS = {
     "el-view-md": "the element view as Markdown",
-    "el-view-drawio": "the element view as draw.io",
+    "el-export-go": "the element view as draw.io, through the export dialogue",
     "imp-view-md": "the impact view as Markdown",
-    "imp-view-drawio": "the impact view as draw.io",
+    "imp-export-go": "the impact view as draw.io, through the export dialogue",
     "tg-view-md": "the target-state view as Markdown",
-    "tg-view-drawio": "the target-state view as draw.io",
+    "tg-export-go": "the target-state view as draw.io, through the export dialogue",
     "ask-doc-md": "the answer document as Markdown",
-    "ask-doc-drawio": "the answer document as draw.io",
+    "ask-export-go": "the answer document as draw.io, through the export dialogue",
     "mm-export": "the metamodel as a YAML pack",
     "mm-view-md": "the metamodel's architecture view as Markdown",
-    "mm-view-drawio": "the metamodel's architecture view as draw.io",
+    "mm-export-go": "the metamodel's architecture view as draw.io, through the export dialogue",
     "im-template": "the import template archive",
     "im-export": "the organisation's content, written back out as the contract",
     "pr-template": "the Proposal Template",
@@ -145,6 +145,13 @@ def _download_trigger_ids() -> set[str]:
     import ea.ui.ids as ids
 
     found: set[str] = set()
+    # The export dialogue is registered once per page under a prefix, and its Download button
+    # is `<prefix>-<EXPORT_GO>`; the pages name the prefix where they register it.
+    prefixes = set()
+    for path in (SRC / "ui" / "pages").rglob("*.py"):
+        prefixes.update(
+            re.findall(r"register_export\(\s*app,\s*\"([a-z]+)\"", path.read_text(encoding="utf-8"))
+        )
     for path in (SRC / "ui").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         for block in re.split(r"@app\.callback", text)[1:]:
@@ -155,6 +162,8 @@ def _download_trigger_ids() -> set[str]:
                 value = getattr(ids, const, None)
                 if isinstance(value, str):
                     found.add(value)
+            if re.search(r"Input\(\s*eid\[\"go\"\]", head):
+                found.update(f"{prefix}-{ids.EXPORT_GO}" for prefix in prefixes)
     return found
 
 

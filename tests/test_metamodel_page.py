@@ -142,3 +142,54 @@ def test_the_attributes_a_type_declares_carry_their_group(registry):
     assert registry.group_name("risk_ratings") == "Risk ratings"
     rows = _attr_rows(registry)
     assert next(r for r in rows if r["name"] == "alias")["group"] == "identification"
+
+
+# ------------------------------------------------------------ viewpoints and relationship notation
+# A viewpoint is pack data the grids do not edit (decision 0023), and a relationship type's
+# notation has no grid column: a save from the grids must keep both, and a deletion must
+# reach into the viewpoints the way it reaches into a relationship type's ends.
+
+
+def test_a_save_from_the_grids_keeps_every_relationship_notation_and_viewpoint(registry, rows):
+    reg = _pack(registry, rows)
+    assert [r.notation for r in reg.pack.relationship_types] == [
+        r.notation for r in registry.pack.relationship_types
+    ]
+    assert [v.id for v in reg.viewpoints()] == [v.id for v in registry.viewpoints()]
+    assert reg.viewpoint("layered").nest == registry.viewpoint("layered").nest
+
+
+def test_deleting_a_relationship_type_clears_it_from_every_viewpoint(registry, rows):
+    named_by = [v.id for v in registry.viewpoints() if REL in v.nest]
+    assert named_by, "the fixture's relationship type is one the shipped viewpoints nest by"
+    left, _ = remove_rows("rels", [r for r in rows["rels"] if r["id"] == REL], rows)
+    reg = _pack(registry, left)  # validates: nothing names a type the version does not declare
+    assert REL not in reg.rel_types
+    for vid in named_by:
+        assert REL not in reg.viewpoint(vid).nest
+    assert [v.id for v in reg.viewpoints()] == [v.id for v in registry.viewpoints()]
+
+
+def test_deleting_the_type_a_viewpoint_bands_by_makes_it_band_by_layer(registry, rows):
+    vp = registry.viewpoint("process_cooperation")
+    assert vp.bands == "related" and vp.band_type == "role"
+    left, _ = remove_rows("types", [r for r in rows["types"] if r["id"] == "role"], rows)
+    reg = _pack(registry, left)
+    after = reg.viewpoint("process_cooperation")
+    assert after.bands == "layer" and after.band_type == "" and after.band_relationships == []
+    assert "role" not in after.element_types
+    assert "role" not in reg.types
+
+
+def test_prune_viewpoints_says_what_each_one_lost():
+    from ea.ui.pages.metamodel import prune_viewpoints
+
+    kept, said = prune_viewpoints(
+        [{"id": "v", "name": "V", "element_types": ["a", "b"], "nest": ["r1", "r2"], "bands": "layer"}],
+        {"a"},
+        {"r2"},
+    )
+    assert kept[0]["element_types"] == ["a"] and kept[0]["nest"] == ["r2"]
+    assert said == ["viewpoint V no longer names b, r1"]
+    kept, said = prune_viewpoints([{"id": "w", "name": "W"}], set(), set())
+    assert kept[0]["id"] == "w" and said == []

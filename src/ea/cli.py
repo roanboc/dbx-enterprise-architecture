@@ -629,6 +629,32 @@ def impact(element_id: str, depth: int = 3):
         typer.echo(f"    no instances: {name}")
 
 
+def _viewpoint_named(registry, text: str):
+    """The viewpoint an id or a name names, whatever its case (decision 0023). A pack that
+    declares none offers the layered drawing; a name nothing matches is refused with the
+    ids, because drawing the default instead would hand back a diagram nobody asked for."""
+    from ea.views import DEFAULT_VIEWPOINT
+
+    declared = registry.viewpoints() or [DEFAULT_VIEWPOINT]
+    key = text.strip().lower()
+    for v in declared:
+        if key in (v.id.lower(), v.name.lower()):
+            return v
+    _refuse(f"no viewpoint {text!r}; the viewpoints are: {', '.join(v.id for v in declared)}")
+    return None
+
+
+def _layers_named(text: str) -> list[str]:
+    """The architecture layers a comma-separated list names; an unknown one is refused."""
+    from ea.views.model import LAYER_ORDER
+
+    layers = [part.strip().lower() for part in text.split(",") if part.strip()]
+    unknown = [layer for layer in layers if layer not in LAYER_ORDER]
+    if unknown:
+        _refuse(f"no layer {', '.join(repr(u) for u in unknown)}; the layers are: {', '.join(LAYER_ORDER)}")
+    return layers
+
+
 @app.command()
 def view(
     element_id: str,
@@ -636,25 +662,69 @@ def view(
     impact: bool = False,
     fmt: str = "mermaid",
     out: str = "",
+    viewpoint: str = typer.Option(
+        None, help="draw through a viewpoint the metamodel declares, by id or name (`ea viewpoints`)"
+    ),
+    layers: str = typer.Option(None, help="comma-separated architecture layers to keep; default: all"),
 ):
     """An architecture view of an element as Mermaid (default), Markdown or a draw.io file (--fmt md|drawio)."""
-    from ea.views import view_from_impact, view_from_neighbourhood
+    from ea.views import apply_viewpoint, view_from_impact, view_from_neighbourhood
     from ea.views.drawio import to_drawio
     from ea.views.mermaid import to_markdown, to_mermaid
 
+    _one_of(fmt, ("mermaid", "md", "drawio"))
     _, _, registry, _, graph = _ctx()
+    vp = _viewpoint_named(registry, viewpoint) if viewpoint else None
+    kept = _layers_named(layers) if layers else None
     if impact:
         v = view_from_impact(registry, graph, graph.impact(element_id, max(depth, 1) if depth != 1 else 3))
     else:
         v = view_from_neighbourhood(registry, graph, element_id, depth)
-    text = {"mermaid": to_mermaid, "md": to_markdown, "drawio": to_drawio}[
-        _one_of(fmt, ("mermaid", "md", "drawio"))
-    ](v)
+    if vp is not None or kept:
+        # Narrowed in every format, so the Markdown says what the draw.io file draws.
+        v = apply_viewpoint(v, vp, registry, kept)
+    if fmt == "drawio":
+        text = to_drawio(v, viewpoint=vp)
+    else:
+        text = {"mermaid": to_mermaid, "md": to_markdown}[fmt](v)
     if out:
         Path(out).write_text(text, encoding="utf-8")
         typer.echo(f"{out}: {len(v.nodes)} elements, {len(v.edges)} relationships")
     else:
         typer.echo(text)
+
+
+def _bands_in_words(v) -> str:
+    """How a viewpoint bands a drawing, said the way the grammar says it."""
+    if v.bands == "layer":
+        return "by architecture layer"
+    if v.bands == "type":
+        return "by element type" + (f" ({', '.join(v.band_order)})" if v.band_order else "")
+    via = ", ".join(v.band_relationships) or "any relationship"
+    return f"by {v.band_type} via {via}; other: {v.other_band}"
+
+
+@app.command()
+def viewpoints():
+    """The viewpoints the applied metamodel version declares: what each admits, how it bands, what it nests and spans."""
+    _, _, registry, *_ = _ctx()
+    declared = registry.viewpoints()
+    if not declared:
+        typer.echo("no viewpoints declared; the layered drawing is used")
+        return
+    for v in declared:
+        typer.echo(f"{v.id:28s} {v.name}")
+        typer.echo(f"    bands: {_bands_in_words(v)}")
+        if v.element_types:
+            typer.echo(f"    admits: {', '.join(v.element_types)}")
+        if v.relationship_types:
+            typer.echo(f"    relationships: {', '.join(v.relationship_types)}")
+        if v.nest:
+            typer.echo(f"    nests: {', '.join(v.nest)}")
+        if v.span:
+            typer.echo(f"    spans: {', '.join(v.span)}")
+        if v.description:
+            typer.echo(f"    {' '.join(v.description.split())}")
 
 
 @app.command()

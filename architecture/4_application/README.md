@@ -54,6 +54,7 @@ flowchart TB
   ui --> agent
   cli --> svc
   cli --> imp
+  cli --> views
   agent --> svc
   agent --> views
   ui --> views

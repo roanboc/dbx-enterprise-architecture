@@ -2,9 +2,10 @@
 
 A pack is the whole definition of an architecture framework as data: element
 types, their attributes and supertypes, relationship types with the endpoint
-types they allow, domains, provenance. The engine loads a pack into the
-`meta_*` tables and everything else — validation, forms, the type graph, the
-agent's vocabulary — follows from it. Changing the metamodel is editing this
+types they allow, domains, provenance, and the viewpoints its diagrams are
+drawn under. The engine loads a pack into the `meta_*` tables and everything
+else — validation, forms, the type graph, the agent's vocabulary, the exported
+drawings — follows from it. Changing the metamodel is editing this
 file (or the Metamodel page); no code or DDL changes.
 
 A pack is stored **per version**, and a version has a life: a `draft` is edited
@@ -108,6 +109,21 @@ relationship_types:
     src_max: 1                         # optional cardinality hints
     dst_max: null
     attributes: [{name, label, type, ...}]   # what a relationship of this type carries
+    notation: {archimate: realization, direction: forward}   # how the export draws it
+    properties: {}
+viewpoints:                   # what a diagram is for; the reader picks one at export
+  - id: application_cooperation
+    name: Application cooperation
+    description: ...
+    element_types: [logical_application_component, interface, data_entity]   # empty or absent: every type
+    relationship_types: []             # empty or absent: every type
+    bands: type                        # layer (default) | type | related
+    band_order: [logical_application_component, interface, data_entity]      # top to bottom
+    band_type: role                    # bands: related — the type whose elements are the bands
+    band_relationships: [role__performs__process]   # bands: related — what places an element in a band
+    other_band: Other                  # the band for what the rule cannot place
+    nest: [logical_data_component__encapsulates__data_entity]   # drawn as one shape inside another
+    span: [physical_application_component__processes__data_entity]   # drawn as a bar across the shapes
     properties: {}
 ```
 
@@ -139,6 +155,47 @@ the row.
 | `sensitivity` | Marks the value restricted wherever it is shown |
 | `properties` | Anything else the framework keeps with the attribute |
 
+## What a viewpoint declares
+
+What a diagram is for: which elements and relationships it admits, what its
+bands are, and which relationships are drawn as a line, as one shape inside
+another, or as a bar across several. The reader picks one when a view is
+exported, and the application draws what it says (decision
+[0023](../architecture/decisions/0023-a-viewpoint-is-pack-data.md)). A
+viewpoint belongs to the version it is declared in: a published version
+freezes its viewpoints with its types, and `ea metamodel diff` reports a change
+to them. A viewpoint naming a type the version does not declare is refused on
+load. A pack with none exports the layered drawing.
+
+`id` is the only required key, and `name` is the id when absent. A type named
+anywhere below admits its sub-types too.
+
+| Key | Meaning |
+| --- | ------- |
+| `element_types` | The element types the drawing admits. Empty or absent: every type |
+| `relationship_types` | The relationship types drawn. Empty or absent: every type |
+| `bands` | What the drawing is banded by. `layer`, the default, is a band per ArchiMate layer of the notation; `type` is a band per element type; `related` is a band per element of `band_type`, each holding the elements reached from it through `band_relationships` — a swimlane per role, a band per stage |
+| `band_order` | The bands from the top: layer names for `layer`, type ids for `type`. Absent: the pack's own order |
+| `band_type` | With `bands: related`, the element type whose elements are the bands. Required there |
+| `band_relationships` | With `bands: related`, the relationship types that place an element in a band, in either direction |
+| `other_band` | The title of the last band, which takes every element the rule cannot place. `Other` unless named; a drawing that silently dropped an element would lie about the model |
+| `nest` | The relationship types drawn as one shape inside another: the whole end holds the part end, which is the source unless the type's notation says `direction: reverse` |
+| `span` | The relationship types drawn as a bar: the target end becomes a bar across the sources related to it, or the source end when the notation runs in reverse |
+| `properties` | Anything else the framework keeps with the viewpoint |
+
+The four each shipped pack declares are the worked examples. In
+`higher_education/`: **Layered** (every element, a band per layer, the
+capability, organisation unit and process hierarchies nested); **Application
+cooperation** (the application, interface, integration, data and technology
+types in a band per type, a data entity inside the component that encapsulates
+it); **Process cooperation** (a swimlane per role that performs a process,
+`Not performed by a role` for the rest); and **Staged delivery** (a band per
+capability holding what realises it, a data entity spanning the applications
+that process it). `archimate_core/` carries the same four in the standard's
+own words: layered, application cooperation, business process cooperation and
+implementation and migration, the last a band per plateau with a deliverable
+spanning the work packages that realise it.
+
 ## Notation (`notation:` on a domain or an element type)
 
 How a type is drawn when a view is generated from the model. A flat map of
@@ -164,4 +221,24 @@ element_types:
   - id: information_asset
     domain: information
     notation: {layer: business, glyph: '▤', stereotype: Business Object, archimate: BusinessObject, shape: rect}
+```
+
+## Notation (`notation:` on a relationship type)
+
+How a relationship type is drawn when a view is exported: the ArchiMate
+relationship whose arrowhead the edge takes, and which way the standard's
+direction runs along it. A type with no notation is drawn as a plain directed
+line.
+
+| Key | Meaning | Example |
+| --- | ------- | ------- |
+| `archimate` | One of the ArchiMate 3 relationships: `composition`, `aggregation`, `assignment`, `realization`, `serving`, `access`, `influence`, `triggering`, `flow`, `specialization`, `association` | `realization` |
+| `direction` | `forward` (the default) when the standard's direction — whole to part, active to behaviour, realiser to realised — runs from the type's source to its target; `reverse` when it runs the other way, so `position__belongs_to__organization_unit`, whose source is the part, still nests the position inside the unit | `forward` |
+
+```yaml
+relationship_types:
+  - id: logical_data_component__encapsulates__data_entity
+    source: logical_data_component
+    target: data_entity
+    notation: {archimate: composition}
 ```

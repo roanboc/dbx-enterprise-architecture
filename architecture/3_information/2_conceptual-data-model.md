@@ -9,7 +9,7 @@ exists; this document says how it is shaped, and
 [3_logical-data-model.md](./3_logical-data-model.md) says how it is stored.
 
 **Status: `◐` draft** — read from the code as it runs today (`src/ea/models.py`,
-`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022. It defines
+`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021, 0022 and 0023. It defines
 no element of its own: every entity below names the data object it belongs to,
 and that catalogue owns the name.
 
@@ -64,7 +64,7 @@ is what lets a version be tried in one organisation without touching another
 
 | Entity | One of them is | Data object | Realized by |
 | ------ | -------------- | ----------- | ----------- |
-| **METAMODEL_VERSION** | one stored version of one framework's metamodel, keyed `<pack>@<version>` on an identifier that is minted once and never recomputed, in a lifecycle of draft, published and retired; its name stands beside that key as a label | [`DOBJ1.6`] Metamodel version | `Pack` in `src/ea/models.py`, `MetamodelService` |
+| **METAMODEL_VERSION** | one stored version of one framework's metamodel, keyed `<pack>@<version>` on an identifier that is minted once and never recomputed, in a lifecycle of draft, published and retired; its name stands beside that key as a label, and the viewpoints its diagrams are drawn under are frozen with it | [`DOBJ1.6`] Metamodel version | `Pack` in `src/ea/models.py`, `MetamodelService` |
 | **DOMAIN** | a grouping of element types, for colour and filter | [`DOBJ1.4`] Domain | `Domain` in `src/ea/models.py` |
 | **ELEMENT_TYPE** | a kind of thing the model may hold — an application, a data entity, a course | [`DOBJ1.1`] Element type | `ElementType` in `src/ea/models.py` |
 | **RELATIONSHIP_TYPE** | a kind of edge, with the types allowed at each end | [`DOBJ1.2`] Relationship type | `RelationshipType` in `src/ea/models.py` |
@@ -186,5 +186,8 @@ them. The architecture view [`DOBJ2.4`] and the change set [`DOBJ2.6`] are
 computed on demand; the import report [`DOBJ3.3`] and the answer document
 [`DOBJ3.5`] are produced and handed over; the CSV exchange files [`DOBJ3.1`] and
 the column mapping [`DOBJ3.2`] are read at the door and never land. The notation
-[`DOBJ1.5`] is an entity's worth of information carried inside the element type
-and the domain rather than standing on its own, which is why it has no box above.
+[`DOBJ1.5`] and the viewpoint [`DOBJ1.8`] are each an entity's worth of
+information carried inside the pack rather than standing on their own, which is
+why neither has a box above: the notation inside the element type, the domain
+and the relationship type, and the viewpoint inside the version, frozen with it
+when the version is published (decision 0023).

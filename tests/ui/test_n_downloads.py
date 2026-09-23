@@ -19,8 +19,12 @@ the positions of every view through a wildcard, so a document that drew no diagr
 comes down as Markdown. Two more jobs stand behind them. The fourth is the control that
 decides what a file holds — the element page's depth slider and the impact page's depth box
 are State on their download callbacks, the work-package selector names the target-state
-file, and the layout the browser reports is what the draw.io export is written from, shape
-for shape, including one the reader has moved by hand. The fifth is holding a file against
+file, and the layout the browser reports is what a draw.io export keeps when the reader asks
+for it, shape for shape, including one the reader has moved by hand. Since initiative 22 a
+draw.io file leaves through an export dialogue the button opens — the viewpoint the
+metamodel declares, the focus, the depth, the layers, and whether to keep the arrangement on
+screen — so every draw.io scenario goes through `_export_drawio`, and N29 to N31 read the
+dialogue itself. The fifth is holding a file against
 the page it came from — the impact file against the tables of the answer it exports, the
 metamodel against the counts the page prints, the clipboard against the file the button
 writes — and against who asked for it: downloading is a read, so a Reader is handed the same
@@ -81,6 +85,7 @@ FORMS = "PTC-FORMS"  # Legacy Forms Server — the decommissioned element in tha
 OFFERING = "DE-SRS-COURSE-OFFERING"  # the element the stub's impact answer is about
 GHOST = "FX-GHOST-ENTITY"  # shaped like an identifier, carried by nothing: an answer with no diagram
 PACK = "higher_education"
+SHIPPED_PACK = Path(__file__).resolve().parents[2] / "packs" / PACK / "metamodel.yaml"
 
 ASK_QUESTION = "What is the impact of changing SRS_Course_Offering?"
 DOCUMENT = "#ask-answer .ea-document"
@@ -146,6 +151,43 @@ def _try_download(ui, selector: str) -> tuple[Path | None, str]:
     except Exception as exc:  # noqa: BLE001 — no file is the finding, not a crash
         ui.settle()
         return None, f"{type(exc).__name__}: {str(exc).splitlines()[0][:160]}"
+
+
+def _export_drawio(ui, opener: str, arranged: bool = False) -> Path:
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    `arranged` ticks "Keep the arrangement on screen", so the file carries the browser's
+    layout rather than the viewpoint's.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    if arranged:
+        ui.toggle(f"{prefix}-export-arranged", True)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
+def _untick_layer(ui, prefix: str, label: str) -> None:
+    """Take one layer's pill off the dialogue's Layers control, which is what a reader does."""
+    field = ui.page.locator(f"#{prefix}-export-layers").first
+    wrapper = field.locator("xpath=ancestor::*[contains(@class, 'mantine-MultiSelect-input')][1]")
+    root = wrapper.first if wrapper.count() else field
+    pill = root.locator("[class*='mantine-Pill-root']").filter(has_text=label).first
+    pill.locator("[class*='mantine-Pill-remove']").first.click()
+    ui.settle()
+
+
+def _select_options(ui, selector: str) -> list[str]:
+    """What a Select offers: open it, read the visible options, close it again."""
+    ui.page.locator(ui._sel(selector)).first.click()
+    ui.page.wait_for_selector("[role='option']:visible", timeout=5_000)
+    names = [t.strip() for t in ui.page.locator("[role='option']:visible").all_inner_texts()]
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    return names
 
 
 # ---------------------------------------------------------------------- reading the files
@@ -301,7 +343,7 @@ def test_element_view_markdown(ui, record):
 )
 def test_element_view_drawio(ui, record):
     _open_element_view(ui)
-    path = ui.download("el-view-drawio", ".drawio")
+    path = _export_drawio(ui, "el-view-drawio")
     ui.check("the file is named for the element", path.name == f"{EL}-view.drawio", path.name)
     root = _drawio(ui, path)
     ids = _check_linking_contract(ui, root, ui.base_url)
@@ -345,7 +387,7 @@ def test_element_view_drawio(ui, record):
 def test_the_two_formats_agree(ui, record):
     _open_element_view(ui)
     md = ui.download("el-view-md", ".md")
-    drawio = ui.download("el-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "el-view-drawio")
     from_table = _table_ids(_text(md))
     from_shapes = _shape_ids(_drawio(ui, drawio))
     ui.must("both files carry elements", bool(from_table) and bool(from_shapes))
@@ -387,7 +429,7 @@ def test_impact_downloads(ui, record):
     text = _check_markdown_view(ui, md, f"Impact of {IMP_NAME}")
     ui.check("the element it is about is in the table", IMP in _table_ids(text), str(_table_ids(text)[:6]))
 
-    drawio = ui.download("imp-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "imp-view-drawio")
     ui.check("the draw.io file is named for it too", drawio.name == f"{IMP}-impact.drawio", drawio.name)
     root = _drawio(ui, drawio)
     ids = _check_linking_contract(ui, root, ui.base_url)
@@ -458,7 +500,7 @@ def test_target_markdown(ui, record):
 )
 def test_target_drawio(ui, record):
     _open_target(ui)
-    path = ui.download("tg-view-drawio", ".drawio")
+    path = _export_drawio(ui, "tg-view-drawio")
     ui.check("the file is named for the work package", path.name == f"target-state-{WP}.drawio", path.name)
     root = _drawio(ui, path)
     ids = _check_linking_contract(ui, root, ui.base_url)
@@ -534,7 +576,7 @@ def test_answer_document_downloads(ui, record):
     )
     ui.check("the element the question is about is in it", OFFERING in text, f"{len(text)} characters")
 
-    drawio = ui.download("ask-doc-drawio", ".drawio")
+    drawio = _export_drawio(ui, "ask-doc-drawio")
     ui.check("the diagram is named after the same question", drawio.name.endswith(".drawio"), drawio.name)
     ui.check(
         "and the two files are named for one document",
@@ -725,22 +767,22 @@ def test_every_producer_in_one_session(ui, record):
     _open_element_view(ui)
     count_component("element")
     produced.append(("element view · Markdown", ui.download("el-view-md", ".md")))
-    produced.append(("element view · draw.io", ui.download("el-view-drawio", ".drawio")))
+    produced.append(("element view · draw.io", _export_drawio(ui, "el-view-drawio")))
 
     _open_impact(ui)
     count_component("impact")
     produced.append(("impact view · Markdown", ui.download("imp-view-md", ".md")))
-    produced.append(("impact view · draw.io", ui.download("imp-view-drawio", ".drawio")))
+    produced.append(("impact view · draw.io", _export_drawio(ui, "imp-view-drawio")))
 
     _open_target(ui)
     count_component("target")
     produced.append(("target state · Markdown", ui.download("tg-view-md", ".md")))
-    produced.append(("target state · draw.io", ui.download("tg-view-drawio", ".drawio")))
+    produced.append(("target state · draw.io", _export_drawio(ui, "tg-view-drawio")))
 
     _ask(ui)
     count_component("ask")
     produced.append(("answer document · Markdown", ui.download("ask-doc-md", ".md")))
-    produced.append(("answer document · draw.io", ui.download("ask-doc-drawio", ".drawio")))
+    produced.append(("answer document · draw.io", _export_drawio(ui, "ask-doc-drawio")))
     ui.shot("The answer document, the fourth of the seven pages that produce a file")
 
     ui.goto("/metamodel")
@@ -811,7 +853,9 @@ def test_the_same_download_twice(ui, record, finding):
             )
         )
     # A different button on the same page must still work after that, whatever happened above.
-    other, why = _try_download(ui, "el-view-drawio")
+    ui.click("el-view-drawio")
+    ui.page.wait_for_selector("#el-export-go", state="visible", timeout=10_000)
+    other, why = _try_download(ui, "el-export-go")
     ui.check("a different file from the same page still comes through", other is not None, why)
     ui.shot("The element view after being downloaded twice from the same button")
 
@@ -1091,7 +1135,7 @@ def test_the_depth_control_decides_the_file(ui, record):
         sorted(drawn) == sorted(far_ids),
         f"{len(drawn)} shapes drawn against {len(far_ids)} rows in the file",
     )
-    drawio = ui.download("el-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "el-view-drawio")
     shape_ids = _shape_ids(_drawio(ui, drawio))
     ui.check(
         "and the draw.io file of the same view was taken at the same depth",
@@ -1205,7 +1249,7 @@ def test_target_state_of_the_whole_model(ui, record):
     marked = next((line for line in diagram.splitlines() if FORMS in line), "")
     ui.check("marked in the diagram the way the legend says", "×" in marked, marked.strip() or "not drawn")
 
-    drawio = ui.download("tg-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "tg-view-drawio")
     ui.check(
         "the draw.io file is named for the whole model too",
         drawio.name == "target-state-all.drawio",
@@ -1312,7 +1356,7 @@ def test_a_reader_may_take_every_file(ui, record):
         _text(view) == as_admin,
         f"{len(_text(view))} characters against {len(as_admin)}",
     )
-    drawio = ui.download("el-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "el-view-drawio")
     _check_linking_contract(ui, _drawio(ui, drawio), ui.base_url)
 
     _open_impact(ui)
@@ -1421,15 +1465,16 @@ def test_the_metamodel_file_agrees_with_the_page(ui, record):
     group="N",
     title="The draw.io file puts every shape where the reader sees it",
     feature="Downloads · draw.io · the reader's arrangement",
-    expected="The browser reports the layout of a generated view, and the draw.io export is written from "
-    "it: every shape on the page itself rather than in a generated grid, each one the size it is drawn "
-    "and all of them shifted by the one margin, so the file opens as the picture on screen.",
+    expected="The browser reports the layout of a generated view, and with 'Keep the arrangement on "
+    "screen' ticked in the export dialogue the draw.io export is written from it: every shape on the page "
+    "itself rather than in a generated grid, each one the size it is drawn and all of them shifted by "
+    "the one margin, so the file opens as the picture on screen.",
 )
 def test_the_file_reproduces_the_layout_on_screen(ui, record):
     _open_impact(ui)
     screen = _screen_nodes(ui, "imp-view")
     ui.must("the browser drew the view", len(screen) >= 3, f"{len(screen)} shapes on screen")
-    root = _drawio(ui, ui.download("imp-view-drawio", ".drawio"))
+    root = _drawio(ui, _export_drawio(ui, "imp-view-drawio", arranged=True))
     boxes = _file_boxes(root)
     ui.must(
         "the file holds a shape for each one", set(screen) <= set(boxes), f"{len(boxes)} shapes in the file"
@@ -1485,15 +1530,15 @@ def test_the_file_reproduces_the_layout_on_screen(ui, record):
     group="N",
     title="A shape the reader moved is where they left it in the file",
     feature="Downloads · draw.io · a shape moved by hand",
-    expected="The page says Ctrl-drag moves a shape and that nothing is saved; the draw.io export is what "
-    "the move is for. Moving the element's own shape and exporting again must put it where it was left, "
-    "the same distance from its neighbours as on screen.",
+    expected="The page says Ctrl-drag moves a shape and that nothing is saved; the draw.io export with "
+    "'Keep the arrangement on screen' ticked is what the move is for. Moving the element's own shape and "
+    "exporting again must put it where it was left, the same distance from its neighbours as on screen.",
 )
 def test_a_shape_the_reader_moved(ui, record):
     _open_element_view(ui)
     before_screen = _screen_nodes(ui, "el-view")
     ui.must("the element's own shape is on the canvas", EL in before_screen, f"{len(before_screen)} shapes")
-    before = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    before = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio", arranged=True)))
 
     node = ui.page.locator(f"{_pm(id='el-view', type='mermaid-svg')} g.node").filter(has_text=f"[{EL}]").first
     box = node.bounding_box()
@@ -1530,7 +1575,7 @@ def test_a_shape_the_reader_moved(ui, record):
     )
     ui.shot("The element's own shape dragged clear of its neighbours")
 
-    after = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    after = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio", arranged=True)))
     ui.must("the file still holds the moved shape", EL in after, f"{len(after)} shapes in the file")
     neighbour = next(eid for eid in before if eid != EL and eid in after)
     shifted = (after[EL]["x"] - after[neighbour]["x"]) - (before[EL]["x"] - before[neighbour]["x"])
@@ -1604,7 +1649,7 @@ def test_the_impact_downloads_are_refused_then_given(ui, record):
     md = ui.download("imp-view-md", ".md")
     ui.check("the button now produces the file", md.name == f"{IMP}-impact.md", md.name)
     _check_markdown_view(ui, md, f"Impact of {IMP_NAME}")
-    drawio = ui.download("imp-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "imp-view-drawio")
     ui.check("and so does the other one", drawio.name == f"{IMP}-impact.drawio", drawio.name)
     _check_linking_contract(ui, _drawio(ui, drawio), ui.base_url)
     ui.shot("The same two buttons after an element was chosen, both now producing their file")
@@ -1695,7 +1740,7 @@ def test_a_view_drawn_on_a_hidden_tab(ui, record, finding):
     _open_element_view(ui)
     screen = _screen_nodes(ui, "el-view")
     ui.must("the browser drew the view", len(screen) >= 3, f"{len(screen)} shapes on screen")
-    boxes = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    boxes = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio", arranged=True)))
     wrong = [
         f"{eid}: {boxes[eid]['w']:.0f} by {boxes[eid]['h']:.0f} in the file against "
         f"{screen[eid]['w']:.0f} by {screen[eid]['h']:.0f} on screen"
@@ -1727,7 +1772,7 @@ def test_a_view_drawn_on_a_hidden_tab(ui, record, finding):
     ui.must(
         "the view is still drawn after Reset layout", len(redrawn) == len(screen), f"{len(redrawn)} shapes"
     )
-    after = _file_boxes(_drawio(ui, ui.download("el-view-drawio", ".drawio")))
+    after = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio", arranged=True)))
     still_wrong = [
         eid
         for eid in redrawn
@@ -1751,7 +1796,7 @@ def test_a_view_drawn_on_a_hidden_tab(ui, record, finding):
                 "the same default size, so long names spill out of their boxes in the file.",
                 "The element page renders its generated view when the page loads, while the Graph tab is "
                 "still hidden, so getBBox measures nothing and the position store carries w and h of 0. "
-                "to_drawio falls back to 170 by 60 for every shape, and because it places each one from "
+                "to_drawio falls back to the measured size for every shape, and because it places each one from "
                 "its centre minus half that width, the shapes also drift relative to each other by up to "
                 "a couple of dozen units against the picture on screen. Pressing Reset layout with the "
                 "tab open re-measures the same view and the very next download is correct in both "
@@ -1890,3 +1935,174 @@ def test_feed_staging_example(ui, record):
         header = archive.read("elements.csv").decode("utf-8").splitlines()[0]
     ui.check("and its columns are the contract's own", header.startswith("id,type,name"), header[:60])
     ui.shot("The feed form, having handed out the shape its staging tables take")
+
+
+# ============================================ the export dialogue: what the reader names
+
+
+@pytest.mark.scenario(
+    scenario_id="N29",
+    group="N",
+    title="The export dialogue offers the viewpoints the metamodel declares, and a viewpoint bands the file",
+    feature="Downloads · draw.io · the viewpoint",
+    expected="Download draw.io opens a dialogue that names what the diagram is about and offers the four "
+    "viewpoints the shipped metamodel declares, by name; picking Application cooperation says how many "
+    "elements fall outside it, and the file it produces is banded by element type, each band cell "
+    "carrying a type name rather than a layer.",
+)
+def test_the_dialogue_offers_the_declared_viewpoints(ui, record):
+    _open_element_view(ui)
+    ui.click("el-view-drawio")
+    ui.page.wait_for_selector("#el-export-go", state="visible", timeout=10_000)
+    ui.check("the draw.io button opens the export dialogue", ui.visible("el-export-go"))
+    about = ui.text("el-export-about")
+    ui.check("which says what the diagram is about", EL_NAME in about, about)
+    declared = [v.name for v in Registry(load_pack(SHIPPED_PACK)).viewpoints()]
+    offered = _select_options(ui, "el-export-viewpoint")
+    ui.check(
+        "and offers the viewpoints the metamodel declares, by name, in its order",
+        offered == declared,
+        f"offered {offered} against {declared}",
+    )
+    before = ui.text("el-export-summary")
+    ui.check("the summary counts what the layered drawing holds", "elements and" in before, before)
+    ui.select("el-export-viewpoint", "Application cooperation", exact=True)
+    after = ui.text("el-export-summary")
+    ui.check(
+        "picking a viewpoint says how many elements fall outside it",
+        "outside this viewpoint not shown" in after and after != before,
+        after,
+    )
+    ui.shot("The export dialogue with Application cooperation picked, and the summary that followed")
+    path = ui.download("el-export-go", ".drawio")
+    ui.check("the file is still named for the element", path.name == f"{EL}-view.drawio", path.name)
+    root = _drawio(ui, path)
+    shapes = _shapes(root)
+    type_names = {o.get("ea_type_name", "") for o in shapes}
+    lanes = [
+        c.get("value") or "" for c in root.findall(".//mxCell") if (c.get("id") or "").startswith("lane_")
+    ]
+    ui.must("the file holds bands", bool(lanes), f"{len(lanes)} band cells")
+    ui.check(
+        "and the band cells carry type names, not layers",
+        all(lane in type_names or lane == "Other" for lane in lanes),
+        f"bands: {lanes[:6]}; types drawn: {sorted(type_names)[:6]}",
+    )
+    outside = {o.get("ea_id") for o in shapes if o.get("ea_type_name") in ("Position", "Organization Unit")}
+    ui.check("nothing outside the viewpoint is drawn", not outside, f"drawn anyway: {sorted(outside)[:5]}")
+
+
+@pytest.mark.scenario(
+    scenario_id="N30",
+    group="N",
+    title="Unticking a layer in the export dialogue leaves its shapes out, and the summary says how many",
+    feature="Downloads · draw.io · the layers",
+    expected="The dialogue's Layers control lists the layers present in the view; taking one off makes the "
+    "summary say how many elements are in an unticked layer, and the file then holds no shape of that "
+    "layer and exactly that many fewer shapes.",
+)
+def test_unticking_a_layer_leaves_its_shapes_out(ui, record):
+    _open_element_view(ui)
+    whole = _shapes(_drawio(ui, _export_drawio(ui, "el-view-drawio")))
+    registry = Registry(load_pack(SHIPPED_PACK))
+    layer_of = {o.get("ea_id"): registry.notation(o.get("ea_type", ""))["layer"] for o in whole}
+    ui.must(
+        "the view spans more than one layer", len(set(layer_of.values())) > 1, str(set(layer_of.values()))
+    )
+    # A layer the element itself is not in, so the focus stays and only the neighbours go.
+    unticked = next(layer for layer in ("technology", "business", "strategy") if layer in layer_of.values())
+    title = {"technology": "Technology", "business": "Business", "strategy": "Strategy"}[unticked]
+    expected_gone = sorted(eid for eid, layer in layer_of.items() if layer == unticked)
+
+    ui.click("el-view-drawio")
+    ui.page.wait_for_selector("#el-export-go", state="visible", timeout=10_000)
+    ticked = ui.multi_values("el-export-layers")
+    ui.check("every layer of the view is ticked when the dialogue opens", title in ticked, str(ticked))
+    _untick_layer(ui, "el", title)
+    ui.check(
+        "the pill is gone",
+        title not in ui.multi_values("el-export-layers"),
+        str(ui.multi_values("el-export-layers")),
+    )
+    summary = ui.text("el-export-summary")
+    ui.check(
+        "the summary says how many elements are in the unticked layer",
+        f"{len(expected_gone)} in an unticked layer not shown" in summary,
+        summary,
+    )
+    ui.shot(f"The export dialogue with the {title} layer unticked")
+    narrowed = _shapes(_drawio(ui, ui.download("el-export-go", ".drawio")))
+    drawn = {o.get("ea_id") for o in narrowed}
+    ui.check(
+        "the file holds no shape of that layer",
+        not (drawn & set(expected_gone)),
+        f"still drawn: {sorted(drawn & set(expected_gone))[:5]}"
+        if drawn & set(expected_gone)
+        else f"{len(expected_gone)} left out",
+    )
+    ui.check(
+        "and exactly that many fewer shapes than the whole view",
+        len(whole) - len(narrowed) == len(expected_gone),
+        f"{len(whole)} shapes, then {len(narrowed)}",
+    )
+    ui.check("the element the view is about is still drawn", EL in drawn)
+
+
+@pytest.mark.scenario(
+    scenario_id="N31",
+    group="N",
+    title="'Keep the arrangement on screen' is what reproduces a moved shape; without it the file is laid out",
+    feature="Downloads · draw.io · the arrangement switch",
+    expected="After Ctrl-dragging the element's own shape, a file exported with the switch off is laid out "
+    "by the application and does not follow the move, while one exported with the switch on puts the "
+    "shape where the reader left it, the same distance from a neighbour as on screen.",
+)
+def test_the_arrangement_switch_decides_whether_a_move_is_kept(ui, record):
+    _open_element_view(ui)
+    before_screen = _screen_nodes(ui, "el-view")
+    ui.must("the element's own shape is on the canvas", EL in before_screen, f"{len(before_screen)} shapes")
+    laid_out_before = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio")))
+
+    node = ui.page.locator(f"{_pm(id='el-view', type='mermaid-svg')} g.node").filter(has_text=f"[{EL}]").first
+    box = node.bounding_box()
+    ui.must("the shape can be aimed at", box is not None and box["width"] > 0, str(box))
+    start = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    ui.page.mouse.move(*start)
+    ui.page.keyboard.down("Control")
+    ui.page.mouse.down()
+    for step in range(1, 6):
+        ui.page.mouse.move(start[0] + 44 * step, start[1] - 18 * step)
+        ui.page.wait_for_timeout(40)
+    ui.page.mouse.up()
+    ui.page.keyboard.up("Control")
+    ui.page.wait_for_timeout(500)
+    ui.settle()
+    after_screen = _screen_nodes(ui, "el-view")
+    moved_x = after_screen[EL]["x"] - before_screen[EL]["x"]
+    ui.must("Ctrl-dragging the shape moved it on screen", abs(moved_x) > 20, f"it moved {moved_x:.0f} across")
+
+    laid_out = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio")))
+    ui.check(
+        "with the switch off, the file is the application's own layout, unmoved by the drag",
+        laid_out == laid_out_before,
+        "the same file before and after the move"
+        if laid_out == laid_out_before
+        else f"{sum(1 for k in laid_out if laid_out.get(k) != laid_out_before.get(k))} shapes differ",
+    )
+    ui.click("el-view-drawio")
+    ui.page.wait_for_selector("#el-export-go", state="visible", timeout=10_000)
+    ui.check(
+        "the switch is offered, since the page reported an arrangement", not ui.disabled("el-export-arranged")
+    )
+    ui.shot("The export dialogue after the drag, with 'Keep the arrangement on screen' still off")
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    kept = _file_boxes(_drawio(ui, _export_drawio(ui, "el-view-drawio", arranged=True)))
+    neighbour = next(eid for eid in kept if eid != EL)
+    on_screen = (after_screen[EL]["x"] - after_screen[neighbour]["x"]) if neighbour in after_screen else None
+    in_file = kept[EL]["x"] - kept[neighbour]["x"]
+    ui.check(
+        "with the switch on, the moved shape is where the reader left it against its neighbour",
+        on_screen is not None and abs(in_file - on_screen) <= 3,
+        f"{in_file:.0f} from {neighbour} in the file against {on_screen} on screen",
+    )

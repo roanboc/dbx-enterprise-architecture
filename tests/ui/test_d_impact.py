@@ -56,6 +56,19 @@ def _set_depth(ui, value: int) -> None:
     ui.settle()
 
 
+def _export_drawio(ui, opener: str):
+    """A draw.io file through the export dialogue the button opens (initiative 22).
+
+    The draw.io button no longer downloads: it opens the dialogue, whose ids share the
+    button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
+    comes from the dialogue's Download button, drawn through the viewpoint it opens on.
+    """
+    prefix = opener.split("-", 1)[0]
+    ui.click(opener)
+    ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    return ui.download(f"{prefix}-export-go", ".drawio")
+
+
 def _selected(ui) -> str:
     return _input(ui, "imp-element").input_value()
 
@@ -736,7 +749,7 @@ def test_view_and_downloads(ui, record):
     ui.check("it carries the diagram as Mermaid", "```mermaid" in text, text[:200])
     ui.check("and the table of elements it shows", f"| `{COURSE}` |" in text, text[-400:])
 
-    drawio = ui.download("imp-view-drawio", ".drawio")
+    drawio = _export_drawio(ui, "imp-view-drawio")
     ui.check(
         "the draw.io file is named for the element", drawio.name == f"{COURSE}-impact.drawio", drawio.name
     )

@@ -67,6 +67,7 @@ agent as well as from a page, and none of those has a browser.
 | **Is a viewpoint editable on the Metamodel page?** | Not in this initiative | It is edited in the pack file and loaded, like any other section, and read on the page. The page's Manage lists were reordered at the Requester's word and a sixth list owes its own scenario |
 | **Does the sample model gain process content?** | No | The process cooperation viewpoint has nothing in the sample to draw. The test builds its own handful of processes and roles, because seventeen assertions pin the sample at 47 elements and a viewpoint is not a reason to move them |
 | **A dependency for the layout?** | No | Decision 0024: the two candidates ship compiled extensions, are under a year old, and solve the part of a layered layout the bands already decide |
+| **How far may an export reach?** | As far as the page it is taken from | The Element page's dialogue reaches three hops, like its Graph tab; the Impact page's reaches six, like its own depth control, so an impact the tables answer in full is exported in full |
 
 ## What changed in the model
 
@@ -140,7 +141,7 @@ agent as well as from a page, and none of those has a browser.
 
 ### WP4 — The reader picks
 
-- **Deliverables:** the export dialogue in `src/ea/ui/components.py`, opened
+- **Deliverables:** the export dialogue in `src/ea/ui/export.py`, opened
   by the draw.io control on the Element, Impact, Ask, Target state and
   Metamodel pages; `apply_viewpoint()` in `src/ea/views/model.py`;
   `ea view --viewpoint --layers` and `ea viewpoints` in `src/ea/cli.py`;

@@ -24,8 +24,8 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.export import export_modal, register_export
 from ea.views import view_from_impact
-from ea.views.drawio import to_drawio
 from ea.views.mermaid import to_markdown, to_mermaid
 
 
@@ -37,6 +37,7 @@ def _option(ctx: AppContext, e) -> dict[str, str]:
 NOTHING_TO_EXPORT = "Choose an element and press Run: there is no view to export yet."
 NOTHING_CHOSEN = "Choose an element above, then press Run."
 GRAPH_HOPS = 2  # the picture stays readable at two hops however far the tables answer
+MAX_DEPTH = 6  # how far the depth box, and the export dialogue's, may reach
 
 
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
@@ -80,7 +81,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         label=None,
                         value=3,
                         min=1,
-                        max=6,
+                        max=MAX_DEPTH,
                         w=90,
                     ),
                     dmc.Button("Run", id=ids.IMP_RUN, leftSection=icon("tabler:radar")),
@@ -123,6 +124,9 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                         note=nothing_yet,
                         note_id=ids.IMP_VIEW_NOTE,
                     ),
+                    # The dialogue reaches as far as the page's own depth box, so the file can
+                    # hold everything the tables answered.
+                    export_modal("imp", with_depth=True, depth_max=MAX_DEPTH),
                 ],
                 p="md",
                 withBorder=True,
@@ -333,25 +337,43 @@ def register(app: dash.Dash) -> None:
             return no_update, no_update
         return f"/element/{gp.element_id_of(data)}", ""
 
+    def impact_view(ctx: AppContext, depth: int | None, element_id: str):
+        """The impact as a view, or None before an element is chosen or for one that is gone."""
+        if not element_id:
+            return None
+        try:
+            return view_from_impact(ctx.registry, ctx.graph, ctx.graph.impact(element_id, int(depth or 3)))
+        except NotFoundError:
+            return None
+
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.IMP_VIEW_MD, "n_clicks"),
-        Input(ids.IMP_VIEW_DRAWIO, "n_clicks"),
         State(ids.IMP_ELEMENT, "value"),
         State(ids.IMP_DEPTH, "value"),
-        State({"type": ids.MERMAID_POS, "id": "imp-view"}, "data"),
         prevent_initial_call=True,
     )
-    def download_view(n_md, n_drawio, element_id, depth, positions):
-        if not element_id or not (n_md or n_drawio):
+    def download_view(n_md, element_id, depth):
+        if not n_md:
             return no_update
-        ctx = get_context()
-        try:
-            view = view_from_impact(ctx.registry, ctx.graph, ctx.graph.impact(element_id, int(depth or 3)))
-        except NotFoundError:
+        view = impact_view(get_context(), depth, element_id)
+        if view is None:
             return no_update
-        if dash.ctx.triggered_id == ids.IMP_VIEW_DRAWIO:
-            return dcc.send_string(
-                to_drawio(view, ctx.base_url(), positions or None), f"{element_id}-impact.drawio"
-            )
         return dcc.send_string(to_markdown(view), f"{element_id}-impact.md")
+
+    def impact_file(ctx: AppContext, element_id: str) -> str:
+        return f"{element_id}-impact"
+
+    # The draw.io button opens the export dialogue (decision 0023); it stays disabled until
+    # there is an answer, as the Markdown button does.
+    register_export(
+        app,
+        "imp",
+        ids.IMP_VIEW_DRAWIO,
+        impact_view,
+        impact_file,
+        [State(ids.IMP_ELEMENT, "value")],
+        positions_id={"type": ids.MERMAID_POS, "id": "imp-view"},
+        with_depth=True,
+        depth_id=ids.IMP_DEPTH,
+    )

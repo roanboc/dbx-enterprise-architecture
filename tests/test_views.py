@@ -3,7 +3,7 @@
 import xml.etree.ElementTree as ET
 
 from ea.views import view_from_ids, view_from_impact, view_from_neighbourhood
-from ea.views.drawio import to_drawio
+from ea.views.drawio import BAND_STYLE, to_drawio
 from ea.views.mermaid import layer_legend, node_id, to_markdown, to_mermaid
 
 
@@ -71,10 +71,13 @@ def test_drawio_export_carries_the_linking_contract(registry, graph):
         cell = o.find("mxCell")
         assert cell is not None and cell.get("vertex") == "1"
         assert "mxgraph.archimate3" in cell.get("style")
-    edges = [c for c in root.findall(".//mxCell") if c.get("edge") == "1"]
-    assert len(edges) == len(view.edges)
-    lanes = [c for c in root.findall(".//mxCell") if (c.get("style") or "").startswith("swimlane")]
-    assert [c.get("value") for c in lanes] == ["Business", "Application"]
+    # The default viewpoint nests nothing, so every relationship is a line (the legend's sample
+    # lines are `legend_*`, not `edge_*`).
+    edges = [c for c in root.findall(".//mxCell") if (c.get("id") or "").startswith("edge_")]
+    assert len(edges) == len(view.edges) and all(c.get("edge") == "1" for c in edges)
+    bands = [c for c in root.findall(".//mxCell") if (c.get("style") or "").startswith(BAND_STYLE)]
+    assert [c.get("value") for c in bands] == ["Business", "Application"]
+    assert not [c for c in root.findall(".//mxCell") if "swimlane" in (c.get("style") or "")]
 
 
 def test_drawio_export_honours_browser_positions(registry, graph):
@@ -92,15 +95,12 @@ def test_drawio_export_honours_browser_positions(registry, graph):
     others = [g for k, g in geo.items() if k != "LDC-CURR"]
     assert all(float(lc.get("x")) > float(g.get("x")) for g in others)
     assert all(float(lc.get("y")) > float(g.get("y")) for g in others)
-    lanes = [
-        c
-        for c in root.findall(".//mxCell")
-        if "dashed=1" in (c.get("style") or "") and c.get("vertex") == "1"
-    ]
+    lanes = [c for c in root.findall(".//mxCell") if (c.get("style") or "").startswith(BAND_STYLE)]
     assert {c.get("value") for c in lanes} == {"Business", "Application"}
-    # too few positions: the grid layout is used instead
-    xml2 = to_drawio(view, "http://x", {"LDC-CURR": positions["LDC-CURR"]})
-    assert "swimlane" in xml2
+    # too few positions: the application's own layout is used instead
+    stamp = "2026-01-01T00:00:00Z"
+    xml2 = to_drawio(view, "http://x", {"LDC-CURR": positions["LDC-CURR"]}, modified=stamp)
+    assert xml2 == to_drawio(view, "http://x", modified=stamp)
 
 
 def test_view_round_trips_through_a_dict(registry, graph):
