@@ -468,7 +468,8 @@ def _title(
 ) -> None:
     """The title block: the view's title, under it the viewpoint and the export stamp, and the
     note (what the drawing could not show as asked) when there is one."""
-    subtitle = f"{escape(vp.name)} · exported {escape(stamp)}"
+    level = " · Overview" if view.detail == "overview" else ""
+    subtitle = f"{escape(vp.name)}{level} · exported {escape(stamp)}"
     cell = _cell(
         root,
         "title",

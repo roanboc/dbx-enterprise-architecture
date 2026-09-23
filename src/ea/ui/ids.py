@@ -258,6 +258,7 @@ EXPORT_DEPTH = "export-depth"  # only on a page whose view grows from an element
 EXPORT_LAYERS = "export-layers"
 EXPORT_ARRANGED = "export-arranged"  # keep the arrangement on screen rather than lay the file out
 EXPORT_SUMMARY = "export-summary"  # what the file will hold under the current choices
+EXPORT_DETAIL = "export-detail"  # Overview or Full
 EXPORT_GO = "export-go"  # the Download button of the dialogue
 
 # Branches (initiative 4)

@@ -98,6 +98,7 @@ class View:
     note: str = ""
     omitted: int = 0  # nodes left out by the cap
     viewpoint: str = ""  # the viewpoint the view was filtered through, when one was (decision 0023)
+    detail: str = "full"  # one of DETAIL_LEVELS: "overview" once `overview()` has thinned the view
 
     def layers(self) -> list[str]:
         present = {n.layer for n in self.nodes}
@@ -113,6 +114,20 @@ class View:
 def layer_rank(layer: str) -> int:
     return LAYER_ORDER.index(layer) if layer in LAYER_ORDER else len(LAYER_ORDER)
 
+
+#: The two levels of detail a view is exported at. An overview is the reader's default: the
+#: focus, its direct neighbours and the band elements, every relationship touching the focus
+#: and only the structural kinds among the rest, parallel lines merged into one, and at most
+#: OVERVIEW_MAX_NODES elements — the practitioner's ceiling for one drawing. Full is everything.
+DETAIL_LEVELS = ("overview", "full")
+OVERVIEW_MAX_NODES = 30
+#: The ArchiMate relationships an overview keeps between elements other than the focus, when
+#: the viewpoint names none of its own: the ones that say what is made of, realised by, assigned
+#: to, served by or followed by what. Access, association and influence go — they are the lines
+#: that turn a drawing into a net.
+OVERVIEW_KINDS = frozenset(
+    {"composition", "aggregation", "realization", "assignment", "serving", "triggering", "flow"}
+)
 
 #: The drawing every pack gets without a viewpoint of its own: one band per architecture
 #: layer, every element and every relationship, nothing nested and nothing spanned.
@@ -133,6 +148,103 @@ def _edge(registry: Registry, e: dict[str, Any]) -> ViewEdge:
         archimate=notation.get("archimate", ""),
         reversed=notation.get("direction") == "reverse",
     )
+
+
+def overview(view: View, viewpoint: Viewpoint | None = None, max_nodes: int = OVERVIEW_MAX_NODES) -> View:
+    """The view thinned to its key elements and lines (`DETAIL_LEVELS`), by a rule a reader can
+    predict rather than a judgement:
+
+    - a relationship touching the focus is kept; between the others only a structural kind is —
+      the viewpoint's `overview_relationships` when it names any, else `OVERVIEW_KINDS` by the
+      type's notation — and so is any relationship the viewpoint nests, spans or bands by;
+    - the elements kept are the focus, the band elements, and whatever the focus still reaches
+      through the lines kept, as far as the view goes: the depth the reader chose still counts,
+      along structural lines. A view with no focus (the whole target state, the metamodel)
+      keeps every element;
+    - several relationships between one pair of elements become one line labelled with every
+      verb, drawn as their common kind or as a plain line when the kinds differ;
+    - above `max_nodes` elements the least connected go, the focus and the bands never.
+
+    The note says what was left out, in numbers. Nothing here reads the store.
+    """
+    vp = viewpoint or DEFAULT_VIEWPOINT
+    ids = {n.id for n in view.nodes}
+    focus = set(view.focus_ids) & ids
+    structural = set(vp.overview_relationships)
+    always = set(vp.nest) | set(vp.span) | set(vp.band_relationships)
+
+    def kept_edge(e: ViewEdge) -> bool:
+        if e.src not in ids or e.dst not in ids:
+            return False
+        if e.src in focus or e.dst in focus or e.rel_type_id in always:
+            return True
+        return e.rel_type_id in structural if structural else e.archimate in OVERVIEW_KINDS
+
+    edges = [e for e in view.edges if kept_edge(e)]
+    if focus:
+        reached, frontier = set(focus), list(focus)
+        while frontier:
+            here = frontier.pop()
+            for e in edges:
+                other = e.dst if e.src == here else e.src if e.dst == here else None
+                if other is not None and other not in reached:
+                    reached.add(other)
+                    frontier.append(other)
+        kept_ids = reached | {n.id for n in view.nodes if n.is_band}
+        edges = [e for e in edges if e.src in kept_ids and e.dst in kept_ids]
+    else:
+        kept_ids = set(ids)
+    dropped_over = 0
+    if len(kept_ids) > max_nodes:
+        degree: dict[str, int] = {}
+        for e in edges:
+            degree[e.src] = degree.get(e.src, 0) + 1
+            degree[e.dst] = degree.get(e.dst, 0) + 1
+        by_id = {n.id: n for n in view.nodes}
+        pinned = {i for i in kept_ids if i in focus or by_id[i].is_band}
+        loose = sorted(
+            (i for i in kept_ids if i not in pinned),
+            key=lambda i: (-degree.get(i, 0), by_id[i].name.lower(), i),
+        )
+        room = max(0, max_nodes - len(pinned))
+        dropped_over = len(loose) - room
+        kept_ids = pinned | set(loose[:room])
+        edges = [e for e in edges if e.src in kept_ids and e.dst in kept_ids]
+    nodes = [n for n in view.nodes if n.id in kept_ids]
+    merged: dict[tuple[str, str], ViewEdge] = {}
+    for e in edges:
+        key = (e.src, e.dst)
+        if key not in merged:
+            merged[key] = ViewEdge(**dict(e.__dict__))
+            continue
+        m = merged[key]
+        if e.label not in m.label.split(", "):
+            m.label = f"{m.label}, {e.label}"
+        if (e.archimate, e.reversed) != (m.archimate, m.reversed):
+            m.archimate, m.reversed = "", False  # the kinds differ: a plain line carries the verbs
+    out = View(
+        title=view.title,
+        focus_ids=[i for i in view.focus_ids if i in kept_ids],
+        nodes=nodes,
+        edges=list(merged.values()),
+        note=view.note,
+        omitted=view.omitted,
+        viewpoint=view.viewpoint,
+        detail="overview",
+    )
+    left_nodes = len(view.nodes) - len(nodes)
+    left_edges = len(view.edges) - len(out.edges)
+    said: list[str] = []
+    if left_nodes or left_edges:
+        parts = ([f"{left_nodes} element(s)"] if left_nodes else []) + (
+            [f"{left_edges} relationship(s)"] if left_edges else []
+        )
+        said.append(f"Overview: {' and '.join(parts)} not drawn.")
+    if dropped_over:
+        said.append(f"{dropped_over} of them the least connected, above the {max_nodes} an overview holds.")
+    if said:
+        out.note = f"{view.note} {' '.join(said)}".strip()
+    return out
 
 
 def _assign_bands(nodes: list[ViewNode], edges: list[ViewEdge], vp: Viewpoint, registry: Registry) -> None:
@@ -386,4 +498,5 @@ def view_from_dict(d: dict[str, Any]) -> View:
         note=d.get("note", ""),
         omitted=int(d.get("omitted", 0) or 0),
         viewpoint=d.get("viewpoint", "") or "",
+        detail=d.get("detail", "") or "full",
     )

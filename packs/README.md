@@ -181,6 +181,7 @@ anywhere below admits its sub-types too.
 | `other_band` | The title of the last band, which takes every element the rule cannot place. `Other` unless named; a drawing that silently dropped an element would lie about the model |
 | `nest` | The relationship types drawn as one shape inside another: the whole end holds the part end. The whole is the source unless the type's notation says `direction: reverse`, when it is the target |
 | `span` | The relationship types drawn as a bar: the target end becomes a bar across the sources related to it, or the source end when the notation runs in reverse |
+| `overview_relationships` | The relationship types an **overview** keeps between elements other than the focus. Absent: the structural ArchiMate kinds by the types' notation (composition, aggregation, realization, assignment, serving, triggering, flow). A line touching the focus, and one the viewpoint nests, spans or bands by, is always kept |
 | `properties` | Anything else the framework keeps with the viewpoint |
 
 The four each shipped pack declares are the worked examples. In

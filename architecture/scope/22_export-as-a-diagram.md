@@ -69,6 +69,7 @@ agent as well as from a page, and none of those has a browser.
 | **May a relationship type's notation be edited on the Metamodel page?** | Not in this initiative | The Notation tab edits how a domain and an element type are drawn; a relationship type's arrowhead is edited in the pack file. The Manage grids carry no column for it and keep what the version has when they save. Named below as left |
 | **Does the sample model gain process content?** | No | The process cooperation viewpoint has nothing in the sample to draw. The test builds its own handful of processes and roles, because seventeen assertions pin the sample at 47 elements and a viewpoint is not a reason to move them |
 | **A dependency for the layout?** | No | Decision 0024: the two candidates ship compiled extensions, are under a year old, and solve the part of a layered layout the bands already decide |
+| **What is a high-level drawing?** | A rule, not a judgement: the reader picks **Overview** or **Full**, and Overview is the default | An overview keeps every line touching the focus and only the structural kinds among the rest (composition, aggregation, realization, assignment, serving, triggering, flow, or what the viewpoint names as `overview_relationships`), then the focus, the band elements and what the focus still reaches through the lines kept, so the depth the reader chose still counts; parallel lines between one pair become one line labelled with every verb; above thirty elements the least connected go and the note says how many. Asked for after the first export was read: a depth-2 neighbourhood drew every access and association among forty elements, a net rather than a drawing |
 | **How far may an export reach?** | As far as the page it is taken from | The Element page's dialogue reaches three hops, like its Graph tab; the Impact page's reaches six, like its own depth control, so an impact the tables answer in full is exported in full |
 
 ## What changed in the model
@@ -147,6 +148,8 @@ agent as well as from a page, and none of those has a browser.
   by the draw.io control on the Element, Impact, Ask, Target state and
   Metamodel pages; `apply_viewpoint()` in `src/ea/views/model.py`;
   `ea view --viewpoint --layers` and `ea viewpoints` in `src/ea/cli.py`;
+  the two levels of detail, Overview and Full, in `overview()` in
+  `src/ea/views/model.py`, in the dialogue and as `ea view --detail`;
   `tests/test_viewpoints.py` and the browser scenarios that read the dialogue.
 - **Outcome:** the picture comes from the viewpoint and the focus the reader
   names.
@@ -159,6 +162,7 @@ agent as well as from a page, and none of those has a browser.
 | A deterministic layered layout in the application's own code | A general graph layout for a viewpoint without bands |
 | Viewpoints as pack data, four per shipped pack, picked by the reader | A viewpoint editor on the Metamodel page |
 | The on-screen export dialogue and the command line | The viewpoint applied to the on-screen diagram |
+| Two levels of detail, Overview by a predictable rule and Full | The agent choosing the level for a question (initiative 24) |
 | Bands by layer, by type and by a related element; nest and span | Bands by an attribute's value |
 | The relationship notation kept by the page, and a version from before this initiative upgraded once | The relationship notation edited on the page |
 | A legend of the layers and the relationship kinds present | A guided tour of the export (initiative 23, proposed) |
@@ -187,7 +191,7 @@ agent as well as from a page, and none of those has a browser.
 
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------------- |
-| Understanding | The product owner | 2026-09-23 | The three layers of the change (mechanics, layout, viewpoints) diagnosed from the Requester's own exported file and the two hand-drawn diagrams; the four viewpoints per pack; the reader naming the viewpoint, the focus, the depth and the layers at export; and the recommendation to write the layout rather than depend on a library, with the two candidates' compiled wheels and ages as the reason. The Requester approved the initiative as described, in the order 22 then 23 then 24 |
+| Understanding | The product owner | 2026-09-23 | The three layers of the change (mechanics, layout, viewpoints) diagnosed from the Requester's own exported file and the two hand-drawn diagrams; the four viewpoints per pack; the reader naming the viewpoint, the focus, the depth and the layers at export; and the recommendation to write the layout rather than depend on a library, with the two candidates' compiled wheels and ages as the reason. The Requester approved the initiative as described, in the order 22 then 23 then 24. After reading the first export, the Requester asked for a high-level drawing beside the detailed one and approved the Overview rule as proposed, the same day |
 
 **Direction** was not sought and no row records it: `GAP23` sits under a
 plateau the roadmap already holds, and nothing here changes where the project

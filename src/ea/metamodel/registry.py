@@ -83,6 +83,7 @@ class Registry:
                 ("relationship type", v.band_relationships),
                 ("relationship type", v.nest),
                 ("relationship type", v.span),
+                ("relationship type", v.overview_relationships),
             ):
                 for i in ids:
                     if i not in self.rel_types:

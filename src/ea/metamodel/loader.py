@@ -138,6 +138,7 @@ VIEWPOINT_KEYS = {
     "other_band",
     "nest",
     "span",
+    "overview_relationships",
     "properties",
 }
 PACK_KEYS = {
@@ -260,6 +261,7 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
             other_band=str(v.get("other_band") or "Other"),
             nest=[str(x) for x in v.get("nest") or []],
             span=[str(x) for x in v.get("span") or []],
+            overview_relationships=[str(x) for x in v.get("overview_relationships") or []],
             sort_order=i,
             properties=_properties(v, VIEWPOINT_KEYS),
         )

@@ -28,7 +28,7 @@ from ea.ui import ids
 from ea.ui.components import icon, modal_title
 from ea.ui.context import AppContext, get_context
 from ea.views.drawio import to_drawio
-from ea.views.model import DEFAULT_VIEWPOINT, LAYER_TITLES, View, apply_viewpoint
+from ea.views.model import DEFAULT_VIEWPOINT, LAYER_TITLES, View, apply_viewpoint, overview
 
 TITLE = "Export as a draw.io diagram"
 KEEP_ARRANGEMENT = "Keep the arrangement on screen"
@@ -42,8 +42,11 @@ _SUFFIXES = {
     "layers": ids.EXPORT_LAYERS,
     "arranged": ids.EXPORT_ARRANGED,
     "summary": ids.EXPORT_SUMMARY,
+    "detail": ids.EXPORT_DETAIL,
     "go": ids.EXPORT_GO,
 }
+DETAIL_OPTIONS = [{"label": "Overview", "value": "overview"}, {"label": "Full", "value": "full"}]
+DEFAULT_DETAIL = "overview"
 
 
 def export_ids(prefix: str) -> dict[str, str]:
@@ -93,17 +96,25 @@ def about_text(view: View) -> str:
 
 
 def narrowed_view(
-    view: View, viewpoint: Viewpoint, layers: list[str] | None, registry: Registry, narrow: bool = True
+    view: View,
+    viewpoint: Viewpoint,
+    layers: list[str] | None,
+    registry: Registry,
+    narrow: bool = True,
+    detail: str = "full",
 ) -> View:
     """What the file will hold under the reader's choices.
 
     A content view is narrowed to what the viewpoint admits; the metamodel view is not
     (`narrow=False`: every type is drawn and the viewpoint governs the bands only), but the
     layers the reader unticked are left out either way. No layer ticked draws them all, and
-    the dialogue says so beside the control.
+    the dialogue says so beside the control. An overview then thins it to its key elements and
+    lines (`ea.views.model.overview`).
     """
     out = apply_viewpoint(view, viewpoint if narrow else DEFAULT_VIEWPOINT, registry, layers or None)
     out.viewpoint = viewpoint.id
+    if detail == "overview":
+        out = overview(out, viewpoint)
     return out
 
 
@@ -112,22 +123,36 @@ def _plural(count: int, word: str) -> str:
 
 
 def summary_text(
-    view: View, viewpoint: Viewpoint, layers: list[str] | None, registry: Registry, narrow: bool = True
+    view: View,
+    viewpoint: Viewpoint,
+    layers: list[str] | None,
+    registry: Registry,
+    narrow: bool = True,
+    detail: str = "full",
 ) -> str:
-    """'12 elements and 15 relationships; 3 outside this viewpoint not shown' — what the file
-    will hold under the current choices, and what it leaves out and why."""
+    """'12 elements and 15 relationships; 3 outside this viewpoint not shown; the overview
+    leaves out 4 elements and 9 relationships' — what the file will hold under the current
+    choices, and what it leaves out and why."""
     by_viewpoint = narrowed_view(view, viewpoint, None, registry, narrow)
-    kept = narrowed_view(view, viewpoint, layers, registry, narrow)
+    full = narrowed_view(view, viewpoint, layers, registry, narrow)
+    kept = narrowed_view(view, viewpoint, layers, registry, narrow, detail)
     said = f"{_plural(len(kept.nodes), 'element')} and {_plural(len(kept.edges), 'relationship')}"
     left: list[str] = []
     outside = len(view.nodes) - len(by_viewpoint.nodes)
     if outside:
         left.append(f"{outside} outside this viewpoint")
-    unticked = len(by_viewpoint.nodes) - len(kept.nodes)
+    unticked = len(by_viewpoint.nodes) - len(full.nodes)
     if unticked:
         left.append(f"{unticked} in an unticked layer")
     if left:
         said += "; " + " and ".join(left) + " not shown"
+    if detail == "overview":
+        thinned = []
+        if len(full.nodes) > len(kept.nodes):
+            thinned.append(_plural(len(full.nodes) - len(kept.nodes), "element"))
+        if len(full.edges) > len(kept.edges):
+            thinned.append(_plural(len(full.edges) - len(kept.edges), "relationship"))
+        said += "; the overview leaves out " + (" and ".join(thinned) if thinned else "nothing")
     return said
 
 
@@ -138,10 +163,12 @@ def export_view(
     focus: list[str] | None,
     registry: Registry,
     narrow: bool = True,
+    detail: str = "full",
 ) -> View:
     """The view that goes to the file: the focus the reader marked and nothing else marked,
     then narrowed, so the note about a focus the viewpoint leaves out speaks of the reader's
-    focus. The nodes are copied, so the view the page holds is not marked with them."""
+    focus, and the overview grows from it. The nodes are copied, so the view the page holds is
+    not marked with them."""
     chosen = list(focus or [])
     wanted = set(chosen)
     present = {n.id for n in view.nodes}
@@ -150,7 +177,7 @@ def export_view(
         nodes=[replace(n, focus=n.id in wanted) for n in view.nodes],
         focus_ids=[i for i in chosen if i in present],
     )
-    return narrowed_view(marked, viewpoint, layers, registry, narrow)
+    return narrowed_view(marked, viewpoint, layers, registry, narrow, detail)
 
 
 # ------------------------------------------------------------------ the dialogue
@@ -210,6 +237,21 @@ def export_modal(prefix: str, with_depth: bool = False, depth_max: int = 3) -> d
                     description="Untick a layer to leave it out; none ticked draws them all",
                     data=[],
                     value=[],
+                ),
+                dmc.Stack(
+                    [
+                        dmc.Text("Detail", size="sm", fw=500),
+                        dmc.SegmentedControl(
+                            id=eid["detail"], data=DETAIL_OPTIONS, value=DEFAULT_DETAIL, size="sm"
+                        ),
+                        dmc.Text(
+                            "Overview keeps the focus and what it reaches through structural relationships, "
+                            "merges parallel lines and holds at most thirty elements; Full draws everything",
+                            size="xs",
+                            c="dimmed",
+                        ),
+                    ],
+                    gap=2,
                 ),
                 dmc.Switch(
                     id=eid["arranged"],
@@ -299,6 +341,7 @@ def register_export(
         Output(eid["layers"], "value"),
         Output(eid["arranged"], "checked"),
         Output(eid["arranged"], "disabled"),
+        Output(eid["detail"], "value"),
         Output(eid["summary"], "children"),
         *depth_out,
         Input(opener_id, "n_clicks"),
@@ -308,7 +351,7 @@ def register_export(
         prevent_initial_call=True,
     )
     def open_dialogue(n, *raw):
-        quiet = (no_update,) * (11 + len(depth_out))
+        quiet = (no_update,) * (12 + len(depth_out))
         if not n:
             return quiet
         values = list(raw)
@@ -335,7 +378,10 @@ def register_export(
             False,
             # The switch can only keep an arrangement the browser has reported.
             placed is None,
-            summary_text(view, resolve_viewpoint(registry, chosen), all_layers, registry, narrow),
+            DEFAULT_DETAIL,
+            summary_text(
+                view, resolve_viewpoint(registry, chosen), all_layers, registry, narrow, DEFAULT_DETAIL
+            ),
         )
         return out + ((depth,) if with_depth else ())
 
@@ -347,13 +393,14 @@ def register_export(
         Output(eid["layers"], "value", allow_duplicate=True),
         Input(eid["viewpoint"], "value"),
         Input(eid["layers"], "value"),
+        Input(eid["detail"], "value"),
         *depth_in,
         State(eid["focus"], "value"),
         State(eid["modal"], "opened"),
         *states,
         prevent_initial_call=True,
     )
-    def refresh(viewpoint_id, layers, *raw):
+    def refresh(viewpoint_id, layers, detail, *raw):
         """The summary follows every choice; a new depth regrows the view, so the focus and
         the layers on offer follow it too, and the layers go back to all of them."""
         quiet = (no_update,) * 5
@@ -369,14 +416,15 @@ def register_export(
             return quiet
         registry = registry_of(ctx, values)
         vp = resolve_viewpoint(registry, viewpoint_id)
+        level = detail or DEFAULT_DETAIL
         regrown = with_depth and eid["depth"] in dash_ctx.triggered_prop_ids.values()
         if not regrown:
-            return summary_text(view, vp, list(layers or []), registry, narrow), *quiet[1:]
+            return summary_text(view, vp, list(layers or []), registry, narrow, level), *quiet[1:]
         options = layer_options(view)
         all_layers = [o["value"] for o in options]
         present = {n.id for n in view.nodes}
         return (
-            summary_text(view, vp, all_layers, registry, narrow),
+            summary_text(view, vp, all_layers, registry, narrow, level),
             focus_options(view),
             [i for i in focus if i in present],
             options,
@@ -391,12 +439,13 @@ def register_export(
         State(eid["focus"], "value"),
         State(eid["layers"], "value"),
         State(eid["arranged"], "checked"),
+        State(eid["detail"], "value"),
         *depth_state,
         *positions,
         *states,
         prevent_initial_call=True,
     )
-    def download(n, viewpoint_id, focus, layers, arranged, *raw):
+    def download(n, viewpoint_id, focus, layers, arranged, detail, *raw):
         if not n:
             return no_update, no_update
         values = list(raw)
@@ -408,7 +457,9 @@ def register_export(
             return no_update, no_update
         registry = registry_of(ctx, values)
         vp = resolve_viewpoint(registry, viewpoint_id)
-        drawn = export_view(view, vp, list(layers or []), list(focus or []), registry, narrow)
+        drawn = export_view(
+            view, vp, list(layers or []), list(focus or []), registry, narrow, detail or DEFAULT_DETAIL
+        )
         text = to_drawio(
             drawn,
             ctx.base_url() if linked else "",

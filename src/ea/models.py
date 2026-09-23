@@ -348,6 +348,9 @@ class Viewpoint:
     span: list[str] = field(
         default_factory=list
     )  # relationship types drawn as a bar across the related shapes
+    #: The relationship types an overview keeps between elements other than the focus; empty:
+    #: the structural ArchiMate kinds by notation (`ea.views.model.OVERVIEW_KINDS`).
+    overview_relationships: list[str] = field(default_factory=list)
     sort_order: int = 0
     properties: dict[str, Any] = field(default_factory=dict)
 

@@ -666,13 +666,26 @@ def view(
         None, help="draw through a viewpoint the metamodel declares, by id or name (`ea viewpoints`)"
     ),
     layers: str = typer.Option(None, help="comma-separated architecture layers to keep; default: all"),
+    detail: str = typer.Option(
+        "full",
+        help="overview (the focus and what it reaches through structural relationships, at most "
+        "thirty elements) or full (everything)",
+    ),
 ):
     """An architecture view of an element as Mermaid (default), Markdown or a draw.io file (--fmt md|drawio)."""
-    from ea.views import apply_viewpoint, view_from_impact, view_from_neighbourhood
+    from ea.views import (
+        DEFAULT_VIEWPOINT,
+        DETAIL_LEVELS,
+        apply_viewpoint,
+        overview,
+        view_from_impact,
+        view_from_neighbourhood,
+    )
     from ea.views.drawio import to_drawio
     from ea.views.mermaid import to_markdown, to_mermaid
 
     _one_of(fmt, ("mermaid", "md", "drawio"))
+    _one_of(detail, DETAIL_LEVELS)
     _, _, registry, _, graph = _ctx()
     vp = _viewpoint_named(registry, viewpoint) if viewpoint else None
     kept = _layers_named(layers) if layers else None
@@ -683,6 +696,8 @@ def view(
     if vp is not None or kept:
         # Narrowed in every format, so the Markdown says what the draw.io file draws.
         v = apply_viewpoint(v, vp, registry, kept)
+    if detail == "overview":
+        v = overview(v, vp or DEFAULT_VIEWPOINT)
     if fmt == "drawio":
         text = to_drawio(v, viewpoint=vp)
     else:

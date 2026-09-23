@@ -10,11 +10,13 @@ the model and carries its identifier.
 
 from ea.views.model import (
     DEFAULT_VIEWPOINT,
+    DETAIL_LEVELS,
     View,
     ViewEdge,
     ViewNode,
     apply_viewpoint,
     has_state_markers,
+    overview,
     view_from_ids,
     view_from_impact,
     view_from_metamodel,
@@ -23,7 +25,9 @@ from ea.views.model import (
 
 __all__ = [
     "DEFAULT_VIEWPOINT",
+    "DETAIL_LEVELS",
     "apply_viewpoint",
+    "overview",
     "View",
     "ViewEdge",
     "ViewNode",

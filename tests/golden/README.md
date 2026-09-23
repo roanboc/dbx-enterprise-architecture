@@ -18,6 +18,8 @@ with the timestamp fixed at `2026-01-01T00:00:00Z` and the page link base
 | `staged_delivery.drawio` | the same | `staged_delivery` | no |
 | `impact-layered.drawio` | the impact of `DE-SRS-COURSE`, depth 3 | `layered` | no |
 | `layered-marked.drawio` | `LDC-CURR` and its neighbourhood, depth 2 | `layered` | yes: every shape and edge carries its target state |
+| `layered-overview.drawio` | the same, at the **overview** level of detail | `layered` | no |
+| `application_cooperation-overview.drawio` | the same, at the overview level | `application_cooperation` | no |
 
 The viewpoints are the four the higher-education pack declares
 (`packs/higher_education/metamodel.yaml`, section `viewpoints`).

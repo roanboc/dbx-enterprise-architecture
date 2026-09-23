@@ -153,14 +153,16 @@ def _try_download(ui, selector: str) -> tuple[Path | None, str]:
         return None, f"{type(exc).__name__}: {str(exc).splitlines()[0][:160]}"
 
 
-def _export_drawio(ui, opener: str, arranged: bool = False) -> Path:
+def _export_drawio(ui, opener: str, arranged: bool = False, detail: str | None = None) -> Path:
     """A draw.io file through the export dialogue the button opens (initiative 22).
 
     The draw.io button no longer downloads: it opens the dialogue, whose ids share the
     button's own first segment (`el-view-drawio` opens `el-export-modal`), and the file
     comes from the dialogue's Download button, drawn through the viewpoint it opens on.
     `arranged` ticks "Keep the arrangement on screen", so the file carries the browser's
-    layout rather than the viewpoint's.
+    layout rather than the viewpoint's. `detail` picks Overview or Full; left alone, the
+    dialogue's own default (Overview) decides, so a scenario that compares the file's
+    elements with the Markdown's asks for Full.
     """
     prefix = opener.split("-", 1)[0]
     # The five producers, named in full: `tests/test_ui_coverage.py` reads the suite for
@@ -176,6 +178,9 @@ def _export_drawio(ui, opener: str, arranged: bool = False) -> Path:
     ui.page.wait_for_selector(f"#{go}", state="visible", timeout=10_000)
     if arranged:
         ui.toggle(f"{prefix}-export-arranged", True)
+    if detail:
+        ui.segmented(f"{prefix}-export-detail", detail)
+        ui.page.wait_for_timeout(300)
     return ui.download(go, ".drawio")
 
 
@@ -412,7 +417,7 @@ def test_element_view_drawio(ui, record):
 def test_the_two_formats_agree(ui, record):
     _open_element_view(ui)
     md = ui.download("el-view-md", ".md")
-    drawio = _export_drawio(ui, "el-view-drawio")
+    drawio = _export_drawio(ui, "el-view-drawio", detail="Full")
     from_table = _table_ids(_text(md))
     from_shapes = _shape_ids(_drawio(ui, drawio))
     ui.must("both files carry elements", bool(from_table) and bool(from_shapes))
@@ -454,7 +459,7 @@ def test_impact_downloads(ui, record):
     text = _check_markdown_view(ui, md, f"Impact of {IMP_NAME}")
     ui.check("the element it is about is in the table", IMP in _table_ids(text), str(_table_ids(text)[:6]))
 
-    drawio = _export_drawio(ui, "imp-view-drawio")
+    drawio = _export_drawio(ui, "imp-view-drawio", detail="Full")
     ui.check("the draw.io file is named for it too", drawio.name == f"{IMP}-impact.drawio", drawio.name)
     root = _drawio(ui, drawio)
     ids = _check_linking_contract(ui, root, ui.base_url)
@@ -1160,7 +1165,7 @@ def test_the_depth_control_decides_the_file(ui, record):
         sorted(drawn) == sorted(far_ids),
         f"{len(drawn)} shapes drawn against {len(far_ids)} rows in the file",
     )
-    drawio = _export_drawio(ui, "el-view-drawio")
+    drawio = _export_drawio(ui, "el-view-drawio", detail="Full")
     shape_ids = _shape_ids(_drawio(ui, drawio))
     ui.check(
         "and the draw.io file of the same view was taken at the same depth",
@@ -1274,7 +1279,7 @@ def test_target_state_of_the_whole_model(ui, record):
     marked = next((line for line in diagram.splitlines() if FORMS in line), "")
     ui.check("marked in the diagram the way the legend says", "×" in marked, marked.strip() or "not drawn")
 
-    drawio = _export_drawio(ui, "tg-view-drawio")
+    drawio = _export_drawio(ui, "tg-view-drawio", detail="Full")
     ui.check(
         "the draw.io file is named for the whole model too",
         drawio.name == "target-state-all.drawio",
@@ -2130,4 +2135,67 @@ def test_the_arrangement_switch_decides_whether_a_move_is_kept(ui, record):
         "with the switch on, the moved shape is where the reader left it against its neighbour",
         on_screen is not None and abs(in_file - on_screen) <= 3,
         f"{in_file:.0f} from {neighbour} in the file against {on_screen} on screen",
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="N32",
+    group="N",
+    title="The export dialogue draws an overview by default, and Full on request",
+    feature="Downloads · draw.io · the level of detail",
+    expected="On an impact the dialogue opens with Overview chosen and its summary says what the overview "
+    "leaves out; the file it produces says Overview in its title block and holds fewer relationships "
+    "than the same view exported as Full, while the element the impact is about is in both; parallel "
+    "relationships between one pair are one line in the overview.",
+)
+def test_the_dialogue_draws_an_overview_by_default(ui, record):
+    _open_impact(ui)
+    ui.click("imp-view-drawio")
+    ui.page.wait_for_selector("#imp-export-go", state="visible", timeout=10_000)
+    chosen = ui.page.locator("#imp-export-detail input:checked").first
+    ui.check(
+        "the dialogue opens with Overview chosen",
+        chosen.count() > 0 and (chosen.get_attribute("value") or "") == "overview",
+        f"chosen: {chosen.get_attribute('value') if chosen.count() else 'nothing'}",
+    )
+    summary = ui.text("imp-export-summary")
+    ui.check(
+        "and the summary says what the overview leaves out", "the overview leaves out" in summary, summary
+    )
+    ui.shot("The export dialogue on an impact, opened on Overview, with the summary of what it leaves out")
+    brief = _drawio(ui, ui.download("imp-export-go", ".drawio"))
+    title = next((c.get("value") or "" for c in brief.findall(".//mxCell") if c.get("id") == "title"), "")
+    ui.check("the file's title block says it is an overview", "Overview" in title, title[:160])
+    brief_ids = _shape_ids(brief)
+    brief_edges = [
+        c for c in brief.findall(".//mxCell[@edge='1']") if not (c.get("id") or "").startswith("legend_")
+    ]
+    ui.check("the element the impact is about is drawn", IMP in brief_ids, f"{len(brief_ids)} shapes")
+    pairs = [(e.get("source"), e.get("target")) for e in brief_edges]
+    ui.check(
+        "no two lines join the same pair the same way",
+        len(pairs) == len(set(pairs)),
+        f"{len(pairs)} lines, {len(set(pairs))} distinct pairs",
+    )
+    ui.check("the dialogue closed after the download", not ui.visible("imp-export-go"))
+
+    ui.click("imp-view-drawio")
+    ui.page.wait_for_selector("#imp-export-go", state="visible", timeout=10_000)
+    ui.segmented("imp-export-detail", "Full")
+    ui.page.wait_for_timeout(300)
+    after = ui.text("imp-export-summary")
+    ui.check("choosing Full drops the overview's line from the summary", "leaves out" not in after, after)
+    full = _drawio(ui, ui.download("imp-export-go", ".drawio"))
+    full_edges = [
+        c for c in full.findall(".//mxCell[@edge='1']") if not (c.get("id") or "").startswith("legend_")
+    ]
+    ui.check(
+        "the full file holds more relationships than the overview",
+        len(full_edges) > len(brief_edges),
+        f"{len(brief_edges)} lines in the overview, {len(full_edges)} in full",
+    )
+    ui.check(
+        "and every element of the overview is in the full file",
+        set(brief_ids) <= set(_shape_ids(full)),
+        f"{len(set(brief_ids) - set(_shape_ids(full)))} missing",
     )

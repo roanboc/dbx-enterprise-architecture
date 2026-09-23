@@ -241,3 +241,144 @@ def test_an_unknown_viewpoint_or_layer_is_refused_with_the_choices(cli_env):
     assert "no viewpoint 'swimlanes'" in result.output and "application_cooperation" in result.output
     layer = runner.invoke(app, ["view", APPLICATION, "--layers", "application,nowhere"])
     assert layer.exit_code == 1 and "no layer 'nowhere'" in layer.output and "technology" in layer.output
+
+
+# ------------------------------------------------------------------- the overview
+# Two levels of detail: an overview by a rule the reader can predict, and the full view.
+
+
+def _ov_node(nid, layer="business", **kw):
+    return ViewNode(id=nid, name=kw.pop("name", nid), type_id="t", type_name="T", layer=layer, **kw)
+
+
+def _ov_edge(src, dst, label="relates", kind="association", rel="r", **kw):
+    return ViewEdge(src=src, dst=dst, label=label, rel_type_id=rel, archimate=kind, **kw)
+
+
+def test_an_overview_keeps_the_focus_its_neighbours_and_the_structural_lines():
+    from ea.views import overview
+
+    view = View(
+        "v",
+        focus_ids=["F"],
+        nodes=[_ov_node("F"), _ov_node("A"), _ov_node("B"), _ov_node("C"), _ov_node("Z"), _ov_node("Y")],
+        edges=[
+            _ov_edge("F", "A", "accesses", "access"),  # touches the focus: kept whatever its kind
+            _ov_edge("A", "B", "realises", "realization"),  # structural between neighbours: kept
+            _ov_edge("B", "C", "accesses", "access"),  # a loose line beyond the focus: gone, and C with it
+            _ov_edge("F", "B", "is associated with", "association"),
+            _ov_edge("A", "B", "serves", "serving"),  # a second line between A and B: merged
+            _ov_edge("Z", "A", "is associated with", "association"),  # two hops away by a loose line: gone
+            _ov_edge("Y", "A", "flows to", "flow"),  # two hops away by a structural line: stays
+        ],
+    )
+    out = overview(view)
+    assert out.detail == "overview" and out.focus_ids == ["F"]
+    assert [n.id for n in out.nodes] == ["F", "A", "B", "Y"]
+    labels = {(e.src, e.dst): e.label for e in out.edges}
+    assert labels == {
+        ("F", "A"): "accesses",
+        ("A", "B"): "realises, serves",
+        ("F", "B"): "is associated with",
+        ("Y", "A"): "flows to",
+    }
+    merged = next(e for e in out.edges if e.src == "A")
+    assert merged.archimate == ""  # two kinds on one pair: a plain line carries both verbs
+    assert "Overview: 2 element(s) and 3 relationship(s) not drawn." in out.note
+
+
+def test_an_overview_without_a_focus_keeps_every_element_and_thins_the_lines():
+    from ea.views import overview
+
+    view = View(
+        "v",
+        nodes=[_ov_node("A"), _ov_node("B"), _ov_node("C")],
+        edges=[_ov_edge("A", "B", "accesses", "access"), _ov_edge("B", "C", "composes", "composition")],
+    )
+    out = overview(view)
+    assert [n.id for n in out.nodes] == ["A", "B", "C"]
+    assert [(e.src, e.dst) for e in out.edges] == [("B", "C")]
+
+
+def test_a_viewpoint_names_what_an_overview_keeps_and_what_it_nests_always_stays():
+    from ea.views import overview
+
+    vp = Viewpoint(id="v", name="v", nest=["holds"], overview_relationships=["uses"])
+    view = View(
+        "v",
+        focus_ids=["F"],
+        nodes=[_ov_node("F"), _ov_node("A"), _ov_node("B"), _ov_node("C")],
+        edges=[
+            _ov_edge("F", "A"),
+            _ov_edge("F", "B"),
+            _ov_edge("F", "C"),
+            _ov_edge(
+                "A", "B", "uses", "access", rel="uses"
+            ),  # named by the viewpoint: kept though not structural
+            _ov_edge(
+                "B", "C", "realises", "realization", rel="r"
+            ),  # structural, but the viewpoint names its own: gone
+            _ov_edge("A", "C", "holds", "composition", rel="holds"),  # nested by the viewpoint: always kept
+        ],
+    )
+    out = overview(view, vp)
+    kept = {(e.src, e.dst) for e in out.edges}
+    assert ("A", "B") in kept and ("A", "C") in kept and ("B", "C") not in kept
+
+
+def test_an_overview_holds_at_most_thirty_elements_and_keeps_the_most_connected():
+    from ea.views import overview
+    from ea.views.model import OVERVIEW_MAX_NODES
+
+    hub = _ov_node("F")
+    others = [_ov_node(f"n{i:02d}") for i in range(40)]
+    edges = [_ov_edge("F", n.id) for n in others]
+    edges += [
+        _ov_edge("n00", "n01", "realises", "realization"),
+        _ov_edge("n00", "n02", "realises", "realization"),
+    ]
+    out = overview(View("v", focus_ids=["F"], nodes=[hub, *others], edges=edges))
+    assert len(out.nodes) == OVERVIEW_MAX_NODES and "F" in {n.id for n in out.nodes}
+    assert {"n00", "n01", "n02"} <= {n.id for n in out.nodes}  # the best connected stay
+    assert "11 of them the least connected" in out.note
+
+
+def test_band_elements_stay_in_an_overview():
+    from ea.views import overview
+
+    view = View(
+        "v",
+        focus_ids=["P"],
+        nodes=[_ov_node("P"), _ov_node("R", is_band=True), _ov_node("Q", band="R")],
+        edges=[_ov_edge("R", "Q", "performs", "assignment", rel="performs")],
+    )
+    out = overview(
+        view, Viewpoint(id="v", name="v", bands="related", band_type="t", band_relationships=["performs"])
+    )
+    assert {n.id for n in out.nodes} == {"P", "R"}  # nothing joins Q to the focus; the band stays
+
+
+def test_the_overview_on_the_sample_thins_a_neighbourhood(registry, graph):
+    from ea.views import overview
+
+    full = apply_viewpoint(
+        view_from_neighbourhood(registry, graph, "LDC-CURR", 2), registry.viewpoint("layered"), registry
+    )
+    brief = overview(full, registry.viewpoint("layered"))
+    assert len(brief.nodes) < len(full.nodes) and len(brief.edges) < len(full.edges)
+    assert all(
+        e.archimate
+        in ("composition", "aggregation", "realization", "assignment", "serving", "triggering", "flow", "")
+        for e in brief.edges
+        if "LDC-CURR" not in (e.src, e.dst) and e.rel_type_id not in registry.viewpoint("layered").nest
+    )
+    assert brief.detail == "overview" and view_from_dict(view_to_dict(brief)).detail == "overview"
+
+
+def test_view_at_the_overview_level_from_the_command_line(cli_env):
+    full = runner.invoke(app, ["view", "LDC-CURR", "--depth", "2", "--fmt", "md"])
+    brief = runner.invoke(app, ["view", "LDC-CURR", "--depth", "2", "--fmt", "md", "--detail", "overview"])
+    assert brief.exit_code == 0 and full.exit_code == 0, brief.output
+    assert brief.output.count("-->") < full.output.count("-->")
+    assert "Overview:" in brief.output
+    assert runner.invoke(app, ["view", "LDC-CURR", "--detail", "sketchy"]).exit_code != 0

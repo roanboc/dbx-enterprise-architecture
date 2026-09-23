@@ -59,7 +59,18 @@ def _texts(component) -> list[str]:
 
 def test_export_ids_are_distinct_per_prefix():
     el, imp = export_ids("el"), export_ids("imp")
-    assert set(el) == {"modal", "about", "viewpoint", "focus", "depth", "layers", "arranged", "summary", "go"}
+    assert set(el) == {
+        "modal",
+        "about",
+        "viewpoint",
+        "focus",
+        "depth",
+        "layers",
+        "arranged",
+        "detail",
+        "summary",
+        "go",
+    }
     assert set(el.values()).isdisjoint(imp.values())
     assert el["go"] == "el-export-go" and imp["modal"] == "imp-export-modal"
 
@@ -195,3 +206,21 @@ def test_the_file_speaks_of_the_focus_the_reader_chose(registry, graph):
     out = export_view(view, vp, None, [chosen], registry)
     assert "LDC-CURR" not in out.note and out.focus_ids == [chosen]
     assert [n.id for n in out.nodes if n.focus] == [chosen]
+
+
+def test_the_summary_and_the_file_follow_the_detail_level(registry, graph):
+    """Overview is the dialogue's default and says what it leaves out; Full draws everything."""
+    from ea.ui.export import DEFAULT_DETAIL, export_view, summary_text
+    from ea.views import view_from_neighbourhood
+
+    assert DEFAULT_DETAIL == "overview"
+    view = view_from_neighbourhood(registry, graph, "LDC-CURR", 2)
+    vp = registry.viewpoint("layered")
+    full = summary_text(view, vp, None, registry, detail="full")
+    brief = summary_text(view, vp, None, registry, detail="overview")
+    assert "the overview leaves out" in brief and "leaves out" not in full
+    drawn = export_view(view, vp, None, ["LDC-CURR"], registry, detail="overview")
+    everything = export_view(view, vp, None, ["LDC-CURR"], registry, detail="full")
+    assert drawn.detail == "overview" and everything.detail == "full"
+    assert len(drawn.edges) < len(everything.edges)
+    assert "LDC-CURR" in {n.id for n in drawn.nodes}

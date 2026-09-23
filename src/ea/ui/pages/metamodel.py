@@ -1510,6 +1510,7 @@ def prune_viewpoints(
             ("band_relationships", rel_ids),
             ("nest", rel_ids),
             ("span", rel_ids),
+            ("overview_relationships", rel_ids),
         ):
             if known is None:
                 continue

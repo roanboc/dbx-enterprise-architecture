@@ -183,7 +183,7 @@ def _view_scale(ui) -> float:
     return float(match.group(1)) if match else -1.0
 
 
-def _export_drawio(ui, opener: str):
+def _export_drawio(ui, opener: str, detail: str | None = None):
     """A draw.io file through the export dialogue the button opens (initiative 22).
 
     The draw.io button no longer downloads: it opens the dialogue, whose ids share the
@@ -193,6 +193,9 @@ def _export_drawio(ui, opener: str):
     prefix = opener.split("-", 1)[0]
     ui.click(opener)
     ui.page.wait_for_selector(f"#{prefix}-export-go", state="visible", timeout=10_000)
+    if detail:  # Overview or Full; the dialogue's own default (Overview) otherwise
+        ui.segmented(f"{prefix}-export-detail", detail)
+        ui.page.wait_for_timeout(300)
     return ui.download(f"{prefix}-export-go", ".drawio")
 
 
@@ -1652,7 +1655,7 @@ def test_downloads_follow_the_depth(ui, record):
     added = sorted(deep - shallow)
     ui.must("depth 2 reached something new", bool(added), str(sorted(deep)))
     ui.check("the view on screen widened with it", added[0] in _view_text(ui, added[0]), added[0])
-    drawio = _export_drawio(ui, "el-view-drawio").read_text(encoding="utf-8")
+    drawio = _export_drawio(ui, "el-view-drawio", detail="Full").read_text(encoding="utf-8")
     ui.check("the draw.io file was drawn at the same depth", all(i in drawio for i in added), str(added))
     ui.shot("The generated view at depth 2, and the two files taken from it")
 

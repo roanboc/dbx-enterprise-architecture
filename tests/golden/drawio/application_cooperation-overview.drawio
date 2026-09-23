@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="ea-repository" modified="2026-01-01T00:00:00Z" agent="ea-repository view export" version="1">
+  <diagram id="view" name="Curriculum and its neighbourhood (depth 2) — Application cooperation">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1444" pageHeight="1683">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Curriculum and its neighbourhood (depth 2)&lt;br&gt;&lt;font style=&quot;font-size: 11px; font-weight: normal;&quot;&gt;Application cooperation · Overview · exported 2026-01-01T00:00:00Z&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;overflow=hidden;align=left;verticalAlign=top;fontSize=20;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="8" width="1364" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="15 element(s) outside the Application cooperation viewpoint not shown. Overview: 1 element(s) and 18 relationship(s) not drawn." style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;overflow=hidden;align=left;verticalAlign=top;fontSize=11;fontColor=#6b7280;" vertex="1" parent="1">
+          <mxGeometry x="40" y="52" width="1364" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_logical_application_component" value="Logical Application Component" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="126" width="1364" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_physical_application_component" value="Physical Application Component" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="336" width="1364" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_interface" value="Interface" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="546" width="1364" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_integration" value="Integration" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="771" width="1364" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_logical_data_component" value="Logical Data Component" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="981" width="1364" height="286" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_physical_technology_component" value="Physical Technology Component" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=16;fontStyle=1;fontColor=#3e4c59;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1327" width="1364" height="150" as="geometry" />
+        </mxCell>
+        <object label="Curriculum Management" ea_id="LAC-CMS" ea_type="logical_application_component" ea_type_name="Logical Application Component" ea_stereotype="Application Component" ea_current_state="live" ea_target_state="keep" ea_band="logical_application_component" id="LAC-CMS" link="http://localhost:8050/element/LAC-CMS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="189" y="182" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Student Information System" ea_id="LAC-SIS" ea_type="logical_application_component" ea_type_name="Logical Application Component" ea_stereotype="Application Component" ea_current_state="live" ea_target_state="undecided" ea_band="logical_application_component" id="LAC-SIS" link="http://localhost:8050/element/LAC-SIS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="734" y="182" width="200" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Curriculum Approval Workflow" ea_id="PAC-CAW" ea_type="physical_application_component" ea_type_name="Physical Application Component" ea_stereotype="Application Component" ea_current_state="proposed" ea_target_state="new" ea_band="physical_application_component" id="PAC-CAW" link="http://localhost:8050/element/PAC-CAW">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="179" y="392" width="200" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Curriculum Management System" ea_id="PAC-CMS" ea_type="physical_application_component" ea_type_name="Physical Application Component" ea_stereotype="Application Component" ea_current_state="live" ea_target_state="change" ea_band="physical_application_component" id="PAC-CMS" link="http://localhost:8050/element/PAC-CMS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="419" y="392" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Enterprise Data Warehouse" ea_id="PAC-EDW" ea_type="physical_application_component" ea_type_name="Physical Application Component" ea_stereotype="Application Component" ea_current_state="live" ea_target_state="undecided" ea_band="physical_application_component" id="PAC-EDW" link="http://localhost:8050/element/PAC-EDW">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="639" y="392" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Student Records System (SRS)" ea_id="PAC-SRS" ea_type="physical_application_component" ea_type_name="Physical Application Component" ea_stereotype="Application Component" ea_current_state="live" ea_target_state="keep" ea_band="physical_application_component" id="PAC-SRS" link="http://localhost:8050/element/PAC-SRS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=comp;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="859" y="392" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Curriculum to Student Administration interface" ea_id="IF-CMS-SRS" ea_type="interface" ea_type_name="Interface" ea_stereotype="Application Interface" ea_current_state="planned" ea_target_state="new" ea_band="interface" id="IF-CMS-SRS" link="http://localhost:8050/element/IF-CMS-SRS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=interface;archiType=square;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="64" y="602" width="208" height="85" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="CMS to SRS curriculum sync" ea_id="INT-CMS-SRS" ea_type="integration" ea_type_name="Integration" ea_stereotype="Flow" ea_current_state="live" ea_target_state="change" ea_band="integration" id="INT-CMS-SRS" link="http://localhost:8050/element/INT-CMS-SRS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=interaction;archiType=rounded;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="64" y="827" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="SRS to EDW ingestion" ea_id="INT-SRS-EDW" ea_type="integration" ea_type_name="Integration" ea_stereotype="Flow" ea_current_state="live" ea_target_state="undecided" ea_band="integration" id="INT-SRS-EDW" link="http://localhost:8050/element/INT-SRS-EDW">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=interaction;archiType=rounded;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="284" y="827" width="208" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Curriculum" ea_id="LDC-CURR" ea_type="logical_data_component" ea_type_name="Logical Data Component" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="logical_data_component" id="LDC-CURR" link="http://localhost:8050/element/LDC-CURR">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;strokeWidth=3;fontSize=14;container=1;verticalAlign=top;spacingTop=4;" vertex="1" parent="1">
+            <mxGeometry x="64" y="1037" width="624" height="206" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="CMS_Unit_Outline" ea_id="DE-CMS-UNIT-OUTLINE" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="change" ea_band="" id="DE-CMS-UNIT-OUTLINE" link="http://localhost:8050/element/DE-CMS-UNIT-OUTLINE">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="16" y="34" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="EDW_Dim_Course" ea_id="DE-EDW-DIM-COURSE" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-EDW-DIM-COURSE" link="http://localhost:8050/element/DE-EDW-DIM-COURSE">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="212" y="34" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="LMS_Unit_Site" ea_id="DE-LMS-UNIT-SITE" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-LMS-UNIT-SITE" link="http://localhost:8050/element/DE-LMS-UNIT-SITE">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="408" y="34" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="SRS_Course" ea_id="DE-SRS-COURSE" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-SRS-COURSE" link="http://localhost:8050/element/DE-SRS-COURSE">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="16" y="120" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="SRS_Course_Offering" ea_id="DE-SRS-COURSE-OFFERING" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-SRS-COURSE-OFFERING" link="http://localhost:8050/element/DE-SRS-COURSE-OFFERING">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="212" y="120" width="200" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="SRS_Unit" ea_id="DE-SRS-UNIT" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-SRS-UNIT" link="http://localhost:8050/element/DE-SRS-UNIT">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-CURR">
+            <mxGeometry x="428" y="120" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Enrolment" ea_id="LDC-ENROL" ea_type="logical_data_component" ea_type_name="Logical Data Component" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="logical_data_component" id="LDC-ENROL" link="http://localhost:8050/element/LDC-ENROL">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;container=1;verticalAlign=top;spacingTop=4;" vertex="1" parent="1">
+            <mxGeometry x="728" y="1037" width="212" height="120" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="SRS_Enrolment" ea_id="DE-SRS-ENROLMENT" ea_type="data_entity" ea_type_name="Data Entity" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="" id="DE-SRS-ENROLMENT" link="http://localhost:8050/element/DE-SRS-ENROLMENT">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="LDC-ENROL">
+            <mxGeometry x="16" y="34" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Student" ea_id="LDC-STUD" ea_type="logical_data_component" ea_type_name="Logical Data Component" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="logical_data_component" id="LDC-STUD" link="http://localhost:8050/element/LDC-STUD">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="980" y="1037" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Teaching and Learning" ea_id="LDC-TEACH" ea_type="logical_data_component" ea_type_name="Logical Data Component" ea_stereotype="Data Object" ea_current_state="live" ea_target_state="undecided" ea_band="logical_data_component" id="LDC-TEACH" link="http://localhost:8050/element/LDC-TEACH">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.businessObject;overflow=fill;fillColor=#99ffff;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="1200" y="1037" width="180" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Integration Platform" ea_id="PTC-IPAAS" ea_type="physical_technology_component" ea_type_name="Physical Technology Component" ea_stereotype="Node" ea_current_state="live" ea_target_state="undecided" ea_band="physical_technology_component" id="PTC-IPAAS" link="http://localhost:8050/element/PTC-IPAAS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=node;archiType=square;fillColor=#AFFFAF;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="64" y="1383" width="208" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Lakehouse Platform" ea_id="PTC-LAKEHOUSE" ea_type="physical_technology_component" ea_type_name="Physical Technology Component" ea_stereotype="Node" ea_current_state="live" ea_target_state="undecided" ea_band="physical_technology_component" id="PTC-LAKEHOUSE" link="http://localhost:8050/element/PTC-LAKEHOUSE">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=node;archiType=square;fillColor=#AFFFAF;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="312" y="1383" width="192" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Legacy Forms Server" ea_id="PTC-FORMS" ea_type="physical_technology_component" ea_type_name="Physical Technology Component" ea_stereotype="Node" ea_current_state="live" ea_target_state="decommission" ea_band="physical_technology_component" id="PTC-FORMS" link="http://localhost:8050/element/PTC-FORMS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=node;archiType=square;fillColor=#AFFFAF;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="544" y="1383" width="200" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object label="Relational Database Platform" ea_id="PTC-RDBMS" ea_type="physical_technology_component" ea_type_name="Physical Technology Component" ea_stereotype="Node" ea_current_state="live" ea_target_state="undecided" ea_band="physical_technology_component" id="PTC-RDBMS" link="http://localhost:8050/element/PTC-RDBMS">
+          <mxCell style="html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;appType=node;archiType=square;fillColor=#AFFFAF;fontSize=14;" vertex="1" parent="1">
+            <mxGeometry x="784" y="1383" width="200" height="70" as="geometry" />
+          </mxCell>
+        </object>
+        <mxCell id="edge_0" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="INT-CMS-SRS" target="LDC-CURR">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_1" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.44;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="INT-SRS-EDW" target="LDC-CURR">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_8" value="traverses" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;exitX=0.32;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="LDC-CURR" target="IF-CMS-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_9" value="is related to" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="LDC-CURR" target="LDC-ENROL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_10" value="constitutes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=diamondThin;endFill=0;startArrow=none;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="LDC-CURR" target="LDC-TEACH">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="563" y="1025" />
+              <mxPoint x="1290" y="1025" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_12" value="constitutes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=diamondThin;endFill=0;startArrow=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="LDC-ENROL" target="LDC-STUD">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_13" value="is source for" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CAW" target="INT-CMS-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_14" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.2;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CAW" target="LAC-CMS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_15" value="is source for" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CMS" target="INT-CMS-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_16" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CMS" target="LAC-CMS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_17" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.4;exitY=1;exitDx=0;exitDy=0;entryX=0.56;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-CMS" target="LDC-CURR">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_18" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;endArrow=none;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-EDW" target="INT-SRS-EDW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_19" value="is target of" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;startArrow=block;startFill=1;endArrow=none;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="INT-CMS-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_20" value="is source for" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;exitX=0.6;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="INT-SRS-EDW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_21" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="LAC-SIS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_22" value="processes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;exitX=0.4;exitY=1;exitDx=0;exitDy=0;entryX=0.68;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="PAC-SRS" target="LDC-CURR">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_23" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.6;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-FORMS" target="PAC-CMS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_24" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.2;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-IPAAS" target="INT-CMS-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_25" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-LAKEHOUSE" target="INT-SRS-EDW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_26" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-LAKEHOUSE" target="PAC-EDW">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_27" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-RDBMS" target="PAC-CMS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_28" value="realises" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.8;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="PTC-RDBMS" target="PAC-SRS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;overflow=hidden;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1507" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_layer_application" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#99ffff;strokeColor=#999999;strokeWidth=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1536" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_layer_application_name" value="Application" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;overflow=hidden;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="72" y="1533" width="200" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_layer_technology" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#AFFFAF;strokeColor=#999999;strokeWidth=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1558" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_layer_technology_name" value="Technology" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;overflow=hidden;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="72" y="1555" width="200" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_aggregation_a" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1544" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_aggregation_b" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="336" y="1544" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_aggregation" value="Aggregation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;startArrow=diamondThin;startFill=0;endArrow=none;align=left;verticalAlign=middle;" edge="1" parent="1" source="legend_aggregation_a" target="legend_aggregation_b">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="8" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_realization_a" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1566" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_realization_b" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="336" y="1566" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_realization" value="Realization" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;endArrow=block;endFill=0;endSize=12;align=left;verticalAlign=middle;" edge="1" parent="1" source="legend_realization_a" target="legend_realization_b">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="8" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_access_a" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1588" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_access_b" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="336" y="1588" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_access" value="Access" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=1 4;endArrow=open;endFill=0;endSize=6;align=left;verticalAlign=middle;" edge="1" parent="1" source="legend_access_a" target="legend_access_b">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="8" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_flow_a" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1610" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_flow_b" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="336" y="1610" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_flow" value="Flow" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;dashed=1;dashPattern=6 3;endArrow=block;endFill=1;align=left;verticalAlign=middle;" edge="1" parent="1" source="legend_flow_a" target="legend_flow_b">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="8" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_association_a" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1632" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_association_b" value="" style="shape=ellipse;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="336" y="1632" width="1" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_association" value="Association" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#555555;endArrow=none;align=left;verticalAlign=middle;" edge="1" parent="1" source="legend_association_a" target="legend_association_b">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="8" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

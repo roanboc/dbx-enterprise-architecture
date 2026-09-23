@@ -548,11 +548,17 @@ GOLDEN_CASES = [
     "staged_delivery",
     "impact-layered",
     "layered-marked",
+    "layered-overview",
+    "application_cooperation-overview",
 ]
 
 
 def _golden_export(registry, graph, name: str) -> str:
     """The export each golden file holds; `tests/golden/README.md` lists them."""
+    from ea.views import overview
+
+    brief = name.endswith("-overview")
+    name = name.removesuffix("-overview")
     if name == "impact-layered":
         vp = registry.viewpoint("layered")
         view = view_from_impact(registry, graph, graph.impact("DE-SRS-COURSE", 3))
@@ -562,9 +568,10 @@ def _golden_export(registry, graph, name: str) -> str:
         view = view_from_neighbourhood(registry, graph, "LDC-CURR", 2)
         marked = name == "layered-marked"
     assert vp is not None, name
-    return to_drawio(
-        apply_viewpoint(view, vp, registry), BASE_URL, marked=marked, viewpoint=vp, modified=STAMP
-    )
+    view = apply_viewpoint(view, vp, registry)
+    if brief:
+        view = overview(view, vp)
+    return to_drawio(view, BASE_URL, marked=marked, viewpoint=vp, modified=STAMP)
 
 
 @pytest.mark.parametrize("name", GOLDEN_CASES)
