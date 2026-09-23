@@ -206,9 +206,13 @@ def _every(ui, name: str, offenders: list[str], summary: str) -> None:
 
 
 def _selected_type(ui) -> str:
-    return ui.page.evaluate(
-        "() => { const e = document.querySelector('#browse-type'); return e ? (e.value ?? e.innerText) : ''; }"
-    )
+    """The type filter's chosen values, as one string for a scenario that reads one of them.
+
+    The filter is a MultiSelect: its input is a search box that is empty whatever is chosen,
+    so the choices are read off the pills. Nothing chosen reads as an empty string — the
+    control then shows its placeholder, which is not an option anybody picked.
+    """
+    return ", ".join(ui.multi_values("browse-type"))
 
 
 def _create_elsewhere(ui, name: str) -> str:
@@ -1233,7 +1237,9 @@ def test_narrowing_and_the_way_back(ui, record):
         f"{whole} of {total}, after {filtered}",
     )
     ui.check(
-        "and the type filter is back to every type", "All types" in _selected_type(ui), _selected_type(ui)
+        "and the type filter is back to every type",
+        _selected_type(ui) == "",
+        _selected_type(ui) or "(no type chosen, which is every type)",
     )
     ui.shot("Show all elements gives the whole model back and the yellow note is gone")
 

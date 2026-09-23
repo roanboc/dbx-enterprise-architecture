@@ -21,7 +21,7 @@ from ea.backend.lakebase_backend import BATCH_ROWS, LakebaseBackend, to_pg
 from ea.backend.sql import DDL, schema_of, schemas
 from ea.config import Settings
 from ea.importer import import_directory
-from ea.models import Element
+from ea.models import Element, ElementFilter
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_markers_are_translated_and_a_literal_is_left_alone():
 def test_a_percent_in_a_readers_query_or_a_search_is_a_percent(store):
     store.insert_element(Element("X1", "capability", "100% done"), "a")
     assert len(store.query("select element_id from element where name like '%100%'")) == 1
-    assert [e.element_id for e in store.find_elements(text="100%")] == ["X1"]
+    assert [e.element_id for e in store.find_elements(ElementFilter(text="100%"))] == ["X1"]
 
 
 def test_a_bulk_load_lands_in_one_transaction(store):

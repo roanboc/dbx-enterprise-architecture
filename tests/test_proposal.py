@@ -16,7 +16,7 @@ from ea.agent.proposal import (
 )
 from ea.backend.branching import use_branch
 from ea.config import Settings
-from ea.models import ValidationError
+from ea.models import ElementFilter, ValidationError
 from ea.services import BranchService, RepositoryService, TargetStateService
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -186,7 +186,7 @@ def test_apply_writes_to_the_branch_and_keeps_the_proposal(svc, loaded, registry
     assert len(out["relationships"]) == 3 and not out["skipped"]
     # on the branch: new elements exist with their states; main is untouched
     with use_branch("approval-workflow"):
-        portal = next(e for e in loaded.find_elements(text="Curriculum Review Portal"))
+        portal = next(e for e in loaded.find_elements(ElementFilter(text="Curriculum Review Portal")))
         assert (portal.current_state, portal.target_state, portal.target_work_package) == (
             "proposed",
             "new",
@@ -194,11 +194,11 @@ def test_apply_writes_to_the_branch_and_keeps_the_proposal(svc, loaded, registry
         )
         assert portal.origin == "proposal"
         assert loaded.get_element("PAC-CMS").target_state == "change"
-        api = next(e for e in loaded.find_elements(text="Review portal API"))
+        api = next(e for e in loaded.find_elements(ElementFilter(text="Review portal API")))
         assert api.type_id == "interface"
         rel = loaded.relationships_of(portal.element_id, "out")
         assert {x.target_state for x in rel} == {"new"}
-    assert not loaded.find_elements(text="Curriculum Review Portal")
+    assert not loaded.find_elements(ElementFilter(text="Curriculum Review Portal"))
     cs = branches.diff("approval-workflow")
     # PAC-CMS already carried target 'change' on main, so only the manager's new 'keep' is a changed row
     assert cs.counts()["added"] == 6 and cs.counts()["changed"] == 1
@@ -226,7 +226,7 @@ def test_apply_creates_a_new_work_package_when_named(svc, loaded, registry):
             and wp.name == "Curriculum approval uplift"
             and wp.current_state == "proposed"
         )
-        portal = next(e for e in loaded.find_elements(text="Curriculum Review Portal"))
+        portal = next(e for e in loaded.find_elements(ElementFilter(text="Curriculum Review Portal")))
         assert portal.target_work_package == wp.element_id
 
 

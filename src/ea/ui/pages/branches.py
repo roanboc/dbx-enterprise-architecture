@@ -27,6 +27,10 @@ STATUS_COLOURS = {
 }
 CHANGE_COLOURS = {"added": "green", "changed": "orange", "deleted": "red"}
 
+#: The merge log's columns. Every width here is spent against about 1265px of card at the
+#: viewport the round is taken at, and `tests/test_ui_grids.py` holds the sum to it: the
+#: 'take' cell is the one control that settles a conflict, and a column added without the
+#: arithmetic pushed it to the card's edge and the two version columns past it.
 GRID_COLUMNS = [
     {
         "field": "include",
@@ -49,27 +53,36 @@ GRID_COLUMNS = [
             "ea-deleted": "params.value == 'deleted'",
         },
     },
-    {"field": "kind", "width": 120},
-    {"field": "entity_id", "headerName": "id", "width": 210},
-    {"field": "label", "headerName": "what", "flex": 2, "minWidth": 260},
-    {"field": "fields", "headerName": "fields changed", "flex": 1, "minWidth": 160},
+    {"field": "kind", "width": 100},
+    {"field": "entity_id", "headerName": "id", "width": 170},
+    {"field": "label", "headerName": "what", "flex": 2, "minWidth": 210},
+    {"field": "fields", "headerName": "fields changed", "flex": 1, "minWidth": 130},
     {
         "field": "conflict",
         "width": 100,
         "cellDataType": "text",
-        "cellClassRules": {"ea-conflict": "params.value"},
+        # Only a real conflict is red. 'stale' means main moved under the row without
+        # disagreeing with it, which merges as it is and is worth knowing, not worth alarm.
+        "cellClassRules": {"ea-conflict": "params.value == 'conflict'"},
+    },
+    {
+        "field": "disputed",
+        "headerName": "both changed",
+        "flex": 1,
+        "minWidth": 120,
+        "tooltipField": "disputed",
     },
     {
         "field": "resolution",
         "headerName": "take",
         "width": 110,
-        "editable": {"function": "params.data.conflict"},
+        "editable": {"function": "params.data.conflict == 'conflict'"},
         "cellEditor": "agSelectCellEditor",
-        "cellEditorParams": {"values": ["branch", "main"]},
-        "cellClassRules": {"ea-editable": "params.data.conflict"},
+        "cellEditorParams": {"values": ["", "branch", "main"]},
+        "cellClassRules": {"ea-editable": "params.data.conflict == 'conflict'"},
     },
-    {"field": "base_version", "headerName": "base", "width": 80},
-    {"field": "main_version", "headerName": "main", "width": 80},
+    {"field": "base_version", "headerName": "base", "width": 70},
+    {"field": "main_version", "headerName": "main", "width": 70},
 ]
 
 
@@ -114,14 +127,47 @@ def _branch_table(ctx: AppContext, status: str | None, selected: str | None):
     return simple_table(["branch", "status", "rows", "work package", "by", "created", ""], out)
 
 
-def _before_after(svc, it: ChangeItem):
-    rows = svc.field_diff(it)
+def _before_after(svc, it: ChangeItem, editable: bool = False):
+    """Every field in play, who moved it, and — where both did — which value main keeps.
+
+    A merge is per field, so this is where a conflict is actually settled. A field only one
+    side moved needs no decision and says so; a field both moved carries a choice, and until
+    it is made the merge holds the row back rather than guessing.
+    """
+    rows = svc.field_rows(it)
     if not rows:
         return dmc.Text("No field differs.", c="dimmed", size="xs")
-    return simple_table(
-        ["field", "main", "branch"],
-        [[k, _fmt(a), _fmt(b)] for k, a, b in rows],
-        striped=False,
+    body = []
+    for r in rows:
+        if r["disputed"] and editable:
+            decision = dmc.SegmentedControl(
+                id={"type": ids.BR_FIELD_TAKE, "key": it.key, "field": r["field"]},
+                data=[{"value": "main", "label": "main"}, {"value": "branch", "label": "branch"}],
+                value="",
+                size="xs",
+                color="orange",
+            )
+        elif r["disputed"]:
+            decision = dmc.Badge("both changed it", color="red", variant="light", size="xs", tt="none")
+        elif r["changed_by_main"]:
+            decision = dmc.Badge("main moved it", color="blue", variant="light", size="xs", tt="none")
+        elif r["changed_by_branch"]:
+            decision = dmc.Badge("the branch", color="green", variant="light", size="xs", tt="none")
+        else:
+            decision = dmc.Text("—", size="xs", c="dimmed")
+        body.append([r["field"], _fmt(r["base"]), _fmt(r["main"]), _fmt(r["branch"]), decision])
+    return html.Div(
+        [
+            simple_table(["field", "was", "main now", "branch", "takes"], body, striped=False),
+            dmc.Text(
+                "Only a field both sides changed needs a decision. The rest merge as they are: "
+                "the branch's changes land on main's current row, and what main moved and the "
+                "branch did not is kept.",
+                size="xs",
+                c="dimmed",
+                mt=4,
+            ),
+        ]
     )
 
 
@@ -358,6 +404,36 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         gap="xs",
         my="sm",
     )
+    # Nothing told an author their branch had gone stale until the merge screen showed a
+    # column of conflicts. A conflict is main moving under a row this branch holds, so the
+    # count of them is the age of the branch measured in the only way that matters.
+    behind = sum(1 for i in cs.items if i.stale)
+    disputed = counts["conflicts"]
+    stale_note = (
+        dmc.Alert(
+            dmc.Text(
+                f"Main has moved under {behind} of this branch's {len(cs.items)} rows since it "
+                + (
+                    f"started, and on {disputed} of them the two changed the same field. Those are "
+                    "marked 'conflict' below: open the row, decide each disputed field, then tick it. "
+                    "Everything else merges as it is — the branch's changes land on main's current "
+                    "row, and what main moved and the branch did not is kept."
+                    if disputed
+                    else "started, but never the same field the branch changed. They merge as they "
+                    "are: the branch's changes land on main's current row, and what main moved is kept."
+                ),
+                size="sm",
+            ),
+            title="This branch is behind main",
+            color="orange" if disputed else "blue",
+            variant="light",
+            withCloseButton=False,
+            mb="sm",
+        )
+        if behind
+        else None
+    )
+    merge_ok, merge_why = ctx.reviews.can_merge(branch_id, ctx.actor)
     details = []
     for it in cs.items:
         details.append(
@@ -380,15 +456,17 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
                     dmc.AccordionPanel(
                         [
                             dmc.Text(
-                                f"Main moved from version {it.base_version} to {it.main_version} since this branch took its copy. "
-                                "Choose in the merge log whether main takes the branch's row or keeps its own.",
+                                f"Main moved from version {it.base_version} to {it.main_version} since this "
+                                f"branch took its copy, and both sides changed "
+                                f"{', '.join(it.overlapping) or 'this row'}. Decide each one below, then tick "
+                                "the row in the merge log.",
                                 size="xs",
                                 c="red",
                                 mb="xs",
                             )
                             if it.conflict
                             else None,
-                            _before_after(ctx.branches, it),
+                            _before_after(ctx.branches, it, editable=it.conflict and merge_ok),
                             dmc.Anchor("open on this branch", href=element_href(it.entity_id), size="xs")
                             if it.kind == "element" and it.change != "deleted"
                             else None,
@@ -398,7 +476,6 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
                 value=it.key,
             )
         )
-    merge_ok, merge_why = ctx.reviews.can_merge(branch_id, ctx.actor)
     empty_note = (
         dmc.Text(
             "Nothing on this branch yet: edits, imports and applied proposals made on it will appear here."
@@ -415,10 +492,16 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         columnDefs=GRID_COLUMNS,
         rowData=rows,
         getRowId="params.data.key",
-        selectedRows=rows,
+        # Everything clean is ticked, because merging the branch is what the button is for.
+        # A conflict is not: main moved under that row, and a row that overwrites somebody
+        # else's work should be ticked by a person rather than by the page.
+        selectedRows=[r for r in rows if r["conflict"] != "conflict"],
         defaultColDef={"sortable": True, "filter": True, "resizable": True},
         dashGridOptions={
             "rowSelection": "multiple",
+            # The header tick used to select rows the column filter was hiding, so a reader
+            # who filtered to three rows and pressed it merged the whole branch.
+            "headerCheckboxSelectionFilteredOnly": True,
             "suppressRowClickSelection": True,
             "animateRows": False,
             "singleClickEdit": True,
@@ -432,6 +515,7 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         [
             head,
             count_badges,
+            stale_note,
             html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
             dmc.Paper(
                 [
@@ -442,8 +526,11 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
                                     dmc.Title("Merge log", order=2, className="ea-section-title"),
                                     dmc.Text(
                                         "Every row is one element or relationship this branch would write to main. Tick what goes "
-                                        "to main now; what is not ticked remains on the branch. A conflict means main changed the "
-                                        "same row since the branch started: choose whether main takes the branch's row or keeps its own.",
+                                        "to main now; what is not ticked remains on the branch. An applied row is main's "
+                                        "current row with the branch's changes laid over it. A conflict means both sides "
+                                        "changed the same field — the 'both changed' column names which — so it arrives "
+                                        "neither ticked nor decided: settle each field under 'What each row changes', "
+                                        "then tick it.",
                                         size="xs",
                                         c="dimmed",
                                     ),
@@ -482,7 +569,8 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
                 [
                     dmc.Title("What each row changes", order=2, className="ea-section-title"),
                     dmc.Text(
-                        "Main's row on the left, the branch's row on the right; only the fields that differ.",
+                        "What the branch started from, what main holds now, and what the branch would "
+                        "write — with who moved each field, and a choice where both did.",
                         size="xs",
                         c="dimmed",
                         mb="xs",
@@ -618,10 +706,14 @@ def register(app: dash.Dash) -> None:
         State(ids.BR_GRID, "virtualRowData"),
         State(ids.BR_GRID, "rowData"),
         State(ids.BR_STATUS, "value"),
+        State({"type": ids.BR_FIELD_TAKE, "key": ALL, "field": ALL}, "value"),
+        State({"type": ids.BR_FIELD_TAKE, "key": ALL, "field": ALL}, "id"),
         prevent_initial_call=True,
         running=[(Output(ids.BR_MERGE, "loading"), True, False)],
     )
-    def merge_or_abandon(n_merge, n_abandon, branch_id, selected, virtual_rows, rows, status):
+    def merge_or_abandon(
+        n_merge, n_abandon, branch_id, selected, virtual_rows, rows, status, takes, takes_id
+    ):
         trig = dash_ctx.triggered_id
         ctx = get_context()
         if trig == ids.BR_ABANDON and n_abandon:
@@ -659,11 +751,21 @@ def register(app: dash.Dash) -> None:
                 no_update,
             )
         current = {r["key"]: r for r in (virtual_rows or rows or [])}
-        resolutions = {
+        resolutions: dict[str, Any] = {
             k: r.get("resolution")
             for k, r in current.items()
-            if r.get("conflict") and r.get("resolution") in ("branch", "main")
+            if r.get("conflict") == "conflict" and r.get("resolution") in ("branch", "main")
         }
+        # A decision taken field by field, under "What each row changes", is more specific
+        # than the whole-row take on the grid, so it wins where both were given.
+        for spec, value in zip(takes_id or [], takes or [], strict=False):
+            if value not in ("branch", "main"):
+                continue
+            per_field = resolutions.setdefault(spec["key"], {})
+            if isinstance(per_field, dict):
+                per_field[spec["field"]] = value
+            else:  # a whole-row take was set as well: the field-level one is the finer word
+                resolutions[spec["key"]] = {spec["field"]: value}
         try:
             res = ctx.branches.merge(branch_id, ctx.actor, include, resolutions)
         except (ConflictError, NotFoundError, Forbidden) as exc:
@@ -672,6 +774,8 @@ def register(app: dash.Dash) -> None:
         msg = f"Merged {len(res.applied)} row(s) to main"
         if res.dropped:
             msg += f", dropped {len(res.dropped)} conflict(s) in favour of main"
+        if res.held_back:
+            msg += f", held back {len(res.held_back)} ({res.reasons()})"
         msg += (
             f"; {res.remaining} row(s) remain on the branch."
             if not res.closed

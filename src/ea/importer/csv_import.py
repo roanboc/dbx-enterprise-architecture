@@ -38,6 +38,7 @@ from ea.models import (
     Relationship,
     slugify,
 )
+from ea.services.branches import refusal_for_writing
 from ea.services.repository import coerce_attrs, coerce_relationship_attrs, relationship_key
 from ea.services.roles import require
 
@@ -811,11 +812,9 @@ def import_frames(
     require("import", what="load content")
     if current_branch() == MAIN:
         require("edit_main", what="load onto main; load onto a branch")
-    b = backend.get_branch(current_branch()) if current_branch() != MAIN else None
-    if b is not None and b.status in ("in_review", "approved"):
-        raise Forbidden(
-            f"branch {b.branch_id} is {b.status.replace('_', ' ')}: frozen until the review is decided"
-        )
+    refusal = refusal_for_writing(backend)
+    if refusal:
+        raise Forbidden(refusal)
     report.elements_created, report.elements_updated, report.elements_unchanged = backend.upsert_elements(
         elements, actor
     )

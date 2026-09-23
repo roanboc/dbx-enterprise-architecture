@@ -11,6 +11,7 @@ from ea.models import (
     Branch,
     ChangeSet,
     Element,
+    ElementFilter,
     ImportRun,
     Link,
     MergeResult,
@@ -94,18 +95,21 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def find_elements(
-        self,
-        text: str | None = None,
-        type_id: str | list[str] | None = None,
-        status: str | None = None,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> list[Element]: ...
+        self, filt: ElementFilter | None = None, limit: int = 200, offset: int = 0
+    ) -> list[Element]:
+        """A page of the elements the filter matches, ordered as the filter asks.
+
+        Ranking, narrowing and ordering all happen in the store, so page two is the rows
+        that come after page one rather than the next slice of an arbitrary prefix.
+        """
 
     @abstractmethod
-    def count_elements(
-        self, type_id: str | None = None, text: str | None = None, status: str | None = None
-    ) -> int: ...
+    def count_elements(self, filt: ElementFilter | None = None) -> int:
+        """How many elements the filter matches — the honest total behind a page."""
+
+    @abstractmethod
+    def distinct_values(self, column: str) -> list[str]:
+        """The values one filterable column holds, for the options on a filter control."""
 
     @abstractmethod
     def linked_element_ids(self) -> list[str]:

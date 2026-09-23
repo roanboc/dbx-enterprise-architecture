@@ -7,7 +7,9 @@ on 2026-09-05 after the business-case review. Approved at the **Direction**
 gate (recorded in [initiative 1](../scope/1_curriculum-poc.md)); `PLAT1` and
 `PLAT5` restated and `GAP20` opened by
 [initiative 19](../scope/19_the-product-not-the-phase.md), which returns those
-two rows to **Direction**. The gaps beyond `PLAT1` are intent, not work.
+two rows to **Direction**; `GAP21` opened and closed by
+[initiative 20](../scope/20_browse-filters-and-branch-safety.md). The gaps
+beyond `PLAT1` are intent, not work.
 
 ## How to read this document
 
@@ -71,6 +73,7 @@ flowchart LR
   g18["⊘ The services are sized for today’s content, not for the assessed capacity [GAP18]"]:::implementation
   g19["⊘ A run that landed on main cannot be reversed [GAP19]"]:::implementation
   g20["⊘ No source is reached over a protocol [GAP20]"]:::implementation
+  g21["⊘ A search cannot be narrowed, shared or carried past its first page [GAP21]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
   g16 -.-> p2
@@ -82,6 +85,7 @@ flowchart LR
   g18 -.-> p3
   g19 -.-> p3
   g20 -.-> p3
+  g21 -.-> p3
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -108,6 +112,7 @@ flowchart LR
 | `GAP19` | **A run that landed on `main` cannot be reversed** — a feed may be configured to write to `main`, where there is no branch to abandon, and a bulk import records what it did without the before-image of any row it changed. So an import that was wrong is corrected by loading the correction, never by undoing the load | `PLAT1` and `PLAT3` | Opened by initiative 18 (2026-09-21), which built the history (`DOBJ3.7`) and stopped there at the Requester's word: the account of every run first, reversal when it is actually wanted. Closing it needs per-row before-images, a retention period for them, and a rule for the case the honest answer is *no* — a run whose rows a later run has already changed again |
 | `GAP18` | **The services are sized for today’s content, not for the assessed capacity** — the store answers a traversal in milliseconds at a hundred thousand elements (decisions 0016 to 0018), but six services above it read every element and every relationship of the organisation into one request, a trace still builds the whole in-process graph the store made unnecessary, and nothing declares the capacity the application is assessed for, so nothing fails when it is exceeded | `PLAT1` and `PLAT3` | Initiative 16 (built 2026-09-20): the capacity declared in one place and read by the services, the traversal unwrapped from the in-process graph, the other five whole-model reads bounded or declared deliberate, and a seeded scale fixture holding the figure |
 | `GAP20` | **No source is reached over a protocol** — content arrives as an uploaded file or as a staging table somebody else fills (initiative 18). A system that already answers an API, and one the platform can already reach on a user's behalf, both still wait for a pipeline to be written and maintained for them, so the cost of a new source is code rather than configuration (assessment `ASM12`) | `PLAT1` and `PLAT3` | A source connected over a protocol the platform already speaks — its rows put through the same validation, report, branch targeting, provenance and review an uploaded file gets, so nothing about the pipeline is reimplemented per source. Not started |
+| `GAP21` | **A search cannot be narrowed, shared or carried past its first page** — Browse filtered by one type, one status and a word; every other field an element carries (both states, the work package, the source, the lifecycle, every attribute, when it was last touched) was invisible to the search. Ranking happened in Python over the alphabetically first 5,000 rows, so above that the best match could not reach the first screen and the count offered a page two that did not exist; the filters never reached the address bar, so a result set could be neither shared nor returned to, and nothing but the whole model could be exported | `PLAT1` and `PLAT3` | Initiative 20 (built 2026-09-21): `ElementFilter` as the one thing that says what narrows a list, read by the store, the services, the page and the command line; ranking, narrowing and ordering in SQL so a page is the rows after the page before it; the criteria named on the screen and carried in the address; the result set exported as CSV from the page and as JSON or CSV from `ea find`. Left open: a **saved or named query**, which needs somewhere per reader to keep one, and a **relationship as a criterion** ("applications that support no capability"), which needs a predicate over the edge table rather than over the element row |
 
 ## Gaps closed so far, and by what
 

@@ -1311,9 +1311,17 @@ def test_browse_with_nothing_to_show_audit(ui, record, finding):
     # matters is whether the screen says more than that.
     note = ui.text("browse-empty").strip()
     stock = not note and (not said or said.lower().startswith("no rows to show"))
+    # The way out is asserted as the address it goes to, not as the words on it: the anchor
+    # has been reworded twice and the check is about there being a way back, not its wording.
+    way_back = ui.page.locator("#browse-empty a[href='/browse']")
     ui.check(
         "the screen says what was searched for and what is still narrowing the list",
-        "zzzqqqmatchesnothing" in note and "Show all elements" in note,
+        "zzzqqqmatchesnothing" in note,
+        note or f"the grid says {said or '(nothing at all)'} and the screen says nothing else",
+    )
+    ui.check(
+        "and offers a way back to the whole list",
+        way_back.count() > 0,
         note or f"the grid says {said or '(nothing at all)'} and the screen says nothing else",
     )
     if stock:

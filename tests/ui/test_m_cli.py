@@ -255,7 +255,7 @@ def test_m03_find(cli, record, finding):
     check(
         record,
         "every word must match, so an impossible pair lists nothing",
-        not [ln for ln in none_lines if not ln.startswith("no elements")],
+        not [ln for ln in none_lines if not ln.startswith("nothing matches")],
         none_ev,
     )
     # `branch list` and `reviewers list` both say so when they have nothing; `find` used to
@@ -263,7 +263,7 @@ def test_m03_find(cli, record, finding):
     check(
         record,
         "and it says so rather than answering with an empty screen",
-        any(ln.startswith("no elements") and "'course lakehouse'" in ln for ln in none_lines),
+        any(ln.startswith("nothing matches") and "'course lakehouse'" in ln for ln in none_lines),
         trim(none_out, 120) or "(nothing at all)",
     )
     if not none_out.strip():
@@ -1040,15 +1040,19 @@ def test_m19_set_status(cli, record):
     group="M",
     title="set puts an element into a work package with a current state, a target state and a note",
     feature="Command line · set",
-    expected="One command sets all four target-state fields, `target` then lists the element under the work package, and a state outside the vocabulary is refused by name.",
+    expected=(
+        "One command sets all four target-state fields, `target` then lists the element under the work "
+        "package, and a state outside the vocabulary is refused by name — with a failed exit, because a "
+        "command that changed nothing must not tell a script it succeeded."
+    ),
 )
 def test_m20_set_target(cli, record):
     # The vocabulary is lowercase, and a value outside it is refused before anything is written.
-    rc_bad, bad, bad_ev = run(cli, "set", WRITE_ELEMENT, "--current-state", "Live", limit=160)
+    rc_bad, bad, bad_ev = run(cli, "set", WRITE_ELEMENT, "--current-state", "Live", expect=1, limit=160)
     check(
         record,
-        "a state outside the vocabulary is refused",
-        rc_bad == 0 and "updated 0, refused 1" in bad,
+        "a state outside the vocabulary is refused, and the exit says so",
+        rc_bad == 1 and "updated 0, refused 1" in bad,
         bad_ev,
     )
     check(
@@ -1116,14 +1120,17 @@ def test_m21_set_attribute(cli, record):
     group="M",
     title="set refuses an element that does not exist, and says why it refused",
     feature="Command line · set",
-    expected="`ea set M-NO-SUCH-ELEMENT --status draft` reports one refusal, and the reason says the element was not found rather than repeating its id.",
+    expected=(
+        "`ea set M-NO-SUCH-ELEMENT --status draft` reports one refusal and exits 1, because nothing was "
+        "updated; the reason says the element was not found rather than repeating its id."
+    ),
 )
 def test_m22_set_refusal(cli, record, finding):
-    rc, out, ev = run(cli, "set", "M-NO-SUCH-ELEMENT", "--status", "draft", limit=160)
+    rc, out, ev = run(cli, "set", "M-NO-SUCH-ELEMENT", "--status", "draft", expect=1, limit=160)
     must(
         record,
-        "the command completed and reported the refusal",
-        rc == 0 and "updated 0, refused 1" in out,
+        "the command reported the refusal and exited non-zero, so a script is not told it worked",
+        rc == 1 and "updated 0, refused 1" in out,
         ev,
     )
     reason_line = next((ln for ln in out.splitlines() if "M-NO-SUCH-ELEMENT:" in ln), "")
@@ -2087,8 +2094,18 @@ def test_m41_find_options(cli, record, finding):
     must(record, "the unrestricted search returned a ranked list", rc == 0 and len(all_lines) > 3, ev)
 
     _, capped, capped_ev = run(cli, "find", "course", "--limit", "2", limit=120)
-    capped_lines = [ln for ln in capped.splitlines() if ln.strip()]
+    capped_all = [ln for ln in capped.splitlines() if ln.strip()]
+    # A cut list ends in the footer saying how much was cut and how to read on — the same
+    # footer the empty-query listing below asserts. It is not a row.
+    capped_cut = [ln for ln in capped_all if ln.lstrip().startswith("…")]
+    capped_lines = [ln for ln in capped_all if ln not in capped_cut]
     check(record, "--limit caps the list", len(capped_lines) == 2, f"{len(capped_lines)} rows for --limit 2")
+    check(
+        record,
+        "and says the list was cut, with how to read on",
+        len(capped_cut) == 1 and "--offset 2" in capped_cut[0] and f"of {len(all_lines)}" in capped_cut[0],
+        trim(capped_cut[0] if capped_cut else "(nothing said the list was cut)", 120),
+    )
     check(
         record,
         "the rows it keeps are the top of the ranking, not an arbitrary two",
@@ -2106,8 +2123,18 @@ def test_m41_find_options(cli, record, finding):
     )
 
     _, listing, listing_ev = run(cli, "find", "", "--limit", "6", limit=140)
-    rows = [ln for ln in listing.splitlines() if ln.strip()]
+    lines = [ln for ln in listing.splitlines() if ln.strip()]
+    # The last line is the command saying it cut the list. It used to print a page as though
+    # it were the whole answer, which is the same defect the Browse count had.
+    cut = [ln for ln in lines if ln.lstrip().startswith("…")]
+    rows = [ln for ln in lines if ln not in cut]
     must(record, "an empty query lists the model instead of searching it", len(rows) == 6, listing_ev)
+    check(
+        record,
+        "and the command says the list was cut, with how to read on",
+        len(cut) == 1 and "--offset 6" in cut[0],
+        trim(cut[0] if cut else "(nothing said the list was cut)", 120),
+    )
     names = [ln.split(None, 2)[2] for ln in rows if len(ln.split(None, 2)) > 2]
     check(
         record,
@@ -2874,9 +2901,13 @@ def test_m55_branch_never_created(cli, record, finding):
 @pytest.mark.scenario(
     scenario_id="M56",
     group="M",
-    title="A branch conflicts when main moves under it, and --resolve says which side wins",
+    title="Main moving under a branch is not a conflict unless the same field moved twice",
     feature="Command line · branch merge --resolve",
-    expected="`branch diff` marks the item CONFLICT; a merge without a resolution applies nothing and leaves the branch open; `--resolve <key>=branch` applies the branch's row over main's.",
+    expected=(
+        "The branch set a status while main set a note — different fields of one element. "
+        "`branch diff` marks the row stale rather than CONFLICT, the merge applies it without a "
+        "resolution, and main ends up carrying both changes instead of one reverting the other."
+    ),
     branch=CONFLICT_BRANCH,
 )
 def test_m56_merge_conflict(cli, record, finding):
@@ -2892,49 +2923,19 @@ def test_m56_merge_conflict(cli, record, finding):
     rc, diff, ev = run(cli, "branch", "diff", CONFLICT_BRANCH, limit=190)
     must(record, "the change set was reported", rc == 0 and diff.strip(), ev)
     check(
-        record, "the heading counts the conflict", "1 conflicts" in diff.splitlines()[0], diff.splitlines()[0]
+        record,
+        "the heading counts no conflict, because the two touched different fields",
+        "0 conflicts" in diff.splitlines()[0],
+        diff.splitlines()[0],
     )
     row = next((ln for ln in diff.splitlines() if WRITE_ELEMENT in ln), "")
-    must(record, "the conflicting item is listed", bool(row), ev)
-    check(record, "the row is marked as a conflict", "CONFLICT" in row, row.strip())
-    check(
-        record,
-        "and it says which version of main the branch started from",
-        "changed" in row and "element" in row,
-        row.strip(),
-    )
+    must(record, "the item is listed", bool(row), ev)
+    check(record, "the row is marked stale rather than conflicting", "stale" in row, row.strip())
+    check(record, "and it does not say CONFLICT", "CONFLICT" not in row, row.strip())
 
-    rc_n, nothing, nothing_ev = run(cli, "branch", "merge", CONFLICT_BRANCH, limit=140)
-    must(record, "a merge with the conflict unresolved ran", rc_n == 0, nothing_ev)
-    check(record, "it applies nothing", "merged 0 item(s)" in nothing, trim(nothing))
-    check(record, "the item stays on the branch", "1 remaining" in nothing, trim(nothing))
-    check(record, "and the branch stays open", "still open" in nothing, trim(nothing))
-    _, kept, kept_ev = run(
-        cli, "sql", f"select status, target_note from element where element_id = '{WRITE_ELEMENT}'", limit=150
-    )
-    check(
-        record,
-        "main keeps its own value meanwhile",
-        "main moved underneath" in kept,
-        trim(kept, 130) or kept_ev,
-    )
-    if "conflict" not in nothing.lower():
-        lodge(
-            finding,
-            "M-17",
-            "src/ea/cli.py · branch merge",
-            "usability",
-            "A merge stopped by an unresolved conflict says 'merged 0 item(s), dropped 0, 1 remaining' and never says a conflict is why.",
-            "The merge exits 0 and reads exactly like a merge with nothing to do. `branch diff` marks the row "
-            "CONFLICT and `merge` takes `--resolve <key>=branch|main`, so the command knows both the cause and "
-            "the cure; naming the conflicting items and the flag that resolves them would close the loop.",
-        )
-
-    rc_r, resolved, resolve_ev = run(
-        cli, "branch", "merge", CONFLICT_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=branch", limit=150
-    )
-    must(record, "the merge with a resolution ran", rc_r == 0, resolve_ev)
-    check(record, "the resolved item is applied", "merged 1 item(s)" in resolved, trim(resolved))
+    rc_r, resolved, resolve_ev = run(cli, "branch", "merge", CONFLICT_BRANCH, limit=150)
+    must(record, "the merge ran without needing a resolution", rc_r == 0, resolve_ev)
+    check(record, "the item is applied", "merged 1 item(s)" in resolved, trim(resolved))
     check(record, "nothing is left on the branch", "0 remaining" in resolved, trim(resolved))
     check(record, "so it closes", "branch closed" in resolved, trim(resolved))
     _, after, after_ev = run(
@@ -2943,8 +2944,8 @@ def test_m56_merge_conflict(cli, record, finding):
     check(record, "main now carries the branch's status", "approved" in after, trim(after, 130))
     check(
         record,
-        "and the branch's row replaced main's wholesale, note and all",
-        "main moved underneath" not in after,
+        "and main's own note survived, rather than being reverted by a row that never touched it",
+        "main moved underneath" in after,
         trim(after, 130) or after_ev,
     )
     _, listed, list_ev = run(cli, "branch", "list", "--status", "merged", limit=200)
@@ -2961,20 +2962,37 @@ def test_m56_merge_conflict(cli, record, finding):
     group="M",
     title="--resolve <key>=main drops the branch's row and leaves main's value standing",
     feature="Command line · branch merge --resolve",
-    expected="A conflict resolved to main is reported as dropped rather than merged, main keeps the value it had, and the branch closes because nothing is left on it.",
+    expected=(
+        "Both sides move the *same* field, which is a real conflict: `branch diff` says CONFLICT and "
+        "names the disputed field, a merge without a resolution applies nothing, and `--resolve "
+        "<key>=main` drops the branch's row so main keeps the value it had."
+    ),
     branch=DROP_BRANCH,
 )
 def test_m57_resolve_to_main(cli, record):
     rc_c, created, create_ev = run(cli, "branch", "create", "M drop", limit=130)
     must(record, "the branch was created", rc_c == 0 and DROP_BRANCH in created, create_ev)
     rc_b, wrote, wrote_ev = run(
-        cli, "--branch", DROP_BRANCH, "set", WRITE_ELEMENT, "--status", "retired", limit=130
+        cli, "--branch", DROP_BRANCH, "set", WRITE_ELEMENT, "--note", "M: the branch's note", limit=130
     )
     must(record, "the branch carries a change", rc_b == 0 and "updated 1" in wrote, wrote_ev)
+    # the same field, so the two genuinely disagree
     rc_m, moved, moved_ev = run(cli, "set", WRITE_ELEMENT, "--note", "M: main wins this one", limit=130)
-    must(record, "main moved under it", rc_m == 0 and "updated 1" in moved, moved_ev)
+    must(record, "main moved the same field under it", rc_m == 0 and "updated 1" in moved, moved_ev)
     _, diff, diff_ev = run(cli, "branch", "diff", DROP_BRANCH, limit=180)
     must(record, "the item conflicts", "1 conflicts" in diff.splitlines()[0], diff_ev)
+    row = next((ln for ln in diff.splitlines() if WRITE_ELEMENT in ln), "")
+    check(record, "and the row names the field both sides changed", "target_note" in row, row.strip())
+
+    rc_n, nothing, nothing_ev = run(cli, "branch", "merge", DROP_BRANCH, limit=180)
+    must(record, "a merge with it unresolved ran", rc_n == 0, nothing_ev)
+    check(record, "it applies nothing", "merged 0 item(s)" in nothing, trim(nothing))
+    check(
+        record,
+        "and it says a conflict is why, naming the field and the flag that settles it",
+        "unresolved conflict" in nothing and "--resolve" in nothing,
+        trim(nothing, 200),
+    )
 
     rc, out, ev = run(
         cli, "branch", "merge", DROP_BRANCH, "--resolve", f"element:{WRITE_ELEMENT}=main", limit=150
@@ -2999,7 +3017,12 @@ def test_m57_resolve_to_main(cli, record):
     check(
         record, "main kept the note it moved to", "main wins this one" in after, trim(after, 130) or after_ev
     )
-    check(record, "and the branch's status never reached it", "retired" not in after, trim(after, 130))
+    check(
+        record,
+        "and the branch's own note never reached it",
+        "the branch's note" not in after,
+        trim(after, 130),
+    )
     _, listed, list_ev = run(cli, "branch", "list", limit=200)
     row = next((ln for ln in listed.splitlines() if ln.startswith(DROP_BRANCH)), "")
     must(record, "the branch is listed", bool(row), list_ev)

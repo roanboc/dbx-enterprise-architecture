@@ -520,8 +520,9 @@ def test_merge_a_subset(ui, record):
     feature="Branches · conflict",
     expected=(
         "With the same two elements changed on a branch and then on main, the merge log marks both "
-        "rows conflict, the head counts two, base and main versions differ, and the accordion says "
-        "main moved since the branch took its copy."
+        "rows conflict, the head counts two, base and main versions differ, each row arrives "
+        "undecided and unticked because a person has to settle it, and the accordion says main "
+        "moved since the branch took its copy."
     ),
 )
 def test_conflict_is_flagged(ui, record, finding):
@@ -564,11 +565,14 @@ def test_conflict_is_flagged(ui, record, finding):
             base.isdigit() and main_v.isdigit() and int(main_v) > int(base),
             f"base {base}, main {main_v}",
         )
+        # A conflict is nobody's to settle but a person's, so it arrives with no take chosen
+        # and its tick off — a default here would merge a decision the reader never made.
         ui.check(
-            f"{element_id} offers a take, defaulting to the branch's row",
-            _row(ui, key, "resolution") == "branch",
-            _row(ui, key, "resolution"),
+            f"{element_id} offers a take and chooses none of it for you",
+            _row(ui, key, "resolution") == "",
+            _row(ui, key, "resolution") or "(undecided)",
         )
+        ui.check(f"{element_id} is not ticked to merge either", not _included(ui, key))
     ui.shot("Both rows are flagged conflict, with the base version beside main's")
     item = _accordion_item(ui, D1)
     item.locator("[class*='Accordion-control']").first.click()
@@ -591,8 +595,9 @@ def test_conflict_is_flagged(ui, record, finding):
     title="Taking the branch's row resolves a conflict in the branch's favour",
     feature="Branches · conflict · take branch",
     expected=(
-        "The take cell of a conflicting row can be set both ways; left on 'branch' and ticked alone, "
-        "Merge writes the branch's row over main's and leaves the other conflict on the branch."
+        "A conflicting row arrives neither ticked nor resolved, because main moved under it. Its take "
+        "cell can be set both ways; set to 'branch' and ticked alone, Merge writes the branch's row "
+        "over main's and leaves the other conflict on the branch."
     ),
 )
 def test_resolve_to_the_branch(ui, record):
@@ -606,7 +611,10 @@ def test_resolve_to_the_branch(ui, record):
     ui.check(
         "and set back to the branch", _row(ui, key, "resolution") == "branch", _row(ui, key, "resolution")
     )
-    _set_included(ui, f"element:{D2}", False)
+    # A conflicting row arrives unticked and unresolved: main moved under it, so both the
+    # decision and the tick are a person's. The other conflict is left as it came.
+    ui.check("a conflicting row is not ticked for you", not _included(ui, key))
+    _set_included(ui, key, True)
     ui.check("only the resolved row is ticked", _included(ui, key) and not _included(ui, f"element:{D2}"))
     ui.shot("One conflict is set to take the branch's row and ticked; the other is left alone")
     ui.click("br-merge")
@@ -646,6 +654,7 @@ def test_resolve_to_main(ui, record):
     )
     _set_take(ui, key, "main")
     ui.check("the take cell reads main", _row(ui, key, "resolution") == "main", _row(ui, key, "resolution"))
+    _set_included(ui, key, True)
     ui.check("the row is ticked", _included(ui, key))
     ui.shot("The last conflict is set to keep main's row")
     ui.click("br-merge")

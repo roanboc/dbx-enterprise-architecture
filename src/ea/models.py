@@ -313,6 +313,84 @@ CURRENT_STATES = ["proposed", "planned", "in_implementation", "live", "retired",
 TARGET_STATES = ["undecided", "keep", "new", "change", "decommission", "merge"]
 
 
+#: How a list of elements may be ordered. `relevance` needs words to rank against and
+#: falls back to `name` without them; the rest are columns the store sorts on.
+SORT_ORDERS = ("relevance", "name", "type", "status", "updated", "created")
+
+
+@dataclass
+class AttributeFilter:
+    """One attribute predicate: the attribute is present, and its value matches.
+
+    `value` empty asks only that the attribute is set to something. Matching is a
+    case-insensitive substring, which is what a reader typing into a box means; an
+    attribute the pack declares as a list holds its values in one string, so a
+    substring finds one of them.
+    """
+
+    name: str
+    value: str = ""
+
+
+@dataclass
+class ElementFilter:
+    """What narrows a list of elements. Every field is optional and they narrow together.
+
+    One object rather than a widening parameter list, so the store, the services, the
+    page, the command line and the address bar all name the same criteria, and a new
+    criterion is added in one place. A list field matches any of its values; the fields
+    match all together.
+    """
+
+    text: str = ""
+    type_ids: list[str] = field(default_factory=list)
+    statuses: list[str] = field(default_factory=list)
+    current_states: list[str] = field(default_factory=list)
+    target_states: list[str] = field(default_factory=list)
+    work_packages: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    lifecycle_statuses: list[str] = field(default_factory=list)
+    attributes: list[AttributeFilter] = field(default_factory=list)
+    updated_since: datetime | None = None
+    updated_before: datetime | None = None
+    #: Only these elements, whatever else matches — how a drill-down from another page
+    #: (the Health facets) narrows the list without the store learning that page's words.
+    only_ids: list[str] | None = None
+    sort: str = "relevance"
+    descending: bool = False
+
+    def __post_init__(self) -> None:
+        if self.sort not in SORT_ORDERS:
+            raise ValueError(f"sort must be one of {SORT_ORDERS}")
+        self.text = (self.text or "").strip()
+
+    @property
+    def words(self) -> list[str]:
+        """The search words, lowercased. Every one of them has to match somewhere."""
+        return [w for w in re.split(r"\s+", self.text.lower()) if w]
+
+    def narrows(self) -> bool:
+        """Whether anything here narrows the list at all."""
+        return bool(
+            self.words
+            or self.type_ids
+            or self.statuses
+            or self.current_states
+            or self.target_states
+            or self.work_packages
+            or self.sources
+            or self.lifecycle_statuses
+            or self.attributes
+            or self.updated_since
+            or self.updated_before
+            or self.only_ids is not None
+        )
+
+    def order(self) -> str:
+        """The sort actually applied: relevance needs words to rank against."""
+        return "name" if self.sort == "relevance" and not self.words else self.sort
+
+
 def _check_states(what: str, current_state: str, target_state: str) -> None:
     if current_state not in CURRENT_STATES:
         raise ValueError(f"{what}: current_state must be one of {CURRENT_STATES}")
@@ -413,10 +491,37 @@ class ChangeItem:
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     fields_changed: list[str] = field(default_factory=list)
+    #: The row as `main` held it when the branch first touched it. `None` for a row the
+    #: branch added, and for a row written before the base was kept.
+    base: dict[str, Any] | None = None
+    #: What each side changed since that base, and where the two overlap. Only the overlap
+    #: is a conflict: two people editing different fields of one element have not disagreed.
+    branch_fields: list[str] = field(default_factory=list)
+    main_fields: list[str] = field(default_factory=list)
+    overlapping: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
         return f"{self.kind}:{self.entity_id}"
+
+    @property
+    def stale(self) -> bool:
+        """Main moved under this row, whether or not the two disagree about a field."""
+        return bool(self.main_fields)
+
+    def merged_row(self, take: dict[str, str] | None = None) -> dict[str, Any]:
+        """What main should hold: main's current row with the branch's changes laid over it.
+
+        The branch's fields win by default, which is what merging a branch means. `take`
+        names the fields to decide differently — a field mapped to `"main"` keeps main's
+        value — and only ever covers overlapping fields, because nothing else is in dispute.
+        """
+        out = dict(self.before or {})
+        for f in self.branch_fields:
+            if (take or {}).get(f) == "main" and f in (self.main_fields or []):
+                continue
+            out[f] = (self.after or {}).get(f)
+        return out
 
 
 @dataclass
@@ -442,8 +547,15 @@ class MergeResult:
     branch_id: str
     applied: list[str] = field(default_factory=list)  # item keys written to main
     dropped: list[str] = field(default_factory=list)  # conflicts resolved for main: removed from the branch
+    #: Items the merge would not write, and why — a relationship whose end is not on main
+    #: and was not ticked with it, or a conflict nobody resolved. They stay on the branch.
+    held_back: list[dict[str, str]] = field(default_factory=list)
     remaining: int = 0  # rows still on the branch
     closed: bool = False
+
+    def reasons(self) -> str:
+        """What was held back, as one line a person reads."""
+        return "; ".join(f"{h['key']}: {h['reason']}" for h in self.held_back)
 
 
 @dataclass

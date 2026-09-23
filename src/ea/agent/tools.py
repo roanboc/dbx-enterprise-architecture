@@ -7,7 +7,7 @@ from typing import Any
 
 from ea.backend.base import DatabaseBackend
 from ea.metamodel.registry import Registry
-from ea.models import NotFoundError
+from ea.models import ElementFilter, NotFoundError
 from ea.services import GraphService, RepositoryService
 
 MAX_RESULT_CHARS = 12_000
@@ -191,7 +191,10 @@ class ToolBox:
         t = self.registry.resolve_type(type_id) if type_id else None
         if type_id and t is None:
             return {"error": f"unknown type {type_id!r}", "hint": "call list_types"}
-        rows = self.repo.search(text, t.id if t else None, limit=max(1, min(int(limit or 25), 100)))
+        rows = self.repo.search(
+            ElementFilter(text=text or "", type_ids=[t.id] if t else []),
+            limit=max(1, min(int(limit or 25), 100)),
+        )
         return {"matches": [_element_brief(e) for e in rows], "count": len(rows)}
 
     def tool_get_element(self, element_id: str) -> dict[str, Any]:

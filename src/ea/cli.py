@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+from dataclasses import fields
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 
 from ea import capacity
 from ea.backend.branching import MAIN, set_branch
 from ea.config import Settings
-from ea.models import BRANCH_STATUSES, ConflictError, Forbidden, NotFoundError, ValidationError
+from ea.models import (
+    BRANCH_STATUSES,
+    SORT_ORDERS,
+    AttributeFilter,
+    ConflictError,
+    Element,
+    ElementFilter,
+    Forbidden,
+    NotFoundError,
+    Relationship,
+    ValidationError,
+)
 from ea.services.roles import require, set_role
 
 app = typer.Typer(
@@ -341,17 +357,97 @@ def stats():
         typer.echo(f"  unknown types in store: {s['unknown_types']}")
 
 
+#: What `--resolve key.field=…` may name. Taken from the rows themselves rather than typed
+#: out, so a field added to either dataclass is resolvable the day it exists.
+_MERGEABLE_FIELDS = frozenset(
+    {f.name for f in fields(Element)} | {f.name for f in fields(Relationship)} | {"links"}
+)
+
+
+def _moment(text: str, what: str) -> datetime | None:
+    """An ISO date or date-time a person typed, or a refusal naming the option."""
+    if not (text or "").strip():
+        return None
+    try:
+        return datetime.fromisoformat(text.strip())
+    except ValueError:
+        _refuse(f"{what} must be an ISO date like 2026-01-31, or a date and time")
+        return None
+
+
+def _attribute_filters(pairs: list[str]) -> list[AttributeFilter]:
+    """`--attr owner=ana` and `--attr owner` (set to anything) as filters."""
+    out = []
+    for raw in pairs or []:
+        name, _, value = raw.partition("=")
+        if not name.strip():
+            _refuse(f"--attr {raw!r} names no attribute; write --attr name=value or --attr name")
+        out.append(AttributeFilter(name.strip(), value.strip()))
+    return out
+
+
 @app.command()
-def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50):
-    """Search elements: every word must match in the name, key, id, description or attributes; ranked."""
+def find(
+    text: str = typer.Argument("", help="words that must all match; omit to list by filter alone"),
+    type_id: list[str] = typer.Option(None, "--type", help="repeat for several types"),
+    status: list[str] = typer.Option(None, "--status", help="draft, approved or retired; repeatable"),
+    current_state: list[str] = typer.Option(None, "--current-state", help="repeatable"),
+    target_state: list[str] = typer.Option(None, "--target-state", help="repeatable"),
+    work_package: list[str] = typer.Option(None, "--work-package", help="repeatable"),
+    source: list[str] = typer.Option(None, "--source", help="source system; repeatable"),
+    lifecycle: list[str] = typer.Option(None, "--lifecycle", help="lifecycle text; repeatable"),
+    attr: list[str] = typer.Option(None, "--attr", help="name=value, or just name; repeatable"),
+    updated_since: str = typer.Option("", "--updated-since", help="ISO date or date-time"),
+    updated_before: str = typer.Option("", "--updated-before", help="ISO date or date-time"),
+    sort: str = typer.Option("relevance", help=f"one of {', '.join(SORT_ORDERS)}"),
+    desc: bool = typer.Option(False, "--desc", help="reverse the sort"),
+    limit: int = 50,
+    offset: int = typer.Option(0, help="skip this many, to read past the first page"),
+    as_json: bool = typer.Option(False, "--json", help="one JSON array, for a script"),
+    csv_out: bool = typer.Option(False, "--csv", help="comma-separated, with a header row"),
+):
+    """Search and filter elements. Every word must match; every criterion narrows together."""
     from ea.services import SearchService
 
     _, backend, registry, *_ = _ctx()
-    t = registry.resolve_type(type_id) if type_id else None
-    if type_id and t is None:
-        # Ignoring it would answer the unrestricted search and look like a narrow one.
-        _refuse(f"no element type {type_id!r} in this metamodel; `ea summary` lists them")
-    hits = SearchService(backend, registry).search(text, t.id if t else None, limit=limit)
+    types = []
+    for one in type_id or []:
+        t = registry.resolve_type(one)
+        if t is None:
+            # Ignoring it would answer the unrestricted search and look like a narrow one.
+            _refuse(f"no element type {one!r} in this metamodel; `ea summary` lists them")
+        types.append(t.id)
+    if sort not in SORT_ORDERS:
+        _refuse(f"--sort must be one of {', '.join(SORT_ORDERS)}")
+    filt = ElementFilter(
+        text=text or "",
+        type_ids=types,
+        statuses=list(status or []),
+        current_states=list(current_state or []),
+        target_states=list(target_state or []),
+        work_packages=list(work_package or []),
+        sources=list(source or []),
+        lifecycle_statuses=list(lifecycle or []),
+        attributes=_attribute_filters(attr),
+        updated_since=_moment(updated_since, "--updated-since"),
+        updated_before=_moment(updated_before, "--updated-before"),
+        sort=sort,
+        descending=desc,
+    )
+    svc = SearchService(backend, registry)
+    hits = svc.search(filt, limit=limit, offset=offset)
+    total = svc.count(filt)
+    if as_json or csv_out:
+        rows = SearchService.rows(hits, registry)
+        if as_json:
+            typer.echo(json.dumps(rows, indent=2, default=str))
+        else:
+            out = io.StringIO()
+            writer = csv.DictWriter(out, fieldnames=list(rows[0]) if rows else ["element_id"])
+            writer.writeheader()
+            writer.writerows(rows)
+            typer.echo(out.getvalue().rstrip("\n"))
+        return
     for h in hits:
         e = h.element
         where = f"  [{h.matched_in}: {h.snippet[:60]}]" if h.matched_in and h.matched_in != "name" else ""
@@ -359,7 +455,10 @@ def find(text: str, type_id: str = typer.Option(None, "--type"), limit: int = 50
     if not hits:
         # Silence reads as a command that did nothing; `branch list` and `reviewers list`
         # both say when they have nothing to show.
-        typer.echo(f"no elements{f' of type {t.name}' if t else ''} match {text!r}")
+        typer.echo(f"nothing matches{f' {text!r}' if text else ' those filters'}")
+    elif total > offset + len(hits):
+        # The old command printed a page and stopped, so a cut list read as a whole one.
+        typer.echo(f"… {offset + len(hits)} of {total}; --offset {offset + len(hits)} reads on")
 
 
 @app.command("set")
@@ -372,6 +471,7 @@ def set_cmd(
     work_package: str = typer.Option(None, "--work-package", "-w"),
     note: str = typer.Option(None, "--note"),
     attr: str = typer.Option(None, help="one attribute as name=value"),
+    clear_attr: bool = typer.Option(False, "--clear-attr", help="remove the --attr attribute instead"),
     actor: str = typer.Option("cli"),
 ):
     """The same change on many elements at once (bulk edit), on the current branch."""
@@ -386,17 +486,22 @@ def set_cmd(
     }
     attribute = None
     if attr:
-        name, _, value = attr.partition("=")
+        name, sep, value = attr.partition("=")
+        if not sep and not clear_attr:
+            _refuse("--attr takes name=value; to empty an attribute add --clear-attr")
         attribute = (name.strip(), value)
     if not attribute and not any(v is not None for v in fields.values()):
         _refuse(
             "nothing to set: give at least one of --status, --lifecycle, --current-state, "
             "--target-state, --work-package, --note or --attr"
         )
-    out = repo.bulk_update(element_ids, actor, fields, attribute)
+    out = repo.bulk_update(element_ids, actor, fields, attribute, clear_attribute=clear_attr)
     typer.echo(f"updated {len(out['updated'])}, refused {len(out['refused'])}")
     for r in out["refused"]:
         typer.echo(f"  {r['element_id']}: {r['reason']}")
+    if out["refused"] and not out["updated"]:
+        # Every element refused and an exit code of 0 tells a script the edit was applied.
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -631,7 +736,14 @@ def branch_diff(branch_id: str):
         f"branch '{branch_id}' ({cs.branch.status}): {c['added']} added, {c['changed']} changed, {c['deleted']} deleted, {c['conflicts']} conflicts"
     )
     for row in svc.item_rows(cs):
-        flag = "  CONFLICT" if row["conflict"] else ""
+        # Three states, not two: a row main moved under without disagreeing merges as it is,
+        # and calling that CONFLICT sent people looking for a decision nobody has to make.
+        if row["conflict"] == "conflict":
+            flag = f"  CONFLICT (both changed: {row['disputed']})"
+        elif row["conflict"] == "stale":
+            flag = "  stale (main moved, no field in dispute)"
+        else:
+            flag = ""
         fields = f"  [{row['fields']}]" if row["fields"] else ""
         typer.echo(
             f"  {row['change']:8s} {row['kind']:12s} {row['entity_id']:28s} {row['label']}{fields}{flag}"
@@ -645,29 +757,54 @@ def branch_merge(
         None, "--include", "-i", help="item key(s) to merge (element:<id> or relationship:<id>); default: all"
     ),
     resolve: list[str] = typer.Option(
-        None, "--resolve", "-r", help="conflict resolution as key=branch or key=main"
+        None,
+        "--resolve",
+        "-r",
+        help="key=branch or key=main for the whole row, or key.field=branch for one field",
     ),
     actor: str = typer.Option("cli"),
 ):
-    """Merge the branch into main, item by item; unresolved conflicts and unticked items remain on the branch."""
+    """Merge the branch into main, item by item and field by field.
+
+    A row is a conflict only where both sides changed the same field; everything else merges
+    over main's current row. Resolve a whole row with `--resolve element:X=main`, or one field
+    at a time with `--resolve element:X.description_md=main`.
+    """
     _, _, svc = _branches()
-    resolutions = {}
+    resolutions: dict[str, Any] = {}
     for r in resolve or []:
         k, _, v = r.partition("=")
-        resolutions[k] = v
+        if v not in ("branch", "main"):
+            _refuse(f"--resolve {r!r} must end in =branch or =main")
+        # An element id may hold a dot ('LDC.FIN'), so a trailing '.something' is only read
+        # as a field when 'something' is actually a field of the row it names.
+        key, dot, field = k.rpartition(".")
+        if dot and key.count(":") == 1 and field in _MERGEABLE_FIELDS:
+            per_field = resolutions.setdefault(key, {})
+            if not isinstance(per_field, dict):
+                _refuse(f"--resolve names {key} both as a whole row and field by field")
+            per_field[field] = v
+        else:
+            if isinstance(resolutions.get(k), dict):
+                _refuse(f"--resolve names {k} both as a whole row and field by field")
+            resolutions[k] = v
     res = svc.merge(branch_id, actor, set(include) if include else None, resolutions)
     typer.echo(
         f"merged {len(res.applied)} item(s), dropped {len(res.dropped)}, {res.remaining} remaining; branch {'closed' if res.closed else 'still open'}"
     )
     if res.remaining and not res.closed:
         # A merge held back by a conflict otherwise reads exactly like one with nothing to do.
-        stuck = [r["key"] for r in svc.item_rows(svc.diff(branch_id)) if r["conflict"]]
+        stuck = [r for r in svc.item_rows(svc.diff(branch_id)) if r["conflict"] == "conflict"]
         if stuck:
+            named = ", ".join(f"{r['key']} ({r['disputed']})" for r in stuck[:5])
             typer.echo(
-                f"  {len(stuck)} unresolved conflict(s) held it back: {', '.join(stuck[:5])}"
+                f"  {len(stuck)} unresolved conflict(s) held it back: {named}"
                 + (" …" if len(stuck) > 5 else "")
             )
-            typer.echo("  resolve each with --resolve <key>=branch or --resolve <key>=main, then merge again")
+            typer.echo(
+                "  resolve each with --resolve <key>=branch, --resolve <key>=main, or one field at a "
+                "time with --resolve <key>.<field>=main, then merge again"
+            )
 
 
 @branch_app.command("review")
@@ -1028,6 +1165,9 @@ def feed_save(
 
     settings = Settings.from_env()
     _, backend, *_ = _ctx()
+    # The page hid the form from a role that may not configure feeds; the command line
+    # offered the same write to anybody, so the gate was a suggestion.
+    require("manage_feeds", what="configure a feed")
     saved = backend.save_feed(
         SourceFeed(
             feed_id=feed_id,
@@ -1073,6 +1213,7 @@ def feed_run(
 def feed_delete(feed_id: str):
     """Forget a feed's configuration. Nothing it loaded is touched."""
     _, backend, *_ = _ctx()
+    require("manage_feeds", what="delete a feed")
     backend.delete_feed(feed_id, actor="cli")
     typer.echo(f"{feed_id} deleted")
 

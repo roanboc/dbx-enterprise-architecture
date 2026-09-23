@@ -67,7 +67,7 @@ def test_a_branch_named_on_the_command_line_has_to_exist(ea_env):
 
 def test_a_search_that_matches_nothing_says_so(ea_env):
     result = runner.invoke(app, ["find", "zzqxnothinghere"])
-    assert result.exit_code == 0 and "no elements match 'zzqxnothinghere'" in result.output
+    assert result.exit_code == 0 and "nothing matches 'zzqxnothinghere'" in result.output
 
 
 def test_an_unknown_type_filter_is_refused_rather_than_ignored(ea_env):
@@ -335,3 +335,55 @@ def test_a_directory_import_keeps_the_mapping_it_was_given(ea_env, tmp_path):
     listed = runner.invoke(app, ["runs", "list", "--limit", "1"])
     shown = runner.invoke(app, ["runs", "show", listed.output.split()[0]])
     assert shown.exit_code == 0 and "MX-" in shown.output
+
+
+def test_find_narrows_by_every_criterion_and_says_when_it_cut_the_list(ea_env):
+    """The command offered two of the criteria its own service accepted."""
+    result = runner.invoke(
+        app, ["find", "--type", "physical_application_component", "--current-state", "live"]
+    )
+    assert result.exit_code == 0 and "PAC-CMS" in result.output
+    # a criterion the rows do not meet empties it, rather than being ignored
+    narrowed = runner.invoke(
+        app, ["find", "--type", "physical_application_component", "--current-state", "non_existent"]
+    )
+    assert narrowed.exit_code == 0 and "those filters" in narrowed.output
+    # a cut list says it was cut and how to read on
+    paged = runner.invoke(app, ["find", "--limit", "3"])
+    assert "--offset 3 reads on" in paged.output
+
+
+def test_find_writes_json_and_csv_for_a_script(ea_env):
+    import json as _json
+
+    as_json = runner.invoke(app, ["find", "curriculum", "--limit", "2", "--json"])
+    assert as_json.exit_code == 0
+    rows = _json.loads(as_json.output)
+    assert rows and {"element_id", "name", "type_id", "matched_in"} <= set(rows[0])
+
+    as_csv = runner.invoke(app, ["find", "curriculum", "--limit", "2", "--csv"])
+    assert as_csv.exit_code == 0 and as_csv.output.splitlines()[0].startswith("element_id,name,type")
+
+
+def test_find_refuses_an_unreadable_date_rather_than_ignoring_it(ea_env):
+    result = runner.invoke(app, ["find", "--updated-since", "last tuesday"])
+    assert result.exit_code == 1 and "--updated-since must be an ISO date" in result.output
+
+
+def test_set_exits_non_zero_when_every_element_was_refused(ea_env):
+    """Exit 0 with nothing updated tells a script the edit was applied."""
+    result = runner.invoke(app, ["set", "NO-SUCH-1", "--status", "approved"])
+    assert result.exit_code == 1 and "updated 0, refused 1" in result.output
+
+
+def test_configuring_a_feed_needs_the_role_the_page_needs(ea_env):
+    """The page hid the form from a Reader; the command line offered the same write to anybody."""
+    result = runner.invoke(app, ["--as", "reader", "feed", "save", "Nightly", "--source", "cmdb"])
+    assert result.exit_code == 1 and "A Reader may not configure a feed" in str(result.exception)
+    gone = runner.invoke(app, ["--as", "reader", "feed", "delete", "whatever"])
+    assert gone.exit_code == 1 and "A Reader may not delete a feed" in str(gone.exception)
+
+
+def test_clearing_an_attribute_says_so_rather_than_writing_a_blank(ea_env):
+    blank = runner.invoke(app, ["set", "PAC-CMS", "--attr", "owner"])
+    assert blank.exit_code == 1 and "--clear-attr" in blank.output

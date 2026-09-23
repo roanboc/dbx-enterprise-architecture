@@ -11,7 +11,7 @@ from typing import Any
 from ea import capacity
 from ea.backend.base import DatabaseBackend
 from ea.metamodel.registry import Registry
-from ea.models import CURRENT_STATES, TARGET_STATES, Element, Relationship
+from ea.models import CURRENT_STATES, TARGET_STATES, Element, ElementFilter, Relationship
 
 # Colours and glyphs for the target states, shared by the badges, the Mermaid and the draw.io markers.
 TARGET_STYLE: dict[str, dict[str, str]] = {
@@ -58,7 +58,10 @@ class TargetStateService:
         wp_type = self.work_package_type()
         if not wp_type:
             return []
-        return sorted(self.backend.find_elements(type_id=wp_type, limit=10_000), key=lambda e: e.name.lower())
+        return sorted(
+            self.backend.find_elements(ElementFilter(type_ids=[wp_type], sort="name"), limit=10_000),
+            key=lambda e: e.name.lower(),
+        )
 
     # ------------------------------------------------------------ queries
     #: The most rows one answer carries back. The page draws them into a table, and a table

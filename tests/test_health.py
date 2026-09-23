@@ -4,28 +4,32 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from ea.backend.branching import use_branch
-from ea.models import Element
+from ea.models import Element, ElementFilter, ValidationError
 from ea.services import BranchService, HealthService, RepositoryService, SearchService
 
 
 def test_search_needs_every_word_and_ranks_names_first(loaded, registry):
     svc = SearchService(loaded, registry)
-    hits = svc.search("curriculum")
+    hits = svc.search(ElementFilter(text="curriculum"))
     assert hits[0].element.name.lower().startswith("curriculum") and hits[0].rank == 0
-    assert svc.count("curriculum") == len(svc.search("curriculum", limit=1000))
+    assert svc.count(ElementFilter(text="curriculum")) == len(
+        svc.search(ElementFilter(text="curriculum"), limit=1000)
+    )
     # a word from a description alone finds the element and says where it matched
-    hits = svc.search("paper-like approval forms")
+    hits = svc.search(ElementFilter(text="paper-like approval forms"))
     assert [h.element.element_id for h in hits] == ["PTC-FORMS"]
     assert hits[0].matched_in == "description" and "forms" in hits[0].snippet.lower()
     # every word must match: an unrelated word empties the result
-    assert svc.search("paper-like approval nonsenseword") == []
+    assert svc.search(ElementFilter(text="paper-like approval nonsenseword")) == []
     # attribute values count too
-    hits = svc.search("Reference data model v3")
+    hits = svc.search(ElementFilter(text="Reference data model v3"))
     assert hits and all(h.matched_in.startswith("attribute:") or h.matched_in for h in hits)
-    rows = SearchService.rows(svc.search("paper-like"), registry)
+    rows = SearchService.rows(svc.search(ElementFilter(text="paper-like")), registry)
     assert rows[0]["snippet"] and rows[0]["matched_in"] == "description"
-    assert svc.search("")[0].rank == 3  # no query: the plain listing
+    assert svc.search(ElementFilter(text=""))[0].rank == 3  # no query: the plain listing
 
 
 def test_bulk_update_applies_one_change_to_many(loaded, registry):
@@ -116,3 +120,25 @@ def test_twelve_weeks_means_twelve_bars(loaded, registry):
             weeks[-1]
             == f"{datetime(2026, 9, day).isocalendar()[0]}-W{datetime(2026, 9, day).isocalendar()[1]:02d}"
         )
+
+
+def test_an_attribute_is_not_emptied_by_leaving_its_box_blank(loaded, registry):
+    """Naming an attribute with no value wrote the empty string over every ticked row.
+
+    That is the one bulk edit nobody can undo — what was there is gone and the change log
+    holds one entry per row. It is refused now, and emptying an attribute on purpose says so.
+    """
+    repo = RepositoryService(loaded, registry)
+    BranchService(loaded, registry).create("attrs", "ada")
+    with use_branch("attrs"):
+        repo.bulk_update(["PAC-CMS", "PAC-SRS"], "ada", None, ("owner", "Curriculum office"))
+        assert loaded.get_element("PAC-CMS").attrs["owner"] == "Curriculum office"
+
+        with pytest.raises(ValidationError, match="clear it"):
+            repo.bulk_update(["PAC-CMS", "PAC-SRS"], "ada", None, ("owner", ""))
+        assert loaded.get_element("PAC-CMS").attrs["owner"] == "Curriculum office", "untouched"
+
+        # asked for plainly, it is removed rather than blanked
+        out = repo.bulk_update(["PAC-CMS"], "ada", None, ("owner", ""), clear_attribute=True)
+        assert out["updated"] == ["PAC-CMS"]
+        assert "owner" not in loaded.get_element("PAC-CMS").attrs

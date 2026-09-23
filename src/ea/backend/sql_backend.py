@@ -62,6 +62,7 @@ from ea.models import (
     ChangeSet,
     ConflictError,
     Element,
+    ElementFilter,
     ImportRun,
     Issue,
     Link,
@@ -85,6 +86,10 @@ _FORBIDDEN_RE = re.compile(
     r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck)\b",
     re.IGNORECASE,
 )
+#: The catalogues a reader could find the store's own schema names in, and the qualifiers
+#: that reach a table directly. Refused in a reader's own SQL for the same reason the store's
+#: schemas are: the scoping shadows bare names only.
+_SYSTEM_SCHEMAS = ("information_schema", "pg_catalog", "pg_temp", "main", "memory", "system", "temp")
 # The keys of an attribute definition kept in the `extra` JSON column of meta_attribute.
 _ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", "help", "properties")
 
@@ -362,15 +367,69 @@ class SqlBackend(DatabaseBackend):
         )
         return int(rows[0][0]) if rows else None
 
+    def _base_row(self, table: str, key: str, branch: str, entity_id: str) -> str | None:
+        """The base row this branch already keeps for this entity, if it keeps one."""
+        rows = self._fetch_all(
+            f"SELECT base_row FROM {table} WHERE org_id = ? AND branch_id = ? AND {key} = ?",
+            [self._org(), branch, entity_id],
+        )
+        return rows[0][0] if rows else None
+
+    def _base_rows(self, table: str, key: str, branch: str, ids: list[str]) -> dict[str, str | None]:
+        """The base rows this branch already keeps, by entity id."""
+        out: dict[str, str | None] = {}
+        for chunk in chunks(ids, self.IN_CHUNK):
+            for entity_id, base_row in self._fetch_all(
+                f"SELECT {key}, base_row FROM {table} WHERE org_id = ? AND branch_id = ? "
+                f"AND {key} IN ({self._marks(chunk)})",
+                [self._org(), branch, *chunk],
+            ):
+                out[entity_id] = base_row
+        return out
+
+    def _main_bases(
+        self, ids: list[str], kept: dict[str, str | None], branch_rows: dict[str, Any]
+    ) -> dict[str, str | None]:
+        """A base row per element: the one the branch already keeps, or main's row captured now."""
+        fresh = [i for i in ids if not kept.get(i) and i not in branch_rows]
+        mains = self._main_elements(fresh) if fresh else {}
+        links = self._links_of(fresh) if fresh else {}
+        out: dict[str, str | None] = dict(kept)
+        for eid in fresh:
+            main = mains.get(eid)
+            if main is None:
+                out[eid] = None
+                continue
+            was = self._public(main)
+            was["links"] = [ln.url for ln in links.get(eid, [])]
+            out[eid] = _dumps(was)
+        return out
+
     def _write_branch_element(self, branch: str, e: Element, base_version: int, op: str = "upsert") -> None:
         with self._lock:
             first_time = self._branch_element_row(branch, e.element_id) is None
+            # The row as main held it when this branch first touched it. Kept because
+            # `base_version` says only *that* main has moved, never *what* moved: without the
+            # base, a branch that changed a description and a main that changed a target state
+            # are indistinguishable from two edits of the same field.
+            base_row = self._base_row("branch_element", "element_id", branch, e.element_id)
+            if first_time and base_version > 0:
+                main = self._main_elements([e.element_id]).get(e.element_id)
+                if main is not None:
+                    was = self._public(main)
+                    # Links are part of the row for the purposes of a merge, so they are part
+                    # of what the branch started from.
+                    was["links"] = [ln.url for ln in self._main_links(e.element_id)]
+                    base_row = _dumps(was)
+                else:
+                    base_row = None
             self._execute(
                 "DELETE FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
                 [self._org(), branch, e.element_id],
             )
             self._insert_rows(
-                "branch_element", [self._element_values(e) + [branch, base_version, op, self._org()]]
+                "branch_element",
+                [self._element_values(e) + [branch, base_version, op, base_row, self._org()]],
             )
             if first_time and base_version > 0:
                 self._copy_main_links(branch, [e.element_id])
@@ -390,12 +449,18 @@ class SqlBackend(DatabaseBackend):
 
     def _write_branch_rel(self, branch: str, r: Relationship, base_version: int, op: str = "upsert") -> None:
         with self._lock:
+            first_time = self._branch_rel_row(branch, r.relationship_id) is None
+            base_row = self._base_row("branch_relationship", "relationship_id", branch, r.relationship_id)
+            if first_time and base_version > 0:
+                main = self._main_rels([r.relationship_id]).get(r.relationship_id)
+                base_row = _dumps(self._public(main)) if main else None
             self._execute(
                 "DELETE FROM branch_relationship WHERE org_id = ? AND branch_id = ? AND relationship_id = ?",
                 [self._org(), branch, r.relationship_id],
             )
             self._insert_rows(
-                "branch_relationship", [self._rel_values(r) + [branch, base_version, op, self._org()]]
+                "branch_relationship",
+                [self._rel_values(r) + [branch, base_version, op, base_row, self._org()]],
             )
 
     # ---------------------------------------------------------- lifecycle
@@ -1063,41 +1128,161 @@ class SqlBackend(DatabaseBackend):
         e.links = self.get_links(element_id)
         return e
 
-    def _where(
-        self, text: str | None, type_id: str | list[str] | None, status: str | None
-    ) -> tuple[str, list[Any]]:
-        clauses, params = [], []
-        for word in (text or "").split():  # every word must match somewhere
-            marks, bound = self._bind([f"%{word}%"] * 5)
+    @staticmethod
+    def _like(word: str) -> str:
+        """A reader's word as a LIKE pattern.
+
+        `%` and `_` are wildcards to SQL and ordinary characters to the person typing them,
+        so a search for '50%' would otherwise match every row holding '50'. They are escaped
+        here and every clause below says `ESCAPE '\\'`.
+        """
+        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    def _any_of(self, column: str, values: list[str]) -> tuple[str, list[Any]]:
+        """`column IN (...)`, or the empty-string case a grid sends for 'not set'."""
+        real = [v for v in values if v]
+        blank = len(real) < len(values)
+        parts, params = [], []
+        if real:
+            marks, bound = self._bind(real)
+            parts.append(f"{column} IN ({', '.join(marks)})")
+            params += bound
+        if blank:
+            parts.append(f"({column} IS NULL OR {column} = '')")
+        return ("(" + " OR ".join(parts) + ")") if parts else "", params
+
+    def _where(self, filt: ElementFilter | None) -> tuple[str, list[Any]]:
+        """Every criterion the filter carries, ANDed together."""
+        f = filt or ElementFilter()
+        clauses: list[str] = []
+        params: list[Any] = []
+        for word in f.words:  # every word must match somewhere
+            marks, bound = self._bind([self._like(word)] * 5)
             clauses.append(
-                f"(name ILIKE {marks[0]} OR key ILIKE {marks[1]} OR element_id ILIKE {marks[2]} "
-                f"OR description_md ILIKE {marks[3]} OR attrs ILIKE {marks[4]})"
+                f"(name ILIKE {marks[0]} ESCAPE '\\' OR key ILIKE {marks[1]} ESCAPE '\\' "
+                f"OR element_id ILIKE {marks[2]} ESCAPE '\\' OR description_md ILIKE {marks[3]} ESCAPE '\\' "
+                f"OR attrs ILIKE {marks[4]} ESCAPE '\\')"
             )
             params += bound
-        if type_id:
-            ids = [type_id] if isinstance(type_id, str) else list(type_id)
-            marks, bound = self._bind(ids)
-            clauses.append(f"type_id IN ({', '.join(marks)})")
+        for column, values in (
+            ("type_id", f.type_ids),
+            ("status", f.statuses),
+            ("current_state", f.current_states),
+            ("target_state", f.target_states),
+            ("target_work_package", f.work_packages),
+            ("source_system", f.sources),
+            ("lifecycle_status", f.lifecycle_statuses),
+        ):
+            if values:
+                clause, bound = self._any_of(column, list(values))
+                if clause:
+                    clauses.append(clause)
+                    params += bound
+        for a in f.attributes:
+            if not a.name:
+                continue
+            # The attribute is stored inside the row's JSON, so the name is matched as the
+            # key it is written as and the value as a substring of what follows it. A reader
+            # asking for an attribute with no value asks only that it is set.
+            marks, bound = self._bind(
+                [self._like(f'"{a.name}":')] + ([self._like(a.value)] if a.value else [])
+            )
+            clause = f"attrs ILIKE {marks[0]} ESCAPE '\\'"
+            if a.value:
+                clause += f" AND attrs ILIKE {marks[1]} ESCAPE '\\'"
+            clauses.append(f"({clause})")
             params += bound
-        if status:
-            clauses.append("status = ?")
-            params.append(status)
+        if f.updated_since is not None:
+            clauses.append("updated_at >= ?")
+            params.append(f.updated_since)
+        if f.updated_before is not None:
+            clauses.append("updated_at < ?")
+            params.append(f.updated_before)
+        if f.only_ids is not None:
+            if not f.only_ids:
+                return " WHERE 1 = 0", []
+            clause, bound = self._any_of("element_id", list(f.only_ids))
+            clauses.append(clause)
+            params += bound
         return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
 
+    def _rank(self, words: list[str]) -> tuple[str, list[Any]]:
+        """How well a row matches, as SQL, so the store ranks before it pages.
+
+        0 the name starts with what was typed, 1 the name, key or identifier holds every
+        word, 2 it matched somewhere else (a description, an attribute). Ranking in Python
+        over a page would rank only the rows that page happened to contain.
+        """
+        if not words:
+            return "0", []
+        params: list[Any] = []
+        prefix_mark, bound = self._bind([self._like(" ".join(words))[1:]])  # 'word%', not '%word%'
+        params += bound
+        alls = []
+        for column in ("name", "key", "element_id"):
+            marks, bound = self._bind([self._like(w) for w in words])
+            alls.append(" AND ".join(f"{column} ILIKE {m} ESCAPE '\\'" for m in marks))
+            params += bound
+        both = " OR ".join(f"({a})" for a in alls)
+        return (
+            f"CASE WHEN name ILIKE {prefix_mark[0]} ESCAPE '\\' THEN 0 WHEN {both} THEN 1 ELSE 2 END"
+        ), params
+
+    #: What each sort order is in SQL. Every one ends on the identifier, so a page boundary
+    #: never splits two rows that compare equal and shows one of them twice.
+    _SORT_SQL = {
+        "name": "name",
+        "type": "type_id",
+        "status": "status",
+        "updated": "updated_at",
+        "created": "created_at",
+    }
+
+    def _order_by(self, filt: ElementFilter | None) -> tuple[str, list[Any]]:
+        f = filt or ElementFilter()
+        direction = " DESC" if f.descending else ""
+        order = f.order()
+        if order == "relevance":
+            rank, params = self._rank(f.words)
+            return f" ORDER BY {rank}{direction}, name, element_id", params
+        return f" ORDER BY {self._SORT_SQL[order]}{direction}, element_id", []
+
     def find_elements(
-        self, text=None, type_id=None, status=None, limit: int = 200, offset: int = 0
+        self, filt: ElementFilter | None = None, limit: int = 200, offset: int = 0
     ) -> list[Element]:
-        where, params = self._where(text, type_id, status)
+        where, params = self._where(filt)
+        order, order_params = self._order_by(filt)
         rows = self._fetch_all(
-            f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el{where} ORDER BY name, element_id"
+            f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM {self._el()} AS el{where}{order}"
             + self._page(limit, offset),
-            params,
+            params + order_params,
         )
         return [self._row_to_element(r) for r in rows]
 
-    def count_elements(self, type_id=None, text=None, status=None) -> int:
-        where, params = self._where(text, type_id, status)
+    def count_elements(self, filt: ElementFilter | None = None) -> int:
+        where, params = self._where(filt)
         return int(self._fetch_all(f"SELECT COUNT(*) FROM {self._el()} AS el{where}", params)[0][0])
+
+    def distinct_values(self, column: str) -> list[str]:
+        """The values a filterable column actually holds, for the options on a filter control.
+
+        Only the columns the filter names may be asked for, so the name never reaches SQL
+        from anywhere but this list.
+        """
+        if column not in self._SORT_SQL and column not in (
+            "source_system",
+            "lifecycle_status",
+            "target_work_package",
+            "current_state",
+            "target_state",
+        ):
+            raise ValueError(f"{column} is not a filterable column")
+        rows = self._fetch_all(
+            f"SELECT DISTINCT {column} FROM {self._el()} AS el "
+            f"WHERE {column} IS NOT NULL AND {column} <> '' ORDER BY 1" + self._page(500)
+        )
+        return [r[0] for r in rows]
 
     def linked_element_ids(self) -> list[str]:
         """Ids of the elements that carry at least one link, on the current branch."""
@@ -1269,13 +1454,25 @@ class SqlBackend(DatabaseBackend):
             else:
                 branch_rows = self._versions("branch_element", "element_id", "base_version", ids, branch)
                 main_versions = self._versions("element", "element_id", "_version", ids)
+                # `_replace_rows` is a delete and an insert, so every column it does not name
+                # comes back empty. Leaving `base_row` out of the list meant one import onto a
+                # branch threw away what the branch started from — and nothing recaptures it,
+                # because the row is no longer new.
+                kept = self._base_rows("branch_element", "element_id", branch, ids)
+                bases = self._main_bases(ids, kept, branch_rows)
                 extra = [
-                    [branch, branch_rows.get(e.element_id, main_versions.get(e.element_id, 0)), "upsert", org]
+                    [
+                        branch,
+                        branch_rows.get(e.element_id, main_versions.get(e.element_id, 0)),
+                        "upsert",
+                        bases.get(e.element_id),
+                        org,
+                    ]
                     for e in elements
                 ]
                 self._replace_rows(
                     "branch_element",
-                    ELEMENT_COLUMNS + ["branch_id", "base_version", "op", "org_id"],
+                    ELEMENT_COLUMNS + ["branch_id", "base_version", "op", "base_row", "org_id"],
                     [r + x for r, x in zip(rows, extra, strict=True)],
                     ["org_id", "branch_id", "element_id"],
                 )
@@ -1612,18 +1809,31 @@ class SqlBackend(DatabaseBackend):
                     "branch_relationship", "relationship_id", "base_version", ids, branch
                 )
                 main_versions = self._versions("relationship", "relationship_id", "_version", ids)
+                kept = self._base_rows("branch_relationship", "relationship_id", branch, ids)
+                bases = {
+                    rid: kept.get(rid)
+                    or (
+                        None
+                        if rid in branch_rows
+                        else _dumps(self._public(m))
+                        if (m := self._main_rels([rid]).get(rid))
+                        else None
+                    )
+                    for rid in ids
+                }
                 extra = [
                     [
                         branch,
                         branch_rows.get(r.relationship_id, main_versions.get(r.relationship_id, 0)),
                         "upsert",
+                        bases.get(r.relationship_id),
                         org,
                     ]
                     for r in rels
                 ]
                 self._replace_rows(
                     "branch_relationship",
-                    RELATIONSHIP_COLUMNS + ["branch_id", "base_version", "op", "org_id"],
+                    RELATIONSHIP_COLUMNS + ["branch_id", "base_version", "op", "base_row", "org_id"],
                     [r + x for r, x in zip(rows, extra, strict=True)],
                     ["org_id", "branch_id", "relationship_id"],
                 )
@@ -1866,6 +2076,54 @@ class SqlBackend(DatabaseBackend):
         skip = {"version", "created_at", "created_by", "updated_at", "updated_by"}
         return sorted(k for k in after if k not in skip and before.get(k) != after.get(k))
 
+    def _three_way(
+        self,
+        was: dict[str, Any] | None,
+        before: dict[str, Any] | None,
+        after: dict[str, Any] | None,
+        main: Any,
+        base: int,
+        op: str,
+    ) -> tuple[list[str], list[str], list[str]]:
+        """What the branch changed, what main changed, and where the two disagree.
+
+        A version that moved says only that main was written; it does not say the two
+        disagree. With the base row, the branch's changes and main's changes are each a set
+        of fields, and only their **intersection** is a conflict — an architect who edited a
+        description and one who edited a target state have not disagreed about anything.
+
+        Without a base row (a branch written before this was kept, or a row the branch
+        added), the old rule stands: a moved version is treated as a conflict over
+        everything the branch touched, because nothing here can prove otherwise.
+        """
+        if main is None:
+            return [], [], []
+        now = self._public(main)
+        if before is not None and "links" in before:
+            now["links"] = before["links"]
+        if op == "delete":
+            # The branch wants the row gone and main has been writing to it. That is a
+            # disagreement about the whole row, and it used to pass as no conflict at all:
+            # the delete applied and main's edit went with it, unremarked.
+            theirs = self._changed_fields(was, now) if was is not None else []
+            if was is None and main.version != base:
+                return [], ["the row"], ["the row"]
+            return [], theirs, list(theirs)
+        if was is None:
+            if main.version == base:
+                return self._changed_fields(before, after), [], []
+            # No base to compare against: every field the branch touched is in dispute.
+            touched = self._changed_fields(before, after)
+            return touched, touched, touched
+        # A base written before links were part of it cannot speak about them.
+        blind = [] if "links" in was else ["links"]
+        mine = [f for f in self._changed_fields(was, after) if f not in blind]
+        theirs = [f for f in self._changed_fields(was, now) if f not in blind]
+        both = sorted(set(mine) & set(theirs))
+        # A field both sides moved to the *same* value is not a disagreement.
+        both = [f for f in both if (after or {}).get(f) != now.get(f)]
+        return mine, theirs, both
+
     def _main_elements(self, ids: list[str]) -> dict[str, Element]:
         out: dict[str, Element] = {}
         for chunk in chunks(ids, self.IN_CHUNK):
@@ -1917,7 +2175,7 @@ class SqlBackend(DatabaseBackend):
         org = self._org()
         items: list[ChangeItem] = []
         element_rows = self._fetch_all(
-            f"SELECT {', '.join(ELEMENT_COLUMNS)}, base_version, op FROM branch_element "
+            f"SELECT {', '.join(ELEMENT_COLUMNS)}, base_version, op, base_row FROM branch_element "
             f"WHERE org_id = ? AND branch_id = ? ORDER BY element_id",
             [org, branch_id],
         )
@@ -1927,7 +2185,7 @@ class SqlBackend(DatabaseBackend):
         branch_links = self._links_of(element_ids, branch_id)
         for row in element_rows:
             e = self._row_to_element(row[: len(ELEMENT_COLUMNS)])
-            base, op = int(row[-2]), row[-1]
+            base, op, base_row = int(row[-3]), row[-2], row[-1]
             main = mains.get(e.element_id)
             before = self._public(main) if main else None
             after = self._public(e) if op == "upsert" else None
@@ -1937,10 +2195,19 @@ class SqlBackend(DatabaseBackend):
                 change = "deleted"
             else:
                 change = "changed"
+            # `main` gone with a base version above zero means the row the branch started
+            # from was deleted on main. Writing the branch's copy back would resurrect it
+            # without anybody deciding to, so it is a conflict like any other.
+            gone_on_main = main is None and base > 0
+            was = _loads(base_row) if base_row else None
+            # Links are compared with the fields, not after them. They used to be attached
+            # once the three-way had run, so a branch that touched no field still replaced
+            # main's links on merge and nothing on the screen said it would.
             if before is not None:
                 before["links"] = [ln.url for ln in main_links.get(e.element_id, [])]
             if after is not None:
                 after["links"] = [ln.url for ln in branch_links.get(e.element_id, [])]
+            mine, theirs, both = self._three_way(was, before, after, main, base, op)
             items.append(
                 ChangeItem(
                     kind="element",
@@ -1949,25 +2216,32 @@ class SqlBackend(DatabaseBackend):
                     change=change,
                     base_version=base,
                     main_version=main.version if main else None,
-                    conflict=main is not None and main.version != base,
+                    conflict=gone_on_main or bool(both),
                     before=before,
                     after=after,
                     fields_changed=self._changed_fields(before, after),
+                    base=was,
+                    branch_fields=mine,
+                    main_fields=theirs,
+                    overlapping=both,
                 )
             )
         rel_rows = self._fetch_all(
-            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)}, base_version, op FROM branch_relationship "
+            f"SELECT {', '.join(RELATIONSHIP_COLUMNS)}, base_version, op, base_row FROM branch_relationship "
             f"WHERE org_id = ? AND branch_id = ? ORDER BY relationship_id",
             [org, branch_id],
         )
         main_rels = self._main_rels([row[0] for row in rel_rows])
         for row in rel_rows:
             r = self._row_to_rel(row[: len(RELATIONSHIP_COLUMNS)])
-            base, op = int(row[-2]), row[-1]
+            base, op, base_row = int(row[-3]), row[-2], row[-1]
             main = main_rels.get(r.relationship_id)
             before = self._public(main) if main else None
             after = self._public(r) if op == "upsert" else None
             change = "added" if main is None else ("deleted" if op == "delete" else "changed")
+            gone_on_main = main is None and base > 0
+            was = _loads(base_row) if base_row else None
+            mine, theirs, both = self._three_way(was, before, after, main, base, op)
             items.append(
                 ChangeItem(
                     kind="relationship",
@@ -1976,10 +2250,14 @@ class SqlBackend(DatabaseBackend):
                     change=change,
                     base_version=base,
                     main_version=main.version if main else None,
-                    conflict=main is not None and main.version != base,
+                    conflict=gone_on_main or bool(both),
                     before=before,
                     after=after,
                     fields_changed=self._changed_fields(before, after),
+                    base=was,
+                    branch_fields=mine,
+                    main_fields=theirs,
+                    overlapping=both,
                 )
             )
         return ChangeSet(branch=branch, items=items)
@@ -1995,14 +2273,24 @@ class SqlBackend(DatabaseBackend):
         branch_id: str,
         actor: str,
         include: set[str] | None = None,
-        resolutions: dict[str, str] | None = None,
+        resolutions: dict[str, str | dict[str, str]] | None = None,
     ) -> MergeResult:
-        """Apply the branch's rows to `main`, item by item.
+        """Apply the branch's rows to `main`, item by item, field by field.
 
         `include` names the item keys (`element:<id>`, `relationship:<id>`) to merge now; None
-        means every item. A conflicting item is applied only when `resolutions[key] == "branch"`;
-        with "main" it is dropped from the branch; otherwise it stays on the branch. Applied and
-        dropped rows leave the branch; the branch closes when nothing remains.
+        means every item. Every applied row is **main's current row with the branch's changed
+        fields laid over it**, so a branch that moved on does not revert what main did to the
+        fields it never touched.
+
+        A row is a conflict only where both sides changed the *same* field. `resolutions[key]`
+        decides it, and takes either form:
+
+        * `"branch"` — take the branch's value for every disputed field;
+        * `"main"` — drop the row from the branch, keeping main's as it is;
+        * `{field: "branch" | "main"}` — decide field by field. A disputed field the mapping
+          does not name is left undecided, and the row stays on the branch.
+
+        Applied and dropped rows leave the branch; the branch closes when nothing remains.
         """
         change_set = self.diff_branch(branch_id)
         if change_set.branch.status not in OPEN_STATUSES:
@@ -2018,18 +2306,93 @@ class SqlBackend(DatabaseBackend):
                 + [i for i in change_set.items if i.kind == "element"]
                 + [i for i in change_set.items if i.kind == "relationship" and i.change != "deleted"]
             )
+            # Which elements this merge will put on main. A merge of everything writes every
+            # end before the relationships that need them; a merge of some rows need not, so
+            # the ends are checked rather than assumed.
+            landing = {
+                i.entity_id
+                for i in ordered
+                if i.kind == "element"
+                and i.change != "deleted"
+                and (include is None or i.key in include)
+                and (not i.conflict or self._decided(resolutions.get(i.key)))
+            }
+            leaving = {
+                i.entity_id
+                for i in ordered
+                if i.kind == "element"
+                and i.change == "deleted"
+                and (include is None or i.key in include)
+                and (not i.conflict or self._decided(resolutions.get(i.key)))
+            }
             for item in ordered:
                 if include is not None and item.key not in include:
                     continue
+                take: dict[str, str] = {}
                 if item.conflict:
                     choice = resolutions.get(item.key)
                     if choice == "main":
                         self._drop_branch_row(branch_id, item)
                         result.dropped.append(item.key)
                         continue
-                    if choice != "branch":
+                    if choice == "branch":
+                        take = dict.fromkeys(item.overlapping, "branch")
+                    elif isinstance(choice, dict):
+                        if not item.overlapping:
+                            # Nothing here is disputed field by field — main deleted the row,
+                            # or the base is unknown — so a mapping cannot express the choice.
+                            result.held_back.append(
+                                {
+                                    "key": item.key,
+                                    "reason": "this one is the whole row: resolve it as branch or main",
+                                }
+                            )
+                            continue
+                        take = {f: v for f, v in choice.items() if f in item.overlapping}
+                        undecided = [f for f in item.overlapping if f not in take]
+                        if undecided:
+                            result.held_back.append(
+                                {"key": item.key, "reason": f"no decision for {', '.join(undecided)}"}
+                            )
+                            continue
+                        if all(v == "main" for v in take.values()) and not [
+                            f for f in item.branch_fields if f not in item.overlapping
+                        ]:
+                            # Every disputed field goes to main and the branch changed nothing
+                            # else, so the row has nothing left to contribute. `take` is never
+                            # empty here: an empty overlap was turned away above, and an
+                            # `all()` over nothing would have made this true for every row.
+                            self._drop_branch_row(branch_id, item)
+                            result.dropped.append(item.key)
+                            continue
+                    else:
+                        result.held_back.append({"key": item.key, "reason": "the conflict is not resolved"})
                         continue  # unresolved: stays on the branch
-                self._apply_item(branch_id, item, actor, now)
+                if (
+                    item.change == "changed"
+                    and item.before is not None
+                    and not item.branch_fields
+                    and not item.conflict
+                ):
+                    # The branch holds a copy of main's row and changed none of it — `set_links`
+                    # alone puts one there. Writing it back reverted every field main moved
+                    # since, with no conflict and nothing on the screen to say so.
+                    self._drop_branch_row(branch_id, item)
+                    result.dropped.append(item.key)
+                    continue
+                missing = self._ends_missing(item, landing, leaving)
+                if missing:
+                    # Writing it anyway would leave main holding a relationship to an element
+                    # that is not there — a broken model nothing on the branch can repair,
+                    # because the row that would repair it has already been merged away.
+                    result.held_back.append(
+                        {
+                            "key": item.key,
+                            "reason": f"{missing} is not on main and is not in this merge",
+                        }
+                    )
+                    continue
+                self._apply_item(branch_id, item, actor, now, take)
                 self._drop_branch_row(branch_id, item)
                 result.applied.append(item.key)
             result.remaining = self._branch_row_count(branch_id)
@@ -2048,9 +2411,81 @@ class SqlBackend(DatabaseBackend):
             )
         return result
 
-    def _apply_item(self, branch_id: str, item: ChangeItem, actor: str, now: datetime) -> None:
+    @staticmethod
+    def _decided(choice: Any) -> bool:
+        """Whether a resolution means the branch's row is going to land on main."""
+        return choice == "branch" or isinstance(choice, dict)
+
+    def _ends_missing(self, item: ChangeItem, landing: set[str], leaving: set[str]) -> str:
+        """The end of a relationship this merge would leave dangling on main, or empty.
+
+        `landing` is what this merge writes to main, `leaving` what it deletes from main.
+        An end counts as present when it is on main already and not being deleted, or when
+        this same merge is putting it there.
+        """
+        if item.kind != "relationship" or item.change == "deleted":
+            return ""
+        row = item.after or {}
+        for end in (row.get("src_id"), row.get("dst_id")):
+            if not end or end in landing:
+                continue
+            if end in leaving or self._main_element_version(end) is None:
+                return str(end)
+        return ""
+
+    #: Fields the merge never sets from the merged row: the first five describe the row's own
+    #: history on main rather than anything the branch decided, and `links` are their own
+    #: table — they are compared as a field and written as rows, below.
+    _NEVER_MERGED = ("version", "created_at", "created_by", "updated_at", "updated_by", "links")
+
+    def _merged_element(self, item: ChangeItem, branch_row: Element, take: dict[str, str]) -> Element:
+        """Main's row with the branch's changes laid over it, field by field.
+
+        Writing the branch's whole row was what made a conflict cost more than it should:
+        two architects editing different fields of one element, and whoever merged second
+        reverted the first one's work along with their own change landing. Only the fields
+        the branch actually changed are carried over now, and `take` decides the ones both
+        sides moved.
+        """
+        return self._lay_over(item, branch_row, take)
+
+    def _merged_rel(self, item: ChangeItem, branch_row: Relationship, take: dict[str, str]) -> Relationship:
+        return self._lay_over(item, branch_row, take)
+
+    def _lay_over(self, item: ChangeItem, branch_row: Any, take: dict[str, str]) -> Any:
+        # `before` is main's row. Without one there is nothing to lay over — the branch added
+        # this row — so the branch's own row stands. The *base* being unknown is a different
+        # thing: `_three_way` then treats every touched field as disputed, and `take` still
+        # decides them, which is why the guard reads `before` rather than `base`.
+        if item.before is None:
+            return branch_row
+        merged = item.merged_row(take)
+        for f, v in merged.items():
+            if f in self._NEVER_MERGED or not hasattr(branch_row, f):
+                continue
+            setattr(branch_row, f, v)
+        return branch_row
+
+    def _takes_links(self, item: ChangeItem, take: dict[str, str]) -> bool:
+        """Whether this merge should write the branch's links over main's.
+
+        Only when the branch actually changed them, and — where main changed them too — only
+        when somebody said the branch wins. A branch carries a copy of main's links from the
+        moment it first touches the element, so writing them unconditionally reverted every
+        link main added in the meantime.
+        """
+        if item.before is None:
+            return True  # a row the branch added brings its own links
+        if "links" not in item.branch_fields:
+            return False
+        return take.get("links", "branch") == "branch"
+
+    def _apply_item(
+        self, branch_id: str, item: ChangeItem, actor: str, now: datetime, take: dict[str, str] | None = None
+    ) -> None:
         origin_log = f"branch:{branch_id}"
         org = self._org()
+        take = take or {}
         if item.kind == "element":
             rows = self._fetch_all(
                 f"SELECT {', '.join(ELEMENT_COLUMNS)} FROM branch_element WHERE org_id = ? AND branch_id = ? AND element_id = ?",
@@ -2074,23 +2509,24 @@ class SqlBackend(DatabaseBackend):
                     origin_log,
                 )
                 return
-            e = self._row_to_element(rows[0])
+            e = self._merged_element(item, self._row_to_element(rows[0]), take)
             e.version = (item.main_version or 0) + 1
             e.updated_at, e.updated_by = now, actor
             if item.main_version is None:
                 e.created_at, e.created_by = e.created_at or now, e.created_by or actor
             self._execute("DELETE FROM element WHERE org_id = ? AND element_id = ?", [org, item.entity_id])
             self._insert_rows("element", [self._element_values(e) + [org]])
-            self._execute(
-                "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
-            )
-            self._insert_rows(
-                "element_link",
-                [
-                    [ln.link_id, item.entity_id, ln.url, ln.label or None, ln.sort_order, org]
-                    for ln in self._branch_links(branch_id, item.entity_id)
-                ],
-            )
+            if self._takes_links(item, take):
+                self._execute(
+                    "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
+                )
+                self._insert_rows(
+                    "element_link",
+                    [
+                        [ln.link_id, item.entity_id, ln.url, ln.label or None, ln.sort_order, org]
+                        for ln in self._branch_links(branch_id, item.entity_id)
+                    ],
+                )
             self._log(
                 "element",
                 item.entity_id,
@@ -2121,7 +2557,7 @@ class SqlBackend(DatabaseBackend):
                     origin_log,
                 )
                 return
-            r = self._row_to_rel(rows[0])
+            r = self._merged_rel(item, self._row_to_rel(rows[0]), take)
             r.version = (item.main_version or 0) + 1
             r.updated_at, r.updated_by = now, actor
             self._execute(
@@ -2307,12 +2743,47 @@ class SqlBackend(DatabaseBackend):
         return out
 
     # ---------------------------------------------------------------- sql
+    #: The content tables a branch overlays, with the branch table holding the overlay rows and
+    #: the key the two are matched on. A reader's own SQL is scoped by all three the same way
+    #: every other read is.
+    _OVERLAID = {
+        "element": ("branch_element", "element_id"),
+        "relationship": ("branch_relationship", "relationship_id"),
+        "element_link": ("branch_link", "element_id"),
+    }
+
+    def _overlay_cte(self, table: str, branch: str) -> str:
+        """One content table as the current branch sees it: main, minus what the branch
+        overrides, plus what the branch adds."""
+        overlay, key = self._OVERLAID[table]
+        org, b = self._qo(), self._q(branch)
+        cols = ", ".join(c for c in table_columns(table) if c != "op")
+        op = " AND op = 'upsert'" if overlay != "branch_link" else ""
+        return (
+            f"{table} AS (SELECT {cols} FROM {table} AS m WHERE m.org_id = {org} AND NOT EXISTS "
+            f"(SELECT 1 FROM {overlay} AS v WHERE v.org_id = {org} AND v.branch_id = {b} "
+            f"AND v.{key} = m.{key}) "
+            f"UNION ALL SELECT {cols} FROM {overlay} WHERE org_id = {org} AND branch_id = {b}{op})"
+        )
+
     def _scope_ctes(self) -> str:
-        """Common table expressions that shadow the content tables with the current organisation's
-        main and the metamodel tables with the version it applies, so a reader's own SQL answers
-        for where the reader is."""
+        """Common table expressions that shadow the content tables with what the reader is
+        standing on — the current organisation, the current branch's overlay, and the
+        metamodel version the organisation applies — so a reader's own SQL answers for where
+        the reader is rather than for main.
+
+        A reader on a branch used to get main's rows back from `ea sql` and from the agent's
+        SQL tool with nothing saying so, which made the one tool meant for checking a branch
+        the one tool that could not see it.
+        """
         org = self._qo()
-        ctes = [f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})" for t in ORG_TABLES]
+        branch = current_branch()
+        ctes = [
+            self._overlay_cte(t, branch)
+            if (branch != MAIN and t in self._OVERLAID)
+            else f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})"
+            for t in ORG_TABLES
+        ]
         current = self.get_organisation(current_org())
         if current is not None and current.pack_id:
             pid = validate_identifier(current.pack_id, "pack id")
@@ -2588,6 +3059,22 @@ class SqlBackend(DatabaseBackend):
             self._execute(f"DELETE FROM {name}")
         return int(held)
 
+    def _qualified_escape(self, bare: str) -> str:
+        """A schema or catalog name in the reader's query that would step around the scope.
+
+        The scoping below shadows the content tables by their **bare** names, so `element`
+        answers for the reader's organisation and branch. A qualified name — `ea_content.element`,
+        or the catalog before it — resolves to the base table instead and no shadow applies,
+        which reads every organisation's rows, not only the reader's. Naming a schema is
+        refused rather than rewritten: there is nothing a reader's query needs from one that
+        the bare name does not already give, and the system catalogues are how the schema
+        names are found in the first place.
+        """
+        for name in (*schemas(self.schema_prefix), *_SYSTEM_SCHEMAS):
+            if re.search(rf"\b{re.escape(name)}\s*\.", bare, re.IGNORECASE):
+                return name
+        return ""
+
     def query(
         self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
     ) -> pd.DataFrame:
@@ -2596,6 +3083,11 @@ class SqlBackend(DatabaseBackend):
         bare = re.sub(r"'(?:[^']|'')*'", "''", stripped)
         if ";" in bare or not _READ_ONLY_RE.match(bare) or _FORBIDDEN_RE.search(bare):
             raise ValueError("only a single read-only SELECT/WITH statement is allowed")
+        if scoped and (named := self._qualified_escape(bare)):
+            raise ValueError(
+                f"name the table on its own, not as {named}.<table>: a qualified name reads past "
+                f"the organisation and branch this query answers for"
+            )
         if scoped:
             ctes = self._scope_ctes()
             m = _WITH_RE.match(stripped)
