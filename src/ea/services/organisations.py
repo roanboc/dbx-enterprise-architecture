@@ -11,9 +11,16 @@ from __future__ import annotations
 
 from ea.backend.base import DatabaseBackend
 from ea.backend.organisations import DEFAULT_ORG, current_org, org_id_from_name, validate_org_id
+from ea.config import ROOT
+from ea.metamodel.catalogue import Starter, starters
+from ea.metamodel.loader import load_pack
 from ea.models import CompatibilityReport, ConflictError, NotFoundError, Organisation, Pack
 from ea.services.metamodel import MetamodelService
 from ea.services.roles import require
+
+#: Where the metamodels the repository ships live. A directory, not a list: adding a starter
+#: is adding a pack directory, and no framework's name appears in `src/` (principle `P5`).
+STARTER_DIR = ROOT / "packs"
 
 
 class OrganisationService:
@@ -131,6 +138,38 @@ class OrganisationService:
         """What the organisation's content would say under the version, without applying it."""
         org = self.get(org_id)
         return self.metamodels.compatibility(org.org_id, self.metamodels.get(pack_ref))
+
+    # ------------------------------------------------------ starting from a shipped metamodel
+    def starters(self) -> list[Starter]:
+        """The metamodels the repository ships, for somebody who has none of their own yet.
+
+        Read from disk every time rather than cached: the catalogue is two files and a page
+        that offered a stale one would be worse than one that took a millisecond longer.
+        """
+        return starters(STARTER_DIR)
+
+    def start_from(
+        self, pack_id: str, name: str, actor: str, description: str = "", org_id: str | None = None
+    ) -> Organisation:
+        """A new, empty organisation on one of the shipped metamodels.
+
+        Empty on purpose, and never the organisation the caller is in. Applying a different
+        framework to content typed against another one is refused by the compatibility check,
+        and forcing it past that leaves every element invalid — so 'start from this metamodel'
+        gives somewhere to start rather than re-pointing what is already there.
+
+        Storing the pack is a no-op when the store already holds that exact version, because
+        the file carries its identifier and `save_pack` matches on it — so pressing this twice
+        makes a second organisation, not a second metamodel.
+        """
+        require("manage_organisations", what="start an organisation from a metamodel")
+        found = next((s for s in self.starters() if s.pack_id == pack_id), None)
+        if found is None:
+            raise NotFoundError(pack_id, "starter metamodel")
+        pack = load_pack(found.path)
+        # Through the metamodel service, so its own gate and its validation both run.
+        self.metamodels.save(pack, actor)
+        return self.create(name, actor, description, pack_ref=pack.ref, org_id=org_id)
 
     def apply(self, org_id: str, pack_ref: str, actor: str, force: bool = False) -> CompatibilityReport:
         """Make the organisation apply the version. Refused on errors in the compatibility report

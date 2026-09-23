@@ -23,7 +23,7 @@ identifiers it came from.
 
 | Deliverable | Where |
 | ----------- | ----- |
-| **Metamodel manager** — one version at a time under six tabs: four editable lists (element types, relationship types, attributes, domains) where rows are added, edited and deleted with whatever depended on them; the type graph; the metamodel drawn as an architecture view; the notation editor; the versions and their lifecycle; and who reviews what. Export as a YAML pack, load one back | Metamodel page |
+| **Metamodel manager** — one version at a time under six tabs: five editable lists (domains, element types, relationship types, attributes, attribute groups) where rows are added, edited and deleted with whatever depended on them; the type graph; the metamodel drawn as an architecture view; the notation editor; the versions and their lifecycle; and who reviews what. Export as a YAML pack, load one back | Metamodel page |
 | **A metamodel in versions** — a pack is stored per version, drafted from another, compared with another row by row, published (and then frozen, so what was validated against it stays validated) or retired. Every part of a pack — the pack, a domain, a type, a relationship type, an attribute — carries a `properties` bag the engine keeps and never interprets, and an attribute declares its own rules: a default, several values, a unit, a pattern, bounds, a group and help | Metamodel page (Versions tab), `ea metamodel …` |
 | **Organisations** — the store holds more than one enterprise, one of them the default: each has its own elements, relationships, branches and reviews, and applies exactly one metamodel version. A change to the metamodel is tried in an organisation copied from the default, on the real content, and applied to the default when it is right — no second environment, and the check before applying says what the change would leave invalid | Organisations page, header selector, `ea org …`, `--org` on every command |
 | **Browse and edit elements** — search by type, text and status; Markdown descriptions, links, typed attributes read and edited in the groups the metamodel declares, relationships in and out with the attributes their type carries, neighbourhood graph, history; optimistic concurrency | Browse and Element pages |
@@ -75,7 +75,7 @@ seeded by `make seed`.
 
 | | |
 | --- | --- |
-| **Metamodel** — one version at a time: four editable lists, the type graph, the architecture view, the notation, the versions and the reviewers ![Metamodel](docs/screenshots/metamodel.png) | **Organisations** — who applies which version of the metamodel, and where a change is tried before it reaches the default ![Organisations](docs/screenshots/organisations.png) |
+| **Metamodel** — one version at a time: five editable lists, the type graph, the architecture view, the notation, the versions and the reviewers ![Metamodel](docs/screenshots/metamodel.png) | **Organisations** — who applies which version of the metamodel, and where a change is tried before it reaches the default ![Organisations](docs/screenshots/organisations.png) |
 | **Health** — freshness per source, completeness per type, every figure a link ![Health](docs/screenshots/health.png) | |
 
 ## Quick start
@@ -197,7 +197,14 @@ provenance, attributes of their own). Anything the format does not name is kept
 in a `properties` bag rather than dropped. See
 [`packs/README.md`](./packs/README.md). Load it with
 `uv run ea init --pack packs/<name>/metamodel.yaml`, or edit any pack in the
-Metamodel page and export it.
+Metamodel page and export it. The two packs that ship are also offered on the
+Organisations page: pick one and it starts a new, empty organisation typed
+against it.
+
+A pack's `id:` is opaque and permanent, so its `name:` is a label that is
+corrected at any point in a version's life, a published one included. Name a
+version on the command line by its name or by the first few characters of its
+identifier.
 
 A pack is stored under a version, and a version is a draft until it is
 published, after which it is frozen. To try a change: draft a version from the

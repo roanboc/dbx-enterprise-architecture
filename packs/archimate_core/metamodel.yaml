@@ -15,7 +15,10 @@
 # belongs to any institution.
 
 pack:
-  id: archimate_core
+  # Opaque and permanent (decision 0021): minted once, carried by this file, and never
+  # recomputed — so the name below is free to change and a store that already held this
+  # framework as `archimate_core` is brought forward onto the same key rather than forking it.
+  id: mm_j20ftrptcdf8h0za
   name: ArchiMate Core
   version: "3.2"
   status: published

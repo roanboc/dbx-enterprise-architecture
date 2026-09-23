@@ -7,6 +7,8 @@ not only that nothing broke.
 
 from __future__ import annotations
 
+from tests.conftest import HIGHER_ED
+
 from ea.models import CompatibilityReport, Issue
 from ea.ui.pages.organisations import report_view
 
@@ -32,7 +34,7 @@ def _texts(component) -> str:
 
 def test_a_clean_verdict_says_how_much_it_checked():
     report = CompatibilityReport(
-        org_id="q-sandbox", pack_id="higher_education", version="2026-09-20", elements=47, relationships=99
+        org_id="q-sandbox", pack_id=HIGHER_ED, version="2026-09-20", elements=47, relationships=99
     )
     said = _texts(report_view(report, applied=True))
     assert "Applied." in said
@@ -43,7 +45,7 @@ def test_a_clean_verdict_says_how_much_it_checked():
 def test_a_verdict_with_findings_is_the_report_s_own_summary():
     report = CompatibilityReport(
         org_id="q-sandbox",
-        pack_id="higher_education",
+        pack_id=HIGHER_ED,
         version="2026-09-20",
         elements=47,
         relationships=99,

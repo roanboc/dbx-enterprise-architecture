@@ -64,6 +64,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.conftest import HIGHER_ED
 from tests.ui.evidence import Finding
 
 from ea.metamodel import Registry, load_pack
@@ -1321,9 +1322,11 @@ def test_a_reader_may_take_every_file(ui, record):
     ui.goto("/metamodel")
     ui.check("a Reader may not save the metamodel", ui.disabled("mm-save"))
     pack = ui.download("mm-export", ".yaml")
+    # The file carries the identifier the pack is stored under — opaque since decision 0021,
+    # so it is derived the way the store derives it rather than written down here.
     ui.check(
         "but may export it",
-        (yaml.safe_load(_text(pack)) or {}).get("pack", {}).get("id") == PACK,
+        (yaml.safe_load(_text(pack)) or {}).get("pack", {}).get("id") == HIGHER_ED,
         pack.name,
     )
     ui.shot("The Metamodel page as a Reader: Save refused, Export YAML given")

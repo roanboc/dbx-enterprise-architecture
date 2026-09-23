@@ -6,6 +6,7 @@ Knows nothing about SQL, YAML or Dash. Every other layer imports from here.
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -43,6 +44,81 @@ def validate_identifier(value: str, what: str = "identifier") -> str:
     if not IDENT_RE.match(value or ""):
         raise ValueError(f"{what} {value!r} must match {IDENT_RE.pattern}")
     return value
+
+
+# ------------------------------------------------------------------ a pack's own identifier
+#
+# A framework's identifier is the key of `meta_pack`, of the five tables under it and of every
+# organisation that applies a version of it. It used to be a readable slug, which meant it read
+# like a name while being a key: rename the framework and the key was left describing something
+# that no longer existed, with nothing that would ever notice. It is opaque now, and the name
+# beside it is free to change (decisions 0021 and 0022).
+#
+# Crockford's base32 alphabet, which drops `i`, `l`, `o` and `u` — so the identifier never reads
+# back as a word, and `1`/`l` and `0`/`O` cannot be confused by somebody copying one off a screen.
+_BASE32 = "0123456789abcdefghjkmnpqrstvwxyz"
+#: `mm_` and 16 characters: 80 bits, which needs no registry to stay unique, and 19 characters
+#: in total, which is short enough to read back over a desk. The prefix makes the first character
+#: a letter (so `IDENT_RE` still matches it, and no column, index or DDL changes) and lets a
+#: reference be told from a name by looking at it.
+PACK_ID_RE = re.compile(r"^mm_[0-9abcdefghjkmnpqrstvwxyz]{16}$")
+PACK_ID_PREFIX = "mm_"
+#: The namespace a legacy identifier is folded into. Fixed, so every machine derives the same
+#: key from the same old identifier: a store migrated in place and one seeded from the shipped
+#: file land on one key rather than forking the framework in two.
+_PACK_NS = uuid.UUID("6f2a1c74-4d3b-5e89-b0a7-1f5c8e2d9430")
+
+
+def _b32(raw: bytes) -> str:
+    """Ten bytes as sixteen Crockford base32 characters."""
+    n = int.from_bytes(raw, "big")
+    out = []
+    for _ in range(16):
+        n, r = divmod(n, 32)
+        out.append(_BASE32[r])
+    return "".join(reversed(out))
+
+
+def new_pack_id() -> str:
+    """A pack identifier nobody has used before.
+
+    Minted when a framework is first written down, and never again: not on load, not on a save,
+    and never from the content, which would move the key every time a draft was edited.
+    """
+    return PACK_ID_PREFIX + _b32(uuid.uuid4().bytes[:10])
+
+
+def pack_id_from_legacy(old: str) -> str:
+    """The identifier a framework stored under a readable slug takes instead.
+
+    Derived rather than minted, and derived from the *old identifier* — which never changes
+    again once this has run — so a store brought forward in place and one seeded fresh from the
+    shipped file agree on the key without either having to ask the other.
+    """
+    return PACK_ID_PREFIX + _b32(uuid.uuid5(_PACK_NS, old).bytes[:10])
+
+
+def is_pack_id(value: str) -> bool:
+    """Whether a token is an identifier at all, which is how a reference is told from a name."""
+    return bool(PACK_ID_RE.match(value or ""))
+
+
+def validate_pack_id(value: str, what: str = "pack id") -> str:
+    if not is_pack_id(value):
+        raise ValueError(
+            f"{what} {value!r} must be {PACK_ID_PREFIX!r} and 16 characters of "
+            f"{_BASE32!r} — an identifier is minted, never written by hand"
+        )
+    return value
+
+
+def short_pack_id(value: str, n: int = 6) -> str:
+    """The first few characters, which is what a person copies and types.
+
+    Long enough to be unique in any store worth calling one, short enough to fit in a cell
+    beside the name it belongs to.
+    """
+    return (value or "")[: len(PACK_ID_PREFIX) + n]
 
 
 def validate_version(value: str, what: str = "version") -> str:
@@ -205,9 +281,12 @@ class RelationshipType:
 class Pack:
     """One version of a framework: the whole definition, and how far it has come.
 
-    A pack id names the framework; a version names one stored definition of it, whether it
-    succeeds the one before or is a variant tried beside it. `derived_from` names the version
-    a draft was copied from, as `<pack id>@<version>`.
+    A pack id keys the framework: opaque, minted once and never recomputed, so it outlives
+    every name the framework is given (decision 0021). The `name` beside it is a label for a
+    reader and nothing keys off it, which is why it is corrected at any point in a version's
+    life, a published one included (decision 0022). A version names one stored definition,
+    whether it succeeds the one before or is a variant tried beside it; `derived_from` names
+    the version a draft was copied from, as `<pack id>@<version>`.
     """
 
     id: str
@@ -227,7 +306,10 @@ class Pack:
     properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        validate_identifier(self.id, "pack id")
+        validate_pack_id(self.id)
+        self.name = (self.name or "").strip()
+        if not self.name:
+            raise ValueError(f"pack {self.id}: a name is required — it is what a reader sees")
         self.version = validate_version(str(self.version or "1"), f"pack {self.id}: version")
         if self.status not in PACK_STATUSES:
             raise ValueError(f"pack {self.id}: status must be one of {PACK_STATUSES}")
@@ -263,7 +345,18 @@ class PackVersion:
 
     @property
     def ref(self) -> str:
+        """The canonical key. Stored and passed between layers; not what a person is shown."""
         return f"{self.pack_id}@{self.version}"
+
+    @property
+    def label(self) -> str:
+        """What a version is called on a screen or a line of output: its name and its version."""
+        return f"{self.name or self.pack_id} {self.version}"
+
+    @property
+    def short_id(self) -> str:
+        """The part of the identifier a person copies to type it back."""
+        return short_pack_id(self.pack_id)
 
 
 @dataclass
@@ -870,6 +963,10 @@ class CompatibilityReport:
     org_id: str
     pack_id: str
     version: str
+    #: The pack's name, carried on the report because `summary()` is read by people — on the
+    #: command line and on the Organisations page — and neither has the metamodel service to
+    #: hand to look one up. An identifier alone tells a reader nothing now that it is opaque.
+    pack_name: str = ""
     elements: int = 0
     relationships: int = 0
     issues: list[Issue] = field(default_factory=list)
@@ -902,7 +999,8 @@ class CompatibilityReport:
 
     def summary(self) -> str:
         return (
-            f"{self.pack_id}@{self.version} on {self.org_id}: {self.elements} elements and "
+            f"{self.pack_name or self.pack_id} {self.version} on {self.org_id}: "
+            f"{self.elements} elements and "
             f"{self.relationships} relationships checked; {self.total_errors} errors, "
             f"{self.total_warnings} warnings"
         ) + (f" ({len(self.issues)} listed)" if self.truncated else "")
@@ -929,8 +1027,11 @@ class NotFoundError(Exception):
     refused. An identifier on its own answers nothing.
     """
 
-    def __init__(self, identifier: str, kind: str = "element") -> None:
-        super().__init__(f"no {kind} with id {identifier}")
+    def __init__(self, identifier: str, kind: str = "element", message: str = "") -> None:
+        # `message` is for the cases where "with id X" is the wrong sentence — a metamodel is
+        # named as readily as it is keyed, so a refusal that says "id" sends the reader looking
+        # for the wrong thing.
+        super().__init__(message or f"no {kind} with id {identifier}")
         self.identifier = identifier
         self.kind = kind
 

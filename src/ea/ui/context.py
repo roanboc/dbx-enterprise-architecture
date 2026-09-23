@@ -192,8 +192,11 @@ class AppContext:
         """
         p = self.registry.pack
         several = len({v.pack_id for v in self.metamodels.versions()}) > 1
+        # The NAME where there is a choice, never the identifier: it is opaque now
+        # (decision 0021), so in the header it would be a string nobody can act on in the
+        # width the organisation's own name needs.
         return (
-            (f"{p.id} · " if several else "")
+            (f"{p.name} · " if several else "")
             + p.version
             + ("" if p.status == "published" else f" · {p.status}")
         )

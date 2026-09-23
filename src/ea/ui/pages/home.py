@@ -59,7 +59,7 @@ def render(ctx: AppContext) -> html.Div:
         [
             page_title(
                 ctx.organisation().name,
-                f"{reg.pack.name}, version {reg.pack.version} ({reg.pack.status}), pack `{reg.pack.id}`. "
+                f"{reg.pack.name}, version {reg.pack.version} ({reg.pack.status}). "
                 "Everything below is derived from that metamodel and the content loaded into this organisation.",
             ),
             dmc.SimpleGrid(

@@ -33,6 +33,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.conftest import HIGHER_ED
+
+from ea.models import short_pack_id, slugify
 
 pytestmark = pytest.mark.gui
 
@@ -55,18 +58,26 @@ DELETED_TYPE = "measure"  # J21 deletes it from the draft: the sample model uses
 NEW_DOMAIN = "j_domain"
 NEW_DOMAIN_NAME = "J Domain"
 
-PACK = "higher_education"
-PUBLISHED = "higher_education@2026-08-11"  # the shipped version, published
+# The directory the shipped pack lives in, and the identifier it is stored under. The two
+# parted at decision 0021: an identifier is opaque now, so it is derived the way the file and
+# the store derive it rather than written down, and a screen or a file name carries the NAME.
+PACK_DIR = "higher_education"
+PACK = HIGHER_ED
+SHIPPED_NAME = "Higher Education EA Metamodel"
+SLUG = slugify(SHIPPED_NAME)  # what a downloaded file is named for
+PUBLISHED = f"{PACK}@2026-08-11"  # the shipped version, published
 PUBLISHED_VERSION = "2026-08-11"
 DRAFT = "j-draft"
 DRAFT_REF = f"{PACK}@{DRAFT}"
 FILE_VERSION = "j-file"
 FILE_REF = f"{PACK}@{FILE_VERSION}"
 ORG = "Default organisation"
-SHIPPED_FILE = Path(__file__).resolve().parents[2] / "packs" / PACK / "metamodel.yaml"
+SHIPPED_FILE = Path(__file__).resolve().parents[2] / "packs" / PACK_DIR / "metamodel.yaml"
 
 TABS = ["Manage", "Graph", "Architecture view", "Notation", "Versions", "Reviewers"]
-LISTS = ["Element types", "Relationship types", "Attributes", "Domains"]
+# In the order the Manage tab draws its pills: a domain groups element types, a type carries
+# attributes, an attribute names one of the groups. The page opens on the first of them.
+LISTS = ["Domains", "Element types", "Relationship types", "Attributes", "Attribute groups"]
 DOMAINS = ["Information", "Process", "Integration", "Objects of enterprise concern"]
 COUNTS = re.compile(r"(\d+) active types, (\d+) inactive, (\d+) relationship types, (\d+) attributes")
 
@@ -94,10 +105,17 @@ def _action_id(action: str, ref: str) -> str:
 
 
 def _open(ui) -> None:
-    """A fresh Metamodel page, showing the version the organisation applies, on the Manage tab.
+    """A fresh Metamodel page, on the Manage tab with the element types open.
+
+    Manage opens on Domains, its first pill; nearly every scenario below works in the element
+    types grid, so this puts them there. J04 is the one that reads which pill a fresh page
+    opens on, so the click here is not asserted — a default that moves again should move one
+    scenario, not abort forty.
 
     Anything typed into a grid and not saved is gone."""
     ui.goto("/metamodel")
+    ui.click('#mm-lists [role="tab"]:has-text("Element types")')
+    ui.page.wait_for_timeout(250)
     ui.must("the Metamodel page rendered its lists", ui.visible("mm-types-grid"))
 
 
@@ -108,7 +126,7 @@ def _tab(ui, label: str) -> None:
 
 
 def _list(ui, label: str) -> None:
-    """One of the four lists inside Manage."""
+    """One of the five lists inside Manage."""
     _tab(ui, "Manage")
     ui.click(f'#mm-lists [role="tab"]:has-text("{label}")')
     ui.page.wait_for_timeout(250)
@@ -426,8 +444,11 @@ def _row_of(ui, ref: str) -> str:
         row = rows.nth(i)
         first = row.locator("td").first
         # A draft names the version it was derived from in a column of its own, so a row is
-        # found by the version it *is* — its first cell — not by one it mentions.
-        if first.count() and ref in first.inner_text():
+        # found by the version it *is* — its first cell — not by one it mentions. That cell
+        # prints the version and the short identifier, never the whole key (decision 0021).
+        pack_id, _, version = ref.partition("@")
+        text = first.inner_text() if first.count() else ""
+        if version and version in text.split() and short_pack_id(pack_id) in text:
             return re.sub(r"\s+", " ", row.inner_text()).strip().lower()
     return ""
 
@@ -768,16 +789,21 @@ def test_tapping_a_type_fills_the_detail(ui, record):
 @pytest.mark.scenario(
     scenario_id="J04",
     group="J",
-    title="Six tabs over the version, and four lists inside Manage",
+    title="Six tabs over the version, and five lists inside Manage",
     feature="Metamodel · tabs",
     expected=(
         "Manage, Graph, Architecture view, Notation, Versions and Reviewers each open, mark themselves "
-        "current and show their own panel; inside Manage the four lists each open their own grid, "
-        "with the count of rows in the pill's label."
+        "current and show their own panel; inside Manage the five lists are drawn in the order a "
+        "metamodel is read — domains, element types, relationship types, attributes, attribute "
+        "groups — a fresh page opens on the first of them, and each opens its own grid with the "
+        "count of rows in the pill's label."
     ),
 )
 def test_the_tabs_and_the_lists(ui, record):
-    _open(ui)
+    # Not `_open`, which clicks onto the element types for the scenarios that follow: this is
+    # the one scenario that reads a fresh page, so it goes there itself.
+    ui.goto("/metamodel")
+    ui.must("the Metamodel page rendered its lists", ui.visible("mm-domains-grid"))
     tabs = ui.page.locator('#mm-tabs > [role="tablist"] [role="tab"]')
     ui.check(
         "the page offers the six tabs",
@@ -786,7 +812,7 @@ def test_the_tabs_and_the_lists(ui, record):
     )
     ui.check("Manage is open to begin with", _active_tab(ui) == "Manage", _active_tab(ui))
     proof = {
-        "Manage": lambda: ui.visible("mm-types-grid"),
+        "Manage": lambda: ui.visible("mm-domains-grid"),
         "Graph": lambda: ui.visible(GP_CY),
         "Architecture view": lambda: (ui.wait_mermaid(), ui.visible(VIEW))[1],
         "Notation": lambda: ui.visible("mm-notation-domains-grid"),
@@ -798,17 +824,25 @@ def test_the_tabs_and_the_lists(ui, record):
         ui.check(f"the {label} tab marks itself current", _active_tab(ui) == label, _active_tab(ui))
         ui.check(f"the {label} tab shows its own panel", proof[label]())
     ui.shot("The Reviewers tab, the last of the six, open over its own grid")
+    # Attribute groups is drawn and counted like the rest, so it is read like the rest. It can
+    # be legitimately empty, which is why its rows are not required below.
     grids = {
+        "Domains": "mm-domains-grid",
         "Element types": "mm-types-grid",
         "Relationship types": "mm-rels-grid",
         "Attributes": "mm-attrs-grid",
-        "Domains": "mm-domains-grid",
+        "Attribute groups": "mm-groups-grid",
     }
     _tab(ui, "Manage")
     pills = ui.page.locator('#mm-lists [role="tab"]').all_inner_texts()
     ui.check(
         "each list says how many rows it holds",
         all(re.search(r"\(\d+\)$", p.strip()) for p in pills),
+        str(pills),
+    )
+    ui.check(
+        "the lists are drawn in the order a metamodel is read",
+        [re.sub(r"\s*\(\d+\)$", "", p.strip()) for p in pills] == LISTS,
         str(pills),
     )
     for label, grid in grids.items():
@@ -821,8 +855,9 @@ def test_the_tabs_and_the_lists(ui, record):
             not any(ui.visible(g) for g in others),
             f"visible: {[g for g in others if ui.visible(g)]}",
         )
-        ui.check(f"the {label} grid has rows", ui.grid_row_count(grid) > 0, f"{grid} is empty")
-    ui.shot("Manage: the Domains list, the last of the four, open over its own grid")
+        if label != "Attribute groups":
+            ui.check(f"the {label} grid has rows", ui.grid_row_count(grid) > 0, f"{grid} is empty")
+    ui.shot("Manage: the Attribute groups list, the last of the five, open over its own grid")
 
 
 @pytest.mark.scenario(
@@ -946,7 +981,11 @@ def test_save_on_the_published_version_creates_a_draft(ui, record):
     ui.page.wait_for_timeout(300)
     ui.settle()
     feedback = ui.text("mm-feedback")
-    ui.must("the draft was created", f"Draft {DRAFT_REF} created from {PUBLISHED}" in feedback, feedback)
+    ui.must(
+        "the draft was created",
+        f"Draft {SHIPPED_NAME} {DRAFT} created from {SHIPPED_NAME} {PUBLISHED_VERSION}" in feedback,
+        feedback,
+    )
     ui.check("the dialog closed", not ui.visible("mm-draft-modal-body"))
     ui.check("nothing was applied", "Applied to" not in feedback, feedback)
     subtitle = ui.text("mm-subtitle")
@@ -1353,7 +1392,7 @@ def test_export_the_pack(ui, record):
     path = ui.download("mm-export", ".yaml")
     ui.check(
         "the file is named for the pack and the version",
-        path.name == f"{PACK}-{DRAFT}-metamodel.yaml",
+        path.name == f"{SLUG}-{DRAFT}-metamodel.yaml",
         path.name,
     )
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -1395,7 +1434,7 @@ def test_export_the_pack(ui, record):
     shipped = ui.download(_action_id("export", PUBLISHED), ".yaml")
     ui.check(
         "a row's Export names its own version",
-        shipped.name == f"{PACK}-{PUBLISHED_VERSION}-metamodel.yaml",
+        shipped.name == f"{SLUG}-{PUBLISHED_VERSION}-metamodel.yaml",
         shipped.name,
     )
     shipped_data = yaml.safe_load(shipped.read_text(encoding="utf-8"))
@@ -1423,7 +1462,13 @@ def test_versions_tab(ui, record):
     _open(ui)
     table = _versions(ui)
     ui.check("the tab says what a version's state means", "a published version is frozen" in ui.body())
-    ui.must("both versions are listed", PUBLISHED in table and DRAFT_REF in table, table[:300])
+    # Version, short identifier and name: the full reference is on the row's tooltip, not in
+    # its text, because an opaque key is not something a reader reads (decision 0021).
+    ui.must(
+        "both versions are listed",
+        PUBLISHED_VERSION in table and DRAFT in table and SHIPPED_NAME in table and PACK[:9] in table,
+        table[:300],
+    )
     published = _row_of(ui, PUBLISHED)
     draft = _row_of(ui, DRAFT_REF)
     ui.check(
@@ -1450,8 +1495,10 @@ def test_versions_tab(ui, record):
     )
     cmp_from = ui.page.locator("#mm-cmp-a").first.input_value()
     cmp_to = ui.page.locator("#mm-cmp-b").first.input_value()
-    ui.check("Compare starts from the version shown", PUBLISHED in cmp_from, cmp_from)
-    ui.check("to the other version in the store", DRAFT_REF in cmp_to, cmp_to)
+    ui.check(
+        "Compare starts from the version shown", f"{SHIPPED_NAME} {PUBLISHED_VERSION}" in cmp_from, cmp_from
+    )
+    ui.check("to the other version in the store", f"{SHIPPED_NAME} {DRAFT}" in cmp_to, cmp_to)
     ui.click("mm-cmp-run")
     result = ui.text("mm-cmp-result")
     ui.check(
@@ -1466,7 +1513,7 @@ def test_versions_tab(ui, record):
     )
     ui.check("and counts what changed", "element type: 1 changed" in result, result[:200])
     ui.shot("The Versions tab: both versions, and the difference between them")
-    ui.select("mm-cmp-b", PUBLISHED, exact=False)
+    ui.select("mm-cmp-b", f"{SHIPPED_NAME} {PUBLISHED_VERSION}", exact=False)
     ui.click("mm-cmp-run")
     ui.check(
         "a version compared with itself is reported as the same",
@@ -1617,7 +1664,7 @@ def test_architecture_view(ui, record):
     md = ui.download("mm-view-md", ".md")
     ui.check(
         "the Markdown is named for the version",
-        md.name == f"{PACK}-{PUBLISHED_VERSION}-metamodel.md",
+        md.name == f"{SLUG}-{PUBLISHED_VERSION}-metamodel.md",
         md.name,
     )
     text = md.read_text(encoding="utf-8")
@@ -2221,7 +2268,11 @@ def test_publish_retire_and_delete(ui, record):
     _open(ui)
     _versions(ui)
     feedback = _act(ui, "publish", DRAFT_REF)
-    ui.must("the draft was published", f"{DRAFT_REF} is published and frozen." in feedback, feedback)
+    ui.must(
+        "the draft was published",
+        f"{SHIPPED_NAME} {DRAFT} is published: what it defines is frozen" in feedback,
+        feedback,
+    )
     row = _row_of(ui, DRAFT_REF)
     ui.check("the row says it is published", "published" in row, row)
     ui.check("Publish is off once it is published", ui.disabled(_action_id("publish", DRAFT_REF)))
@@ -2255,23 +2306,23 @@ def test_publish_retire_and_delete(ui, record):
     _act(ui, "retire", DRAFT_REF)
     ui.check(
         "Retire asks first, naming the version",
-        f"Retire {DRAFT_REF}?" in ui.text("mm-confirm-text"),
+        f"Retire {SHIPPED_NAME} {DRAFT}?" in ui.text("mm-confirm-text"),
         ui.text("mm-confirm-text"),
     )
     feedback = _confirm(ui)
-    ui.must("the version was retired", f"{DRAFT_REF} is retired." in feedback, feedback)
+    ui.must("the version was retired", f"{SHIPPED_NAME} {DRAFT} is retired." in feedback, feedback)
     ui.check("the row says so", "retired" in _row_of(ui, DRAFT_REF), _row_of(ui, DRAFT_REF))
     ui.check("a retired version may be deleted", not ui.disabled(_action_id("delete", DRAFT_REF)))
     ui.shot("The version retired: kept for the record, no longer applicable")
     _act(ui, "delete", DRAFT_REF)
     ui.check(
         "Delete asks first, naming the version",
-        f"Delete {DRAFT_REF}?" in ui.text("mm-confirm-text"),
+        f"Delete {SHIPPED_NAME} {DRAFT}?" in ui.text("mm-confirm-text"),
         ui.text("mm-confirm-text"),
     )
     feedback = _confirm(ui)
-    ui.must("the version was deleted", f"{DRAFT_REF} deleted." in feedback, feedback)
-    ui.check("the table no longer lists it", DRAFT_REF not in ui.text("mm-versions-table"))
+    ui.must("the version was deleted", f"{SHIPPED_NAME} {DRAFT} deleted." in feedback, feedback)
+    ui.check("the table no longer lists it", DRAFT not in ui.text("mm-versions-table"))
     ui.check(
         "the page fell back to the version the organisation applies",
         f"version {PUBLISHED_VERSION} (published)" in ui.text("mm-subtitle"),
@@ -2302,10 +2353,14 @@ def test_load_a_yaml_file(ui, record):
         version=PUBLISHED_VERSION,
         name="J edited edition",
     )
+    # A file that differs from a published version only in its NAME is a rename, and takes
+    # effect: a name is a label, not part of what a version defines (decision 0022). The file
+    # says `draft` in its header; the store's own status is what is reported.
     feedback = _upload(ui, frozen)
     ui.check(
-        "a file that differs from a published version is refused",
-        feedback.startswith("j-frozen.yaml not loaded:") and "frozen" in feedback,
+        "a file that only renames a published version is accepted as a rename",
+        feedback.startswith(f"Loaded J edited edition {PUBLISHED_VERSION} (published)")
+        and f"Renamed from {SHIPPED_NAME}" in feedback,
         feedback,
     )
     ui.check(
@@ -2313,11 +2368,43 @@ def test_load_a_yaml_file(ui, record):
         _pack_badge(ui) == PUBLISHED_VERSION,
         _pack_badge(ui),
     )
+    ui.check(
+        "and the subtitle carries the new name",
+        "J edited edition" in ui.text("mm-subtitle"),
+        ui.text("mm-subtitle"),
+    )
+
+    # What a version DEFINES is still frozen — the narrowing is exactly one field wide.
+    broken = _pack_file(
+        ui.run_dir,
+        "j-broken",
+        "J: a definition changed under a published version",
+        version=PUBLISHED_VERSION,
+        name="J edited edition",
+    )
+    data = yaml.safe_load(broken.read_text(encoding="utf-8"))
+    data["element_types"][0]["name"] = "J Participant"
+    broken.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    feedback = _upload(ui, broken)
+    ui.check(
+        "a file that changes what a published version defines is refused as frozen",
+        feedback.startswith("j-broken.yaml not loaded:") and "frozen" in feedback,
+        feedback,
+    )
+
+    # Renamed back the same way, so the rest of the round reads the shipped name — which is
+    # itself the rename proved in the other direction.
+    back = _pack_file(
+        ui.run_dir, "j-back", "J: the shipped name restored", version=PUBLISHED_VERSION, name=SHIPPED_NAME
+    )
+    feedback = _upload(ui, back)
+    ui.check("and renamed back", "Renamed from J edited edition" in feedback, feedback)
+
     trial = _pack_file(ui.run_dir, FILE_VERSION, "J: loaded from a file")
     feedback = _upload(ui, trial)
     ui.must(
         "the file's version was stored",
-        feedback.startswith(f"Loaded {FILE_REF} (draft) from {FILE_VERSION}.yaml."),
+        feedback.startswith(f"Loaded {SHIPPED_NAME} {FILE_VERSION} (draft) from {FILE_VERSION}.yaml."),
         feedback,
     )
     ui.check(
@@ -2351,7 +2438,7 @@ def test_load_a_yaml_file(ui, record):
     feedback = _upload(ui, SHIPPED_FILE)
     ui.must(
         "the shipped file is loaded again",
-        feedback.startswith(f"Loaded {PUBLISHED} (published) from metamodel.yaml."),
+        feedback.startswith(f"Loaded {SHIPPED_NAME} {PUBLISHED_VERSION} (published) from metamodel.yaml."),
         feedback,
     )
     ui.check(
@@ -2366,12 +2453,17 @@ def test_load_a_yaml_file(ui, record):
     _act(ui, "delete", FILE_REF)
     feedback = _confirm(ui)
     ui.check(
-        "the loaded draft, applied by nobody now, is deleted", f"{FILE_REF} deleted." in feedback, feedback
+        "the loaded draft, applied by nobody now, is deleted",
+        f"{SHIPPED_NAME} {FILE_VERSION} deleted." in feedback,
+        feedback,
     )
+    # A row prints the version and the short identifier, not the whole key, so "one version
+    # left" is one short identifier in the table — and the deleted version's name gone from it.
+    table = ui.text("mm-versions-table")
     ui.check(
         "one version is left, the shipped one",
-        ui.text("mm-versions-table").count(PACK + "@") == 1,
-        ui.text("mm-versions-table")[:200],
+        table.count(PACK[:9]) == 1 and PUBLISHED_VERSION in table and FILE_VERSION not in table,
+        table[:200],
     )
     _open(ui)
     _list(ui, "Element types")

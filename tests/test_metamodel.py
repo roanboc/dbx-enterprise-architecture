@@ -4,7 +4,7 @@ import pytest
 
 from ea.metamodel import Registry, dump_pack, load_pack, pack_to_dict
 from ea.metamodel.loader import pack_from_dict
-from ea.models import ANY
+from ea.models import ANY, pack_id_from_legacy
 
 
 def test_pack_loads_everything(pack):
@@ -84,6 +84,11 @@ def test_pack_rejects_unknown_references():
 
 
 # ------------------------------------------------- the richer definitions (initiative 15)
+# `id: rich` is how this file was written before identifiers became opaque. It is left as it
+# is on purpose: the loader folds a readable identifier onto a permanent one, and RICH_ID is
+# what it folds to — so this doubles as a check that a pack file written before decision 0021
+# still loads.
+RICH_ID = pack_id_from_legacy("rich")
 RICH = {
     "pack": {
         "id": "rich",
@@ -158,10 +163,10 @@ def test_the_richer_definitions_round_trip(tmp_path):
 def test_the_richer_definitions_round_trip_through_the_store(backend):
     pack = pack_from_dict(RICH)
     backend.save_pack(pack, "ada")
-    stored = backend.load_pack("rich", "1")
+    stored = backend.load_pack(RICH_ID, "1")
     assert pack_to_dict(stored) == pack_to_dict(pack)
     assert stored.relationship_types[0].attributes[1].type == "number"
-    assert [v.ref for v in backend.list_pack_versions("rich")] == ["rich@1"]
+    assert [v.ref for v in backend.list_pack_versions(RICH_ID)] == [f"{RICH_ID}@1"]
 
 
 def test_the_richer_rules_are_validated():
@@ -243,4 +248,7 @@ def test_diff_reads_what_changed():
     }
     changed = next(e for e in diff.entries if e.change == "changed")
     assert changed.id == "gadget.tier" and changed.fields == [("default", "silver", "gold")]
-    assert "rich@1 -> rich@1" in diff.summary()
+    # Named, not keyed: an identifier is opaque now, so a summary built from the two
+    # references alone would say nothing a reader could use (decision 0021).
+    assert "Rich 1 -> Rich 1" in diff.summary()
+    assert RICH_ID not in diff.summary()

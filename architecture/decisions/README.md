@@ -31,3 +31,5 @@ alternative?".
 | [0018](./0018-a-schema-per-group.md) | A schema per group of tables | Adopted 2026-09-20, for the Requester to confirm | `ACMP2`, `ACMP2.1`, `ACMP2.3`, `DOBJ1`, `DOBJ2`, `DOBJ3` |
 | [0019](./0019-the-size-the-application-declares.md) | The application declares the size it is built for | Accepted 2026-09-20 (the Requester at initiative 16's Understanding gate) | `ASM6`, `ASVC4`, `ACMP3`, `DOBJ2`, `GAP18` |
 | [0020](./0020-staging-tables-live-in-the-store.md) | A staging table lives in the store, not in the catalogue | Adopted 2026-09-20, for the Requester to confirm | `DOBJ3.8`, `ASVC12`, `ACMP14`, `NODE2`, `GAP4` |
+| [0021](./0021-an-opaque-pack-identifier.md) | A metamodel's identifier means nothing, so its name is free to change | Adopted 2026-09-22, at the Requester's word (initiative 21) | `DOBJ1`, `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP2`, `ACMP13`, `ART2` |
+| [0022](./0022-a-name-is-not-frozen.md) | A published version is frozen in what it defines, and a name is not part of that | Adopted 2026-09-22, at the Requester's word (initiative 21) | `DOBJ1.6`, `ASVC1`, `ACMP2`, `ACMP13` |

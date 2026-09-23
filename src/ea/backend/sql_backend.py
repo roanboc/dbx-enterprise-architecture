@@ -75,7 +75,10 @@ from ea.models import (
     Relationship,
     Review,
     SourceFeed,
+    is_pack_id,
+    pack_id_from_legacy,
     validate_identifier,
+    validate_pack_id,
     validate_version,
 )
 
@@ -174,10 +177,24 @@ def chunks(items: list[Any], size: int) -> Iterator[list[Any]]:
         yield items[i : i + size]
 
 
+#: Header fields that are not part of what a version *defines*, so a frozen version may still
+#: change them. `status`, `derived_from` and `notes` are its lifecycle. `name` joined them at
+#: decision 0022: it is a label a reader sees, nothing keys off it — the identifier does that,
+#: and it is opaque (decision 0021) — so a wrong name is corrected where it is wrong rather
+#: than by copying a whole definition into a new version to carry the correction.
+#:
+#: `description`, `source`, `provenance_values` and `properties` are deliberately NOT here.
+#: `source` says where a definition came from and `provenance_values` is the vocabulary the
+#: registry checks a type's provenance against, so both are part of what was validated;
+#: `description` is arguably a label like the name, and is left frozen because widening an
+#: approval is not the agent's to do (scope 21).
+NOT_DEFINITION = ("status", "derived_from", "notes", "name")
+
+
 def pack_content(pack: Pack) -> dict[str, Any]:
     """What a version defines, without its lifecycle: the part a frozen version must keep."""
     d = pack_to_dict(pack)
-    d["pack"] = {k: v for k, v in d["pack"].items() if k not in ("status", "derived_from", "notes")}
+    d["pack"] = {k: v for k, v in d["pack"].items() if k not in NOT_DEFINITION}
     return d
 
 
@@ -474,6 +491,7 @@ class SqlBackend(DatabaseBackend):
                 self._create_table(create_table_sql(table, self.schema_prefix))
             self._add_missing_columns()
             self._migrate_organisations()
+            self._migrate_pack_identifiers()
             self._create_indexes()
 
     def _group_existing_tables(self) -> None:
@@ -534,6 +552,49 @@ class SqlBackend(DatabaseBackend):
                         ]
                     ],
                 )
+
+    def _migrate_pack_identifiers(self) -> None:
+        """A store keyed on readable pack identifiers, brought onto opaque ones (decision 0021).
+
+        Every identifier is folded the same way, by `pack_id_from_legacy`, so a store carried
+        forward here and one seeded from the shipped file land on the same key — which is what
+        lets the two exchange a pack afterwards. Nothing else moves: the new key satisfies the
+        same column and the same index, so there is no DDL, no new column and no re-indexing on
+        either engine.
+
+        `change_log` is left alone on purpose. It records what happened under the name things
+        had at the time, and rewriting a record of the past to match the present is not a
+        migration.
+        """
+        rows = self._fetch_all("SELECT DISTINCT pack_id FROM meta_pack")
+        old_ids = [r[0] for r in rows if r[0] and not is_pack_id(r[0])]
+        if not old_ids:
+            return
+        held = {r[0] for r in rows if r[0]}
+        for old in old_ids:
+            new = pack_id_from_legacy(old)
+            if new in held:
+                # The store already holds the same framework under its opaque key — it was
+                # seeded from a current file beside a version loaded before. Rewriting would
+                # collide on `meta_pack_key`, so the old rows are left where a person can see
+                # them and decide, which beats an application that will not open.
+                log.warning(
+                    "pack %r would become %s, which this store already holds; left as it is", old, new
+                )
+                continue
+            self._execute("UPDATE meta_pack SET pack_id = ? WHERE pack_id = ?", [new, old])
+            for table in META_TABLES[1:]:
+                self._execute(f"UPDATE {table} SET pack_id = ? WHERE pack_id = ?", [new, old])
+            self._execute("UPDATE organisation SET pack_id = ? WHERE pack_id = ?", [new, old])
+            # `derived_from` is a `<pack id>@<version>` reference in a text column, so it is
+            # rewritten by its prefix rather than by equality.
+            self._execute(
+                "UPDATE meta_pack SET derived_from = ? || SUBSTRING(derived_from FROM ?) "
+                "WHERE derived_from LIKE ?",
+                [new, len(old) + 1, f"{old}@%"],
+            )
+            held.add(new)
+            log.info("pack %r is now %s", old, new)
 
     # ---------------------------------------------------------- metamodel
     def _pack_rows(self, pack: Pack) -> dict[str, list[list[Any]]]:
@@ -654,21 +715,49 @@ class SqlBackend(DatabaseBackend):
         )
         return rows[0] if rows else None
 
+    def _rename_pack(self, pack_id: str, version: str, name: str, was: str, actor: str, now: Any) -> None:
+        """Write a version's name without touching what it defines.
+
+        The one update a frozen version takes (decision 0022). It is logged with the name it
+        had, because the row itself keeps no history and a correction nobody can trace back is
+        not a correction anybody can argue with.
+        """
+        self._execute(
+            "UPDATE meta_pack SET name = ?, loaded_at = ? WHERE pack_id = ? AND version = ?",
+            [name, now, pack_id, version],
+        )
+        self._log(
+            "metamodel",
+            f"{pack_id}@{version}",
+            "rename",
+            actor or "system",
+            {"name": was},
+            {"name": name},
+            None,
+        )
+
     def save_pack(self, pack: Pack, actor: str = "") -> None:
-        validate_identifier(pack.id, "pack id")
+        validate_pack_id(pack.id)
         validate_version(pack.version, "pack version")
         now = _now()
         with self._lock:
             header = self._pack_header(pack.id, pack.version)
             created_by, created_at, published_by, published_at = actor or None, now, None, None
             if header is not None:
-                _, _, status, created_by, created_at, published_by, published_at, *_ = header
+                # pack_id, version, status, created_by, created_at, published_by, published_at,
+                # loaded_at, name, ... — the name is column 8, not column 1.
+                _, _, status, created_by, created_at, published_by, published_at, _, stored_name, *_ = header
                 if status in ("published", "retired"):
                     stored = self.load_pack(pack.id, pack.version)
                     if stored is not None and pack_content(stored) == pack_content(pack):
-                        return  # the same definition again: nothing to store
+                        # The same definition again. The name is not part of a definition
+                        # (decision 0022), so a save that changes only that is a rename, and
+                        # is written rather than refused or silently dropped.
+                        if stored.name != pack.name:
+                            self._rename_pack(pack.id, pack.version, pack.name, stored.name, actor, now)
+                        return
                     raise ConflictError(
-                        f"version {pack.version} of pack {pack.id} is {status} and frozen; "
+                        f"version {pack.version} of {stored_name or pack.id} is {status} and frozen; "
                         "load the definition under another version, or start a draft from it"
                     )
             if pack.status == "published" and not published_at:

@@ -1,7 +1,7 @@
 """Metamodel manager: one version at a time.
 
-Six tabs over the version shown: **Manage** (the lists: element types, relationship types,
-attributes, domains — edited in grids and saved), **Graph** (the type graph, grouped and
+Six tabs over the version shown: **Manage** (the five lists: domains, element types,
+relationship types, attributes, attribute groups — edited in grids and saved), **Graph** (the type graph, grouped and
 laid out like every other network graph), **Architecture view** (the metamodel drawn in the
 notation it declares, downloadable), **Notation** (how each domain and type is drawn),
 **Versions** (every stored version, its state, who applies it, drafts, publishing and the
@@ -27,7 +27,16 @@ from dash import ctx as dash_ctx
 from ea.metamodel import Registry, pack_to_dict, pack_yaml
 from ea.metamodel.diff import PackDiff
 from ea.metamodel.loader import pack_from_dict, suspect_split_descriptions
-from ea.models import ANY, ATTRIBUTE_TYPES, ConflictError, Forbidden, NotFoundError, Pack, PackVersion
+from ea.models import (
+    ANY,
+    ATTRIBUTE_TYPES,
+    ConflictError,
+    Forbidden,
+    NotFoundError,
+    Pack,
+    PackVersion,
+    slugify,
+)
 from ea.services.roles import a_role
 from ea.ui import graph as gp
 from ea.ui import ids, layout
@@ -60,6 +69,10 @@ TABS = [
     ("versions", "Versions", "tabler:versions"),
     ("reviewers", "Reviewers", "tabler:user"),
 ]
+
+#: The list the Manage tab opens on. It is the first pill, so a reader is never dropped on
+#: the second one; `_manage_panel` draws the pills in this order.
+FIRST_LIST = "domains"
 
 TYPE_COLS = [
     # An id is fixed once saved (rows are matched by it, and content is typed by it); a row the
@@ -503,14 +516,18 @@ def _status_badge(status: str, size: str = "sm") -> dmc.Badge:
 
 
 def _version_options(ctx: AppContext) -> list[dict[str, str]]:
-    """Every stored version; the pack id is said only when the store holds more than one pack."""
+    """Every stored version; the metamodel is named only when the store holds more than one.
+
+    Named, not keyed: the identifier is opaque (decision 0021), so it would tell a reader
+    choosing between two versions nothing at all. The value stays the canonical reference.
+    """
     org = ctx.organisation()
     versions = ctx.metamodels.versions()
     several = len({v.pack_id for v in versions}) > 1
     return [
         {
             "value": v.ref,
-            "label": (f"{v.pack_id} · " if several else "")
+            "label": (f"{v.name} · " if several else "")
             + f"{v.version} · {v.status}"
             + (" · applied here" if v.ref == org.pack_ref else ""),
         }
@@ -560,8 +577,10 @@ def render(ctx: AppContext) -> html.Div:
             dcc.Store(id=ids.MM_VERSION, data=reg.pack.ref),
             dcc.Store(id=ids.MM_CONFIRM_STORE, data=None),
             html.Div(id=ids.MM_FEEDBACK),
-            html.Div(_body(ctx, reg, "manage", "types"), id=ids.MM_BODY),
+            html.Div(_body(ctx, reg, "manage", FIRST_LIST), id=ids.MM_BODY),
             _draft_modal(ctx),
+            _rename_modal(),
+            dcc.Store(id=ids.MM_RENAME_REF, data=""),
             _confirm_modal(),
         ]
     )
@@ -610,6 +629,41 @@ def _draft_modal(ctx: AppContext) -> dmc.Modal:
     )
 
 
+def _rename_modal() -> dmc.Modal:
+    """Correct what a version is called — at any status, and it says why that is allowed.
+
+    A reader who has been told a published version is frozen will not believe a field that
+    edits one unless the dialog explains the distinction, so it does.
+    """
+    return dmc.Modal(
+        id=ids.MM_RENAME_MODAL,
+        title=modal_title("Rename this metamodel", ids.MM_RENAME_MODAL),
+        closeButtonProps={"aria-label": "Close this dialog"},
+        children=dmc.Stack(
+            [
+                dmc.Text(
+                    "A name is a label: nothing is stored against it and nothing looks anything up by "
+                    "it, so correcting one changes no definition and no organisation. That is why a "
+                    "published version can be renamed while everything it defines stays frozen.",
+                    size="sm",
+                    c="dimmed",
+                ),
+                dmc.TextInput(
+                    id=ids.MM_RENAME_NAME,
+                    label="Name",
+                    required=True,
+                    description="What this metamodel is called wherever a reader sees it",
+                ),
+                html.Div(id=ids.MM_RENAME_FEEDBACK),
+                dmc.Group(
+                    [dmc.Button("Rename", id=ids.MM_RENAME_SAVE, leftSection=icon("tabler:pencil"))],
+                    justify="flex-end",
+                ),
+            ]
+        ),
+    )
+
+
 def _confirm_modal() -> dmc.Modal:
     return dmc.Modal(
         id=ids.MM_CONFIRM_MODAL,
@@ -626,7 +680,7 @@ def _confirm_modal() -> dmc.Modal:
     )
 
 
-def _body(ctx: AppContext, reg: Registry, tab: str, list_tab: str = "types") -> Any:
+def _body(ctx: AppContext, reg: Registry, tab: str, list_tab: str = FIRST_LIST) -> Any:
     pack = reg.pack
     org = ctx.organisation()
     applied = org.pack_ref == pack.ref
@@ -727,10 +781,14 @@ def _manage_panel(ctx: AppContext, reg: Registry, list_tab: str) -> Any:
                 [
                     dmc.TabsList(
                         [
+                            # In the order a metamodel is read rather than the order it was built:
+                            # a domain groups element types, a type carries attributes, an
+                            # attribute names one of the groups. The panels below are matched to
+                            # these by `value`, so their own order is not what a reader sees.
+                            dmc.TabsTab(f"Domains ({len(pack.domains)})", value="domains"),
                             dmc.TabsTab(f"Element types ({len(pack.element_types)})", value="types"),
                             dmc.TabsTab(f"Relationship types ({len(pack.relationship_types)})", value="rels"),
                             dmc.TabsTab(f"Attributes ({n_attrs})", value="attrs"),
-                            dmc.TabsTab(f"Domains ({len(pack.domains)})", value="domains"),
                             dmc.TabsTab(f"Attribute groups ({len(pack.attribute_groups)})", value="groups"),
                         ]
                     ),
@@ -995,9 +1053,18 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
         applied = v.applied_by
         rows.append(
             [
+                # This is the one screen where the identifier earns its space: it is where a
+                # person picks up a reference to paste into `ea metamodel …`. So the version
+                # reads plainly and the short identifier sits beside it as something to copy,
+                # with the whole canonical reference on the cell for anyone who needs it.
                 dmc.Group(
                     [
-                        dmc.Code(v.ref),
+                        dmc.Text(v.version, size="sm", fw=600),
+                        dmc.Tooltip(
+                            dmc.Code(v.short_id, style={"whiteSpace": "nowrap"}),
+                            label=v.ref,
+                            withArrow=True,
+                        ),
                         dmc.Badge("shown", color="indigo", size="xs", variant="outline")
                         if v.ref == shown
                         else None,
@@ -1042,6 +1109,9 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
                             "red",
                             "tabler:trash",
                         ),
+                        # At any status: a freeze is on what a version defines, and a name
+                        # defines nothing (decision 0022).
+                        _action("Rename", "rename", v.ref, can_edit, "gray", "tabler:pencil"),
                         _action("Export", "export", v.ref, True, "gray", "tabler:download"),
                     ],
                     gap=4,
@@ -1055,7 +1125,7 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
 
 def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
     versions = ctx.metamodels.versions()
-    options = [{"value": v.ref, "label": f"{v.ref} ({v.status})"} for v in versions]
+    options = [{"value": v.ref, "label": f"{v.label} ({v.status})"} for v in versions]
     shown = reg.pack.ref
     derived = reg.pack.derived_from if any(v.ref == reg.pack.derived_from for v in versions) else ""
     # A draft is compared from what it was copied from; anything else from itself to the newest other version.
@@ -1581,7 +1651,7 @@ def register(app: dash.Dash) -> None:
         reg = _shown(ctx, ref)
         return (
             message,
-            _body(ctx, reg, tab or "manage", list_tab or "types"),
+            _body(ctx, reg, tab or "manage", list_tab or FIRST_LIST),
             _counts(reg, ctx),
             reg.pack.ref,
             _version_options(ctx),
@@ -1657,7 +1727,9 @@ def register(app: dash.Dash) -> None:
             return no_update
         reg = _shown(get_context(), ref)
         view = view_from_metamodel(reg, domain or None, bool(inactive))
-        stem = f"{reg.pack.id}-{reg.pack.version}-metamodel"
+        # Named for the reader who has to find the file afterwards: an opaque identifier in a
+        # file name is a file nobody can pick out of a folder (decision 0021).
+        stem = f"{slugify(reg.pack.name) if reg.pack.name else reg.pack.id}-{reg.pack.version}-metamodel"
         if trigger == ids.MM_VIEW_MD:
             return dcc.send_string(to_markdown(view, legend=True), f"{stem}.md")
         return dcc.send_string(to_drawio(view, positions=positions or None), f"{stem}.drawio")
@@ -1923,7 +1995,7 @@ def register(app: dash.Dash) -> None:
             if any(v.version == pack.version for v in ctx.metamodels.versions(pack.id)):
                 raise ConflictError(f"version {pack.version} of {pack.id} already exists; pick another name")
             ctx.metamodels.save(pack, ctx.actor)
-            message = f"Draft {pack.ref} created from {shown.ref}."
+            message = f"Draft {pack.name} {pack.version} created from {shown.name} {shown.version}."
             if apply_here:
                 report = ctx.orgs.apply(ctx.org(), pack.ref, ctx.actor, force=True)
                 message += f" Applied to {ctx.organisation().name}: {report.summary()}."
@@ -1942,7 +2014,8 @@ def register(app: dash.Dash) -> None:
         if not n:
             return no_update
         pack = _shown(get_context(), ref).pack
-        return dcc.send_string(pack_yaml(pack), f"{pack.id}-{pack.version}-metamodel.yaml")
+        stem = slugify(pack.name) if pack.name else pack.id
+        return dcc.send_string(pack_yaml(pack), f"{stem}-{pack.version}-metamodel.yaml")
 
     @app.callback(
         *body_outputs,
@@ -1967,10 +2040,21 @@ def register(app: dash.Dash) -> None:
             data = yaml.safe_load(base64.b64decode(b64).decode("utf-8")) or {}
             read = pack_from_dict(data)
             suspect = suspect_split_descriptions(read)
+            # What the store called this version before the file arrived, so a file that only
+            # renames a frozen version is reported as the rename it is (decision 0022).
+            try:
+                was = ctx.metamodels.version(read.ref).name
+            except NotFoundError:
+                was = ""
             pack = ctx.metamodels.save(read, ctx.actor)
         except (OSError, ValueError, KeyError, yaml.YAMLError, ConflictError, Forbidden) as exc:
             return (alert(f"{filename or 'File'} not loaded: {exc}", "red"),) + (no_update,) * 6
-        message = f"Loaded {pack.ref} ({pack.status}) from {filename}."
+        # The status the STORE holds, not the one the file claims: a file that renames a
+        # published version may say `draft` in its header, and the version stays published.
+        stored = ctx.metamodels.version(pack.ref)
+        message = f"Loaded {pack.name} {pack.version} ({stored.status}) from {filename}."
+        if was and was != pack.name:
+            message += f" Renamed from {was}; what it defines is unchanged."
         colour = "green"
         if suspect:
             # The file loaded; something in it looks mis-typed, and saying nothing would
@@ -1994,6 +2078,9 @@ def register(app: dash.Dash) -> None:
         Output(ids.MM_CONFIRM_TEXT, "children"),
         Output(ids.MM_CONFIRM_STORE, "data"),
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Output(ids.MM_RENAME_MODAL, "opened"),
+        Output(ids.MM_RENAME_NAME, "value"),
+        Output(ids.MM_RENAME_REF, "data"),
         Input({"type": ids.MM_VER_ACTION, "action": ALL, "ref": ALL}, "n_clicks"),
         State(ids.MM_TABS, "value"),
         State(ids.MM_LISTS, "value"),
@@ -2002,52 +2089,118 @@ def register(app: dash.Dash) -> None:
     def version_action(clicks, tab, list_tab):
         trigger = dash_ctx.triggered_id
         if not isinstance(trigger, dict) or not any(n for n in (clicks or []) if n):
-            return (no_update,) * 11
+            return (no_update,) * 14
         ctx = get_context()
         action, ref = trigger.get("action"), trigger.get("ref")
         quiet = (no_update,) * 7
         try:
             if action == "show":
-                return rerender(ctx, ref, tab, list_tab) + (no_update, no_update, no_update, no_update)
+                return rerender(ctx, ref, tab, list_tab) + (no_update,) * 7
             if action == "export":
                 pack = ctx.metamodels.get(ref)
-                return quiet + (
-                    no_update,
-                    no_update,
-                    no_update,
-                    dcc.send_string(pack_yaml(pack), f"{pack.id}-{pack.version}-metamodel.yaml"),
+                # Named for the reader who has to find the file afterwards, not keyed: an
+                # opaque identifier in a file name is a file nobody can pick out of a folder.
+                stem = slugify(pack.name) if pack.name else pack.id
+                return (
+                    quiet
+                    + (
+                        no_update,
+                        no_update,
+                        no_update,
+                        dcc.send_string(pack_yaml(pack), f"{stem}-{pack.version}-metamodel.yaml"),
+                    )
+                    + (no_update,) * 3
                 )
             if action == "draft":
+                source = ctx.metamodels.version(ref)
                 draft = ctx.metamodels.draft(ref, ctx.actor)
                 ctx.reload_registry()
-                return rerender(
-                    ctx,
-                    draft.ref,
-                    "manage",
-                    list_tab,
-                    alert(f"Draft {draft.ref} created from {ref}; it is shown now.", "green"),
-                ) + (no_update, no_update, no_update, no_update)
+                return (
+                    rerender(
+                        ctx,
+                        draft.ref,
+                        "manage",
+                        list_tab,
+                        # Named for the reader, with the canonical reference beside it for
+                        # whoever pastes it into an address or a command — the same rule the
+                        # command line follows.
+                        alert(
+                            f"Draft {draft.name} {draft.version} created from "
+                            f"{source.name} {source.version} ({draft.ref}); it is shown now.",
+                            "green",
+                        ),
+                    )
+                    + (no_update,) * 7
+                )
             if action == "publish":
                 v = ctx.metamodels.publish(ref, ctx.actor)
                 ctx.reload_registry()
-                return rerender(
-                    ctx, ref, tab, list_tab, alert(f"{v.ref} is published and frozen.", "green")
-                ) + (
-                    no_update,
-                    no_update,
-                    no_update,
-                    no_update,
+                return (
+                    rerender(
+                        ctx,
+                        ref,
+                        tab,
+                        list_tab,
+                        alert(f"{v.label} is published: what it defines is frozen from now on.", "green"),
+                    )
+                    + (no_update,) * 7
                 )
+            if action == "rename":
+                v = ctx.metamodels.version(ref)
+                return quiet + (no_update,) * 4 + (True, v.name, ref)
             if action in ("retire", "delete"):
+                label = ctx.metamodels.version(ref).label
                 what = (
-                    f"Retire {ref}? It stays in the store for the record but can no longer be applied."
+                    f"Retire {label}? It stays in the store for the record but can no longer be applied."
                     if action == "retire"
-                    else f"Delete {ref}? A draft nobody applies is removed for good."
+                    else f"Delete {label}? A draft nobody applies is removed for good."
                 )
-                return quiet + (True, dmc.Text(what, size="sm"), {"action": action, "ref": ref}, no_update)
+                return (
+                    quiet
+                    + (True, dmc.Text(what, size="sm"), {"action": action, "ref": ref}, no_update)
+                    + (no_update,) * 3
+                )
         except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
-            return (alert(str(exc), "red"),) + (no_update,) * 10
-        return (no_update,) * 11
+            return (alert(str(exc), "red"),) + (no_update,) * 13
+        return (no_update,) * 14
+
+    @app.callback(
+        *body_outputs,
+        Output(ids.MM_RENAME_MODAL, "opened", allow_duplicate=True),
+        Output(ids.MM_RENAME_FEEDBACK, "children"),
+        Input(ids.MM_RENAME_SAVE, "n_clicks"),
+        State(ids.MM_RENAME_NAME, "value"),
+        State(ids.MM_RENAME_REF, "data"),
+        State(ids.MM_VERSION, "data"),
+        State(ids.MM_TABS, "value"),
+        State(ids.MM_LISTS, "value"),
+        prevent_initial_call=True,
+    )
+    def rename_version(n, name, ref, shown, tab, list_tab):
+        """Write the new name, and leave the reader on the version they were looking at.
+
+        The dialog keeps its own feedback so a refusal — an empty name, or a role that may
+        not edit the metamodel — is answered where the reader is typing rather than behind
+        a dialog they then have to close to read.
+        """
+        if not n or not ref:
+            return (no_update,) * 9
+        ctx = get_context()
+        try:
+            v = ctx.metamodels.rename(ref, name or "", ctx.actor)
+        except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
+            return (no_update,) * 7 + (no_update, alert(str(exc), "red"))
+        # The registry holds the pack's name too, so the header and every subtitle are stale
+        # until it is read again — but only when the version renamed is the one being shown.
+        if ref == shown:
+            ctx.reload_registry()
+        return rerender(
+            ctx,
+            shown,
+            tab,
+            list_tab,
+            alert(f"Renamed to {v.name}. Nothing it defines changed, and no organisation moved.", "green"),
+        ) + (False, None)
 
     @app.callback(
         *body_outputs,
@@ -2068,12 +2221,15 @@ def register(app: dash.Dash) -> None:
             # Anything else is a dialog nobody wrote: never fall through to deleting a version.
             return (no_update,) * 7 + (False,)
         try:
+            # Named before anything happens to it: a deleted version cannot be looked up
+            # afterwards, and a key is not a name anyway (decision 0021).
+            label = ctx.metamodels.version(ref).label
             if action == "retire":
                 ctx.metamodels.retire(ref, ctx.actor)
-                message = f"{ref} is retired."
+                message = f"{label} is retired."
             else:
                 ctx.metamodels.delete(ref, ctx.actor)
-                message = f"{ref} deleted."
+                message = f"{label} deleted."
             ctx.reload_registry()
         except (ConflictError, Forbidden, NotFoundError) as exc:
             return (alert(str(exc), "red"),) + (no_update,) * 6 + (False,)

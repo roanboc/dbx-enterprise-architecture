@@ -9,7 +9,7 @@ exists; this document says how it is shaped, and
 [3_logical-data-model.md](./3_logical-data-model.md) says how it is stored.
 
 **Status: `◐` draft** — read from the code as it runs today (`src/ea/models.py`,
-`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014 and 0015. It defines
+`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022. It defines
 no element of its own: every entity below names the data object it belongs to,
 and that catalogue owns the name.
 
@@ -64,7 +64,7 @@ is what lets a version be tried in one organisation without touching another
 
 | Entity | One of them is | Data object | Realized by |
 | ------ | -------------- | ----------- | ----------- |
-| **METAMODEL_VERSION** | one stored version of one framework's metamodel, `<pack>@<version>`, in a lifecycle of draft, published and retired | [`DOBJ1.6`] Metamodel version | `Pack` in `src/ea/models.py`, `MetamodelService` |
+| **METAMODEL_VERSION** | one stored version of one framework's metamodel, keyed `<pack>@<version>` on an identifier that is minted once and never recomputed, in a lifecycle of draft, published and retired; its name stands beside that key as a label | [`DOBJ1.6`] Metamodel version | `Pack` in `src/ea/models.py`, `MetamodelService` |
 | **DOMAIN** | a grouping of element types, for colour and filter | [`DOBJ1.4`] Domain | `Domain` in `src/ea/models.py` |
 | **ELEMENT_TYPE** | a kind of thing the model may hold — an application, a data entity, a course | [`DOBJ1.1`] Element type | `ElementType` in `src/ea/models.py` |
 | **RELATIONSHIP_TYPE** | a kind of edge, with the types allowed at each end | [`DOBJ1.2`] Relationship type | `RelationshipType` in `src/ea/models.py` |
@@ -98,7 +98,7 @@ erDiagram
 
 | From | Relationship | To | How many | Rule |
 | ---- | ------------ | -- | -------- | ---- |
-| METAMODEL_VERSION | holds | DOMAIN, ELEMENT_TYPE, RELATIONSHIP_TYPE, ATTRIBUTE | one to many | every part of a metamodel belongs to exactly one version; the same type in two versions is two of them, and a published version is frozen |
+| METAMODEL_VERSION | holds | DOMAIN, ELEMENT_TYPE, RELATIONSHIP_TYPE, ATTRIBUTE | one to many | every part of a metamodel belongs to exactly one version; the same type in two versions is two of them, and a published version is frozen in what it defines; its name is not part of that and is corrected in place (decision 0022) |
 | DOMAIN | groups | ELEMENT_TYPE | none or one, to many | the domain is where a type's colour and default shape come from; a type without one falls back to the engine's defaults and filters under none |
 | ELEMENT_TYPE | is specialised by | ELEMENT_TYPE | none or one, to many | the supertype is a type of the same version; an abstract type only groups its sub-types and no element may be one |
 | ELEMENT_TYPE | declares | ATTRIBUTE | none or one, to many | the reserved type `common` declares an attribute on every type |

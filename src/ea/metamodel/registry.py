@@ -424,7 +424,9 @@ class Registry:
     def summary_markdown(self, type_ids: Iterable[str] | None = None) -> str:
         """A compact description of the metamodel for people and agents."""
         lines = [
-            f"# {self.pack.name} (pack `{self.pack.id}`, version {self.pack.version}, {self.pack.status})",
+            # The name, not the identifier: this is read by people and by the agent, and an
+            # identifier is opaque now (decision 0021) — neither can do anything with one.
+            f"# {self.pack.name} (version {self.pack.version}, {self.pack.status})",
             "",
         ]
         wanted = set(type_ids) if type_ids else None

@@ -11,7 +11,7 @@ import os
 import sys
 
 import pytest
-from tests.conftest import PACK, SAMPLE
+from tests.conftest import HIGHER_ED, PACK, SAMPLE
 from typer.testing import CliRunner
 
 from ea.backend.duckdb_backend import DuckDBBackend
@@ -92,7 +92,9 @@ def test_export_pack_refuses_before_it_opens_the_destination(ea_env):
     """A pack id the database does not hold must not cost the reader the file they were writing over."""
     out = ea_env / "pack.yaml"
     out.write_text("the reader's own pack\n")
-    result = runner.invoke(app, ["export-pack", str(out), "--pack-id", "no_such_pack"])
+    # `--pack`, not `--pack-id`: it takes a name or an identifier's prefix now, because an
+    # opaque identifier is not something anybody types in full (decision 0021).
+    result = runner.invoke(app, ["export-pack", str(out), "--pack", "no_such_pack"])
     assert result.exit_code == 1 and "no metamodel version 'no_such_pack'" in result.output
     assert out.read_text() == "the reader's own pack\n"
 
@@ -155,20 +157,32 @@ def test_organisations_and_versions_from_the_command_line(ea_env):
     assert "47 elements" in runner.invoke(app, ["--org", "trial", "stats"]).output
     unknown = runner.invoke(app, ["--org", "nowhere", "stats"])
     assert unknown.exit_code == 1 and "no organisation with id 'nowhere'" in unknown.output
-    draft = runner.invoke(app, ["metamodel", "draft", "higher_education@2026-08-11", "--version", "t1"])
-    assert draft.exit_code == 0 and "draft higher_education@t1 created" in draft.output
-    assert "higher_education@t1" in runner.invoke(app, ["metamodel", "versions"]).output
-    applied = runner.invoke(app, ["org", "apply", "trial", "higher_education@t1"])
+    # A version is named by the metamodel's name from here on, which is the point of the
+    # identifier being opaque: `ea metamodel draft "<name>@<version>"` is what a person types.
+    published = f"{HIGHER_ED}@2026-08-11"
+    trial = f"{HIGHER_ED}@t1"
+    draft = runner.invoke(app, ["metamodel", "draft", published, "--version", "t1"])
+    assert draft.exit_code == 0 and "created" in draft.output and trial in draft.output
+    versions = runner.invoke(app, ["metamodel", "versions"]).output
+    assert "t1" in versions and "Higher Education EA Metamodel" in versions
+    assert HIGHER_ED not in versions, "the listing shows the short form, not the whole key"
+    applied = runner.invoke(app, ["org", "apply", "trial", trial])
     assert applied.exit_code == 0 and "0 errors" in applied.output
     assert "trial-1" not in runner.invoke(app, ["org", "list"]).output
-    diff = runner.invoke(app, ["metamodel", "diff", "higher_education@2026-08-11", "higher_education@t1"])
+    diff = runner.invoke(app, ["metamodel", "diff", published, trial])
     assert diff.exit_code == 0 and "define the same metamodel" in diff.output
-    check = runner.invoke(app, ["metamodel", "check", "higher_education@t1", "--org", "default"])
+    by_name = runner.invoke(app, ["metamodel", "diff", "Higher Education EA Metamodel@2026-08-11", trial])
+    assert by_name.exit_code == 0 and by_name.output == diff.output, "a name reaches the same version"
+    check = runner.invoke(app, ["metamodel", "check", trial, "--org", "default"])
     assert check.exit_code == 0 and "0 errors" in check.output
-    assert runner.invoke(app, ["metamodel", "publish", "higher_education@t1"]).exit_code == 0
+    assert runner.invoke(app, ["metamodel", "publish", trial]).exit_code == 0
+    # Renaming a published version is allowed, and moves no key (decision 0022).
+    renamed = runner.invoke(app, ["metamodel", "rename", trial, "Trial Metamodel"])
+    assert renamed.exit_code == 0 and "is now Trial Metamodel" in renamed.output
+    assert "Trial Metamodel" in runner.invoke(app, ["metamodel", "versions"]).output
     # A refusal the services raise reaches the shell as a sentence through `run()`; the in-process
     # runner hands the exception back instead, so it is read from there.
-    retire = runner.invoke(app, ["metamodel", "retire", "higher_education@t1"])
+    retire = runner.invoke(app, ["metamodel", "retire", trial])
     assert retire.exit_code == 1 and "applied by trial" in str(retire.exception)
     assert runner.invoke(app, ["org", "default", "trial"]).exit_code == 0
     assert runner.invoke(app, ["org", "rename", "trial", "Trial two"]).exit_code == 0
@@ -187,12 +201,10 @@ def test_loading_a_file_stores_a_version_and_applies_it(ea_env, tmp_path):
     path = tmp_path / "next.yaml"
     dump_pack(pack, path)
     result = runner.invoke(app, ["load-pack", str(path)])
-    assert result.exit_code == 0 and "now applies higher_education@from-file" in result.output
+    assert result.exit_code == 0 and "now applies Higher Education EA Metamodel from-file" in result.output
     assert "from-file" in runner.invoke(app, ["org", "list"]).output
     exported = tmp_path / "out.yaml"
-    assert (
-        runner.invoke(app, ["export-pack", str(exported), "-v", "higher_education@from-file"]).exit_code == 0
-    )
+    assert runner.invoke(app, ["export-pack", str(exported), "-v", f"{HIGHER_ED}@from-file"]).exit_code == 0
     assert "edited outside" in exported.read_text()
     # the published version cannot be replaced by a file that differs from it
     pack.version, pack.status = "2026-08-11", "published"

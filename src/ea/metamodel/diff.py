@@ -37,6 +37,12 @@ class PackDiff:
     a: str  # `<pack id>@<version>` compared from
     b: str  # compared to
     entries: list[DiffEntry] = field(default_factory=list)
+    #: What each side is called. The references above are what the store and the callers pass
+    #: around; a pack identifier is opaque (decision 0021), so a summary built from the two
+    #: references alone tells a reader which two versions were compared only by their version
+    #: numbers — and on a comparison of two frameworks, nothing at all.
+    a_label: str = ""
+    b_label: str = ""
 
     @property
     def empty(self) -> bool:
@@ -50,13 +56,14 @@ class PackDiff:
         return out
 
     def summary(self) -> str:
+        a, b = self.a_label or self.a, self.b_label or self.b
         if self.empty:
-            return f"{self.a} and {self.b} define the same metamodel"
+            return f"{a} and {b} define the same metamodel"
         parts = []
         for kind, c in self.counts().items():
             what = kind.replace("_", " ") + ("s" if sum(c.values()) != 1 else "")
             parts.append(f"{what}: " + ", ".join(f"{n} {change}" for change, n in c.items() if n))
-        return f"{self.a} -> {self.b}: " + "; ".join(parts)
+        return f"{a} -> {b}: " + "; ".join(parts)
 
 
 def _record(obj: Any) -> dict[str, Any]:
@@ -97,8 +104,18 @@ def _compare(
 
 def diff_packs(before: Pack, after: Pack) -> PackDiff:
     """The difference from `before` to `after`, in the order a reader looks: the header, domains, attribute groups, types, relationship types, attributes."""
-    out = PackDiff(a=before.ref, b=after.ref)
-    header_fields = ("name", "description", "source", "provenance_values", "notes", "properties")
+    out = PackDiff(
+        a=before.ref,
+        b=after.ref,
+        a_label=f"{before.name} {before.version}",
+        b_label=f"{after.name} {after.version}",
+    )
+    # What a version DEFINES, which is what "define the same metamodel" below claims to be
+    # about. `name` and `notes` are labels on a version, not part of its definition — that is
+    # the line decision 0022 draws, and it is the same line `sql_backend.NOT_DEFINITION`
+    # draws for what a published version freezes. A rename is visible in the versions listing
+    # and in the change log; it changes nothing about what content validates against.
+    header_fields = ("description", "source", "provenance_values", "properties")
     changed = [
         (f, getattr(before, f), getattr(after, f))
         for f in header_fields

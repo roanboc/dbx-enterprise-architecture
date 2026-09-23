@@ -24,10 +24,23 @@ from ea.backend.sql import DDL, schemas
 from ea.config import Settings
 from ea.importer import import_directory
 from ea.metamodel import Registry, load_pack
+from ea.models import pack_id_from_legacy
 from ea.services import GraphService, OrganisationService, RepositoryService
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "packs" / "higher_education" / "metamodel.yaml"
+#: The identifiers the two shipped packs are stored under. They are opaque (decision 0021),
+#: so a test cannot write one down and stay honest about it — it derives the same value the
+#: pack file and the store migration derive, from the identifier each framework once had.
+HIGHER_ED = pack_id_from_legacy("higher_education")
+ARCHIMATE = pack_id_from_legacy("archimate_core")
+
+
+def a_pack_id(seed: str) -> str:
+    """A valid, opaque pack identifier for a pack a test invents, stable across runs."""
+    return pack_id_from_legacy(f"test:{seed}")
+
+
 SAMPLE = ROOT / "data" / "sample"
 ENGINES = ["duckdb", "lakebase"] + (["lakebase-live"] if os.environ.get("EA_LIVE_LAKEBASE") else [])
 

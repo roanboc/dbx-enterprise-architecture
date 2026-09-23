@@ -877,6 +877,8 @@ def test_branches_as_admin(ui, record):
 def test_metamodel_as_architect(ui, record, finding):
     _as(ui, ARCHITECT)
     ui.goto("/metamodel")
+    # Manage opens on Domains, its first pill; these checks read the element types list.
+    _mm_tab(ui, "Element types")
     ui.check("the metamodel is readable", ui.visible("mm-types-grid"))
     ui.check("an Architect may not save the metamodel", _blocked(ui, "mm-save"))
     ui.check("nor add a row to a list", _blocked(ui, "mm-add-type"))
@@ -926,6 +928,7 @@ def test_metamodel_per_persona(ui, record):
     ui.goto("/metamodel")
     for persona in (READER, REVIEWER):
         _as(ui, persona)
+        _mm_tab(ui, "Element types")
         ui.check(f"{_a(persona)} may not save the metamodel", _blocked(ui, "mm-save"))
         ui.check(f"{_a(persona)} may not delete a row from a list", _blocked(ui, "mm-del-type"))
         ui.check(f"{_a(persona)} may still export the pack", _usable(ui, "mm-export"))
@@ -933,6 +936,7 @@ def test_metamodel_per_persona(ui, record):
         ui.check(f"{_a(persona)} may not save reviewer assignments", _blocked(ui, "mm-reviewers-save"))
         ui.shot(f"The Metamodel as {_a(persona)}: both Save buttons refused")
     _as(ui, ADMIN)
+    _mm_tab(ui, "Element types")
     ui.check("an Admin may save the metamodel", _usable(ui, "mm-save"))
     ui.check(
         "an Admin may add a row and delete one", _usable(ui, "mm-add-type") and _usable(ui, "mm-del-type")
@@ -1193,7 +1197,7 @@ def test_new_element_forced_by_a_reader(ui, record):
     title="The Metamodel's lists are read-only for a Reader, and every write behind them is refused",
     feature="Metamodel · role gating",
     expected=(
-        "A Reader reads all four lists and can open none of their cells; Add, Delete and Save are "
+        "A Reader reads all five lists and can open none of their cells; Add, Delete and Save are "
         "disabled with the reason beside them; and the save and the deletion forced past the disabled "
         "buttons, and the file a Load would store, are each refused by the server, naming the role."
     ),
@@ -1202,14 +1206,18 @@ def test_new_element_forced_by_a_reader(ui, record):
 def test_metamodel_write_paths_as_reader(ui, record, finding):
     _as(ui, READER)
     ui.goto("/metamodel")
-    ui.must("the type grid is on the page", ui.visible("mm-types-grid"))
+    # Manage opens on Domains, its first pill.
+    ui.must("the metamodel lists are on the page", ui.visible("mm-domains-grid"))
     # The whole tab is read-only, not half of it: a cell that takes an edit nobody may store
-    # is a dead end, so the controls that write are off and the cells do not open.
+    # is a dead end, so the controls that write are off and the cells do not open. All five
+    # lists, in the order the pills are drawn — a list left out here is a list whose Add and
+    # Delete nothing has ever checked a role against.
     for label, add, delete in (
+        ("Domains", "mm-add-domain", "mm-del-domain"),
         ("Element types", "mm-add-type", "mm-del-type"),
         ("Relationship types", "mm-add-rel", "mm-del-rel"),
         ("Attributes", "mm-add-attr", "mm-del-attr"),
-        ("Domains", "mm-add-domain", "mm-del-domain"),
+        ("Attribute groups", "mm-add-group", "mm-del-group"),
     ):
         _mm_tab(ui, label)
         ui.check(f"a Reader may not add a row to {label}", _blocked(ui, add))
