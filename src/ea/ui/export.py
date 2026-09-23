@@ -156,6 +156,12 @@ def summary_text(
     return said
 
 
+def level_for(detail: str | None, arranged: bool) -> str:
+    """The level of detail a file is drawn at: the reader's choice, unless they keep the
+    arrangement on screen — the arrangement is of the full view, so the file is full too."""
+    return "full" if arranged else (detail or DEFAULT_DETAIL)
+
+
 def export_view(
     view: View,
     viewpoint: Viewpoint,
@@ -257,7 +263,8 @@ def export_modal(prefix: str, with_depth: bool = False, depth_max: int = 3) -> d
                     id=eid["arranged"],
                     label=KEEP_ARRANGEMENT,
                     description=(
-                        "Every shape where you left it on screen, instead of the layout the viewpoint gives"
+                        "Every shape where you left it on screen, at full detail, instead of the layout "
+                        "the viewpoint gives"
                     ),
                     checked=False,
                     disabled=True,
@@ -458,7 +465,13 @@ def register_export(
         registry = registry_of(ctx, values)
         vp = resolve_viewpoint(registry, viewpoint_id)
         drawn = export_view(
-            view, vp, list(layers or []), list(focus or []), registry, narrow, detail or DEFAULT_DETAIL
+            view,
+            vp,
+            list(layers or []),
+            list(focus or []),
+            registry,
+            narrow,
+            level_for(detail, bool(arranged)),
         )
         text = to_drawio(
             drawn,

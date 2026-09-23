@@ -224,3 +224,14 @@ def test_the_summary_and_the_file_follow_the_detail_level(registry, graph):
     assert drawn.detail == "overview" and everything.detail == "full"
     assert len(drawn.edges) < len(everything.edges)
     assert "LDC-CURR" in {n.id for n in drawn.nodes}
+
+
+def test_keeping_the_arrangement_draws_the_full_view():
+    """The arrangement on screen is of the full view, so a file that keeps it is full whatever
+    the Detail control says; otherwise the control decides, Overview when it says nothing."""
+    from ea.ui.export import level_for
+
+    assert level_for("overview", arranged=True) == "full"
+    assert level_for("overview", arranged=False) == "overview"
+    assert level_for("full", arranged=False) == "full"
+    assert level_for(None, arranged=False) == "overview"
