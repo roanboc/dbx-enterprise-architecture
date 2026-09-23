@@ -10,6 +10,7 @@ import textwrap
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
+from ea.models import Viewpoint
 from ea.services.target import NOT_REAL, TARGET_STYLE
 from ea.views.model import LAYER_TITLES, View, ViewNode, layer_rank
 
@@ -126,17 +127,21 @@ def to_drawio(
     base_url: str = "",
     positions: dict[str, dict[str, float]] | None = None,
     marked: bool = False,
+    viewpoint: Viewpoint | None = None,
+    modified: str | None = None,
 ) -> str:
     """The view as an uncompressed `.drawio` file.
 
-    Without positions: one swimlane per layer, shapes in a grid. With positions (from the
-    browser, where the reader may have moved shapes): every shape exactly where it was, and
-    the layer boxes as dashed background groupings sized to their shapes. With `marked`,
-    shapes carry their target state the way the Mermaid rendering does.
+    Without positions: the layered layout of `ea.views.layout` under `viewpoint` (the default
+    viewpoint when none is given). With positions (from the browser, where the reader may have
+    moved shapes): every shape exactly where it was, and the bands as dashed background
+    groupings sized to their shapes. With `marked`, shapes carry their target state the way the
+    Mermaid rendering does. `modified` is the file's timestamp; the export stamps now when
+    none is given, and a test passes one so the same view gives the same bytes.
     """
     if positions and sum(1 for n in view.nodes if n.id in positions) >= max(1, len(view.nodes) // 2):
-        return _to_drawio_positioned(view, base_url, positions, marked)
-    mxfile, root = _document(view)
+        return _to_drawio_positioned(view, base_url, positions, marked, modified)
+    mxfile, root = _document(view, modified)
 
     layers = sorted(view.layers(), key=layer_rank)
     sizes = {n.id: node_size(n) for n in view.nodes}
@@ -201,11 +206,11 @@ def node_size(n: ViewNode) -> tuple[int, int]:
     return width, height
 
 
-def _document(view: View) -> tuple[ET.Element, ET.Element]:
+def _document(view: View, modified: str | None = None) -> tuple[ET.Element, ET.Element]:
     mxfile = ET.Element(
         "mxfile",
         host="ea-repository",
-        modified=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        modified=modified or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         agent="ea-repository view export",
         version="1",
     )
@@ -277,9 +282,13 @@ def _edges(root: ET.Element, view: View, marked: bool = False) -> None:
 
 
 def _to_drawio_positioned(
-    view: View, base_url: str, positions: dict[str, dict[str, float]], marked: bool = False
+    view: View,
+    base_url: str,
+    positions: dict[str, dict[str, float]],
+    marked: bool = False,
+    modified: str | None = None,
 ) -> str:
-    mxfile, root = _document(view)
+    mxfile, root = _document(view, modified)
     margin = 40
     xs = [p["x"] - p.get("w", NODE_W) / 2 for p in positions.values()]
     ys = [p["y"] - p.get("h", NODE_H) / 2 for p in positions.values()]

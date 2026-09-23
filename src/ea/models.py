@@ -268,6 +268,12 @@ class RelationshipType:
     sort_order: int = 0
     attributes: list[AttributeDef] = field(default_factory=list)  # what a relationship of this type may carry
     properties: dict[str, Any] = field(default_factory=dict)
+    #: How a relationship of this type is drawn: `archimate` names one of ARCHIMATE_RELATIONSHIPS
+    #: (the arrowhead and line style an exported diagram uses), and `direction: reverse` says the
+    #: standard's direction runs from the target to the source — a type written part-to-whole
+    #: ("constitutes", "belongs to") is an aggregation whose diamond sits at the target end.
+    #: A type that names nothing is drawn as a plain directed line.
+    notation: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         validate_identifier(self.id, "relationship type id")
@@ -275,6 +281,84 @@ class RelationshipType:
         for a in self.attributes:
             a.rel_type_id = self.id
             a.type_id = None
+        kind = self.notation.get("archimate", "")
+        if kind and kind not in ARCHIMATE_RELATIONSHIPS:
+            raise ValueError(
+                f"relationship type {self.id}: notation.archimate must be one of {ARCHIMATE_RELATIONSHIPS}"
+            )
+        if self.notation.get("direction", "forward") not in ("forward", "reverse"):
+            raise ValueError(f"relationship type {self.id}: notation.direction must be forward or reverse")
+
+    @property
+    def archimate(self) -> str:
+        return self.notation.get("archimate", "")
+
+    @property
+    def reversed(self) -> bool:
+        """Whether the standard's direction (whole to part, active to behaviour, realiser to realised) runs target to source."""
+        return self.notation.get("direction", "forward") == "reverse"
+
+
+#: The ArchiMate 3 relationships a relationship type may say it is drawn as.
+ARCHIMATE_RELATIONSHIPS = (
+    "composition",
+    "aggregation",
+    "assignment",
+    "realization",
+    "serving",
+    "access",
+    "influence",
+    "triggering",
+    "flow",
+    "specialization",
+    "association",
+)
+
+#: How a viewpoint bands a diagram: by architecture layer, by element type, or by a related
+#: element of `band_type` reached through `band_relationships`.
+BAND_MODES = ("layer", "type", "related")
+
+
+@dataclass
+class Viewpoint:
+    """What a diagram is for, declared by the framework (decision 0023).
+
+    A viewpoint says which element types and relationship types a drawing admits (none named
+    means every one), how it is banded, which relationship types are drawn as nesting (the
+    whole end holds the part end inside it) or as a span (the target end is a bar across the
+    sources related to it), and the band that takes whatever the banding rule cannot place.
+    The application knows this grammar and no viewpoint by name.
+    """
+
+    id: str
+    name: str
+    description: str = ""
+    element_types: list[str] = field(default_factory=list)  # empty: every type
+    relationship_types: list[str] = field(default_factory=list)  # empty: every type
+    bands: str = "layer"  # one of BAND_MODES
+    band_order: list[str] = field(
+        default_factory=list
+    )  # layers or type ids, top to bottom; empty: the pack's order
+    band_type: str = ""  # bands=related: the element type whose elements name the bands
+    band_relationships: list[str] = field(
+        default_factory=list
+    )  # bands=related: the types that place an element in a band
+    other_band: str = "Other"  # the band for an element the rule cannot place
+    nest: list[str] = field(default_factory=list)  # relationship types drawn as one shape inside another
+    span: list[str] = field(
+        default_factory=list
+    )  # relationship types drawn as a bar across the related shapes
+    sort_order: int = 0
+    properties: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.id, "viewpoint id")
+        self.name = (self.name or "").strip() or self.id
+        if self.bands not in BAND_MODES:
+            raise ValueError(f"viewpoint {self.id}: bands must be one of {BAND_MODES}")
+        if self.bands == "related" and not self.band_type:
+            raise ValueError(f"viewpoint {self.id}: bands by a related element needs band_type")
+        self.other_band = (self.other_band or "").strip() or "Other"
 
 
 @dataclass
@@ -304,6 +388,7 @@ class Pack:
     derived_from: str = ""
     notes: str = ""
     properties: dict[str, Any] = field(default_factory=dict)
+    viewpoints: list[Viewpoint] = field(default_factory=list)  # what its diagrams are (decision 0023)
 
     def __post_init__(self) -> None:
         validate_pack_id(self.id)

@@ -7,9 +7,11 @@ every node is an element of the model and carries its identifier.
 """
 
 from ea.views.model import (
+    DEFAULT_VIEWPOINT,
     View,
     ViewEdge,
     ViewNode,
+    apply_viewpoint,
     has_state_markers,
     view_from_ids,
     view_from_impact,
@@ -18,6 +20,8 @@ from ea.views.model import (
 )
 
 __all__ = [
+    "DEFAULT_VIEWPOINT",
+    "apply_viewpoint",
     "View",
     "ViewEdge",
     "ViewNode",

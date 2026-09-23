@@ -33,3 +33,5 @@ alternative?".
 | [0020](./0020-staging-tables-live-in-the-store.md) | A staging table lives in the store, not in the catalogue | Adopted 2026-09-20, for the Requester to confirm | `DOBJ3.8`, `ASVC12`, `ACMP14`, `NODE2`, `GAP4` |
 | [0021](./0021-an-opaque-pack-identifier.md) | A metamodel's identifier means nothing, so its name is free to change | Adopted 2026-09-22, at the Requester's word (initiative 21) | `DOBJ1`, `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP2`, `ACMP13`, `ART2` |
 | [0022](./0022-a-name-is-not-frozen.md) | A published version is frozen in what it defines, and a name is not part of that | Adopted 2026-09-22, at the Requester's word (initiative 21) | `DOBJ1.6`, `ASVC1`, `ACMP2`, `ACMP13` |
+| [0023](./0023-a-viewpoint-is-pack-data.md) | A viewpoint is pack data, and the reader picks it | Adopted 2026-09-23, at the Requester's word (initiative 22) | `DOBJ1.8`, `DOBJ1.2`, `DOBJ2.4`, `ASVC6`, `ACMP8`, `ART2` |
+| [0024](./0024-the-layout-is-our-own-code.md) | The layout is the application's own code | Adopted 2026-09-23, at the Requester's word (initiative 22) | `ACMP8`, `ASVC6`, `NODE1.1` |

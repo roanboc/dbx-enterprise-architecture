@@ -17,6 +17,7 @@ from ea.models import (
     ElementType,
     Pack,
     RelationshipType,
+    Viewpoint,
     is_pack_id,
     pack_id_from_legacy,
     slugify,
@@ -122,6 +123,22 @@ REL_KEYS = {
     "dst_max",
     "attributes",
     "properties",
+    "notation",
+}
+VIEWPOINT_KEYS = {
+    "id",
+    "name",
+    "description",
+    "element_types",
+    "relationship_types",
+    "bands",
+    "band_order",
+    "band_type",
+    "band_relationships",
+    "other_band",
+    "nest",
+    "span",
+    "properties",
 }
 PACK_KEYS = {
     "id",
@@ -226,8 +243,28 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
                 sort_order=i,
                 attributes=[_attr(a, None, r["id"]) for a in r.get("attributes") or []],
                 properties=_properties(r, REL_KEYS),
+                notation=_notation(r.get("notation")),
             )
         )
+    viewpoints = [
+        Viewpoint(
+            id=v["id"],
+            name=v.get("name") or v["id"],
+            description=v.get("description", "") or "",
+            element_types=[str(x) for x in v.get("element_types") or []],
+            relationship_types=[str(x) for x in v.get("relationship_types") or []],
+            bands=str(v.get("bands") or "layer"),
+            band_order=[str(x) for x in v.get("band_order") or []],
+            band_type=str(v.get("band_type") or ""),
+            band_relationships=[str(x) for x in v.get("band_relationships") or []],
+            other_band=str(v.get("other_band") or "Other"),
+            nest=[str(x) for x in v.get("nest") or []],
+            span=[str(x) for x in v.get("span") or []],
+            sort_order=i,
+            properties=_properties(v, VIEWPOINT_KEYS),
+        )
+        for i, v in enumerate(data.get("viewpoints") or [])
+    ]
     return resolve_attribute_groups(
         Pack(
             id=_pack_id_of(meta),
@@ -245,6 +282,7 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
             derived_from=str(meta.get("derived_from") or ""),
             notes=str(meta.get("notes") or ""),
             properties=_properties(meta, PACK_KEYS),
+            viewpoints=viewpoints,
         )
     )
 
@@ -325,6 +363,7 @@ def _properties_by_owner(pack: Pack) -> list[tuple[str, str, dict[str, Any]]]:
     out += [("attribute group", g.id, g.properties) for g in pack.attribute_groups]
     out += [("element type", t.id, t.properties) for t in pack.element_types]
     out += [("relationship type", r.id, r.properties) for r in pack.relationship_types]
+    out += [("viewpoint", v.id, v.properties) for v in pack.viewpoints]
     out += [("attribute", a.name, a.properties) for a in _every_attribute(pack)]
     return out
 
@@ -395,7 +434,17 @@ def pack_to_dict(pack: Pack) -> dict[str, Any]:
         "common_attributes": [attr_to_dict(a) for a in pack.common_attributes],
         "element_types": element_types,
         "relationship_types": relationship_types,
+        **({"viewpoints": [_viewpoint_to_dict(v) for v in pack.viewpoints]} if pack.viewpoints else {}),
     }
+
+
+def _viewpoint_to_dict(v: Viewpoint) -> dict[str, Any]:
+    d = _clean(asdict(v), drop=("sort_order",))
+    if v.bands == "layer":
+        d.pop("bands", None)
+    if v.other_band == "Other":
+        d.pop("other_band", None)
+    return d
 
 
 def dump_pack(pack: Pack, path: str | Path) -> None:

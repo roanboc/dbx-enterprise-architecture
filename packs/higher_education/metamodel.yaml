@@ -747,17 +747,17 @@ element_types:
 # realised by Application") the edge is stored actively from the doing side.
 relationship_types:
   # --- objects of enterprise concern
-  - {id: organization_unit__owns_and_governs__business_service, name: owns and governs, inverse: is owned and governed by, source: organization_unit, target: business_service, provenance: TOGAF, diagrams: [enterprise]}
-  - {id: position__owns__integration, name: owns, inverse: is owned by, source: position, target: integration, provenance: LOCAL, diagrams: [enterprise, integration]}
-  - {id: process__realises__capability, name: realises, inverse: is realised by, source: process, target: capability, provenance: CORE_EA, diagrams: [enterprise]}
-  - {id: capability__contains__capability, name: contains, inverse: is contained in, source: capability, target: capability, provenance: CORE_EA, diagrams: [enterprise, process]}
-  - {id: organization_unit__produces__product, name: produces, inverse: is produced by, source: organization_unit, target: product, provenance: TOGAF, diagrams: [enterprise, information]}
-  - {id: position__belongs_to__organization_unit, name: belongs to, inverse: has position, source: position, target: organization_unit, provenance: LOCAL, diagrams: [enterprise]}
-  - {id: position__owns__physical_application_component, name: owns, inverse: is owned by, source: position, target: physical_application_component, provenance: LOCAL, diagrams: [enterprise, integration]}
-  - {id: physical_application_component__realises__capability, name: realises, inverse: is realised by, source: physical_application_component, target: capability, provenance: CORE_EA, diagrams: [enterprise, integration], description: Capability is realised by Application.}
-  - {id: organization_unit__contains__organization_unit, name: contains, inverse: is contained in, source: organization_unit, target: organization_unit, provenance: CORE_EA, diagrams: [enterprise, information]}
-  - {id: organization_unit__owns__business_definition, name: owns, inverse: is owned by, source: organization_unit, target: business_definition, provenance: LOCAL, diagrams: [enterprise, information]}
-  - {id: information_asset__is_associated_with__organization_unit, name: is associated with, inverse: is associated with, source: information_asset, target: organization_unit, provenance: LOCAL, diagrams: [enterprise, information]}
+  - {id: organization_unit__owns_and_governs__business_service, name: owns and governs, inverse: is owned and governed by, source: organization_unit, target: business_service, provenance: TOGAF, diagrams: [enterprise], notation: {archimate: association}}
+  - {id: position__owns__integration, name: owns, inverse: is owned by, source: position, target: integration, provenance: LOCAL, diagrams: [enterprise, integration], notation: {archimate: association}}
+  - {id: process__realises__capability, name: realises, inverse: is realised by, source: process, target: capability, provenance: CORE_EA, diagrams: [enterprise], notation: {archimate: realization}}
+  - {id: capability__contains__capability, name: contains, inverse: is contained in, source: capability, target: capability, provenance: CORE_EA, diagrams: [enterprise, process], notation: {archimate: composition}}
+  - {id: organization_unit__produces__product, name: produces, inverse: is produced by, source: organization_unit, target: product, provenance: TOGAF, diagrams: [enterprise, information], notation: {archimate: association}}
+  - {id: position__belongs_to__organization_unit, name: belongs to, inverse: has position, source: position, target: organization_unit, provenance: LOCAL, diagrams: [enterprise], notation: {archimate: aggregation, direction: reverse}}
+  - {id: position__owns__physical_application_component, name: owns, inverse: is owned by, source: position, target: physical_application_component, provenance: LOCAL, diagrams: [enterprise, integration], notation: {archimate: association}}
+  - {id: physical_application_component__realises__capability, name: realises, inverse: is realised by, source: physical_application_component, target: capability, provenance: CORE_EA, diagrams: [enterprise, integration], description: Capability is realised by Application., notation: {archimate: realization}}
+  - {id: organization_unit__contains__organization_unit, name: contains, inverse: is contained in, source: organization_unit, target: organization_unit, provenance: CORE_EA, diagrams: [enterprise, information], notation: {archimate: composition}}
+  - {id: organization_unit__owns__business_definition, name: owns, inverse: is owned by, source: organization_unit, target: business_definition, provenance: LOCAL, diagrams: [enterprise, information], notation: {archimate: association}}
+  - {id: information_asset__is_associated_with__organization_unit, name: is associated with, inverse: is associated with, source: information_asset, target: organization_unit, provenance: LOCAL, diagrams: [enterprise, information], notation: {archimate: association}}
   - id: position__is_steward_of__information_asset
     name: is Owner / Data Custodian / Data Steward / Data Administrator of
     inverse: has Owner / Data Custodian / Data Steward / Data Administrator
@@ -766,49 +766,105 @@ relationship_types:
     provenance: LOCAL
     diagrams: [enterprise, information]
     qualifiers: [Owner, Data Custodian, Data Steward, Data Administrator]
+    notation: {archimate: association}
     description: One relationship type with a role qualifier; an asset may have several positions in the same or different roles.
-  - {id: position__owns__physical_technology_component, name: owns, inverse: is owned by, source: position, target: physical_technology_component, provenance: LOCAL, diagrams: [enterprise, integration]}
-  - {id: physical_technology_component__realises__capability, name: realises, inverse: is realised by, source: physical_technology_component, target: capability, provenance: CORE_EA, diagrams: [enterprise, integration], description: Capability is realised by Technology.}
-  - {id: information_asset__relates_to__capability, name: relates to, inverse: is related to by, source: information_asset, target: capability, provenance: LOCAL, diagrams: [enterprise, information]}
-  - {id: business_definition__relates_to__any, name: relates to, inverse: is defined by, source: business_definition, target: ANY, provenance: LOCAL, diagrams: [enterprise, information], description: A glossary term may relate to any element.}
-  - {id: driver__creates__goal, name: creates, inverse: is created by, source: driver, target: goal, provenance: CORE_EA, diagrams: [enterprise]}
-  - {id: goal__constitutes__goal, name: constitutes, inverse: is constituted by, source: goal, target: goal, provenance: CORE_EA, diagrams: [enterprise]}
+  - {id: position__owns__physical_technology_component, name: owns, inverse: is owned by, source: position, target: physical_technology_component, provenance: LOCAL, diagrams: [enterprise, integration], notation: {archimate: association}}
+  - {id: physical_technology_component__realises__capability, name: realises, inverse: is realised by, source: physical_technology_component, target: capability, provenance: CORE_EA, diagrams: [enterprise, integration], description: Capability is realised by Technology., notation: {archimate: realization}}
+  - {id: information_asset__relates_to__capability, name: relates to, inverse: is related to by, source: information_asset, target: capability, provenance: LOCAL, diagrams: [enterprise, information], notation: {archimate: association}}
+  - {id: business_definition__relates_to__any, name: relates to, inverse: is defined by, source: business_definition, target: ANY, provenance: LOCAL, diagrams: [enterprise, information], description: A glossary term may relate to any element., notation: {archimate: association}}
+  - {id: driver__creates__goal, name: creates, inverse: is created by, source: driver, target: goal, provenance: CORE_EA, diagrams: [enterprise], notation: {archimate: influence}}
+  - {id: goal__constitutes__goal, name: constitutes, inverse: is constituted by, source: goal, target: goal, provenance: CORE_EA, diagrams: [enterprise], notation: {archimate: aggregation, direction: reverse}}
   # --- information
-  - {id: work_package__impacts__any, name: impacts, inverse: is impacted by, source: work_package, target: ANY, provenance: CORE_EA, diagrams: [information, process], description: Project impacts Object.}
-  - {id: physical_technology_component__contributes_to__information_asset, name: contributes to, inverse: is contributed to by, source: physical_technology_component, target: information_asset, provenance: LOCAL, diagrams: [information]}
-  - {id: physical_application_component__contributes_to__information_asset, name: contributes to, inverse: is contributed to by, source: physical_application_component, target: information_asset, provenance: LOCAL, diagrams: [information]}
-  - {id: logical_data_component__categorises__information_asset, name: categorises, inverse: is categorised by, source: logical_data_component, target: information_asset, provenance: LOCAL, diagrams: [information], description: A level-2 Logical Data Component (topic) categorises an Information Asset.}
-  - {id: physical_application_component__processes__logical_data_component, name: processes, inverse: is processed by, source: physical_application_component, target: logical_data_component, provenance: LOCAL, diagrams: [information]}
-  - {id: physical_application_component__processes__data_entity, name: processes, inverse: is processed by, source: physical_application_component, target: data_entity, provenance: CORE_EA, diagrams: [information, integration]}
-  - {id: logical_data_component__encapsulates__data_entity, name: encapsulates, inverse: is encapsulated by, source: logical_data_component, target: data_entity, provenance: CORE_EA, diagrams: [information]}
-  - {id: logical_data_component__constitutes__logical_data_component, name: constitutes, inverse: is constituted by, source: logical_data_component, target: logical_data_component, provenance: CORE_EA, diagrams: [information], description: The level hierarchy of logical data components.}
-  - {id: logical_data_component__is_related_to__logical_data_component, name: is related to, inverse: is related to, source: logical_data_component, target: logical_data_component, provenance: LOCAL, diagrams: [information]}
-  - {id: data_entity__contributes_to__data_product, name: contributes to, inverse: is contributed to by, source: data_entity, target: data_product, provenance: LOCAL, diagrams: [information]}
-  - {id: data_product__applies__measure, name: applies, inverse: is applied by, source: data_product, target: measure, provenance: LOCAL, diagrams: [information]}
-  - {id: measure__applies_to__data_entity, name: applies to, inverse: has measure, source: measure, target: data_entity, provenance: LOCAL, diagrams: [information]}
-  - {id: physical_application_component__provides_or_uses__interface, name: provides to / uses, inverse: is provided by / used by, source: physical_application_component, target: interface, provenance: CORE_EA, diagrams: [information]}
-  - {id: logical_data_component__traverses__interface, name: traverses, inverse: is traversed by, source: logical_data_component, target: interface, provenance: LOCAL, diagrams: [information]}
-  - {id: integration__processes__logical_data_component, name: processes, inverse: is processed by, source: integration, target: logical_data_component, provenance: LOCAL, diagrams: [information, integration]}
-  - {id: integration__contributes_to__interface, name: contributes to, inverse: is contributed to by, source: integration, target: interface, provenance: LOCAL, diagrams: [information]}
+  - {id: work_package__impacts__any, name: impacts, inverse: is impacted by, source: work_package, target: ANY, provenance: CORE_EA, diagrams: [information, process], description: Project impacts Object., notation: {archimate: association}}
+  - {id: physical_technology_component__contributes_to__information_asset, name: contributes to, inverse: is contributed to by, source: physical_technology_component, target: information_asset, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
+  - {id: physical_application_component__contributes_to__information_asset, name: contributes to, inverse: is contributed to by, source: physical_application_component, target: information_asset, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
+  - {id: logical_data_component__categorises__information_asset, name: categorises, inverse: is categorised by, source: logical_data_component, target: information_asset, provenance: LOCAL, diagrams: [information], description: A level-2 Logical Data Component (topic) categorises an Information Asset., notation: {archimate: association}}
+  - {id: physical_application_component__processes__logical_data_component, name: processes, inverse: is processed by, source: physical_application_component, target: logical_data_component, provenance: LOCAL, diagrams: [information], notation: {archimate: access}}
+  - {id: physical_application_component__processes__data_entity, name: processes, inverse: is processed by, source: physical_application_component, target: data_entity, provenance: CORE_EA, diagrams: [information, integration], notation: {archimate: access}}
+  - {id: logical_data_component__encapsulates__data_entity, name: encapsulates, inverse: is encapsulated by, source: logical_data_component, target: data_entity, provenance: CORE_EA, diagrams: [information], notation: {archimate: composition}}
+  - {id: logical_data_component__constitutes__logical_data_component, name: constitutes, inverse: is constituted by, source: logical_data_component, target: logical_data_component, provenance: CORE_EA, diagrams: [information], description: The level hierarchy of logical data components., notation: {archimate: aggregation, direction: reverse}}
+  - {id: logical_data_component__is_related_to__logical_data_component, name: is related to, inverse: is related to, source: logical_data_component, target: logical_data_component, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
+  - {id: data_entity__contributes_to__data_product, name: contributes to, inverse: is contributed to by, source: data_entity, target: data_product, provenance: LOCAL, diagrams: [information], notation: {archimate: realization}}
+  - {id: data_product__applies__measure, name: applies, inverse: is applied by, source: data_product, target: measure, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
+  - {id: measure__applies_to__data_entity, name: applies to, inverse: has measure, source: measure, target: data_entity, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
+  - {id: physical_application_component__provides_or_uses__interface, name: provides to / uses, inverse: is provided by / used by, source: physical_application_component, target: interface, provenance: CORE_EA, diagrams: [information], notation: {archimate: association}}
+  - {id: logical_data_component__traverses__interface, name: traverses, inverse: is traversed by, source: logical_data_component, target: interface, provenance: LOCAL, diagrams: [information], notation: {archimate: flow}}
+  - {id: integration__processes__logical_data_component, name: processes, inverse: is processed by, source: integration, target: logical_data_component, provenance: LOCAL, diagrams: [information, integration], notation: {archimate: access}}
+  - {id: integration__contributes_to__interface, name: contributes to, inverse: is contributed to by, source: integration, target: interface, provenance: LOCAL, diagrams: [information], notation: {archimate: association}}
   # --- integration
-  - {id: physical_technology_component__is_source_for__integration, name: is source for, inverse: has source, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_technology_component__is_target_of__integration, name: is target of, inverse: has target, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_technology_component__realises__integration, name: realises, inverse: is realised by, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_application_component__is_source_for__integration, name: is source for, inverse: has source, source: physical_application_component, target: integration, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_application_component__is_target_of__integration, name: is target of, inverse: has target, source: physical_application_component, target: integration, provenance: LOCAL, diagrams: [integration]}
-  - {id: integration__supports__capability, name: supports, inverse: is supported by, source: integration, target: capability, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_technology_component__realises__physical_application_component, name: realises, inverse: is realised by, source: physical_technology_component, target: physical_application_component, provenance: CORE_EA, diagrams: [integration], description: Technology realises Application.}
-  - {id: physical_technology_component__stores__data_entity, name: stores, inverse: is stored in, source: physical_technology_component, target: data_entity, provenance: LOCAL, diagrams: [integration]}
-  - {id: physical_application_component__realises__logical_application_component, name: realises, inverse: is realised by, source: physical_application_component, target: logical_application_component, provenance: CORE_EA, diagrams: [integration], description: Application realises Application Category.}
-  - {id: physical_technology_component__realises__logical_technology_component, name: realises, inverse: is realised by, source: physical_technology_component, target: logical_technology_component, provenance: CORE_EA, diagrams: [integration], description: Technology realises Technology Category.}
-  - {id: physical_technology_component__realises__data_product, name: realises, inverse: is realised by, source: physical_technology_component, target: data_product, provenance: LOCAL, diagrams: [integration]}
+  - {id: physical_technology_component__is_source_for__integration, name: is source for, inverse: has source, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration], notation: {archimate: flow}}
+  - {id: physical_technology_component__is_target_of__integration, name: is target of, inverse: has target, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration], notation: {archimate: flow, direction: reverse}}
+  - {id: physical_technology_component__realises__integration, name: realises, inverse: is realised by, source: physical_technology_component, target: integration, provenance: LOCAL, diagrams: [integration], notation: {archimate: realization}}
+  - {id: physical_application_component__is_source_for__integration, name: is source for, inverse: has source, source: physical_application_component, target: integration, provenance: LOCAL, diagrams: [integration], notation: {archimate: flow}}
+  - {id: physical_application_component__is_target_of__integration, name: is target of, inverse: has target, source: physical_application_component, target: integration, provenance: LOCAL, diagrams: [integration], notation: {archimate: flow, direction: reverse}}
+  - {id: integration__supports__capability, name: supports, inverse: is supported by, source: integration, target: capability, provenance: LOCAL, diagrams: [integration], notation: {archimate: serving}}
+  - {id: physical_technology_component__realises__physical_application_component, name: realises, inverse: is realised by, source: physical_technology_component, target: physical_application_component, provenance: CORE_EA, diagrams: [integration], description: Technology realises Application., notation: {archimate: realization}}
+  - {id: physical_technology_component__stores__data_entity, name: stores, inverse: is stored in, source: physical_technology_component, target: data_entity, provenance: LOCAL, diagrams: [integration], notation: {archimate: access}}
+  - {id: physical_application_component__realises__logical_application_component, name: realises, inverse: is realised by, source: physical_application_component, target: logical_application_component, provenance: CORE_EA, diagrams: [integration], description: Application realises Application Category., notation: {archimate: realization}}
+  - {id: physical_technology_component__realises__logical_technology_component, name: realises, inverse: is realised by, source: physical_technology_component, target: logical_technology_component, provenance: CORE_EA, diagrams: [integration], description: Technology realises Technology Category., notation: {archimate: realization}}
+  - {id: physical_technology_component__realises__data_product, name: realises, inverse: is realised by, source: physical_technology_component, target: data_product, provenance: LOCAL, diagrams: [integration], notation: {archimate: realization}}
   # --- process
-  - {id: organization_unit__contains__process, name: contains, inverse: is contained in, source: organization_unit, target: process, provenance: CORE_EA, diagrams: [process], description: Contains (BPMN).}
-  - {id: process__contains__process, name: contains, inverse: is contained in, source: process, target: process, provenance: CORE_EA, diagrams: [process]}
-  - {id: role__performs__process, name: performs, inverse: is performed by, source: role, target: process, provenance: CORE_EA, diagrams: [process]}
-  - {id: actor__participates_in__process, name: participates in, inverse: has participant, source: actor, target: process, provenance: TOGAF, diagrams: [process]}
-  - {id: actor__performs_task_in__role, name: performs task in, inverse: has task performed by, source: actor, target: role, provenance: CORE_EA, diagrams: [process]}
-  - {id: process__operationalises__value_stream, name: operationalises, inverse: is operationalised by, source: process, target: value_stream, provenance: CORE_EA, diagrams: [process]}
-  - {id: process__operationalises__capability, name: operationalises, inverse: is operationalised by, source: process, target: capability, provenance: CORE_EA, diagrams: [process], description: Drawn separately from "Process realises Capability" on the enterprise diagram; both are kept as transcribed.}
-  - {id: capability__enables__value_stream, name: enables, inverse: is enabled by, source: capability, target: value_stream, provenance: CORE_EA, diagrams: [process]}
-  - {id: value_stream__constitutes__value_stream, name: constitutes, inverse: is constituted by, source: value_stream, target: value_stream, provenance: CORE_EA, diagrams: [process]}
+  - {id: organization_unit__contains__process, name: contains, inverse: is contained in, source: organization_unit, target: process, provenance: CORE_EA, diagrams: [process], description: Contains (BPMN)., notation: {archimate: assignment}}
+  - {id: process__contains__process, name: contains, inverse: is contained in, source: process, target: process, provenance: CORE_EA, diagrams: [process], notation: {archimate: composition}}
+  - {id: role__performs__process, name: performs, inverse: is performed by, source: role, target: process, provenance: CORE_EA, diagrams: [process], notation: {archimate: assignment}}
+  - {id: actor__participates_in__process, name: participates in, inverse: has participant, source: actor, target: process, provenance: TOGAF, diagrams: [process], notation: {archimate: assignment}}
+  - {id: actor__performs_task_in__role, name: performs task in, inverse: has task performed by, source: actor, target: role, provenance: CORE_EA, diagrams: [process], notation: {archimate: assignment}}
+  - {id: process__operationalises__value_stream, name: operationalises, inverse: is operationalised by, source: process, target: value_stream, provenance: CORE_EA, diagrams: [process], notation: {archimate: realization}}
+  - {id: process__operationalises__capability, name: operationalises, inverse: is operationalised by, source: process, target: capability, provenance: CORE_EA, diagrams: [process], description: Drawn separately from "Process realises Capability" on the enterprise diagram; both are kept as transcribed., notation: {archimate: realization}}
+  - {id: capability__enables__value_stream, name: enables, inverse: is enabled by, source: capability, target: value_stream, provenance: CORE_EA, diagrams: [process], notation: {archimate: serving}}
+  - {id: value_stream__constitutes__value_stream, name: constitutes, inverse: is constituted by, source: value_stream, target: value_stream, provenance: CORE_EA, diagrams: [process], notation: {archimate: aggregation, direction: reverse}}
+
+# ---------------------------------------------------------------- viewpoints
+# What a diagram is for (decision 0023). The reader picks one when a view is exported: it
+# says which element types and relationship types the drawing admits (none named: every one),
+# how the drawing is banded, which relationship types draw one shape inside another (the whole
+# holds the part) and which draw the target as a bar across the sources related to it. The
+# four here mirror the ArchiMate 3.2 example viewpoints the metamodel's own diagrams fall
+# under; each is a first cut for the framework owner to correct.
+viewpoints:
+  - id: layered
+    name: Layered
+    description: >-
+      Every element the view holds, in a band per architecture layer; the hierarchies of
+      capabilities, organisation units and processes, and the data entities a logical data
+      component encapsulates, drawn as nesting.
+    nest: [capability__contains__capability, organization_unit__contains__organization_unit, process__contains__process,
+           logical_data_component__constitutes__logical_data_component, logical_data_component__encapsulates__data_entity]
+  - id: application_cooperation
+    name: Application cooperation
+    description: >-
+      Applications, their interfaces and integrations, and the data they process, in a band per
+      type; a data entity drawn inside the logical data component that encapsulates it.
+    element_types: [logical_application_component, physical_application_component, interface, integration,
+                    logical_data_component, data_entity, physical_technology_component, logical_technology_component]
+    bands: type
+    band_order: [logical_application_component, physical_application_component, interface, integration,
+                 logical_data_component, data_entity, physical_technology_component, logical_technology_component]
+    nest: [logical_data_component__encapsulates__data_entity]
+  - id: process_cooperation
+    name: Process cooperation
+    description: >-
+      Processes in a swimlane per role that performs them, with the actors, organisation units,
+      capabilities, value streams, information assets and applications around them; a process
+      drawn inside the process that contains it.
+    element_types: [process, role, actor, organization_unit, capability, value_stream, information_asset,
+                    physical_application_component]
+    bands: related
+    band_type: role
+    band_relationships: [role__performs__process]
+    other_band: Not performed by a role
+    nest: [process__contains__process]
+  - id: staged_delivery
+    name: Staged delivery
+    description: >-
+      A band per capability, holding the applications, integrations and processes that realise
+      it; a data entity spans the applications that process it, and a data product spans the
+      data entities that contribute to it.
+    element_types: [capability, process, physical_application_component, integration, data_entity, data_product,
+                    information_asset]
+    bands: related
+    band_type: capability
+    band_relationships: [process__realises__capability, physical_application_component__realises__capability,
+                         integration__supports__capability, information_asset__relates_to__capability]
+    other_band: Data
+    span: [physical_application_component__processes__data_entity, data_entity__contributes_to__data_product]

@@ -131,6 +131,9 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # tell what the branch changed apart from what main changed, rather than only that both did
     ("branch_element", "base_row", "VARCHAR"),
     ("branch_relationship", "base_row", "VARCHAR"),
+    # initiative 22: a viewpoint is pack data, and a relationship type says how it is drawn
+    ("meta_pack", "viewpoints", "VARCHAR"),
+    ("meta_relationship_type", "notation", "VARCHAR"),
 ] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
@@ -163,7 +166,8 @@ DDL: dict[str, str] = {
             created_by VARCHAR,
             created_at TIMESTAMP,
             published_by VARCHAR,
-            published_at TIMESTAMP
+            published_at TIMESTAMP,
+            viewpoints VARCHAR
         )""",
     "meta_domain": """
         CREATE TABLE IF NOT EXISTS meta_domain (
@@ -241,7 +245,8 @@ DDL: dict[str, str] = {
             dst_max INTEGER,
             sort_order INTEGER,
             pack_version VARCHAR,
-            properties VARCHAR
+            properties VARCHAR,
+            notation VARCHAR
         )""",
     "organisation": """
         CREATE TABLE IF NOT EXISTS organisation (

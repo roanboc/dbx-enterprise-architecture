@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ea.metamodel.registry import Registry
+from ea.models import Viewpoint
 from ea.services.graph import GraphService
 
 # ArchiMate layers top to bottom, which is also the drawing order.
@@ -48,6 +49,11 @@ class ViewNode:
     depth: int = 0
     current_state: str = "live"
     target_state: str = "undecided"
+    #: Set by `apply_viewpoint` under a viewpoint that bands by a related element: `band` is the
+    #: identifier of the element whose band this node sits in (`""`: the viewpoint's other band),
+    #: and `is_band` marks the band elements themselves, which are drawn as bands, not as shapes.
+    band: str = ""
+    is_band: bool = False
 
     @property
     def label(self) -> str:
@@ -67,6 +73,20 @@ class ViewEdge:
     rel_type_id: str = ""
     qualifier: str = ""
     target_state: str = "undecided"
+    #: The ArchiMate relationship the edge is drawn as, from the relationship type's notation
+    #: (`""` when the type names none: a plain directed line), and whether the standard's
+    #: direction runs from `dst` to `src` — the whole, the assigner, the realiser at the target.
+    archimate: str = ""
+    reversed: bool = False
+
+    @property
+    def whole(self) -> str:
+        """The end that contains, assigns or is realised: `src` unless the notation runs in reverse."""
+        return self.dst if self.reversed else self.src
+
+    @property
+    def part(self) -> str:
+        return self.src if self.reversed else self.dst
 
 
 @dataclass
@@ -77,6 +97,7 @@ class View:
     edges: list[ViewEdge] = field(default_factory=list)
     note: str = ""
     omitted: int = 0  # nodes left out by the cap
+    viewpoint: str = ""  # the viewpoint the view was filtered through, when one was (decision 0023)
 
     def layers(self) -> list[str]:
         present = {n.layer for n in self.nodes}
@@ -91,6 +112,94 @@ class View:
 
 def layer_rank(layer: str) -> int:
     return LAYER_ORDER.index(layer) if layer in LAYER_ORDER else len(LAYER_ORDER)
+
+
+#: The drawing every pack gets without a viewpoint of its own: one band per architecture
+#: layer, every element and every relationship, nothing nested and nothing spanned.
+DEFAULT_VIEWPOINT = Viewpoint(
+    id="layered", name="Layered", description="Every element, in a band per architecture layer."
+)
+
+
+def _edge(registry: Registry, e: dict[str, Any]) -> ViewEdge:
+    notation = registry.rel_notation(e.get("rel_type_id", "") or "")
+    return ViewEdge(
+        src=e["src_id"],
+        dst=e["dst_id"],
+        label=e["label"],
+        rel_type_id=e.get("rel_type_id", "") or "",
+        qualifier=e.get("qualifier", "") or "",
+        target_state=e.get("target_state") or "undecided",
+        archimate=notation.get("archimate", ""),
+        reversed=notation.get("direction") == "reverse",
+    )
+
+
+def _assign_bands(nodes: list[ViewNode], edges: list[ViewEdge], vp: Viewpoint, registry: Registry) -> None:
+    """Under bands by a related element: mark the band elements, and give every other node the
+    band of the first band element (by name, then identifier) a band relationship joins it to."""
+    is_band = {n.id for n in nodes if n.type_id == vp.band_type or registry.is_a(n.type_id, vp.band_type)}
+    by_id = {n.id: n for n in nodes}
+    wanted = set(vp.band_relationships)
+    for n in nodes:
+        n.is_band = n.id in is_band
+        n.band = ""
+    candidates: dict[str, list[str]] = {}
+    for e in edges:
+        if wanted and e.rel_type_id not in wanted:
+            continue
+        for me, other in ((e.src, e.dst), (e.dst, e.src)):
+            if other in is_band and me not in is_band:
+                candidates.setdefault(me, []).append(other)
+    for nid, bands in candidates.items():
+        by_id[nid].band = sorted(bands, key=lambda b: (by_id[b].name.lower(), b))[0]
+
+
+def apply_viewpoint(
+    view: View, viewpoint: Viewpoint | None, registry: Registry, layers: list[str] | None = None
+) -> View:
+    """The view narrowed to what a viewpoint admits: its element types (a sub-type counts as its
+    supertype), its relationship types, and the architecture layers the reader kept. An edge
+    goes with either end it loses. The focus stays whatever the filter says, because a reader
+    who asked about an element is told when the viewpoint has nothing to show for it, in `note`.
+    """
+    vp = viewpoint or DEFAULT_VIEWPOINT
+    keep_layers = set(layers) if layers else None
+
+    def admitted(n: ViewNode) -> bool:
+        if keep_layers is not None and n.layer not in keep_layers:
+            return False
+        if not vp.element_types:
+            return True
+        return any(n.type_id == t or registry.is_a(n.type_id, t) for t in vp.element_types)
+
+    nodes = [n for n in view.nodes if admitted(n)]
+    ids = {n.id for n in nodes}
+    rels = set(vp.relationship_types)
+    edges = [
+        e
+        for e in view.edges
+        if e.src in ids and e.dst in ids and (not rels or e.rel_type_id in rels or not e.rel_type_id)
+    ]
+    if vp.bands == "related":
+        _assign_bands(nodes, edges, vp, registry)
+    dropped = len(view.nodes) - len(nodes)
+    out = View(
+        title=view.title,
+        focus_ids=[i for i in view.focus_ids if i in ids],
+        nodes=nodes,
+        edges=edges,
+        note=view.note,
+        omitted=view.omitted,
+        viewpoint=vp.id,
+    )
+    if dropped:
+        said = f"{dropped} element(s) outside the {vp.name} viewpoint not shown."
+        out.note = f"{view.note} {said}".strip()
+    lost_focus = [i for i in view.focus_ids if i not in ids]
+    if lost_focus:
+        out.note = f"{out.note} The focus ({', '.join(lost_focus)}) is outside this viewpoint.".strip()
+    return out
 
 
 def _node(registry: Registry, d: dict[str, Any], focus: bool) -> ViewNode:
@@ -154,16 +263,7 @@ def view_from_ids(
         known.add(i)
         view.nodes.append(_node(registry, d, i in focus))
     for e in graph.edges_among(list(known)):
-        view.edges.append(
-            ViewEdge(
-                src=e["src_id"],
-                dst=e["dst_id"],
-                label=e["label"],
-                rel_type_id=e.get("rel_type_id", "") or "",
-                qualifier=e.get("qualifier", "") or "",
-                target_state=e.get("target_state") or "undecided",
-            )
-        )
+        view.edges.append(_edge(registry, e))
     if omitted:
         view.note = f"{omitted} more element(s) not shown."
     return _finish(view)
@@ -183,16 +283,7 @@ def view_from_neighbourhood(
     for n in sub["nodes"]:
         view.nodes.append(_node(registry, n, n["element_id"] == centre))
     for e in sub["edges"]:
-        view.edges.append(
-            ViewEdge(
-                e["src_id"],
-                e["dst_id"],
-                e["label"],
-                e.get("rel_type_id") or "",
-                e.get("qualifier") or "",
-                e.get("target_state") or "undecided",
-            )
-        )
+        view.edges.append(_edge(registry, e))
     if sub.get("truncated"):
         view.note = f"Neighbourhood capped at {max_nodes} elements."
     return _finish(view)
@@ -259,7 +350,11 @@ def view_from_metamodel(
         if (src != ANY and src not in ids) or (dst != ANY and dst not in ids):
             continue
         need_any = need_any or src == ANY or dst == ANY
-        view.edges.append(ViewEdge(src=src, dst=dst, label=r.name, rel_type_id=r.id))
+        view.edges.append(
+            ViewEdge(
+                src=src, dst=dst, label=r.name, rel_type_id=r.id, archimate=r.archimate, reversed=r.reversed
+            )
+        )
     for t in types:
         if t.supertype and t.supertype in ids:
             view.edges.append(ViewEdge(src=t.id, dst=t.supertype, label="is a", rel_type_id=f"sub:{t.id}"))
@@ -290,4 +385,5 @@ def view_from_dict(d: dict[str, Any]) -> View:
         edges=[ViewEdge(**e) for e in d.get("edges") or []],
         note=d.get("note", ""),
         omitted=int(d.get("omitted", 0) or 0),
+        viewpoint=d.get("viewpoint", "") or "",
     )

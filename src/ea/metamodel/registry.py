@@ -20,6 +20,7 @@ from ea.models import (
     Issue,
     Pack,
     RelationshipType,
+    Viewpoint,
     split_multi,
 )
 
@@ -31,6 +32,7 @@ class Registry:
         self.rel_types: dict[str, RelationshipType] = {r.id: r for r in pack.relationship_types}
         self.domains = {d.id: d for d in pack.domains}
         self.attribute_groups = {g.id: g for g in pack.attribute_groups}
+        self._viewpoints: dict[str, Viewpoint] = {v.id: v for v in pack.viewpoints}
         self._by_name: dict[str, ElementType] = {}
         for t in pack.element_types:
             self._by_name[t.name.strip().lower()] = t
@@ -63,6 +65,28 @@ class Registry:
             for end in (r.source, r.target):
                 if end != ANY and end not in self.types:
                     problems.append(f"relationship type {r.id}: unknown end type {end}")
+        seen_vp: set[str] = set()
+        for v in self.pack.viewpoints:
+            if v.id in seen_vp:
+                problems.append(f"viewpoint {v.id}: defined twice")
+            seen_vp.add(v.id)
+            for what, ids in (
+                ("element type", v.element_types),
+                ("element type", [v.band_type] if v.band_type else []),
+                ("element type", v.band_order if v.bands == "type" else []),
+            ):
+                for i in ids:
+                    if i not in self.types:
+                        problems.append(f"viewpoint {v.id}: unknown {what} {i}")
+            for what, ids in (
+                ("relationship type", v.relationship_types),
+                ("relationship type", v.band_relationships),
+                ("relationship type", v.nest),
+                ("relationship type", v.span),
+            ):
+                for i in ids:
+                    if i not in self.rel_types:
+                        problems.append(f"viewpoint {v.id}: unknown {what} {i}")
         for t in self.pack.element_types:
             seen: set[str] = set()
             cur: str | None = t.id
@@ -118,6 +142,22 @@ class Registry:
         if not out.get("stereotype"):
             out["stereotype"] = t.name
         return out
+
+    def rel_notation(self, rel_type_id: str) -> dict[str, str]:
+        """How a relationship type is drawn: its `archimate` relationship and `direction`, defaulted."""
+        out = {"archimate": "", "direction": "forward"}
+        r = self.rel_types.get(rel_type_id)
+        if r is not None:
+            out.update(r.notation)
+        return out
+
+    # ------------------------------------------------------------ viewpoints
+    def viewpoints(self) -> list[Viewpoint]:
+        """The viewpoints the version declares, in the order it declares them (decision 0023)."""
+        return sorted(self.pack.viewpoints, key=lambda v: (v.sort_order, v.id))
+
+    def viewpoint(self, viewpoint_id: str) -> Viewpoint | None:
+        return self._viewpoints.get(viewpoint_id or "")
 
     def resolve_type(self, label: str) -> ElementType | None:
         """By id, name, plural or a loose label ('Logical Data Component', 'logical_data_component')."""

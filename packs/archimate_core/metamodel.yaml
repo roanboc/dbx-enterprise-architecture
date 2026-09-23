@@ -361,14 +361,48 @@ element_types:
 # elements, so these are declared once against ANY rather than per pair of types. A pack
 # that wants them narrowed declares the pairs instead — the engine reads both.
 relationship_types:
-  - {id: composition, name: composes, inverse: is composed in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole is made of the part, and the part cannot exist without it.'}
-  - {id: aggregation, name: aggregates, inverse: is aggregated in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole groups the part, which can exist on its own.'}
-  - {id: assignment, name: is assigned to, inverse: is performed by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An active element is allocated to the behaviour it performs.}
-  - {id: realization, name: realises, inverse: is realised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: A more concrete element fulfils a more abstract one.}
-  - {id: serving, name: serves, inverse: is served by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element provides its functionality to another.}
-  - {id: access, name: accesses, inverse: is accessed by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: [read, write, read/write], description: Behaviour reads or writes a passive element.}
-  - {id: influence, name: influences, inverse: is influenced by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: ['+', '-', '0'], description: An element affects the implementation or achievement of a motivation element.}
-  - {id: triggering, name: triggers, inverse: is triggered by, source: ANY, target: ANY, provenance: ARCHIMATE, description: One behaviour follows another in time.}
-  - {id: flow, name: flows to, inverse: receives flow from, source: ANY, target: ANY, provenance: ARCHIMATE, description: Something is transferred from one element to another.}
-  - {id: specialization, name: specialises, inverse: is specialised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element is a particular kind of another.}
-  - {id: association, name: is associated with, inverse: is associated with, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'An unspecified relationship, where nothing more precise applies.'}
+  - {id: composition, name: composes, inverse: is composed in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole is made of the part, and the part cannot exist without it.', notation: {archimate: composition}}
+  - {id: aggregation, name: aggregates, inverse: is aggregated in, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'The whole groups the part, which can exist on its own.', notation: {archimate: aggregation}}
+  - {id: assignment, name: is assigned to, inverse: is performed by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An active element is allocated to the behaviour it performs., notation: {archimate: assignment}}
+  - {id: realization, name: realises, inverse: is realised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: A more concrete element fulfils a more abstract one., notation: {archimate: realization}}
+  - {id: serving, name: serves, inverse: is served by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element provides its functionality to another., notation: {archimate: serving}}
+  - {id: access, name: accesses, inverse: is accessed by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: [read, write, read/write], description: Behaviour reads or writes a passive element., notation: {archimate: access}}
+  - {id: influence, name: influences, inverse: is influenced by, source: ANY, target: ANY, provenance: ARCHIMATE, qualifiers: ['+', '-', '0'], description: An element affects the implementation or achievement of a motivation element., notation: {archimate: influence}}
+  - {id: triggering, name: triggers, inverse: is triggered by, source: ANY, target: ANY, provenance: ARCHIMATE, description: One behaviour follows another in time., notation: {archimate: triggering}}
+  - {id: flow, name: flows to, inverse: receives flow from, source: ANY, target: ANY, provenance: ARCHIMATE, description: Something is transferred from one element to another., notation: {archimate: flow}}
+  - {id: specialization, name: specialises, inverse: is specialised by, source: ANY, target: ANY, provenance: ARCHIMATE, description: An element is a particular kind of another., notation: {archimate: specialization}}
+  - {id: association, name: is associated with, inverse: is associated with, source: ANY, target: ANY, provenance: ARCHIMATE, description: 'An unspecified relationship, where nothing more precise applies.', notation: {archimate: association}}
+
+# ---------------------------------------------------------------- viewpoints
+# What a diagram is for (decision 0023): four of the standard's example viewpoints, declared
+# as data. The reader picks one when a view is exported.
+viewpoints:
+  - id: layered
+    name: Layered
+    description: Every element in a band per layer, from motivation down to implementation; composition and aggregation drawn as nesting.
+    nest: [composition, aggregation]
+  - id: application_cooperation
+    name: Application cooperation
+    description: Application components, the services and interfaces they offer, and the data objects they access, in a band per type.
+    element_types: [application_service, application_interface, application_component, data_object]
+    bands: type
+    band_order: [application_service, application_interface, application_component, data_object]
+    nest: [composition, aggregation]
+  - id: business_process_cooperation
+    name: Business process cooperation
+    description: Business processes in a swimlane per role assigned to them, with the actors, services, objects and application services around them.
+    element_types: [business_process, business_role, business_actor, business_service, business_object, application_service]
+    bands: related
+    band_type: business_role
+    band_relationships: [assignment]
+    other_band: Not assigned to a role
+    nest: [composition]
+  - id: implementation_and_migration
+    name: Implementation and migration
+    description: A band per plateau, holding the work packages, deliverables and gaps that reach it; a deliverable spans the work packages that realise it.
+    element_types: [plateau, work_package, deliverable, gap]
+    bands: related
+    band_type: plateau
+    band_relationships: [realization, aggregation, association]
+    other_band: Not yet on a plateau
+    span: [realization]

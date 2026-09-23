@@ -13,7 +13,7 @@ from typing import Any
 
 from ea.models import AttributeDef, Pack
 
-KINDS = ("pack", "domain", "element_type", "relationship_type", "attribute")
+KINDS = ("pack", "domain", "element_type", "relationship_type", "attribute", "viewpoint")
 _SKIP = {"sort_order", "attributes", "type_id", "rel_type_id"}
 
 
@@ -144,4 +144,9 @@ def diff_packs(before: Pack, after: Pack) -> PackDiff:
         {r.id: (r.name, r) for r in after.relationship_types},
     )
     out.entries += _compare("attribute", _attributes(before), _attributes(after))
+    out.entries += _compare(
+        "viewpoint",
+        {v.id: (v.name, v) for v in before.viewpoints},
+        {v.id: (v.name, v) for v in after.viewpoints},
+    )
     return out

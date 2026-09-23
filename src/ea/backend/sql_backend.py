@@ -191,6 +191,15 @@ def chunks(items: list[Any], size: int) -> Iterator[list[Any]]:
 NOT_DEFINITION = ("status", "derived_from", "notes", "name")
 
 
+def _viewpoint_row(v: Any) -> dict[str, Any]:
+    """A viewpoint as the JSON the pack column carries: every field, so the loader reads it back whole."""
+    from dataclasses import asdict
+
+    d = asdict(v)
+    d.pop("sort_order", None)
+    return d
+
+
 def pack_content(pack: Pack) -> dict[str, Any]:
     """What a version defines, without its lifecycle: the part a frozen version must keep."""
     d = pack_to_dict(pack)
@@ -671,6 +680,7 @@ class SqlBackend(DatabaseBackend):
                     r.sort_order,
                     pack.version,
                     json.dumps(r.properties, ensure_ascii=False, default=str) if r.properties else None,
+                    json.dumps(r.notation) if r.notation else None,
                 ]
             )
             attribute_rows += [attr_row(a, None, r.id, i) for i, a in enumerate(r.attributes)]
@@ -791,6 +801,9 @@ class SqlBackend(DatabaseBackend):
                         created_at,
                         published_by,
                         published_at,
+                        json.dumps([_viewpoint_row(v) for v in pack.viewpoints], ensure_ascii=False)
+                        if pack.viewpoints
+                        else None,
                     ]
                 ],
             )
@@ -820,13 +833,15 @@ class SqlBackend(DatabaseBackend):
                 return None
             version = rows[0][0]
         rows = self._fetch_all(
-            "SELECT pack_id, name, version, description, source, provenance_values, status, derived_from, notes, properties "
-            "FROM meta_pack WHERE pack_id = ? AND version = ?",
+            "SELECT pack_id, name, version, description, source, provenance_values, status, derived_from, notes, "
+            "properties, viewpoints FROM meta_pack WHERE pack_id = ? AND version = ?",
             [pack_id, version],
         )
         if not rows:
             return None
-        pid, name, version, description, source, prov, status, derived_from, notes, properties = rows[0]
+        pid, name, version, description, source, prov, status, derived_from, notes, properties, viewpoints = (
+            rows[0]
+        )
         domains = [
             {
                 "id": d,
@@ -915,11 +930,12 @@ class SqlBackend(DatabaseBackend):
                 "src_max": r[9],
                 "dst_max": r[10],
                 "properties": _loads(r[11]),
+                "notation": json.loads(r[12] or "{}"),
                 "attributes": [attr_dict(a) for a in attrs if a[8] == r[0]],
             }
             for r in self._fetch_all(
                 "SELECT rel_type_id, name, inverse_name, source_type_id, target_type_id, provenance, qualifiers, "
-                "diagrams, description, src_max, dst_max, properties FROM meta_relationship_type "
+                "diagrams, description, src_max, dst_max, properties, notation FROM meta_relationship_type "
                 "WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
                 [pid, version],
             )
@@ -943,6 +959,7 @@ class SqlBackend(DatabaseBackend):
                 "common_attributes": common,
                 "element_types": element_types,
                 "relationship_types": relationship_types,
+                "viewpoints": json.loads(viewpoints or "[]"),
             }
         )
 
