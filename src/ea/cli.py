@@ -28,6 +28,7 @@ from ea.models import (
     Relationship,
     ValidationError,
 )
+from ea.services.roles import allowed as role_allows
 from ea.services.roles import require, set_role
 
 app = typer.Typer(
@@ -1400,8 +1401,17 @@ def propose(
     work_package: str = typer.Option("", "--work-package", help="the work package, when the page names none"),
     actor: str = typer.Option("propose"),
     as_json: bool = typer.Option(False, "--json", help="the whole result as JSON"),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="answer the assistant's questions here, top-down; the draft is kept between sittings",
+    ),
 ):
-    """Read a proposal page against the branch it is for: what exists, what is new, what is missing, what it touches."""
+    """Read a proposal page against the branch it is for: what exists, what is new, what is missing, what it touches.
+
+    With --interactive the assistant asks what the page leaves unclear — why the change is made
+    and which business it changes first — and each answer redrafts it (initiative 24)."""
     from ea.backend.branching import current_branch
 
     backend, registry, branches, svc = _proposals()
@@ -1423,10 +1433,19 @@ def propose(
     if new_branch:
         require("create_branch", what="create a branch")
         target = branches.create(new_branch, actor).branch_id
-    result = svc.analyse(sources, target, key or None)
+    if interactive and as_json:
+        _refuse("--interactive asks in the terminal; --json prints once: choose one")
+    result, conversation = svc.start(sources, target, key or None)
     if not result.work_package and work_package:
         result.work_package = work_package
         result = svc.resolve(result, target)
+    draft_id = ""
+    if interactive:
+        result, conversation = _converse(svc, result, conversation, actor, target)
+        if role_allows("propose"):
+            draft_id = svc.save_draft(
+                result, conversation, actor, "" if target == MAIN else target
+            ).proposal_id
     out: dict[str, Any] = {"branch": target, "result": result.to_dict()}
     if apply:
         if target == MAIN:
@@ -1434,8 +1453,12 @@ def propose(
                 "a proposal is applied to a branch: name one with --branch, or --new-branch to create one"
             )
         if result.pushback:
+            if draft_id:
+                typer.echo(f"kept as draft {draft_id}")
             _refuse("not applied; add the following, then read it again:\n  " + "\n  ".join(result.pushback))
-        out["applied"] = svc.apply(result, target, actor)
+        out["applied"] = svc.apply(result, target, actor, draft_id=draft_id)
+    elif draft_id:
+        typer.echo(f"kept as draft {draft_id}: resume it on the Propose page")
     if as_json:
         typer.echo(json.dumps(out, ensure_ascii=False, indent=2, default=str))
         return
@@ -1472,6 +1495,62 @@ def propose(
         )
     elif result.pushback:
         raise typer.Exit(code=1)
+
+
+def _converse(svc, result, conversation, actor: str, target: str):
+    """The questions asked in the terminal, one at a time, the context first; each answer
+    redrafts the proposal and the next question is read from the new draft."""
+    from ea.agent.questions import shown
+
+    typer.echo(conversation[-1]["text"] if conversation else svc.summary(result))
+    skipped: set[str] = set()
+    while True:
+        waiting = [q for q in shown(result.questions, len(result.questions)) if q["qid"] not in skipped]
+        if not waiting:
+            break
+        q = waiting[0]
+        typer.echo("")
+        typer.echo(f"? {q['text']}" + ("  [stops Apply]" if q.get("blocking") else ""))
+        options = q.get("options") or []
+        for n, o in enumerate(options, start=1):
+            need = {"text": " (in words)", "name": " (a name)", "url": " (a web address)"}.get(
+                o.get("needs"), ""
+            )
+            typer.echo(f"  {n}) {o['label']}{need}")
+        words = svc.converses or q.get("free")
+        typer.echo("  s) skip   q) stop asking" + ("   or answer in your own words" if words else ""))
+        said = typer.prompt("answer", default="s", show_default=False).strip()
+        if said.lower() == "q":
+            break
+        if said.lower() == "s":
+            skipped.add(q["qid"])
+            continue
+        answer = {"qid": q["qid"], "key": "", "text": "", "choice": ""}
+        if said.isdigit() and 1 <= int(said) <= len(options):
+            o = options[int(said) - 1]
+            answer["key"] = o["key"]
+            choices = o.get("choices") or []
+            if len(choices) > 1:
+                for n, c in enumerate(choices, start=1):
+                    typer.echo(f"    {n}) {c['label']}")
+                pick = typer.prompt("  which", default="1").strip()
+                if pick.isdigit() and 1 <= int(pick) <= len(choices):
+                    answer["choice"] = choices[int(pick) - 1]["key"]
+            if o.get("needs"):
+                answer["text"] = typer.prompt(f"  {o.get('hint') or o['label']}").strip()
+        elif words:
+            answer["text"] = said
+        else:
+            typer.echo("  pick a number: without a model the assistant cannot read words here")
+            continue
+        result, conversation = svc.turn(result, conversation, [answer], actor=actor, branch_id=target)
+        for turn in conversation[-2:]:
+            if turn.get("role") == "assistant" or turn.get("kind") == "answer":
+                typer.echo(("  " if turn.get("role") == "assistant" else "  → ") + (turn.get("text") or ""))
+    left = len(result.questions)
+    typer.echo("")
+    typer.echo(f"{left} question{'s' if left != 1 else ''} left open." if left else "Nothing is left open.")
+    return result, conversation
 
 
 templates_app = typer.Typer(help="The proposal templates an organisation keeps.", no_args_is_help=True)

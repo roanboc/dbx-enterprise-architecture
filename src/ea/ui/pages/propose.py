@@ -375,7 +375,7 @@ def _conversation_panel(ctx: AppContext, r: ProposalResult, conversation: list[d
                 dmc.Group(
                     [
                         dmc.Text("Conversation", fw=700, size="sm"),
-                        dmc.Anchor("What belongs here? The guide", href="/guide#boundary", size="xs"),
+                        dmc.Anchor("What belongs here? The guide", href="/guide#the-boundary", size="xs"),
                     ],
                     justify="space-between",
                 ),

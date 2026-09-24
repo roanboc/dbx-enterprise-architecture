@@ -27,6 +27,7 @@ from ea.ui.pages import (
     browse,
     element,
     feeds,
+    guide,
     health,
     home,
     impact,
@@ -55,6 +56,7 @@ PAGES = {
     "target",
     "propose",
     "health",
+    "guide",
 }
 
 
@@ -234,6 +236,8 @@ def create_app() -> dash.Dash:
                 body = propose.render(ctx)
             elif page == "health":
                 body = health.render(ctx)
+            elif page == "guide":
+                body = guide.render(ctx)
             else:
                 body = home.render(ctx)
             note = address_note(pathname)

@@ -338,3 +338,17 @@ def test_the_store_keeps_a_proposal_s_conversation(backend):
     assert backend.list_proposals(status="applied") == []
     backend.delete_proposal(p.proposal_id)
     assert backend.get_proposal(p.proposal_id) is None
+
+
+def test_the_store_keeps_where_a_type_sits_against_the_line(backend, pack):
+    """A type's level survives the store on both engines; a pack that says nothing is at the
+    enterprise level throughout."""
+    solution = replace(pack, version="p9-trial", status="draft")
+    solution.element_types = [
+        replace(t, level="solution") if t.id == "data_entity" else t for t in pack.element_types
+    ]
+    backend.save_pack(solution)
+    held = backend.load_pack(pack.id, "p9-trial")
+    assert {t.id: t.level for t in held.element_types}["data_entity"] == "solution"
+    assert {t.level for t in held.element_types if t.id != "data_entity"} == {"enterprise"}
+    assert {t.level for t in backend.load_pack(pack.id, pack.version).element_types} == {"enterprise"}

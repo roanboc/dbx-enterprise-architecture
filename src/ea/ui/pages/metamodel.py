@@ -30,6 +30,7 @@ from ea.metamodel.loader import pack_from_dict, suspect_split_descriptions
 from ea.models import (
     ANY,
     ATTRIBUTE_TYPES,
+    LEVELS,
     ConflictError,
     Forbidden,
     NotFoundError,
@@ -86,6 +87,16 @@ TYPE_COLS = [
     {"field": "prefix", "editable": True, "width": 90},
     {"field": "active", "editable": True, "width": 90, "cellDataType": "boolean"},
     {"field": "abstract", "editable": True, "width": 100, "cellDataType": "boolean"},
+    # where the type sits against principle P9's line: at the enterprise level, or a system's
+    # inside that is linked from the system rather than modelled (initiative 24)
+    {
+        "field": "level",
+        "editable": True,
+        "width": 120,
+        "cellEditor": _SELECT,
+        "cellEditorParams": {"values": LEVELS},
+        "headerTooltip": "enterprise: it belongs in the repository; solution: a system's inside, linked from the system",
+    },
     {"field": "source_of_record", "editable": True, "width": 240},
     {"field": "type_owner", "editable": True, "width": 200},
     {"field": "instance_owner", "editable": True, "width": 200},
@@ -258,6 +269,7 @@ def _type_rows(reg: Registry) -> list[dict[str, Any]]:
             "prefix": t.prefix,
             "active": t.active,
             "abstract": t.abstract,
+            "level": t.level,
             "source_of_record": t.source_of_record,
             "type_owner": t.type_owner,
             "instance_owner": t.instance_owner,
@@ -1439,6 +1451,7 @@ def _pack_from_grids(
                 "supertype": t.get("supertype") or None,
                 "active": bool(t.get("active", True)),
                 "abstract": bool(t.get("abstract", False)),
+                "level": t.get("level") or "enterprise",
                 "deactivation_reason": t.get("deactivation_reason", ""),
                 "domain": t.get("domain", ""),
                 "provenance": t.get("provenance", ""),
@@ -1754,6 +1767,7 @@ def register(app: dash.Dash) -> None:
                         "prefix": "",
                         "active": True,
                         "abstract": False,
+                        "level": "enterprise",
                         "description": "",
                         "properties": "",
                     }

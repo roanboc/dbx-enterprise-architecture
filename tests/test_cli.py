@@ -399,3 +399,29 @@ def test_configuring_a_feed_needs_the_role_the_page_needs(ea_env):
 def test_clearing_an_attribute_says_so_rather_than_writing_a_blank(ea_env):
     blank = runner.invoke(app, ["set", "PAC-CMS", "--attr", "owner"])
     assert blank.exit_code == 1 and "--clear-attr" in blank.output
+
+
+def test_propose_interactive_asks_top_down_and_keeps_the_draft(ea_env):
+    """`ea propose -i` puts the assistant's questions in the terminal, the context first (initiative 24)."""
+    from tests.test_questions import CMS, PORTAL, page
+
+    doc = ea_env / "review-portal.md"
+    doc.write_text(page(PORTAL, CMS), encoding="utf-8")
+    # why: the first choice (the capability the CMS realises); which business: the technical
+    # answer; the portal's own trace: the capability, with the one relationship it allows
+    said = "1\n7\n1\n"  # the technical answer comes after five candidates and "a new one"
+    out = runner.invoke(app, ["propose", str(doc), "--interactive", "--actor", "ana"], input=said)
+    assert out.exit_code == 0, out.output
+    text = out.output
+    assert text.index("? What is this change for?") < text.index("? Which part of the business")
+    assert text.index("? Which part of the business") < text.index("? What business or strategy")
+    assert "→ It serves Curriculum Development [CAP-CURR-DEV]." in text
+    assert "→ A purely technical change." in text, text
+    assert "Nothing is left open." in text and "kept as draft prp" in text
+
+
+def test_propose_interactive_refuses_json(ea_env):
+    doc = ea_env / "p.md"
+    doc.write_text("# Proposal: x\n", encoding="utf-8")
+    out = runner.invoke(app, ["propose", str(doc), "--interactive", "--json"])
+    assert out.exit_code != 0 and "choose one" in out.output

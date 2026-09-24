@@ -1653,3 +1653,45 @@ def test_the_conversation_settles_the_change_top_down(ui, record):
     ui.page.get_by_role("button", name="Discard the draft G-Review portal").first.click()
     ui.settle()
     ui.check("a discarded draft is gone", "G-Review portal" not in ui.text("pr-drafts"))
+
+
+@pytest.mark.scenario(
+    scenario_id="G23",
+    group="G",
+    title="The guide states what belongs in the repository, and Propose links to it",
+    feature="Guide",
+    expected=(
+        "The Guide page opens on what belongs in the repository — the boundary in the C4 model's "
+        "terms, with the types this organisation's metamodel places on each side — then one section "
+        "per role. The Propose page's conversation links to the boundary."
+    ),
+)
+def test_the_guide_states_the_boundary(ui, record):
+    ui.goto("/guide")
+    body = ui.body()
+    ui.must("the Guide page rendered", "What belongs in the repository" in body, body[:300])
+    for role in (
+        "Enterprise architect",
+        "Solution architect",
+        "Reviewer and steward",
+        "Reader",
+        "Metamodel owner",
+    ):
+        ui.check(f"it has a section for the {role.lower()}", role in body)
+    ui.check(
+        "it states the boundary in the C4 model's terms",
+        "System context" in body and "Never: linked from the system" in body,
+    )
+    ui.check(
+        "it lists the types of this organisation's metamodel at the enterprise level",
+        "At the enterprise level" in body and "Data Entity" in body,
+    )
+    ui.check(
+        "the navigation reaches it",
+        ui.page.locator("#nav-guide").count() == 1,
+    )
+    ui.shot("The guide: what belongs in the repository, then one section per role")
+    _open(ui)
+    _analyse(ui, UNSETTLED, work_package=None)
+    link = ui.page.locator("#pr-conv a[href='/guide#the-boundary']")
+    ui.check("the conversation links to the boundary", link.count() == 1)

@@ -22,7 +22,7 @@ THEME = {
 }
 
 NAV_SECTIONS = [
-    ("Home", [("Home", "/", "tabler:home")]),
+    ("Home", [("Home", "/", "tabler:home"), ("Guide", "/guide", "tabler:book")]),
     (
         "Discover",
         [

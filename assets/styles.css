@@ -373,3 +373,5 @@ body { background: #e9ecef; }
 
 /* ---- the guide ---- */
 .ea-guide-persona { border-top: 3px solid #4c6ef5; }
+/* a link lands on a heading below the sticky header, not under it */
+.ea-anchor { display: block; position: relative; top: -72px; visibility: hidden; }
