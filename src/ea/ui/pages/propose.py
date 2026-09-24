@@ -182,6 +182,7 @@ def _payload_from_rows(
     return {
         "title": (stored or {}).get("title", ""),
         "summary": (stored or {}).get("summary", ""),
+        "missing": list((stored or {}).get("missing") or []),
         "work_package": work_package,
         "elements": [
             {
@@ -278,6 +279,24 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 ),
                 id=ids.PR_PUSHBACK,
             ),
+            alert(
+                html.Div(
+                    [
+                        dmc.Text(
+                            "The reader also found the sources silent on the following. It does not stop Apply; answer it in the document or in the rows:",
+                            fw=600,
+                            size="sm",
+                        ),
+                        html.Ul(
+                            [html.Li(m, style={"fontSize": "0.85rem"}) for m in r.missing],
+                            style={"margin": "0.3rem 0 0", "paddingLeft": "1.2rem"},
+                        ),
+                    ]
+                ),
+                "blue",
+            )
+            if r.missing
+            else None,
             dmc.Title("Elements", order=2, className="ea-section-title"),
             dmc.Text(
                 "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
@@ -540,6 +559,12 @@ def _sources(text: str, files: dict[str, str], links_text: str) -> tuple[list[di
     return sources, problems
 
 
+def _matched_on(branch: str | None) -> str:
+    """The branch a proposal is matched against: the open branch it will be applied to, or
+    `main` when a new branch will be created from it."""
+    return branch if branch and branch != NEW_OPTION else MAIN
+
+
 def _wp_choice(wp: str | None, wp_new: str | None) -> str:
     if wp == NEW_OPTION:
         return (wp_new or "").strip()
@@ -620,23 +645,30 @@ def register(app: dash.Dash) -> None:
         State(ids.PR_LINKS, "value"),
         State(ids.PR_WP, "value"),
         State(ids.PR_WP_NEW, "value"),
+        State(ids.PR_BRANCH, "value"),
         prevent_initial_call=True,
         running=[(Output(ids.PR_ANALYSE, "loading"), True, False)],
     )
-    def analyse(n, text, files, links, wp, wp_new):
+    def analyse(n, text, files, links, wp, wp_new, branch):
         if not n:
             return no_update, no_update
         ctx = get_context()
+        on = _matched_on(branch)
         sources, problems = _sources(text, files, links)
         if sources:
-            result = ctx.proposals.analyse(sources)
+            result = ctx.proposals.analyse(sources, on)
         else:
-            result = ctx.proposals.resolve(ProposalResult(provider="manual"))
+            result = ctx.proposals.resolve(ProposalResult(provider="manual"), on)
         if not result.work_package:
             result.work_package = _wp_choice(wp, wp_new)
-            result = ctx.proposals.resolve(result)
+            result = ctx.proposals.resolve(result, on)
         head = alert("Some links could not be read: " + "; ".join(problems), "red") if problems else None
-        stored = {"title": result.title, "summary": result.summary, "work_package": result.work_package}
+        stored = {
+            "title": result.title,
+            "summary": result.summary,
+            "work_package": result.work_package,
+            "missing": result.missing,
+        }
         return html.Div([head, _preview(ctx, result)]), stored
 
     @app.callback(
@@ -740,7 +772,7 @@ def register(app: dash.Dash) -> None:
         payload = _payload_from_rows(
             el_v or el_rows, el_sel, rel_v or rel_rows, rel_sel, stored, work_package
         )
-        result = ctx.proposals.resolve(result_from_payload(payload, "manual"))
+        result = ctx.proposals.resolve(result_from_payload(payload, "manual"), _matched_on(branch))
         if trig == ids.PR_ANALYSE + "-again":
             if not n_check:
                 return no_update, no_update, no_update

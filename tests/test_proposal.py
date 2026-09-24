@@ -230,6 +230,55 @@ def test_apply_creates_a_new_work_package_when_named(svc, loaded, registry):
         assert portal.target_work_package == wp.element_id
 
 
+def test_what_the_reader_found_missing_survives_the_resolution(svc):
+    """A hosted reader's list of what the sources do not say reaches the architect.
+
+    It used to be written into the pushback and then cleared by the resolution that
+    recomputes the pushback, so the architect never read it. It is the reader's own
+    finding, not the rule's, so it is kept beside the pushback and does not stop Apply.
+    """
+    payload = {
+        "title": "Curriculum approval workflow",
+        "work_package": "WP-CMS-UPGRADE",
+        "elements": [
+            {
+                "type": "Data Entity",
+                "name": "CAW_Unit_Proposal",
+                "description": "The record of a proposed unit as it moves through approval.",
+            }
+        ],
+        "missing": ["Who is the data steward of CAW_Unit_Proposal?"],
+    }
+    r = svc.resolve(result_from_payload(payload, "hosted"))
+    assert r.missing == ["Who is the data steward of CAW_Unit_Proposal?"]
+    assert r.pushback == [] and r.complete
+    # a re-check from the edited rows carries it, and it is kept with the applied proposal
+    again = svc.resolve(result_from_payload(r.to_dict(), "manual"))
+    assert again.missing == r.missing
+
+
+def test_a_revised_proposal_applied_again_updates_rather_than_duplicates(svc, loaded, registry):
+    """The second apply of the same page to the same branch finds what the first one created.
+
+    Matching ran against the branch the reader happened to stand on (here `main`), not the
+    branch being written to, so every new element of the first apply was new again.
+    """
+    BranchService(loaded, registry).create("revise", "ana")
+    first = svc.apply(svc.analyse([{"kind": "text", "name": "page", "text": DOC}]), "revise", "ana")
+    revised = DOC.replace("before publication", "before publication, with a comment trail")
+    again = svc.analyse([{"kind": "text", "name": "page", "text": revised}], branch_id="revise")
+    portal = next(e for e in again.elements if e.name == "Curriculum Review Portal")
+    assert portal.action == "link" and portal.element_id in first["created"]
+    second = svc.apply(again, "revise", "ana")
+    assert second["created"] == [] and portal.element_id in second["linked"]
+    # applied again from a result resolved elsewhere, it still writes nothing twice
+    third = svc.apply(svc.analyse([{"kind": "text", "name": "page", "text": DOC}]), "revise", "ana")
+    assert third["created"] == []
+    with use_branch("revise"):
+        found = loaded.find_elements(ElementFilter(text="Curriculum Review Portal"), limit=50)
+        assert [e.name for e in found].count("Curriculum Review Portal") == 1
+
+
 def test_fetch_link_refuses_non_http():
     with pytest.raises(ValueError):
         fetch_link("file:///etc/hosts")

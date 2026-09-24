@@ -13,6 +13,7 @@ import difflib
 import json
 import os
 import re
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from typing import Any
 from urllib.request import Request, urlopen
@@ -113,6 +114,9 @@ class ProposalResult:
     elements: list[ProposedElement] = field(default_factory=list)
     relationships: list[ProposedRelationship] = field(default_factory=list)
     pushback: list[str] = field(default_factory=list)
+    # What the reader found the sources do not say. Its own finding, not the pushback rule's,
+    # so it is shown and kept beside the pushback and never stops Apply.
+    missing: list[str] = field(default_factory=list)
     provider: str = ""
     model: str = ""
     sources: list[dict[str, Any]] = field(default_factory=list)
@@ -135,6 +139,7 @@ class ProposalResult:
             elements=[ProposedElement(**e) for e in d.get("elements") or []],
             relationships=[ProposedRelationship(**r) for r in d.get("relationships") or []],
             pushback=list(d.get("pushback") or []),
+            missing=list(d.get("missing") or []),
             provider=d.get("provider", ""),
             model=d.get("model", ""),
             sources=list(d.get("sources") or []),
@@ -330,17 +335,30 @@ class ProposalService:
         return StubProposalProvider()
 
     # ------------------------------------------------------------- analyse
-    def analyse(self, sources: list[dict[str, str]]) -> ProposalResult:
-        """`sources`: [{kind: text|file|link, name, text}]. Returns the resolved, validated result."""
-        result = self.provider.extract(sources, self)
-        result.sources = [
-            {"kind": s.get("kind", ""), "name": s.get("name", ""), "chars": len(s.get("text", ""))}
-            for s in sources
-        ]
-        return self.resolve(result)
+    def analyse(self, sources: list[dict[str, str]], branch_id: str | None = None) -> ProposalResult:
+        """`sources`: [{kind: text|file|link, name, text}]. Returns the resolved, validated result.
 
-    def resolve(self, result: ProposalResult) -> ProposalResult:
-        """Match every element and relationship against the repository and the metamodel; compute the pushback."""
+        `branch_id` is the branch the proposal will be applied to: the reader looks the
+        elements up there, so what an earlier apply created on it is found, not proposed again.
+        None reads the current branch.
+        """
+        with _on(branch_id):
+            result = self.provider.extract(sources, self)
+            result.sources = [
+                {"kind": s.get("kind", ""), "name": s.get("name", ""), "chars": len(s.get("text", ""))}
+                for s in sources
+            ]
+            return self.resolve(result)
+
+    def resolve(self, result: ProposalResult, branch_id: str | None = None) -> ProposalResult:
+        """Match every element and relationship against the repository and the metamodel; compute the pushback.
+
+        Matched on `branch_id` (the branch the proposal is for), or on the current branch when None.
+        """
+        with _on(branch_id):
+            return self._resolve(result)
+
+    def _resolve(self, result: ProposalResult) -> ProposalResult:
         index = self._index()
         result.pushback = []
         for el in result.elements:
@@ -556,7 +574,10 @@ class ProposalService:
     def apply(self, result: ProposalResult, branch_id: str, actor: str) -> dict[str, Any]:
         """Write the ticked rows to the branch and keep the proposal with it. Pushback stops it."""
         require("propose", what="apply a proposal")
-        result = self.resolve(result)
+        # Resolved on the branch it is written to, whatever branch the caller stands on: a
+        # revised page applied again then links what the last apply created instead of
+        # creating it a second time.
+        result = self.resolve(result, branch_id)
         if result.pushback:
             raise ValidationError([_issue(p) for p in result.pushback])
         branch = self.branches.get(branch_id)
@@ -668,6 +689,11 @@ class ProposalService:
             "relationships": rels,
             "skipped": skipped,
         }
+
+
+def _on(branch_id: str | None):
+    """The branch a proposal is matched and written on, or the current one when None."""
+    return use_branch(branch_id) if branch_id else nullcontext()
 
 
 def _issue(message: str):
@@ -892,9 +918,7 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                 include=bool(r.get("include", True)),
             )
         )
-    for m in payload.get("missing") or []:
-        if m:
-            result.pushback.append(str(m))
+    result.missing = [str(m) for m in payload.get("missing") or [] if m]
     return result
 
 
