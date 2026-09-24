@@ -9,7 +9,7 @@ restated with its horizon by initiative 16; the views moved to the top on
 2026-09-06; restated as the motivation of the product rather than of a phase by
 [initiative 19](../scope/19_the-product-not-the-phase.md), which corrected
 `DRV1`, added `DRV5`, `ASM10` to `ASM12`, `G6` and `G7`, and retired `G4`,
-`OUT1` and `OUT2`. It is validated at the **Direction** gate with the owner and
+`OUT1` and `OUT2`; `P9` added by [initiative 23](../scope/23_the-enterprise-level.md). It is validated at the **Direction** gate with the owner and
 the information architect.
 
 **Source:** the owner's business case of 2026-09-05 and its review, both held
@@ -151,7 +151,9 @@ flowchart TB
   p5["⚑ Nothing framework-specific in code [P5]"]:::motivation
   p6["⚑ Answers cite element identifiers [P6]"]:::motivation
   p8["⚑ Diagrams are generated views, never the store [P8]"]:::motivation
+  p9["⚑ An element earns its place by its relationships [P9]"]:::motivation
   g2 -->|realized by| p1
+  g1 -->|realized by| p9
   g5 -->|realized by| p5
   g1 -->|realized by| p8
   g6 -->|realized by| p6
@@ -183,6 +185,7 @@ flowchart TB
 | `P6` | **Answers cite element identifiers** — every claim in an agent answer names the elements it came from, and an identifier that no tool returned is flagged | Ungrounded identifiers are reported on every answer |
 | `P7` | **Every shortcut is a recorded gap** — a shortcut is allowed; forgetting it is not, so it is written into the roadmap on the day it is taken rather than remembered | Every shortcut is listed as a gap in [6_transition](../6_transition/1_target-state.md) |
 | `P8` | **Diagrams are generated views, never the store** — every diagram is rendered from the model and every shape carries an element identifier; nothing is drawn by hand into the repository | No relationship is created from a drawing without a recorded human decision; every generated shape links to an element |
+| `P9` | **An element earns its place by its relationships** — the repository holds the enterprise level, and what earns an element a place there is what it relates to. **Upward:** below the business layer, an element traces to the business or strategy it serves, so a change is understood top-down — why, then which business, then the systems. **Outward:** something outside the element's own system relates to it. The inside of a system — in C4 terms its components and code, and a container unless something beyond the system uses it — is not modelled: the system links to the page that describes it (adopted — the Requester's agreement of 2026-09-24 to this definition) | Every element below the business layer traces up to a business or strategy element, or is recorded as a purely technical change; every element relates to something outside its own system, or is a link on that system rather than an element |
 
 ## Retired
 
@@ -221,6 +224,7 @@ nothing reuses them.
 | `ASM11` | ⌕ «Assessment» Nothing serves the model to another solution | `G6` | ◎ «Goal» The model is served, not exported | influences | |
 | `ASM12` | ⌕ «Assessment» Sources are reached by file, not by protocol | `G7` | ◎ «Goal» A source is connected, not piped | influences | |
 | `G1` | ◎ «Goal» Query the architecture sustainably | `P8` | ⚑ «Principle» Diagrams are generated views, never the store | realized by | |
+| `G1` | ◎ «Goal» Query the architecture sustainably | `P9` | ⚑ «Principle» An element earns its place by its relationships | realized by | a model at the level questions are asked at, and traceable to why |
 | `G2` | ◎ «Goal» Metamodel is configuration | `P1` | ⚑ «Principle» Metamodel is data, never DDL | realized by | |
 | `G5` | ◎ «Goal» Reusable by any enterprise | `P5` | ⚑ «Principle» Nothing framework-specific in code | realized by | |
 | `G6` | ◎ «Goal» The model is served, not exported | `P6` | ⚑ «Principle» Answers cite element identifiers | realized by | what is served is cited the same way the app cites it |

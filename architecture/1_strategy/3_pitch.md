@@ -49,6 +49,10 @@ four people — and assembling them is a project every single time.
 - **Change stays governed.** Anyone can propose; the people who own the facts
   review; a person approves. An assistant drafts and explains — it never
   approves.
+- **It holds the enterprise, not every system's insides.** What goes in is what
+  connects: why a change is made, which part of the business it touches, and how
+  systems relate across their boundaries. How a system is built inside stays with
+  the team that builds it, one link away.
 
 ## Why this is not something to buy
 
