@@ -4,6 +4,9 @@
 #   make deploy          # validate and deploy: the database instance and the app, not yet running
 #   make deploy-run      # start the app
 #
+# The assistant's serving endpoint is the workspace's to choose, so the bundle names none:
+# BUNDLE_VAR_serving_endpoint=<endpoint> make deploy.
+#
 # What the platform injects at run time (DATABRICKS_HOST, the app's service
 # principal, DATABRICKS_APP_PORT) is never set here; what the bundle owns is
 # set from its resources, so the app follows the names the target deploys —
@@ -36,8 +39,10 @@ variables:
     description: "auto: the serving endpoint below; databricks, anthropic or stub to force one (decision 0023)."
     default: auto
   serving_endpoint:
-    description: The Model Serving endpoint the assistant queries for Ask and Propose; the app may query it and nothing else.
-    default: databricks-claude-sonnet-4-5
+    description: >-
+      The workspace's Model Serving endpoint the assistant queries for Ask and Propose — any chat
+      model it serves, or several behind the endpoint's AI Gateway; the app may query it and
+      nothing else. No default: the workspace chooses (BUNDLE_VAR_serving_endpoint or --var).
 
 resources:
   database_instances:

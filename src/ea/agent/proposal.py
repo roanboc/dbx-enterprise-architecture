@@ -23,7 +23,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from ea import capacity
-from ea.agent.llm import ModelClient, failure, model_client, request_options
+from ea.agent.llm import MALFORMED, ChatModel, ModelError, chat_model, tool_result
 from ea.agent.questions import (
     MIN_DESCRIPTION_CHARS,
     AnswerError,
@@ -367,8 +367,8 @@ class ProposalService:
 
     # ------------------------------------------------------------ provider
     def _make_provider(self):
-        mc = model_client(self.settings)
-        return AnthropicProposalProvider(mc) if mc is not None else StubProposalProvider()
+        model = chat_model(self.settings)
+        return HostedProposalProvider(model) if model is not None else StubProposalProvider()
 
     # ------------------------------------------------------------- analyse
     def analyse(
@@ -1391,19 +1391,14 @@ The loaded metamodel:
 MAX_ASKED = 3
 
 
-class AnthropicProposalProvider:
-    """A hosted model — a Model Serving endpoint, or the Messages API directly — reads free text
-    and tables, checks the repository with tools, asks what it cannot settle, and submits a
-    structured result."""
+class HostedProposalProvider:
+    """A hosted model — whichever the workspace serves, or a provider's API directly — reads free
+    text and tables, checks the repository with tools, asks what it cannot settle, and submits
+    a structured result."""
 
-    def __init__(self, mc: ModelClient | str, max_turns: int = 16):
-        import anthropic
-
-        self._anthropic = anthropic
-        if isinstance(mc, str):  # a model id: the direct API
-            mc = ModelClient(anthropic.Anthropic(), mc, "anthropic", True)
-        self.mc = mc
-        self.client, self.model, self.name = mc.client, mc.model, mc.provider
+    def __init__(self, model: ChatModel, max_turns: int = 16):
+        self.chat = model
+        self.name, self.model = model.provider, model.model
         self.max_turns = max_turns
 
     def _loop(self, system: str, content: str, toolbox: ToolBox) -> dict[str, Any]:
@@ -1414,38 +1409,33 @@ class AnthropicProposalProvider:
         out: dict[str, Any] = {"submitted": None, "asked": [], "text": "", "error": ""}
         for _ in range(self.max_turns):
             try:
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=16000,
-                    system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                    tools=tools,
-                    messages=messages,
-                    **request_options(self.mc),
-                )
-            except self._anthropic.APIError as exc:
-                out["error"] = failure(self.mc, exc)
+                reply = self.chat.turn(system, messages, tools)
+            except ModelError as exc:
+                out["error"] = str(exc)
                 return out
-            messages.append({"role": "assistant", "content": response.content})
-            out["text"] = "".join(b.text for b in response.content if b.type == "text").strip()
-            uses = [b for b in response.content if b.type == "tool_use"]
-            if response.stop_reason != "tool_use" or not uses:
+            if reply.stop == "refused":
+                out["error"] = "The model declined to read these sources."
+                return out
+            messages.append(reply.message)
+            out["text"] = reply.text
+            if not reply.tool_uses:
                 break
-            results = []
-            for tu in uses:
-                args = dict(tu.input or {})
-                if tu.name == "submit_proposal":
+            for use in reply.tool_uses:
+                args = use.arguments
+                if use.malformed:
+                    answer = MALFORMED
+                elif use.name == "submit_proposal":
                     out["submitted"] = args
-                    reply = "received"
-                elif tu.name == "ask_architect":
+                    answer = "received"
+                elif use.name == "ask_architect":
                     if len(out["asked"]) < MAX_ASKED and (args.get("question") or "").strip():
                         out["asked"].append(args)
-                        reply = "asked; the architect answers in the next turn"
+                        answer = "asked; the architect answers in the next turn"
                     else:
-                        reply = f"not asked: at most {MAX_ASKED} questions a turn"
+                        answer = f"not asked: at most {MAX_ASKED} questions a turn"
                 else:
-                    reply = toolbox.call(tu.name, args)
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": reply})
-            messages.append({"role": "user", "content": results})
+                    answer = toolbox.call(use.name, args)
+                messages.append(tool_result(use, answer))
         return out
 
     def extract(

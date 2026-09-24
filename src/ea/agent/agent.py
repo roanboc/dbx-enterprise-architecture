@@ -1,10 +1,11 @@
 """An agent that answers questions about the architecture with tools, grounded in what the tools returned.
 
-Two providers: a hosted model with tool use — a Databricks Model Serving endpoint, or the
-Messages API directly (`ea.agent.llm`, decision 0023) — and `stub` (no model; runs a sensible
-tool sequence and formats the result), so the app and the tests work without one. The
-provider is chosen from settings: `auto` picks the served endpoint when one is configured,
-then the direct API when a key is present.
+Two providers: a hosted model with tool use — a Databricks Model Serving endpoint, whichever
+model the workspace serves behind it, or a provider's API directly for development
+(`ea.agent.llm`, decision 0023) — and `stub` (no model; runs a sensible tool sequence and
+formats the result), so the app and the tests work without one. The provider is chosen from
+settings: `auto` picks the served endpoint when one is configured, then the direct API when a
+key is present.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from ea.agent.llm import ModelClient, failure, model_client, request_options
+from ea.agent.llm import MALFORMED, ChatModel, ModelError, chat_model, tool_result
 from ea.agent.tools import ToolBox
 from ea.config import Settings
 from ea.metamodel.registry import Registry
@@ -198,71 +199,41 @@ _STOPWORDS = {
 }
 
 
-class AnthropicProvider:
-    """A hosted model with tool use (manual loop, so the app controls every step), reached
-    directly or through a Model Serving endpoint — the client says which."""
+class HostedProvider:
+    """A hosted model with tool use (manual loop, so the app controls every step), served by
+    the workspace or reached directly — the model says which."""
 
-    def __init__(self, mc: ModelClient | str, max_turns: int = 12):
-        import anthropic
-
-        self._anthropic = anthropic
-        if isinstance(mc, str):  # a model id: the direct API
-            mc = ModelClient(anthropic.Anthropic(), mc, "anthropic", True)
-        self.mc = mc
-        self.client, self.model, self.name = mc.client, mc.model, mc.provider
+    def __init__(self, model: ChatModel, max_turns: int = 12):
+        self.chat = model
+        self.name, self.model = model.provider, model.model
         self.max_turns = max_turns
 
     def answer(self, question: str, toolbox: ToolBox, history: list[dict[str, Any]]) -> AgentResult:
-        anthropic = self._anthropic
         messages: list[dict[str, Any]] = list(history) + [{"role": "user", "content": question}]
         calls: list[ToolCall] = []
         system = SYSTEM_PROMPT + toolbox.registry.summary_markdown()
         tools = toolbox.specs()
-        response = None
+        reply = None
         for _ in range(self.max_turns):
             try:
-                response = self._create(system, tools, messages)
-            except anthropic.APIError as exc:
-                return AgentResult("", calls, self.name, self.model, error=failure(self.mc, exc))
-            if response.stop_reason == "refusal":
+                reply = self.chat.turn(system, messages, tools)
+            except ModelError as exc:
+                return AgentResult("", calls, self.name, self.model, error=str(exc))
+            if reply.stop == "refused":
                 return AgentResult(
                     "", calls, self.name, self.model, error="The model declined to answer this request."
                 )
-            messages.append({"role": "assistant", "content": response.content})
-            tool_uses = [b for b in response.content if b.type == "tool_use"]
-            if response.stop_reason != "tool_use" or not tool_uses:
+            messages.append(reply.message)
+            if not reply.tool_uses:
                 break
-            results = []
-            for tu in tool_uses:
-                text = toolbox.call(tu.name, dict(tu.input or {}))
-                calls.append(ToolCall(tu.name, dict(tu.input or {}), text[:600]))
-                results.append({"type": "tool_result", "tool_use_id": tu.id, "content": text})
-            messages.append({"role": "user", "content": results})
-        if response is None:
+            for use in reply.tool_uses:
+                text = MALFORMED if use.malformed else toolbox.call(use.name, use.arguments)
+                calls.append(ToolCall(use.name, use.arguments, text[:600]))
+                messages.append(tool_result(use, text))
+        if reply is None:
             return AgentResult("", calls, self.name, self.model, error="no response")
-        text = "".join(b.text for b in response.content if b.type == "text").strip()
         history[:] = messages  # so a follow-up question keeps the context
-        return AgentResult(text, calls, self.name, getattr(response, "model", None) or self.model)
-
-    def _create(self, system: str, tools: list[dict[str, Any]], messages: list[dict[str, Any]]):
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": 16000,
-            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            "tools": tools,
-            "messages": messages,
-            **request_options(self.mc),
-        }
-        if not self.mc.extended:
-            return self.client.messages.create(**kwargs)
-        try:
-            # Server-side refusal fallbacks keep the assistant answering when a safety classifier declines;
-            # unsupported SDKs or platforms fall back to the plain endpoint.
-            return self.client.beta.messages.create(
-                betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs
-            )
-        except (TypeError, self._anthropic.BadRequestError):
-            return self.client.messages.create(**kwargs)
+        return AgentResult(reply.text, calls, self.name, reply.model or self.model)
 
 
 class Agent:
@@ -276,8 +247,8 @@ class Agent:
 
     @staticmethod
     def make_provider(settings: Settings):
-        mc = model_client(settings)
-        return AnthropicProvider(mc) if mc is not None else StubProvider()
+        model = chat_model(settings)
+        return HostedProvider(model) if model is not None else StubProvider()
 
     def ask(self, question: str) -> AgentResult:
         self.toolbox.seen_ids.clear()

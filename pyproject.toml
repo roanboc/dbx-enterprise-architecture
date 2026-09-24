@@ -19,9 +19,8 @@ dependencies = [
     "gunicorn>=23.0",
     "python-dotenv>=1.0",
     "markdown>=3.6",
-    "anthropic>=1.4",
-    # the SDK's HTTP library, imported directly to sign a request for a serving endpoint
-    "httpx2>=2.0",
+    "anthropic>=1.4",  # the direct way to a model, for development without a workspace
+    "httpx2>=2.0",  # the HTTP client the workspace's serving endpoint is queried with
     "typer>=0.12",
 ]
 

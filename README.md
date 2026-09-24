@@ -120,9 +120,12 @@ or **Reload from file** on the Metamodel page): the store holds the pack the app
 uses, and the file is only read when asked.
 
 The assistant on the Ask and Propose pages uses a hosted model when one is
-configured: a Databricks Model Serving endpoint (`EA_AGENT_ENDPOINT`, reached with
-your own Databricks credentials locally and as the app on Databricks — install
-the `databricks` extra), or, for development, `ANTHROPIC_API_KEY`. Without one,
+configured: a Databricks Model Serving endpoint (`EA_AGENT_ENDPOINT`), queried
+over the chat completions API every model the platform serves speaks, so which
+model answers is the workspace's choice and changes without a code change. It is
+reached with your own Databricks credentials locally and as the app on
+Databricks (install the `databricks` extra). For development without a
+workspace, a provider's API can be called directly with `ANTHROPIC_API_KEY`. Without one,
 the stub provider runs the same tools without a model: on Propose it reads a
 proposal template's tables and asks its questions from the rules, and only an
 answer in your own words needs the model. `EA_AGENT_PROVIDER` forces
@@ -276,7 +279,8 @@ uv run ea org apply default higher_education@trial
 | `EA_PACK` | `packs/higher_education/metamodel.yaml` | Pack loaded by `ea init` and offered by "Reload from file" |
 | `EA_AUTH` | `mock` | `mock` persona locally; `databricks` reads the identity headers Databricks Apps adds |
 | `EA_AGENT_PROVIDER` | `auto` | `databricks` when an endpoint is named, `anthropic` when a key is present, else `stub` |
-| `EA_AGENT_ENDPOINT` | (none) | The Databricks Model Serving endpoint the assistant queries (decision 0023); the bundle sets it and grants the app `CAN_QUERY` on it |
+| `EA_AGENT_ENDPOINT` | (none) | The Databricks Model Serving endpoint the assistant queries, whatever model it serves (decision 0023); the bundle sets it from `serving_endpoint` and grants the app `CAN_QUERY` on it |
+| `EA_AGENT_MAX_TOKENS` | `8192` | The longest reply the serving endpoint is asked for; the workspace's model sets the ceiling |
 | `EA_AGENT_MODEL` | (provider default) | Model identifier for the direct provider |
 | `EA_MAX_ROWS` | `5000` | Row cap for Browse and read-only SQL |
 | `EA_BRANCH` | `main` | The branch the CLI works on (same as `--branch`) |
@@ -312,9 +316,15 @@ the database and creates in it, which is all the store needs — it creates its
 schema on the first start — so nothing follows the deploy but the start:
 
 ```bash
+export BUNDLE_VAR_serving_endpoint=<endpoint>   # the workspace's endpoint for the assistant
 make deploy       # validate and deploy the dev target: the instance and the app, not yet running (TARGET=prod for prod)
 make deploy-run   # start the app
 ```
+
+The bundle names no model: `serving_endpoint` is whichever Model Serving endpoint
+the workspace chooses for the assistant — one chat model, or several behind the
+endpoint's AI Gateway with traffic splitting and fallbacks — and the app is
+granted `CAN_QUERY` on that endpoint alone.
 
 The dev target deploys in development mode, which prefixes what it creates
 with the deployer's name; the app's environment names the instance by its
