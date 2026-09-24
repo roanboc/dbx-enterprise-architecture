@@ -42,6 +42,7 @@ Academic staff draft and approve units in a workflow application that feeds the 
 | Data Entity | CAW_Unit_Proposal | | The record of a proposed unit as it moves through approval, with its outline and outcomes. | proposed | new |
 | Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |
 | Position | Manager, Curriculum Systems | | | live | keep |
+| Capability | Curriculum Development | CAP-CURR-DEV | | | |
 
 ## Relationships
 
@@ -74,9 +75,10 @@ def test_template_tables_parse():
         "Relationships",
     ]
     r = parse_markdown(TEMPLATE)
-    assert len(r.elements) == 5 and len(r.relationships) == 5
-    assert r.elements[0].name == "Curriculum Approval Workflow" and r.elements[0].target_state == "new"
-    assert r.elements[2].existing_id == "PAC-CMS"
+    assert len(r.elements) == 6 and len(r.relationships) == 6
+    assert r.elements[0].existing_id == "CAP-CURR-DEV"  # the context first: what the change serves
+    assert r.elements[1].name == "Curriculum Approval Workflow" and r.elements[1].target_state == "new"
+    assert r.elements[3].existing_id == "PAC-CMS"
     assert r.relationships[1].note == "approved units flow into the existing sync"
     assert r.work_package == ""  # the placeholder is not a work package
 
@@ -168,8 +170,8 @@ def test_apply_writes_to_the_branch_and_keeps_the_proposal(svc, loaded, registry
     branches = BranchService(loaded, registry)
     branches.create("Approval workflow", "ana", work_package="WP-CMS-UPGRADE")
     r = svc.analyse([{"kind": "text", "name": "page", "text": DOC}])
-    # the architect unticks one relationship and adds a manual element row before applying
-    r.relationships[3].include = False
+    # the architect unticks one relationship and adds a manual element row, with what it joins
+    r.relationships[1].include = False
     payload = r.to_dict()
     payload["elements"].append(
         {
@@ -180,11 +182,15 @@ def test_apply_writes_to_the_branch_and_keeps_the_proposal(svc, loaded, registry
             "target_state": "new",
         }
     )
+    for end in ("Curriculum Review Portal", "Curriculum Management System"):
+        payload["relationships"].append(
+            {"source": end, "relationship": "provides to / uses", "target": "Review portal API"}
+        )
     edited = result_from_payload(payload)
     out = svc.apply(edited, "approval-workflow", "ana")
     assert out["work_package_id"] == "WP-CMS-UPGRADE"
-    assert len(out["created"]) == 3 and out["linked"] == ["PAC-CMS", "POS-CURR-MGR"]
-    assert len(out["relationships"]) == 3 and not out["skipped"]
+    assert len(out["created"]) == 3 and out["linked"] == ["PAC-CMS", "POS-CURR-MGR", "CAP-CURR-DEV"]
+    assert len(out["relationships"]) == 5 and not out["skipped"]
     # on the branch: new elements exist with their states; main is untouched
     with use_branch("approval-workflow"):
         portal = next(e for e in loaded.find_elements(ElementFilter(text="Curriculum Review Portal")))
@@ -202,7 +208,7 @@ def test_apply_writes_to_the_branch_and_keeps_the_proposal(svc, loaded, registry
     assert not loaded.find_elements(ElementFilter(text="Curriculum Review Portal"))
     cs = branches.diff("approval-workflow")
     # PAC-CMS already carried target 'change' on main, so only the manager's new 'keep' is a changed row
-    assert cs.counts()["added"] == 6 and cs.counts()["changed"] == 1
+    assert cs.counts()["added"] == 8 and cs.counts()["changed"] == 1
     changed = [i for i in cs.items if i.change == "changed"]
     assert changed[0].entity_id == "POS-CURR-MGR" and changed[0].fields_changed == ["target_state"]
     props = loaded.list_proposals("approval-workflow")
@@ -252,7 +258,7 @@ def test_what_the_reader_found_missing_survives_the_resolution(svc):
     }
     r = svc.resolve(result_from_payload(payload, "hosted"))
     assert r.missing == ["Who is the data steward of CAW_Unit_Proposal?"]
-    assert r.pushback == [] and r.complete
+    assert all("data steward" not in p for p in r.pushback)
     # a re-check from the edited rows carries it, and it is kept with the applied proposal
     again = svc.resolve(result_from_payload(r.to_dict(), "manual"))
     assert again.missing == r.missing
@@ -407,6 +413,10 @@ def test_a_relationship_is_retired_only_when_it_exists(svc, loaded, registry):
     assert rels[2].target_state == "decommission" and rels[2].relationship_id and not rels[2].issues
     assert any("no such relationship to decommission" in i for i in rels[4].issues)
     rels[4].include = False
+    # without the lakehouse row the record relates only to the portal: kept, and said why (P9)
+    r = svc.resolve(r)
+    r, _ = svc.answer(r, "boundary:caw unit proposal", "keep", "the lakehouse will hold a reporting copy")
+    assert r.pushback == [], r.pushback
     BranchService(loaded, registry).create("retire", "ana")
     out = svc.apply(result_from_payload(r.to_dict()), "retire", "ana")
     assert out["retired"] == [rels[2].relationship_id]

@@ -138,6 +138,11 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # initiative 22: a proposal names the template it was read with and the pass it revises
     ("proposal", "template_id", "VARCHAR"),
     ("proposal", "revises", "VARCHAR"),
+    # initiative 24: a type says where it sits against principle P9's line; a draft is
+    # settled in conversation, kept between sittings
+    ("meta_element_type", "level", "VARCHAR"),
+    ("proposal", "conversation_json", "VARCHAR"),
+    ("proposal", "updated_at", "TIMESTAMP"),
 ] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
@@ -214,7 +219,8 @@ DDL: dict[str, str] = {
             notation VARCHAR,
             pack_version VARCHAR,
             abstract BOOLEAN,
-            properties VARCHAR
+            properties VARCHAR,
+            level VARCHAR
         )""",
     "meta_attribute": """
         CREATE TABLE IF NOT EXISTS meta_attribute (
@@ -431,7 +437,9 @@ DDL: dict[str, str] = {
             created_at TIMESTAMP,
             org_id VARCHAR,
             template_id VARCHAR,
-            revises VARCHAR
+            revises VARCHAR,
+            conversation_json VARCHAR,
+            updated_at TIMESTAMP
         )""",
     "proposal_template": """
         CREATE TABLE IF NOT EXISTS proposal_template (

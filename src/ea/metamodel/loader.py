@@ -11,6 +11,7 @@ import yaml
 
 from ea.models import (
     ANY,
+    LEVELS,
     AttributeDef,
     AttributeGroup,
     Domain,
@@ -45,6 +46,14 @@ ATTRIBUTE_KEYS = {
     "help",
     "properties",
 }
+
+
+def _level(e: dict[str, Any]) -> str:
+    """Where a type sits against principle P9's line; the enterprise level unless it says otherwise."""
+    level = str(e.get("level") or "enterprise").strip().lower()
+    if level not in LEVELS:
+        raise ValueError(f"element type {e.get('id')!r}: level {level!r} is not one of {', '.join(LEVELS)}")
+    return level
 
 
 def _properties(d: dict[str, Any], known: set[str]) -> dict[str, Any]:
@@ -107,6 +116,7 @@ TYPE_KEYS = {
     "notation",
     "abstract",
     "properties",
+    "level",
 }
 REL_KEYS = {
     "id",
@@ -206,6 +216,7 @@ def pack_from_dict(data: dict[str, Any]) -> Pack:
                 sort_order=i,
                 abstract=bool(e.get("abstract", False)),
                 properties=_properties(e, TYPE_KEYS),
+                level=_level(e),
             )
         )
     relationship_types: list[RelationshipType] = []
@@ -366,6 +377,8 @@ def pack_to_dict(pack: Pack) -> dict[str, Any]:
             d["active"] = False
         if not e.abstract:
             d.pop("abstract", None)
+        if e.level == "enterprise":
+            d.pop("level", None)
         if e.attributes:
             d["attributes"] = [attr_to_dict(a) for a in e.attributes]
         element_types.append(d)

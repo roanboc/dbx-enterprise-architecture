@@ -1,18 +1,19 @@
 """An agent that answers questions about the architecture with tools, grounded in what the tools returned.
 
-Two providers: `anthropic` (Claude, tool use) and `stub` (no model; runs a
-sensible tool sequence and formats the result), so the app and the tests work
-without an API key. The provider is chosen from settings: `auto` picks Claude
-when credentials are present.
+Two providers: a hosted model with tool use — a Databricks Model Serving endpoint, or the
+Messages API directly (`ea.agent.llm`, decision 0023) — and `stub` (no model; runs a sensible
+tool sequence and formats the result), so the app and the tests work without one. The
+provider is chosen from settings: `auto` picks the served endpoint when one is configured,
+then the direct API when a key is present.
 """
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ea.agent.llm import ModelClient, failure, model_client, request_options
 from ea.agent.tools import ToolBox
 from ea.config import Settings
 from ea.metamodel.registry import Registry
@@ -155,7 +156,8 @@ class StubProvider:
                 run("propose_view", title=f"{e['name']} and its relationships", element_ids=[target] + around)
         lines.append("")
         lines.append(
-            "_No language model is configured; this answer was assembled from tool results only. Set ANTHROPIC_API_KEY to enable Claude._"
+            "_No language model is configured; this answer was assembled from tool results only. "
+            "Set EA_AGENT_ENDPOINT to a Model Serving endpoint, or ANTHROPIC_API_KEY, to enable one._"
         )
         return AgentResult("\n".join(lines), calls, self.name, "")
 
@@ -197,16 +199,17 @@ _STOPWORDS = {
 
 
 class AnthropicProvider:
-    """Claude with tool use (manual loop, so the app controls every step and never needs a beta)."""
+    """A hosted model with tool use (manual loop, so the app controls every step), reached
+    directly or through a Model Serving endpoint — the client says which."""
 
-    name = "anthropic"
-
-    def __init__(self, model: str, max_turns: int = 12):
+    def __init__(self, mc: ModelClient | str, max_turns: int = 12):
         import anthropic
 
         self._anthropic = anthropic
-        self.client = anthropic.Anthropic()
-        self.model = model
+        if isinstance(mc, str):  # a model id: the direct API
+            mc = ModelClient(anthropic.Anthropic(), mc, "anthropic", True)
+        self.mc = mc
+        self.client, self.model, self.name = mc.client, mc.model, mc.provider
         self.max_turns = max_turns
 
     def answer(self, question: str, toolbox: ToolBox, history: list[dict[str, Any]]) -> AgentResult:
@@ -219,34 +222,8 @@ class AnthropicProvider:
         for _ in range(self.max_turns):
             try:
                 response = self._create(system, tools, messages)
-            except anthropic.AuthenticationError:
-                return AgentResult(
-                    "",
-                    calls,
-                    self.name,
-                    self.model,
-                    error="Anthropic authentication failed; check ANTHROPIC_API_KEY.",
-                )
-            except anthropic.RateLimitError as exc:
-                return AgentResult(
-                    "",
-                    calls,
-                    self.name,
-                    self.model,
-                    error=f"Rate limited by the model API ({exc.status_code}); try again shortly.",
-                )
-            except anthropic.APIStatusError as exc:
-                return AgentResult(
-                    "",
-                    calls,
-                    self.name,
-                    self.model,
-                    error=f"Model API error {exc.status_code}: {exc.message}",
-                )
-            except anthropic.APIConnectionError as exc:
-                return AgentResult(
-                    "", calls, self.name, self.model, error=f"Could not reach the model API: {exc}"
-                )
+            except anthropic.APIError as exc:
+                return AgentResult("", calls, self.name, self.model, error=failure(self.mc, exc))
             if response.stop_reason == "refusal":
                 return AgentResult(
                     "", calls, self.name, self.model, error="The model declined to answer this request."
@@ -265,7 +242,7 @@ class AnthropicProvider:
             return AgentResult("", calls, self.name, self.model, error="no response")
         text = "".join(b.text for b in response.content if b.type == "text").strip()
         history[:] = messages  # so a follow-up question keeps the context
-        return AgentResult(text, calls, self.name, getattr(response, "model", self.model))
+        return AgentResult(text, calls, self.name, getattr(response, "model", None) or self.model)
 
     def _create(self, system: str, tools: list[dict[str, Any]], messages: list[dict[str, Any]]):
         kwargs: dict[str, Any] = {
@@ -274,9 +251,10 @@ class AnthropicProvider:
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             "tools": tools,
             "messages": messages,
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": "medium"},
+            **request_options(self.mc),
         }
+        if not self.mc.extended:
+            return self.client.messages.create(**kwargs)
         try:
             # Server-side refusal fallbacks keep the assistant answering when a safety classifier declines;
             # unsupported SDKs or platforms fall back to the plain endpoint.
@@ -298,15 +276,8 @@ class Agent:
 
     @staticmethod
     def make_provider(settings: Settings):
-        choice = settings.agent_provider
-        has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-        if choice == "anthropic" or (choice == "auto" and has_key):
-            try:
-                return AnthropicProvider(settings.agent_model)
-            except Exception:  # noqa: BLE001 — missing SDK or credentials; the stub keeps the app usable
-                if choice == "anthropic":
-                    raise
-        return StubProvider()
+        mc = model_client(settings)
+        return AnthropicProvider(mc) if mc is not None else StubProvider()
 
     def ask(self, question: str) -> AgentResult:
         self.toolbox.seen_ids.clear()

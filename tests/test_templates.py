@@ -219,7 +219,7 @@ def test_the_archimate_reference_is_read_completely_without_a_model(backend, arc
         assert r.provider == "stub" and r.template_name == "ArchiMate change proposal"
         assert r.pushback == [], r.pushback
         by_name = {e.name: e for e in r.elements}
-        assert len(r.elements) == 12 and len(r.relationships) == 11
+        assert len(r.elements) == 12 and len(r.relationships) == 12
         portal = by_name["Self-service portal"]
         assert (portal.type_id, portal.action) == ("application_component", "new")
         assert portal.attrs == {"owner": "Digital channels manager", "criticality": "high"}

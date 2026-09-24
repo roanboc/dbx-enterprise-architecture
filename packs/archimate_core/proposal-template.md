@@ -155,6 +155,7 @@ removes, `keep` for one it relies on.
 | Self-service portal | realises | Request submission | | new | |
 | Request submission | serves | Handle a service request | | new | |
 | Self-service portal | accesses | Service request | write | new | |
+| Case management system | accesses | Service request | read | new | case handlers work from the submitted request |
 | Case management system | composes | Case intake interface | | new | |
 | Self-service portal | flows to | Case intake interface | | new | submitted requests |
 | Container hosting | serves | Self-service portal | | new | |

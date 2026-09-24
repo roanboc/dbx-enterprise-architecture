@@ -244,10 +244,14 @@ class ElementType:
         False  # groups its sub-types and carries their attributes and relationships; no element is one
     )
     properties: dict[str, Any] = field(default_factory=dict)  # anything the framework adds; kept, never read
+    #: Where the type sits against the line principle P9 draws: `enterprise` (it belongs in the
+    #: repository) or `solution` (a system's inside, linked from the system rather than modelled).
+    level: str = "enterprise"
 
     def __post_init__(self) -> None:
         validate_identifier(self.id, "element type id")
         self.plural = self.plural or self.name + "s"
+        self.level = self.level or "enterprise"
         for a in self.attributes:
             a.type_id = self.id
 
@@ -403,6 +407,8 @@ class Link:
 # What is true of an artefact today, and what the organisation intends for it. Fixed and small
 # on purpose: every framework needs them, and the views, the importer and the agent read them.
 CURRENT_STATES = ["proposed", "planned", "in_implementation", "live", "retired", "non_existent"]
+#: Where an element type sits against principle P9's line (initiative 24).
+LEVELS = ["enterprise", "solution"]
 TARGET_STATES = ["undecided", "keep", "new", "change", "decommission", "merge"]
 
 
@@ -657,6 +663,11 @@ class Proposal:
 
     One pass of a design onto a branch: a proposal handed to a branch that already holds one
     of the same title `revises` it, so the branch keeps the design pass by pass.
+
+    A `draft` is one still being settled in conversation (initiative 24): its result is the
+    draft change set, its conversation the turns so far, and its branch the one it is meant
+    for — empty when Apply is to open a new one. Applying it keeps the same record, now
+    `applied`, so the reviewer reads how each row was settled.
     """
 
     proposal_id: str
@@ -665,11 +676,14 @@ class Proposal:
     sources: list[dict[str, Any]] = field(default_factory=list)  # {kind: text|file|link, name, chars, text}
     result: dict[str, Any] = field(default_factory=dict)  # the change set as applied, with its impact
     pushback: list[str] = field(default_factory=list)
-    status: str = "applied"  # analysed | applied
+    status: str = "applied"  # draft | applied
     created_by: str = ""
     created_at: datetime | None = None
     template_id: str = ""  # the template it was read with; empty when read as free text
     revises: str = ""  # the proposal this one revises; empty for the first pass
+    #: The turns that settled it: {role: architect|assistant, kind, text, at, qid?, questions?}.
+    conversation: list[dict[str, Any]] = field(default_factory=list)
+    updated_at: datetime | None = None
 
 
 @dataclass

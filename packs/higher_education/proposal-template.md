@@ -31,14 +31,17 @@ capabilities or business outcomes served.
 
 ## Elements
 
-One row per element the change touches. *Type* is a type of the metamodel
-(for example Data Entity, Physical Application Component, Integration,
-Position). *Current state* is one of `proposed`, `planned`,
+One row per element the change touches, the context first: the capability,
+goal or driver the change serves, then the business it changes, then the
+applications, data and technology. *Type* is a type of the metamodel (for
+example Capability, Data Entity, Physical Application Component, Integration,
+Position). Leave the states blank on an element the change only relies on. *Current state* is one of `proposed`, `planned`,
 `in_implementation`, `live`, `retired`, `non_existent`. *Target state* is one
 of `keep`, `new`, `change`, `decommission`, `merge`, `undecided`.
 
 | Type | Name | Existing id | Description | Current state | Target state |
 | ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Capability | Curriculum Development | CAP-CURR-DEV | | | |
 | Physical Application Component | Curriculum Approval Workflow | | A workflow application in which academic staff draft, review and approve new units and courses before they are published. | proposed | new |
 | Data Entity | CAW_Unit_Proposal | | The record of a proposed unit as it moves through approval, with its outline, learning outcomes and assessment plan. | proposed | new |
 | Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |
@@ -57,6 +60,7 @@ or by identifier.
 | Curriculum Approval Workflow | processes | CAW_Unit_Proposal | |
 | Curriculum Approval Workflow | is source for | CMS to SRS curriculum sync | approved units flow into the existing sync |
 | Curriculum Management System | is target of | CMS to SRS curriculum sync | unchanged |
+| Curriculum Approval Workflow | realises | Curriculum Development | |
 | Manager, Curriculum Systems | owns | Curriculum Approval Workflow | POS-CURR-MGR |
 | Lakehouse Platform | stores | CAW_Unit_Proposal | reporting copy |
 

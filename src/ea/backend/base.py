@@ -258,8 +258,17 @@ class DatabaseBackend(ABC):
     def save_proposal(self, p: Proposal) -> Proposal: ...
 
     @abstractmethod
-    def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
-        """Newest first."""
+    def list_proposals(
+        self, branch_id: str | None = None, status: str | None = None, created_by: str | None = None
+    ) -> list[Proposal]:
+        """The latest first; each filter narrows when given."""
+
+    @abstractmethod
+    def get_proposal(self, proposal_id: str) -> Proposal | None: ...
+
+    @abstractmethod
+    def delete_proposal(self, proposal_id: str) -> None:
+        """Remove one proposal — a draft the architect discards; an applied one is kept."""
 
     # The document shapes an organisation proposes in (initiative 22).
     @abstractmethod
