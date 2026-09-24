@@ -120,6 +120,7 @@ locally.
 
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-24 | This document; `BPROC2.2` in [2_processes-and-services.md](../2_business/2_processes-and-services.md); `ACT6` and `ROLE5` in [1_actors-and-roles.md](../2_business/1_actors-and-roles.md); `DOBJ1.1`, `DOBJ2.3` and `DOBJ3.6` in [1_data-objects.md](../3_information/1_data-objects.md) and the `proposal` and `meta_element_type` columns in [3_logical-data-model.md](../3_information/3_logical-data-model.md); `GAP24` to `GAP26` on the roadmap — each linked on the branch, in the session. Presented twice: the first time the Requester asked for the change to be settled top-down and for a system's inside to be kept out, which became initiative 23 and the additions above; the second time the word was *"Yes, approved, implement both"* |
 
 ## Work packages
 

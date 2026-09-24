@@ -54,6 +54,7 @@ principle.
 
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------- |
+| Direction | The product owner | 2026-09-24 | This document, `P9` in [1_motivation.md](../1_strategy/1_motivation.md) and the new point in [3_pitch.md](../1_strategy/3_pitch.md), each linked on the branch, in the session, together with initiative 24's Understanding. The Requester's word was *"Yes, approved, implement both"* |
 
 ## What comes next
 
