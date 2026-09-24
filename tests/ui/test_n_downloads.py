@@ -1355,7 +1355,8 @@ def test_a_reader_may_take_every_file(ui, record):
     proposal = ui.download("pr-template", ".md")
     ui.check(
         "and may take the proposal template, which is how a Reader asks for a change",
-        _text(proposal).lstrip().startswith("# Proposal:"),
+        # the template names itself in its front matter, then opens as a proposal
+        _text(proposal).split("\n---\n", 1)[-1].lstrip().startswith("# Proposal:"),
         _text(proposal).splitlines()[0],
     )
     ui.shot("The Propose page as a Reader, handing over the template it starts from")
