@@ -3,7 +3,7 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/great-franklin-30i81n`.
+**Delivered as:** branch `claude/great-franklin-30i81n`, built 2026-09-24.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 23.
 **Target plateaus:** `PLAT4` Governed change, its intake; `PLAT2` Same
@@ -112,9 +112,9 @@ locally.
 | 1_strategy | **Aligned** with `P9`, which [initiative 23](./23_the-enterprise-level.md) adds and this initiative keeps to. Serves `G1` and `DRV2`; stays inside `P3` (the agent drafts and asks, a person decides) and `P6` (every identifier it offers comes from a tool). |
 | 2_business | [2_processes-and-services.md](../2_business/2_processes-and-services.md): `BPROC2.2`. [1_actors-and-roles.md](../2_business/1_actors-and-roles.md): `ACT6`, `ROLE5`. |
 | 3_information | [1_data-objects.md](../3_information/1_data-objects.md): `DOBJ3.6`, `DOBJ1.1`, `DOBJ2.3`. [3_logical-data-model.md](../3_information/3_logical-data-model.md): `proposal` gains `conversation_json` and `updated_at`, and a `draft` status; `meta_element_type` gains `level`. |
-| 4_application | **After Understanding.** `ASVC9` and `ACMP10`: the conversation and the boundary test; `ACMP5`: the served model for Ask; a Guide service and page. |
-| 5_technology | **After Understanding.** A Model Serving endpoint on `NODE2`, granted to the app by the bundle; recorded as a decision. |
-| Transition | `GAP24`, `GAP25`, `GAP26` opened and in flight; step 1m on the sequence. |
+| 4_application | [1_application-services.md](../4_application/1_application-services.md): `ASVC9`, the conversation and the boundary test; `ASVC13` **Guide**, added. [2_application-components.md](../4_application/2_application-components.md): `ACMP10` asks by rules and in the assistant's words; `ACMP5` reaches the served model; `ACMP6` draws the Guide; `ACMP7` asks in the terminal. |
+| 5_technology | [1_runtime.md](../5_technology/1_runtime.md): `TSVC7` **Model serving** on `NODE2`, used by `ACMP5` and `ACMP10`, pending with `PLAT2`; `ART6` grants the app `CAN_QUERY` on it. Recorded as [decision 0023](../decisions/0023-the-model-is-served-by-the-platform.md). |
+| Transition | `GAP24` and `GAP26` closed; `GAP25` built, closed with `PLAT2`'s run on a workspace; step 1m built. |
 
 ## Approvals
 

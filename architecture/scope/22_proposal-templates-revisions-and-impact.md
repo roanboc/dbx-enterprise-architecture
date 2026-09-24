@@ -3,7 +3,7 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/great-franklin-30i81n`.
+**Delivered as:** branch `claude/great-franklin-30i81n`, built 2026-09-24.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 21.
 **Target plateau:** `PLAT4` Governed change, its intake.

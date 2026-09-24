@@ -35,7 +35,7 @@ identifiers it came from.
 | **Notation editor** — how each domain and type is drawn (layer, glyph, stereotype, ArchiMate element, shape, colour) edited in the app with a live preview, saved into the pack | Metamodel page, Notation tab |
 | **Branches** — several architects draft on their own branch of the model (an overlay on `main`, on the same DuckDB file), edit, import and ask on it as if it were the model, then merge item by item from a merge log: every element and relationship ticked to go to `main` or left on the branch, every conflict (a row `main` changed meanwhile) resolved for the branch or for `main`; abandon discards | Header branch selector, Branches page, `ea branch …`, `--branch` on every command |
 | **Target state** — every element and relationship carries what is true today (`proposed`, `planned`, `in_implementation`, `live`, `retired`, `non_existent`) and what is intended (`undecided`, `keep`, `new`, `change`, `decommission`, `merge`) under a work package; derived from the source's lifecycle text on import; analysed per work package with a current-by-target matrix and a generated view whose shapes carry the markers, in Mermaid and draw.io | Target state page, Element page (State card, Edit tab), `ea target` |
-| **Propose** — hand in a design page (pasted text, Markdown, text or CSV files, links) in any template: the organisation's own, the ArchiMate reference, or none; a reader identifies the elements it names, links the ones that exist on the branch it is for, adopts the new ones as proposed, and pushes back with the minimum to add; before Apply the change's impact (what depends on what it alters or retires, what it leaves dangling, who must review it) and the change drawn; the result is an editable merge log (include ticks, cells editable, rows added by hand, usable without any model) applied to a branch, where a revised page updates the last pass rather than duplicating it; the reviewer reads the page, its passes, its impact and the view beside the merge log | Propose page, Branches page, `ea propose`, `ea templates`, `packs/*/proposal-template.md` |
+| **Propose** — hand in a design page (pasted text, Markdown, text or CSV files, links) in any template: the organisation's own, the ArchiMate reference, or none; a reader identifies the elements it names, links the ones that exist on the branch it is for, adopts the new ones as proposed, and asks — context first — about what it cannot settle, in a conversation kept with the draft; before Apply the change's impact (what depends on what it alters or retires, what it leaves dangling, who must review it) and the change drawn; the result is an editable merge log (include ticks, cells editable, rows added by hand, usable without any model) applied to a branch, where a revised page updates the last pass rather than duplicating it; the reviewer reads the page, its passes, its impact and the view beside the merge log | Propose page, Branches page, Guide page, `ea propose [--interactive]`, `ea templates`, `packs/*/proposal-template.md` |
 | **Search, bulk edit, health** — search word by word across names, identifiers, descriptions and attributes, ranked, with the matching passage shown; tick many rows and set their status, states, work package, lifecycle or an attribute in one audited pass; a Health page with freshness per source system (last load, rows stale for 30, 90 and 180 days, never-updated rows, weekly change activity) and completeness per type (descriptions, links, relationships, required attributes, decided targets), every figure a link to the rows behind it | Browse and Health pages, `ea find`, `ea set`, `ea health` |
 | **DuckDB or Lakebase, the same code** — the store is written once on SQL; a DuckDB file locally, a schema in a Lakebase database (the platform's Postgres) on Databricks, the same tests on both; a deployment bundle creates the instance and the app, and the role of the signed-in user comes from their workspace groups | `EA_BACKEND`, `databricks.yml`, `make deploy` |
 | **Roles and review before merge** — five roles enforced (Reader, Reviewer, Architect, Admin, Agent), derived from workspace groups on the platform and picked from a debug persona switcher locally (Admin by default); an architect requests a review, the reviewers assigned to each element type the branch touches approve or send it back, and only an approved branch merges (an admin may merge without a review, and the log says so) | Header persona switcher, Branches page (review panel), Metamodel page (Reviewers tab), `--as` and `ea branch review/approve/send-back`, `ea reviewers` |
@@ -119,10 +119,17 @@ After editing a pack file, load it again (`uv run ea load-pack packs/higher_educ
 or **Reload from file** on the Metamodel page): the store holds the pack the app
 uses, and the file is only read when asked.
 
-To use a hosted model on the Ask and Propose pages, set `ANTHROPIC_API_KEY` in
-the environment (or a `.env` file); otherwise the stub provider runs the same
-tools without a model (on Propose, the stub reads a proposal template's tables
-and nothing else). `EA_AGENT_PROVIDER` forces `anthropic` or `stub`.
+The assistant on the Ask and Propose pages uses a hosted model when one is
+configured: a Databricks Model Serving endpoint (`EA_AGENT_ENDPOINT`, reached with
+your own Databricks credentials locally and as the app on Databricks — install
+the `databricks` extra), or, for development, `ANTHROPIC_API_KEY`. Without one,
+the stub provider runs the same tools without a model: on Propose it reads a
+proposal template's tables and asks its questions from the rules, and only an
+answer in your own words needs the model. `EA_AGENT_PROVIDER` forces
+`databricks`, `anthropic` or `stub`.
+
+The **Guide** page says what belongs in the repository and how each role works
+in it; its pages are in [`docs/guide/`](docs/guide/README.md).
 
 ## Working on a branch
 
@@ -199,6 +206,16 @@ merge on the Branches page, where the reviewer reads the page as handed in, pass
 by pass, beside the merge log. From the command line:
 `uv run ea --branch <b> propose page.md [--apply]`, or `--new-branch <name>`.
 
+The assistant settles the change with you, top-down. Beside the draft it asks,
+a few questions at a time, why the change is made and which business it
+changes, then whether each new or changing application, data or technology
+element traces up to them, and whether a new element that relates only to its
+own system belongs at all — a system's inside is linked from the system, not
+modelled. Pick a choice, answer in words, or edit a row; open context questions
+stop Apply. The draft and its conversation are kept between sittings, and the
+reviewer reads how each row was settled. `ea propose page.md --interactive`
+asks the same questions in the terminal.
+
 ## Loading your own export
 
 1. Export elements and relationships from your current tool as CSV.
@@ -258,8 +275,9 @@ uv run ea org apply default higher_education@trial
 | `DATABRICKS_HOST` and credentials | (from the SDK) | With an instance named, and for the workspace groups: the workspace and how to sign in, read the way every Databricks SDK client reads them — the app's service principal on Databricks Apps, `DATABRICKS_TOKEN` or a profile on a workstation |
 | `EA_PACK` | `packs/higher_education/metamodel.yaml` | Pack loaded by `ea init` and offered by "Reload from file" |
 | `EA_AUTH` | `mock` | `mock` persona locally; `databricks` reads the identity headers Databricks Apps adds |
-| `EA_AGENT_PROVIDER` | `auto` | `anthropic` when a key is present, else `stub` |
-| `EA_AGENT_MODEL` | (provider default) | Model identifier for the hosted provider |
+| `EA_AGENT_PROVIDER` | `auto` | `databricks` when an endpoint is named, `anthropic` when a key is present, else `stub` |
+| `EA_AGENT_ENDPOINT` | (none) | The Databricks Model Serving endpoint the assistant queries (decision 0023); the bundle sets it and grants the app `CAN_QUERY` on it |
+| `EA_AGENT_MODEL` | (provider default) | Model identifier for the direct provider |
 | `EA_MAX_ROWS` | `5000` | Row cap for Browse and read-only SQL |
 | `EA_BRANCH` | `main` | The branch the CLI works on (same as `--branch`) |
 | `EA_ORG` | `default` | The organisation the CLI reads and writes (same as `--org`) |
