@@ -321,8 +321,10 @@ PR_TPL_LIST = "pr-tpl-list"
 PR_TPL_FEEDBACK = "pr-tpl-feedback"
 PR_IMPACT = "pr-impact"
 PR_VIEW = "pr-view"
+PR_TABS = "pr-tabs"  # the preview: rows, what the change touches, the change drawn
 BR_PROPOSALS = "br-proposals"  # the proposals a branch came from, for the reviewer
 BR_IMPACT = "br-impact"
+BR_TABS = "br-tabs"  # a branch: its changes, the proposals it came from, what it touches, drawn
 
 # Search, bulk edit (initiative 6)
 BROWSE_EMPTY = "browse-empty"  # what the screen says when the grid has nothing in it

@@ -271,6 +271,16 @@ def _revision_note(r: ProposalResult):
     return html.Div(alert(html.Div(lines), "blue"), style={"marginBottom": "0.5rem"})
 
 
+def _touches_label(r: ProposalResult) -> str:
+    """The Impact tab's name, with the one count a reader should not miss: what is left dangling."""
+    impact = r.impact or {}
+    dangling = len(impact.get("dangling") or [])
+    reached = len(impact.get("reached") or [])
+    if dangling:
+        return f"What it touches ({dangling} left dangling)"
+    return f"What it touches ({reached})" if reached else "What it touches"
+
+
 def _change_view(ctx: AppContext, r: ProposalResult):
     view = ctx.proposals.view(r)
     if not view.nodes:
@@ -364,63 +374,98 @@ def _preview(ctx: AppContext, r: ProposalResult):
             )
             if r.missing
             else None,
-            dmc.Title("Elements", order=2, className="ea-section-title"),
-            dmc.Text(
-                "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
-                size="xs",
-                c="dimmed",
-                mb=4,
+            dmc.Tabs(
+                [
+                    dmc.TabsList(
+                        [
+                            dmc.TabsTab(
+                                f"Rows ({len(r.elements)} + {len(r.relationships)})",
+                                value="rows",
+                                leftSection=icon("tabler:table"),
+                            ),
+                            dmc.TabsTab(
+                                _touches_label(r),
+                                value="impact",
+                                leftSection=icon("tabler:target-arrow"),
+                            ),
+                            dmc.TabsTab("Drawn", value="drawn", leftSection=icon("tabler:topology-star")),
+                        ]
+                    ),
+                    dmc.TabsPanel(
+                        html.Div(
+                            [
+                                dmc.Title("Elements", order=2, className="ea-section-title"),
+                                dmc.Text(
+                                    "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                dag.AgGrid(
+                                    id=ids.PR_EL_GRID,
+                                    columnDefs=element_columns(ctx),
+                                    rowData=el_rows,
+                                    getRowId="params.data.key",
+                                    selectedRows=[x for x in el_rows if x["include"]],
+                                    **_GRID,
+                                ),
+                                dmc.Button(
+                                    "Add element row",
+                                    id=ids.PR_ADD_EL,
+                                    size="xs",
+                                    variant="subtle",
+                                    leftSection=icon("tabler:plus", 12),
+                                    mt=4,
+                                ),
+                                dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
+                                dmc.Text(
+                                    "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                dag.AgGrid(
+                                    id=ids.PR_REL_GRID,
+                                    columnDefs=REL_COLUMNS,
+                                    rowData=rel_rows,
+                                    getRowId="params.data.key",
+                                    selectedRows=[x for x in rel_rows if x["include"]],
+                                    **_GRID,
+                                ),
+                                dmc.Button(
+                                    "Add relationship row",
+                                    id=ids.PR_ADD_REL,
+                                    size="xs",
+                                    variant="subtle",
+                                    leftSection=icon("tabler:plus", 12),
+                                    mt=4,
+                                ),
+                            ]
+                        ),
+                        value="rows",
+                        pt="md",
+                    ),
+                    dmc.TabsPanel(
+                        html.Div(
+                            [
+                                dmc.Text(
+                                    "Read from main, before anything is written: what depends on what the change alters or retires, "
+                                    "what it leaves pointing at nothing, and who must review it. It informs; it does not stop Apply.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                impact_panel(r.impact, ids.PR_IMPACT),
+                            ]
+                        ),
+                        value="impact",
+                        pt="md",
+                    ),
+                    dmc.TabsPanel(_change_view(ctx, r), value="drawn", pt="md"),
+                ],
+                id=ids.PR_TABS,
+                value="rows",
             ),
-            dag.AgGrid(
-                id=ids.PR_EL_GRID,
-                columnDefs=element_columns(ctx),
-                rowData=el_rows,
-                getRowId="params.data.key",
-                selectedRows=[x for x in el_rows if x["include"]],
-                **_GRID,
-            ),
-            dmc.Button(
-                "Add element row",
-                id=ids.PR_ADD_EL,
-                size="xs",
-                variant="subtle",
-                leftSection=icon("tabler:plus", 12),
-                mt=4,
-            ),
-            dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
-            dmc.Text(
-                "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
-                size="xs",
-                c="dimmed",
-                mb=4,
-            ),
-            dag.AgGrid(
-                id=ids.PR_REL_GRID,
-                columnDefs=REL_COLUMNS,
-                rowData=rel_rows,
-                getRowId="params.data.key",
-                selectedRows=[x for x in rel_rows if x["include"]],
-                **_GRID,
-            ),
-            dmc.Button(
-                "Add relationship row",
-                id=ids.PR_ADD_REL,
-                size="xs",
-                variant="subtle",
-                leftSection=icon("tabler:plus", 12),
-                mt=4,
-            ),
-            dmc.Title("What the change touches", order=2, className="ea-section-title", mt="md"),
-            dmc.Text(
-                "Read from main, before anything is written: what depends on what the change alters or retires, "
-                "what it leaves pointing at nothing, and who must review it. It informs; it does not stop Apply.",
-                size="xs",
-                c="dimmed",
-                mb=4,
-            ),
-            impact_panel(r.impact, ids.PR_IMPACT),
-            dmc.Title("The change, drawn", order=2, className="ea-section-title", mt="md"),
-            _change_view(ctx, r),
             dmc.Divider(my="md"),
             dmc.Group(
                 [

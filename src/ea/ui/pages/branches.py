@@ -523,12 +523,8 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
         className="ag-theme-alpine",
         style={"width": "100%"},
     )
-    return html.Div(
+    changes = html.Div(
         [
-            head,
-            count_badges,
-            stale_note,
-            html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
             dmc.Paper(
                 [
                     dmc.Group(
@@ -596,16 +592,71 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
             )
             if rows
             else None,
-            _origin(ctx, cs) if rows or ctx.backend.list_proposals(branch_id) else None,
+        ]
+    )
+    proposals = ctx.backend.list_proposals(branch_id)  # newest first
+    if not rows and not proposals:
+        tabs = changes
+    else:
+        impact = ctx.impact.of_branch(branch_id).to_dict()
+        dangling = len(impact.get("dangling") or [])
+        tabs = dmc.Tabs(
+            [
+                dmc.TabsList(
+                    [
+                        dmc.TabsTab(
+                            f"Changes ({len(rows)})", value="changes", leftSection=icon("tabler:git-merge")
+                        ),
+                        dmc.TabsTab(
+                            f"Proposals ({len(proposals)})",
+                            value="proposals",
+                            leftSection=icon("tabler:file-text"),
+                        ),
+                        dmc.TabsTab(
+                            f"What it touches ({dangling} left dangling)" if dangling else "What it touches",
+                            value="impact",
+                            leftSection=icon("tabler:target-arrow"),
+                        ),
+                        dmc.TabsTab("Drawn", value="drawn", leftSection=icon("tabler:topology-star")),
+                    ]
+                ),
+                dmc.TabsPanel(changes, value="changes", pt="md"),
+                dmc.TabsPanel(_proposals_panel(proposals), value="proposals", pt="md"),
+                dmc.TabsPanel(
+                    html.Div(
+                        [
+                            dmc.Text(
+                                "What the branch touches on main beyond its own rows. None of it stops a review or a merge.",
+                                size="xs",
+                                c="dimmed",
+                                mb="xs",
+                            ),
+                            impact_panel(impact, ids.BR_IMPACT),
+                        ]
+                    ),
+                    value="impact",
+                    pt="md",
+                ),
+                dmc.TabsPanel(_branch_view(ctx, cs), value="drawn", pt="md"),
+            ],
+            id=ids.BR_TABS,
+            value="changes",
+        )
+    return html.Div(
+        [
+            head,
+            count_badges,
+            stale_note,
+            html.Div(_review_panel(ctx, b, bool(rows), review_message), id=ids.RV_PANEL),
+            tabs,
         ]
     )
 
 
-def _origin(ctx: AppContext, cs: ChangeSet):
-    """What the reviewer reads beside the merge log: the proposals the rows came from — the page
-    as handed in, pass by pass — what the change touches on main, and the change drawn."""
-    branch_id = cs.branch.branch_id
-    proposals = ctx.backend.list_proposals(branch_id)  # newest first
+def _proposals_panel(proposals: list) -> Any:
+    """The proposals the branch was written from, pass by pass, with the page as handed in."""
+    if not proposals:
+        return empty("No proposal was applied to this branch: its rows were edited or imported.")
     passes = {p.proposal_id: n for n, p in enumerate(reversed(proposals), start=1)}
     items = []
     for p in proposals:
@@ -679,7 +730,12 @@ def _origin(ctx: AppContext, cs: ChangeSet):
                 value=p.proposal_id,
             )
         )
-    with use_branch(branch_id):
+    return dmc.Accordion(items, variant="separated", id=ids.BR_PROPOSALS)
+
+
+def _branch_view(ctx: AppContext, cs: ChangeSet) -> Any:
+    """The branch's change drawn: the elements it touches, with their states marked."""
+    with use_branch(cs.branch.branch_id):
         element_ids = [it.entity_id for it in cs.items if it.kind == "element" and it.change != "deleted"]
         changed = [
             it.entity_id
@@ -694,32 +750,9 @@ def _origin(ctx: AppContext, cs: ChangeSet):
         view = view_from_ids(
             ctx.registry, ctx.graph, element_ids, f"{cs.branch.name}, drawn", focus_ids=changed
         )
-    impact = ctx.impact.of_branch(branch_id)
-    return dmc.Paper(
-        [
-            dmc.Title("Where it came from, and what it touches", order=2, className="ea-section-title"),
-            dmc.Text(
-                "The proposals this branch was written from, the change drawn, and what it touches on main — "
-                "for reading beside the merge log. None of it stops a review or a merge.",
-                size="xs",
-                c="dimmed",
-                mb="xs",
-            ),
-            dmc.Accordion(items, variant="separated", id=ids.BR_PROPOSALS)
-            if items
-            else empty("No proposal was applied to this branch: its rows were edited or imported."),
-            dmc.Title("The change, drawn", order=3, size="h5", mt="md"),
-            mermaid_block("br-view", to_mermaid(view, marked=True), legend=layer_chips(view))
-            if view.nodes
-            else empty("Nothing to draw."),
-            dmc.Title("What it touches on main", order=3, size="h5", mt="md"),
-            impact_panel(impact.to_dict(), ids.BR_IMPACT),
-        ],
-        p="md",
-        withBorder=True,
-        mt="md",
-        className="ea-card",
-    )
+    if not view.nodes:
+        return empty("Nothing to draw.")
+    return mermaid_block("br-view", to_mermaid(view, marked=True), legend=layer_chips(view))
 
 
 def render(ctx: AppContext, search: str | None = None) -> html.Div:
