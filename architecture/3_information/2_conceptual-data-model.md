@@ -77,7 +77,8 @@ is what lets a version be tried in one organisation without touching another
 | **BRANCH_CHANGE** | one element, relationship or link as one branch has it, with the operation and the version it was taken from | part of [`DOBJ2.5`] Branch | the overlay tables (decision 0006) |
 | **REVIEW** | one reviewer's decision on one branch, for the types they cover | [`DOBJ2.7`] Review | `Review` in `src/ea/models.py`, `ReviewService` |
 | **REVIEWER_ASSIGNMENT** | a person who may approve changes to one element type | part of [`DOBJ2.7`] Review | `ReviewService` |
-| **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService` |
+| **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went; one pass of a design onto a branch, revising the pass before it | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService`; the revision **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| **PROPOSAL_TEMPLATE** | one document shape an organisation proposes in, typed in one metamodel | [`DOBJ3.9`] Proposal template | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
 | **CHANGE_LOG_ENTRY** | one change to one thing: who, when, before and after | [`DOBJ3.4`] Change log | `history()` in `src/ea/backend/base.py` |
 
 ## What may exist — the metamodel
@@ -145,6 +146,10 @@ erDiagram
   BRANCH_CHANGE }o..o| ELEMENT : "replaces, adds or hides"
   BRANCH ||--o{ REVIEW : "is decided by"
   BRANCH ||--o{ PROPOSAL : "was written by"
+  PROPOSAL }o..o| PROPOSAL : "revises"
+  PROPOSAL }o..o| PROPOSAL_TEMPLATE : "is read with"
+  ORGANISATION ||--o{ PROPOSAL_TEMPLATE : "keeps"
+  PROPOSAL_TEMPLATE }o..|| METAMODEL_VERSION : "is typed in"
   ELEMENT_TYPE ||--o{ REVIEWER_ASSIGNMENT : "is reviewed by"
   REVIEW }o..o{ ELEMENT_TYPE : "covers"
   ORGANISATION ||--o{ CHANGE_LOG_ENTRY : "holds"
@@ -158,6 +163,10 @@ erDiagram
 | REVIEW | decides | BRANCH | many to exactly one | approve or send back, with the element types it covers; a branch is approved when every type its changes touch has an approval |
 | REVIEWER_ASSIGNMENT | may approve | ELEMENT_TYPE | many to exactly one | per organisation, so the same person may review one type here and not there |
 | PROPOSAL | was written to | BRANCH | many to exactly one | the agent writes only to a branch and only what the architect ticked |
+| PROPOSAL | revises | PROPOSAL | none or one, to none or one | the pass before it on the same branch; the first pass revises nothing. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| PROPOSAL | is read with | PROPOSAL_TEMPLATE | many to none or one | none when the page was read as free text; a template deleted later leaves the proposal standing, naming it. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| ORGANISATION | keeps | PROPOSAL_TEMPLATE | one to many | an organisation's templates are its own; the starters the repository ships become one of them when picked. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| PROPOSAL_TEMPLATE | is typed in | METAMODEL_VERSION | many to exactly one | by the pack's identifier; a template naming a type the applied version lacks says so when it is checked, and is not refused. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
 | CHANGE_LOG_ENTRY | records a change to | ELEMENT, RELATIONSHIP, METAMODEL_VERSION, ORGANISATION, BRANCH | many to one | by kind and identifier rather than by a reference, because the log outlives what it records |
 
 ## The rules that hold across the model
@@ -181,9 +190,10 @@ erDiagram
 
 ## What this model leaves out
 
-Six of the catalogue's data objects are not entities here, because nothing keeps
+Seven of the catalogue's data objects are not entities here, because nothing keeps
 them. The architecture view [`DOBJ2.4`] and the change set [`DOBJ2.6`] are
-computed on demand; the import report [`DOBJ3.3`] and the answer document
+computed on demand, and so is the change impact [`DOBJ3.10`], which is kept only
+inside the proposal it was assessed for; the import report [`DOBJ3.3`] and the answer document
 [`DOBJ3.5`] are produced and handed over; the CSV exchange files [`DOBJ3.1`] and
 the column mapping [`DOBJ3.2`] are read at the door and never land. The notation
 [`DOBJ1.5`] is an entity's worth of information carried inside the element type

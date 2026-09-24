@@ -74,7 +74,7 @@ given per group.
 | `ea_metamodel` | the six `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
 | `ea_content` | the organisations and their elements, relationships and links | everyone |
 | `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
-| `ea_governance` | reviews, reviewer assignments, proposals and the feeds that say where content comes from | reviewers and admins |
+| `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from | reviewers and admins |
 | `ea_audit` | the change log and the history of every import | anyone who may read the content; never updated, only appended |
 | `ea_staging` | **nothing the store makes.** The one schema it creates and never fills: a source leaves rows here in the contract's own shape and a feed reads them (decision 0020) | the store reads it; whatever writes it is outside the application |
 
@@ -133,6 +133,7 @@ so the history survives the feed being deleted — the line above is what a run
 | `branch_review` | a reviewer's decision on a branch | `org_id`, `review_id` | `org_id` |
 | `reviewer_assignment` | who may approve changes to a type | `org_id`, `type_id`, `reviewer` | `org_id` |
 | `proposal` | what an architect handed in and what came of it | `org_id`, `proposal_id` | `org_id` |
+| `proposal_template` | a document shape the organisation proposes in, and how it is read. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | `org_id`, `template_id` | `org_id` |
 | `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
 | `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
@@ -318,9 +319,18 @@ erDiagram
     varchar org_id PK
     varchar proposal_id PK
     varchar branch_id FK
+    varchar template_id FK "the template it was read with"
+    varchar revises FK "the proposal it revises"
     varchar sources_json "what the architect handed in"
-    varchar result_json "what the agent derived"
+    varchar result_json "what the agent derived, and its impact"
     varchar pushback_json "where the sources were not enough"
+  }
+  proposal_template {
+    varchar org_id PK
+    varchar template_id PK
+    varchar name
+    varchar pack_id "the metamodel it is typed in"
+    varchar document "the Markdown, front matter and all"
   }
   change_log {
     varchar org_id PK
@@ -333,13 +343,16 @@ erDiagram
   }
   branch_review }o--|| branch : "decides"
   proposal }o--|| branch : "was written to"
+  proposal }o..o| proposal : "revises"
+  proposal }o..o| proposal_template : "was read with"
 ```
 
 | Table | Its other columns | References | Notes |
 | ----- | ----------------- | ---------- | ----- |
 | `branch_review` | `reviewer`, `comment`, `decided_at` | `branch_id` → `branch` | one row per decision, never overwritten, so a branch's review history stays readable |
 | `reviewer_assignment` | `added_by`, `added_at` | `type_id` → `meta_element_type` | the whole set for a type is rewritten when it is saved |
-| `proposal` | `title`, `status`, `created_by`, `created_at` | `branch_id` → `branch` | kept with the branch; the three JSON columns are the record of what was asked and what came back |
+| `proposal` | `title`, `status`, `created_by`, `created_at` | `branch_id` → `branch`; `template_id` → `proposal_template` and `revises` → `proposal`, both **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | kept with the branch; the three JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`. A template or an earlier revision is referred to, never required: a proposal outlives both |
+| `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md). The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
 | `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers` and `import`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
 ## Types, JSON and growing the schema
@@ -359,7 +372,7 @@ SQL client (principle `P4`).
 | `extra` | `meta_attribute` | the group the attribute is read in, and the rules a value is held to |
 | `enum_values`, `examples`, `qualifiers`, `diagrams`, `provenance_values`, `type_ids` | the metamodel tables and `branch_review` | lists |
 | `before_json`, `after_json` | `change_log` | the whole row before and after |
-| `sources_json`, `result_json`, `pushback_json` | `proposal` | what was handed in, derived and pushed back |
+| `sources_json`, `result_json`, `pushback_json` | `proposal` | what was handed in, derived — with the reader's own finding and the impact — and pushed back |
 
 A column added after a table first shipped is listed in `MIGRATIONS` in
 `src/ea/backend/sql.py` and applied on start-up with `ADD COLUMN IF NOT EXISTS`,
@@ -416,9 +429,12 @@ of a hub that every element depends on.
 | REVIEW | `branch_review` | [`DOBJ2.7`] Review |
 | REVIEWER_ASSIGNMENT | `reviewer_assignment` | part of [`DOBJ2.7`] Review |
 | PROPOSAL | `proposal` | [`DOBJ3.6`] Proposal |
+| PROPOSAL_TEMPLATE | `proposal_template` | [`DOBJ3.9`] Proposal template |
 | CHANGE_LOG_ENTRY | `change_log` | [`DOBJ3.4`] Change log |
 
 The notation [`DOBJ1.5`] has no table: it is the `notation` column of
 `meta_element_type` and `meta_domain`. The architecture view [`DOBJ2.4`], the
-change set [`DOBJ2.6`], the import report [`DOBJ3.3`] and the answer document
-[`DOBJ3.5`] have none either — they are computed, never stored.
+change set [`DOBJ2.6`], the import report [`DOBJ3.3`], the answer document
+[`DOBJ3.5`] and the change impact [`DOBJ3.10`] have none either — they are
+computed, never stored, the impact kept only inside the proposal it was assessed
+for.

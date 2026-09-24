@@ -53,7 +53,7 @@ flowchart LR
 | -- | ------ | ----- | ----- |
 | `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had, each under an identifier that outlives every name given to it (decision 0021); two ship as starters — the Higher Education EA Metamodel and the ArchiMate Core, a second framework carried by the same engine — and either one begins an organisation of its own |
 | `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (everything is sourced from the current EA tool until the source-of-record table is agreed) | About 4,600 elements in the first slice loaded and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
-| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals, the history of every import and the feeds content arrives on |
+| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals and the templates they are written in, the impact of a change, the history of every import and the feeds content arrives on |
 
 ## Objects
 
@@ -111,7 +111,9 @@ a relationship type and an attribute each have one.
 | `DOBJ3.3` | **Import report** — counts read, loaded and skipped, plus every issue with level, code, row and entity | `ImportReport` and `Issue` in `src/ea/models.py` | not persisted; shown in the CLI and the Import page | internal |
 | `DOBJ3.4` | **Change log** — who changed what, when, from which version to which, with the before and after payload | `history()` in `src/ea/backend/base.py` | table `change_log` | internal |
 | `DOBJ3.5` | **Answer document** — a Markdown document composed from an agent answer: question, answer, elements involved, views as Mermaid, identifiers returned by the tools, ungrounded identifiers, tool trace | `AnswerDocument` and `compose()` in `src/ea/agent/document.py` | not persisted; downloadable as Markdown (question 10, resolved: answer documents are not stored in the repository) | as the content it cites |
-| `DOBJ3.6` | **Proposal** — the sources an architect handed in (text, files, links), the change set the agent derived from them (elements linked or new, relationships, states, work package), the pushback when the sources were insufficient, who proposed and when, and the branch it went to | `Proposal` in `src/ea/models.py`; `ProposalResult` and `ProposalService` in `src/ea/agent/proposal.py`; the Proposal Template in `templates/proposal-template.md` | table `proposal`, kept with the branch | as the content it carries |
+| `DOBJ3.6` | **Proposal** — the sources an architect handed in (text, files, links), the template they were read with, the change set the agent derived from them (elements linked or new, relationships, states, work package), the pushback when the sources were insufficient and the reader's own finding of what they leave unsaid, the impact of the change when it was applied, who proposed and when, and the branch it went to. A proposal handed to a branch that already holds one is kept as **its revision**, so the branch carries the design pass by pass | `Proposal` in `src/ea/models.py`; `ProposalResult` and `ProposalService` in `src/ea/agent/proposal.py`. The template it was read with, its revisions and its impact: **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | table `proposal`, kept with the branch; its `template_id` and `revises` columns **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | as the content it carries |
+| `DOBJ3.9` | **Proposal template** — a Markdown document an architect fills in to propose a change, and how the application reads it. A table under a heading that names an element type — its name or its plural — holds that type; a column whose header names a field or an attribute of the metamodel fills it; the document's front matter names the metamodel it is typed in and declares only what differs from those names. Two ship as **starters**, each beside the pack it is typed in — the ArchiMate reference beside the ArchiMate Core, and the higher-education template beside its own — and an organisation keeps its own | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md). Today one template, `templates/proposal-template.md`, read with the fixed column vocabulary of `src/ea/agent/proposal.py` | table `proposal_template`, one set per organisation; the starters as files under `packs/` | internal — an organisation's own template may name its systems and people |
+| `DOBJ3.10` | **Change impact** — what a change set touches beyond itself: for every element it changes, decommissions or merges, the elements that depend on it within two steps and are not themselves in the change; every relationship it leaves pointing at an element being decommissioned; every new element it connects to nothing that exists; and the reviewers the types it touches need. It informs and never stops an Apply | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | not persisted for a branch, computed on demand; kept inside the proposal it was assessed for | as the content it names |
 | `DOBJ3.7` | **Import run** — one execution of an import: what started it (an upload, a command, a feed), who by, the organisation and branch it wrote to, the mapping it used, the files or staging tables it read, the counts of what it created, updated, left unchanged and retired, a bounded sample of its issues and the complete count of them by code, and whether it finished or stopped and why. It does **not** hold the before-image of any row it changed, so it is an account of a run rather than the means to reverse one (`GAP19`) | `ImportRun` in `src/ea/models.py`; `recorded()` in `src/ea/importer/runs.py`; `ASVC12` | table `import_run`; deleted with its organisation, unlike the change log — an `org_id` may be taken again, and a run carries the actor names, file names, issue messages and whole mapping of the organisation that is gone | internal |
 | `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`; `src/ea/importer/feeds.py` | table `source_feed` | internal |
 
@@ -127,8 +129,12 @@ flowchart LR
   prop["▦ Proposal [DOBJ3.6]"]:::application
   run["▦ Import run [DOBJ3.7]"]:::application
   feed["▦ Source feed [DOBJ3.8]"]:::application
+  tpl["▦ Proposal template [DOBJ3.9]"]:::application
+  imp["▦ Change impact [DOBJ3.10]"]:::application
   el["▦ Element [DOBJ2.1]"]:::application
   br["▦ Branch [DOBJ2.5]"]:::application
+  cs["▦ Change set [DOBJ2.6]"]:::application
+  ver["▦ Metamodel version [DOBJ1.6]"]:::application
   view["▦ Architecture view [DOBJ2.4]"]:::application
   map -->|normalises| csv
   csv -->|imported as| el
@@ -136,6 +142,10 @@ flowchart LR
   log -->|records changes of| el
   ans -->|embeds| view
   prop -->|written to| br
+  prop -.->|read with| tpl
+  prop -.->|keeps| imp
+  imp -.->|assessed from| cs
+  tpl -.->|typed in| ver
   feed -->|read through| map
   run -->|accounts for| rep
   feed -->|run as| run
@@ -224,6 +234,10 @@ spending the memory (assessment `ASM6`, decision 0019).
 | `DOBJ2.5` | ▤ «Data Object» Branch | `DOBJ2.2` | ▤ «Data Object» Relationship | overlays | |
 | `DOBJ2.6` | ▤ «Data Object» Change set | `DOBJ2.5` | ▤ «Data Object» Branch | derived from | the merge log the Branches page shows |
 | `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ2.5` | ▤ «Data Object» Branch | written to | the reviewed rows become the branch's rows; the proposal record stays with the branch |
+| `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ3.9` | ▤ «Data Object» Proposal template | read with | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ3.10` | ▤ «Data Object» Change impact | keeps | the impact assessed for that revision. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| `DOBJ3.10` | ▤ «Data Object» Change impact | `DOBJ2.6` | ▤ «Data Object» Change set | assessed from | a proposal's rows before Apply, or a branch's change set. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
+| `DOBJ3.9` | ▤ «Data Object» Proposal template | `DOBJ1.6` | ▤ «Data Object» Metamodel version | typed in | its headings and columns name that version's types, fields and attributes. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) |
 | `DOBJ2.7` | ▤ «Data Object» Review | `DOBJ2.5` | ▤ «Data Object» Branch | decides | approve or send back; a branch merges only when approved, unless an admin merges |
 | `DOBJ2.7` | ▤ «Data Object» Review | `DOBJ1.1` | ▤ «Data Object» Element type | scoped by | the reviewers assigned to the type |
 | `DOBJ2.8` | ▤ «Data Object» Organisation | `DOBJ1.6` | ▤ «Data Object» Metamodel version | applies | one at a time; the content is checked against the version before it is applied |
