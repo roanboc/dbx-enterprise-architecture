@@ -77,7 +77,7 @@ is what lets a version be tried in one organisation without touching another
 | **BRANCH_CHANGE** | one element, relationship or link as one branch has it, with the operation and the version it was taken from | part of [`DOBJ2.5`] Branch | the overlay tables (decision 0006) |
 | **REVIEW** | one reviewer's decision on one branch, for the types they cover | [`DOBJ2.7`] Review | `Review` in `src/ea/models.py`, `ReviewService` |
 | **REVIEWER_ASSIGNMENT** | a person who may approve changes to one element type | part of [`DOBJ2.7`] Review | `ReviewService` |
-| **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went; one pass of a design onto a branch, revising the pass before it | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService` |
+| **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went; one pass of a design onto a branch, revising the pass before it; a draft until it is applied, with the conversation that refined it | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService` |
 | **PROPOSAL_TEMPLATE** | one document shape an organisation proposes in, typed in one metamodel | [`DOBJ3.9`] Proposal template | `ProposalTemplate` in `src/ea/models.py`, `TemplateService` |
 | **CHANGE_LOG_ENTRY** | one change to one thing: who, when, before and after | [`DOBJ3.4`] Change log | `history()` in `src/ea/backend/base.py` |
 

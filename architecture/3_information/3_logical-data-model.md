@@ -324,6 +324,7 @@ erDiagram
     varchar sources_json "what the architect handed in"
     varchar result_json "what the agent derived, and its impact"
     varchar pushback_json "where the sources were not enough"
+    varchar conversation_json "the questions asked and the answers given"
   }
   proposal_template {
     varchar org_id PK
@@ -351,7 +352,7 @@ erDiagram
 | ----- | ----------------- | ---------- | ----- |
 | `branch_review` | `reviewer`, `comment`, `decided_at` | `branch_id` → `branch` | one row per decision, never overwritten, so a branch's review history stays readable |
 | `reviewer_assignment` | `added_by`, `added_at` | `type_id` → `meta_element_type` | the whole set for a type is rewritten when it is saved |
-| `proposal` | `title`, `status`, `created_by`, `created_at` | `branch_id` → `branch`; `template_id` → `proposal_template`; `revises` → `proposal` | kept with the branch; the three JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`. A template or an earlier revision is referred to, never required: a proposal outlives both |
+| `proposal` | `title`, `status` (`draft` or `applied`), `created_by`, `created_at`, `updated_at` | `branch_id` → `branch`; `template_id` → `proposal_template`; `revises` → `proposal` | kept with the branch; the JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`, the conversation that refined a draft in `conversation_json` (**Pending — future initiative:** [initiative 23](../scope/23_proposals-refined-in-conversation.md)). A draft for a branch not yet created carries an empty `branch_id`. A template or an earlier revision is referred to, never required: a proposal outlives both |
 | `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
 | `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import` and `template`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
@@ -372,7 +373,7 @@ SQL client (principle `P4`).
 | `extra` | `meta_attribute` | the group the attribute is read in, and the rules a value is held to |
 | `enum_values`, `examples`, `qualifiers`, `diagrams`, `provenance_values`, `type_ids` | the metamodel tables and `branch_review` | lists |
 | `before_json`, `after_json` | `change_log` | the whole row before and after |
-| `sources_json`, `result_json`, `pushback_json` | `proposal` | what was handed in, derived — with the reader's own finding and the impact — and pushed back |
+| `sources_json`, `result_json`, `pushback_json`, `conversation_json` | `proposal` | what was handed in, derived — with the reader's own finding and the impact — pushed back, and asked and answered |
 
 A column added after a table first shipped is listed in `MIGRATIONS` in
 `src/ea/backend/sql.py` and applied on start-up with `ADD COLUMN IF NOT EXISTS`,
