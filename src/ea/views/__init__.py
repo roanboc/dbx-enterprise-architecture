@@ -15,6 +15,7 @@ from ea.views.model import (
     view_from_impact,
     view_from_metamodel,
     view_from_neighbourhood,
+    view_of_change,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "view_from_impact",
     "view_from_metamodel",
     "view_from_neighbourhood",
+    "view_of_change",
 ]

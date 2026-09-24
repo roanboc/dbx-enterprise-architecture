@@ -1,10 +1,15 @@
 """Propose: from a design document to a change set on a branch.
 
-A proposal is read (a hosted model reads free text and tables; the stub reads the
-Proposal Template's tables), every element is matched against the repository (by
-identifier, then by name), every relationship is resolved against the metamodel,
-and what is missing is listed back as pushback. Nothing is written until the
-architect applies the reviewed change set to a branch.
+A proposal is read (a hosted model reads free text and tables; the stub reads the tables of a
+proposal template), every element is matched against the branch it will be applied to (by
+identifier, then by name), every relationship is resolved against the metamodel, and what is
+missing is listed back as pushback. Nothing is written until the architect applies the
+reviewed change set to a branch.
+
+A template is read against the metamodel first (`ea.services.templates`): a table under a
+heading naming an element type holds that type, and a column naming an attribute fills it.
+A page handed to a branch that already holds one of the same title revises it, updating what
+the last pass wrote rather than writing it twice.
 """
 
 from __future__ import annotations
@@ -21,46 +26,49 @@ from urllib.request import Request, urlopen
 from ea import capacity
 from ea.agent.tools import ToolBox
 from ea.backend.base import DatabaseBackend
-from ea.backend.branching import use_branch
+from ea.backend.branching import MAIN, current_branch, use_branch
 from ea.config import Settings
 from ea.metamodel.registry import Registry
 from ea.models import CURRENT_STATES, TARGET_STATES, Element, Proposal, ValidationError
-from ea.services import BranchService, RepositoryService, TargetStateService
+from ea.services import BranchService, ChangeImpactService, ChangeInput, RepositoryService, TargetStateService
+from ea.services.impact import CHANGING
 from ea.services.roles import require
+from ea.services.templates import (
+    ELEMENT_FIELDS as ELEMENT_HEADERS,
+)
+from ea.services.templates import (
+    RELATIONSHIP_FIELDS as RELATIONSHIP_HEADERS,
+)
+from ea.services.templates import (
+    Reading,
+    TemplateService,
+    markdown_tables,
+    split_front_matter,
+)
+from ea.services.templates import (
+    cell as _cell,
+)
+from ea.views import View, view_of_change
 
 MAX_LINK_BYTES = 400_000
 MIN_DESCRIPTION_CHARS = 20
 FUZZY_CUTOFF = 0.88
+#: How much of each source is kept with the proposal, so a reviewer reads the page it came from.
+MAX_SOURCE_CHARS = 200_000
 
-ELEMENT_HEADERS = {
-    "type": "type",
-    "element_type": "type",
-    "name": "name",
-    "element": "name",
-    "existing_id": "existing_id",
-    "existing_identifier": "existing_id",
-    "id": "existing_id",
-    "identifier": "existing_id",
-    "description": "description",
-    "current_state": "current_state",
-    "current": "current_state",
-    "target_state": "target_state",
-    "target": "target_state",
-    "note": "note",
-}
-RELATIONSHIP_HEADERS = {
-    "source": "source",
-    "from": "source",
-    "relationship": "relationship",
-    "relationship_type": "relationship",
-    "rel_type": "relationship",
-    "relation": "relationship",
-    "target": "target",
-    "to": "target",
-    "note": "note",
-    "qualifier": "qualifier",
-    "role": "qualifier",
-}
+__all__ = [
+    "ELEMENT_HEADERS",
+    "RELATIONSHIP_HEADERS",
+    "ProposalResult",
+    "ProposalService",
+    "ProposedElement",
+    "ProposedRelationship",
+    "fetch_link",
+    "markdown_tables",
+    "parse_csv",
+    "parse_markdown",
+    "result_from_payload",
+]
 
 
 # ------------------------------------------------------------------ result
@@ -76,6 +84,7 @@ class ProposedElement:
     current_state: str = ""
     target_state: str = ""
     note: str = ""
+    attrs: dict[str, str] = field(default_factory=dict)  # attribute values the page gives, by name
     type_id: str = ""
     element_id: str = ""  # resolved id when linked
     action: str = "new"  # link | new | unresolved
@@ -83,6 +92,7 @@ class ProposedElement:
     candidates: list[dict[str, str]] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
     include: bool = True
+    on_branch_only: bool = False  # linked to an element an earlier pass created on this branch
 
     @property
     def ref(self) -> str:
@@ -98,9 +108,11 @@ class ProposedRelationship:
     target: str
     note: str = ""
     qualifier: str = ""
+    target_state: str = ""  # what the change does to the relationship: new, keep, decommission, …
     src_ref: str = ""
     dst_ref: str = ""
     rel_type_id: str = ""
+    relationship_id: str = ""  # the relationship it names, when it exists already
     issues: list[str] = field(default_factory=list)
     include: bool = True
 
@@ -121,6 +133,12 @@ class ProposalResult:
     model: str = ""
     sources: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
+    template_id: str = ""  # the organisation's template it was read with
+    template_name: str = ""  # the template's name, kept or not
+    revises: str = ""  # the proposal on the branch this one revises
+    # What the pass it revises wrote and this page no longer carries: listed, never deleted.
+    no_longer: list[dict[str, str]] = field(default_factory=list)
+    impact: dict[str, Any] = field(default_factory=dict)  # the change impact, when assessed
 
     @property
     def complete(self) -> bool:
@@ -131,108 +149,96 @@ class ProposalResult:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ProposalResult:
+        known_el = set(ProposedElement.__dataclass_fields__)
+        known_rel = set(ProposedRelationship.__dataclass_fields__)
         return cls(
             title=d.get("title", ""),
             summary=d.get("summary", ""),
             work_package=d.get("work_package", ""),
             work_package_id=d.get("work_package_id", ""),
-            elements=[ProposedElement(**e) for e in d.get("elements") or []],
-            relationships=[ProposedRelationship(**r) for r in d.get("relationships") or []],
+            elements=[
+                ProposedElement(**{k: v for k, v in e.items() if k in known_el})
+                for e in d.get("elements") or []
+            ],
+            relationships=[
+                ProposedRelationship(**{k: v for k, v in r.items() if k in known_rel})
+                for r in d.get("relationships") or []
+            ],
             pushback=list(d.get("pushback") or []),
             missing=list(d.get("missing") or []),
             provider=d.get("provider", ""),
             model=d.get("model", ""),
             sources=list(d.get("sources") or []),
             error=d.get("error", ""),
+            template_id=d.get("template_id", ""),
+            template_name=d.get("template_name", ""),
+            revises=d.get("revises", ""),
+            no_longer=list(d.get("no_longer") or []),
+            impact=dict(d.get("impact") or {}),
         )
 
 
 # ----------------------------------------------------------------- parsing
-
-_TABLE_ROW = re.compile(r"^\s*\|(.*)\|\s*$")
-_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 
 
 def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
-def _cell(text: str) -> str:
-    return re.sub(r"^[`*_ ]+|[`*_ ]+$", "", (text or "").strip())
+def parse_markdown(text: str, reading: Reading | None = None) -> ProposalResult:
+    """A page in a proposal template as an unresolved result.
 
-
-def _split_row(line: str) -> list[str]:
-    inner = _TABLE_ROW.match(line).group(1)
-    return [c.strip() for c in re.split(r"(?<!\\)\|", inner)]
-
-
-def markdown_tables(text: str) -> list[dict[str, Any]]:
-    """Every pipe table in the text: {'heading', 'headers', 'rows'} with the heading it sits under."""
-    tables: list[dict[str, Any]] = []
-    heading = ""
-    lines = text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith("#"):
-            heading = line.lstrip("#").strip()
-        if _TABLE_ROW.match(line) and i + 1 < len(lines) and _SEPARATOR.match(lines[i + 1]):
-            headers = [_cell(h) for h in _split_row(line)]
-            rows = []
-            i += 2
-            while i < len(lines) and _TABLE_ROW.match(lines[i]):
-                cells = [_cell(c) for c in _split_row(lines[i])]
-                cells += [""] * (len(headers) - len(cells))
-                rows.append(cells[: len(headers)])
-                i += 1
-            tables.append({"heading": heading, "headers": headers, "rows": rows})
-            continue
-        i += 1
-    return tables
-
-
-def _map_headers(headers: list[str], vocabulary: dict[str, str]) -> dict[int, str]:
-    out = {}
-    for i, h in enumerate(headers):
-        key = re.sub(r"[^a-z0-9]+", "_", h.lower()).strip("_")
-        if key in vocabulary:
-            out[i] = vocabulary[key]
-    return out
-
-
-def parse_markdown(text: str) -> ProposalResult:
-    """The Proposal Template (or anything with the same tables) as an unresolved result."""
+    With a `reading`, a table's type may come from the heading it sits under and a column may
+    fill an attribute; without one, only the fixed column words are understood and an element
+    table needs a Type column.
+    """
+    reading = reading or Reading()
     result = ProposalResult()
-    m = re.search(r"^#\s+(.+)$", text, re.M)
+    decl, body = split_front_matter(text)
+    if decl is not None:
+        result.template_name = decl.name
+    m = re.search(r"^#\s+(.+)$", body, re.M)
     if m:
         result.title = re.sub(r"^proposal\s*:\s*", "", m.group(1).strip(), flags=re.I).strip()
-    m = re.search(r"^##\s+Summary\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    m = re.search(r"^##\s+Summary\s*$(.*?)(?=^##\s|\Z)", body, re.M | re.S)
     if m:
         result.summary = " ".join(ln.strip() for ln in m.group(1).strip().splitlines() if ln.strip())[:2000]
-    for t in markdown_tables(text):
-        cols_el = _map_headers(t["headers"], ELEMENT_HEADERS)
-        cols_rel = _map_headers(t["headers"], RELATIONSHIP_HEADERS)
-        mapped_el, mapped_rel = set(cols_el.values()), set(cols_rel.values())
-        if {"type", "name"} <= mapped_el and "relationship" not in mapped_rel:
+    for t in markdown_tables(body):
+        kind = reading.table_kind(t)
+        if kind == "elements":
+            cols = {i: reading.element_column(h) for i, h in enumerate(t["headers"])}
+            heading_type = reading.type_for_heading(t["heading"])
+            heading_label = reading.registry.types[heading_type].name if heading_type else ""
             for n, row in enumerate(t["rows"], start=1):
-                rec = {cols_el[i]: row[i] for i in cols_el if i < len(row)}
+                rec: dict[str, str] = {}
+                attrs: dict[str, str] = {}
+                for i, what in cols.items():
+                    if not what or i >= len(row):
+                        continue
+                    if what.startswith("attr:"):
+                        if row[i].strip():
+                            attrs[what[5:]] = row[i].strip()
+                    else:
+                        rec[what] = row[i]
                 if not rec.get("name") and not rec.get("type"):
                     continue
                 result.elements.append(
                     ProposedElement(
                         row=n,
-                        type_label=rec.get("type", ""),
+                        type_label=rec.get("type") or heading_label,
                         name=rec.get("name", ""),
                         existing_id=rec.get("existing_id", ""),
                         description=rec.get("description", ""),
                         current_state=_state(rec.get("current_state", "")),
                         target_state=_state(rec.get("target_state", "")),
                         note=rec.get("note", ""),
+                        attrs=attrs,
                     )
                 )
-        elif {"source", "relationship", "target"} <= mapped_rel:
+        elif kind == "relationships":
+            cols = {i: reading.relationship_column(h) for i, h in enumerate(t["headers"])}
             for n, row in enumerate(t["rows"], start=1):
-                rec = {cols_rel[i]: row[i] for i in cols_rel if i < len(row)}
+                rec = {what: row[i] for i, what in cols.items() if what and i < len(row)}
                 if not (rec.get("source") or rec.get("target")):
                     continue
                 result.relationships.append(
@@ -243,19 +249,25 @@ def parse_markdown(text: str) -> ProposalResult:
                         target=rec.get("target", ""),
                         note=rec.get("note", ""),
                         qualifier=rec.get("qualifier", ""),
+                        target_state=_state(rec.get("target_state", "")),
                     )
                 )
-        elif len(t["headers"]) == 2 or (t["rows"] and all(len(r) >= 2 for r in t["rows"])):
+        elif kind == "front" or (t["rows"] and all(len(r) >= 2 for r in t["rows"])):
             # the front table: | **Work package** | value |
             for row in t["rows"]:
                 if _norm(row[0]) in ("work package", "workpackage", "initiative") and len(row) > 1:
                     result.work_package = _cell(row[1])
     if not result.work_package:
-        m = re.search(r"work package[^\n:|]*[:|]\s*`?([A-Za-z][A-Za-z0-9 _.-]{1,80})`?", text, re.I)
+        m = re.search(r"work package[^\n:|]*[:|]\s*`?([A-Za-z][A-Za-z0-9 _.-]{1,80})`?", body, re.I)
         if m and not m.group(1).lower().startswith("wp-…"):
             result.work_package = m.group(1).strip()
     if result.work_package.startswith("WP-…") or result.work_package.lower().startswith("wp-… ("):
         result.work_package = ""
+    # rows are numbered in reading order across every table, so a row number names one row
+    for n, el in enumerate(result.elements, start=1):
+        el.row = n
+    for n, rel in enumerate(result.relationships, start=1):
+        rel.row = n
     return result
 
 
@@ -263,7 +275,7 @@ def _state(text: str) -> str:
     return re.sub(r"[\s-]+", "_", (text or "").strip().lower())
 
 
-def parse_csv(text: str, name: str = "") -> ProposalResult:
+def parse_csv(text: str, name: str = "", reading: Reading | None = None) -> ProposalResult:
     """A CSV with the Elements or the Relationships columns."""
     import csv
     import io
@@ -277,7 +289,7 @@ def parse_csv(text: str, name: str = "") -> ProposalResult:
     md = "| " + " | ".join(headers) + " |\n|" + "---|" * len(headers) + "\n"
     for r in rows[1:]:
         md += "| " + " | ".join(c.replace("|", "/") for c in r) + " |\n"
-    return parse_markdown(md)
+    return parse_markdown(md, reading)
 
 
 def fetch_link(url: str, timeout: int = 10) -> str:
@@ -315,11 +327,15 @@ class ProposalService:
         target: TargetStateService,
         settings: Settings | None = None,
         toolbox: ToolBox | None = None,
+        templates: TemplateService | None = None,
+        impact: ChangeImpactService | None = None,
     ):
         self.backend, self.registry, self.repo = backend, registry, repo
         self.branches, self.target = branches, target
         self.settings = settings or Settings.from_env()
         self.toolbox = toolbox
+        self.templates = templates or TemplateService(backend, registry)
+        self.impact = impact or ChangeImpactService(backend, registry)
         self.provider = self._make_provider()
 
     # ------------------------------------------------------------ provider
@@ -335,20 +351,35 @@ class ProposalService:
         return StubProposalProvider()
 
     # ------------------------------------------------------------- analyse
-    def analyse(self, sources: list[dict[str, str]], branch_id: str | None = None) -> ProposalResult:
+    def analyse(
+        self, sources: list[dict[str, str]], branch_id: str | None = None, template: str | None = None
+    ) -> ProposalResult:
         """`sources`: [{kind: text|file|link, name, text}]. Returns the resolved, validated result.
 
         `branch_id` is the branch the proposal will be applied to: the reader looks the
         elements up there, so what an earlier apply created on it is found, not proposed again.
         None reads the current branch.
+
+        The page is read with the template its own front matter names; failing that with
+        `template`, the key of a template the organisation keeps or of a starter
+        (`TemplateService.offered`); failing both, with the metamodel's own names.
         """
         with _on(branch_id):
-            result = self.provider.extract(sources, self)
+            first = next((s.get("text") for s in sources if (s.get("text") or "").strip()), None)
+            reading, template_id, template_name = self.templates.reading(template, first)
+            result = self.provider.extract(sources, self, reading)
+            result.template_id = template_id
+            result.template_name = template_name or result.template_name
             result.sources = [
-                {"kind": s.get("kind", ""), "name": s.get("name", ""), "chars": len(s.get("text", ""))}
+                {
+                    "kind": s.get("kind", ""),
+                    "name": s.get("name", ""),
+                    "chars": len(s.get("text") or ""),
+                    "text": (s.get("text") or "")[:MAX_SOURCE_CHARS],
+                }
                 for s in sources
             ]
-            return self.resolve(result)
+            return self._resolve(result)
 
     def resolve(self, result: ProposalResult, branch_id: str | None = None) -> ProposalResult:
         """Match every element and relationship against the repository and the metamodel; compute the pushback.
@@ -361,8 +392,11 @@ class ProposalService:
     def _resolve(self, result: ProposalResult) -> ProposalResult:
         index = self._index()
         result.pushback = []
+        on_branch = current_branch() != MAIN
+        main_ids = self._on_main([el.element_id for el in result.elements]) if on_branch else None
         for el in result.elements:
             self._resolve_element(el, index)
+            el.on_branch_only = bool(on_branch and el.element_id and el.element_id not in (main_ids or set()))
         refs = {}
         for el in result.elements:
             refs[_norm(el.name)] = el
@@ -371,8 +405,133 @@ class ProposalService:
         for rel in result.relationships:
             self._resolve_relationship(rel, refs, index)
         self._resolve_work_package(result)
+        self._resolve_revision(result, on_branch)
         result.pushback = self.pushback(result)
+        result.impact = self.impact.assess(self.change_input(result)).to_dict()
         return result
+
+    def _on_main(self, ids: list[str]) -> set[str]:
+        """Which of these elements `main` holds: the rest were created on the branch."""
+        with use_branch(MAIN):
+            return {e.element_id for e in self.backend.elements_by_ids([i for i in ids if i])}
+
+    def _resolve_revision(self, result: ProposalResult, on_branch: bool) -> None:
+        """The proposal this one revises — the latest of the same title applied to the branch —
+        and what it wrote that this page no longer carries."""
+        result.revises, result.no_longer = "", []
+        if not on_branch or not result.title:
+            return
+        earlier = [
+            p
+            for p in self.backend.list_proposals(current_branch())
+            if p.status == "applied" and _norm(p.title) == _norm(result.title)
+        ]
+        if not earlier:
+            return
+        last = earlier[0]  # newest first
+        result.revises = last.proposal_id
+        applied = (last.result or {}).get("applied") or {}
+        carried = {el.element_id for el in result.elements if el.element_id}
+        dropped = [
+            i for i in (applied.get("created") or []) + (applied.get("linked") or []) if i not in carried
+        ]
+        names = {e.element_id: e for e in self.backend.elements_by_ids(dropped)}
+        for i in dict.fromkeys(dropped):
+            e = names.get(i)
+            if e is not None and i != result.work_package_id:
+                result.no_longer.append({"kind": "element", "id": i, "name": e.name})
+        rel_carried = {r.relationship_id for r in result.relationships if r.relationship_id}
+        for rid in applied.get("relationships") or []:
+            if rid in rel_carried:
+                continue
+            r = self.backend.get_relationship(rid)
+            if r is not None:
+                label = f"{self._element_name(r.src_id)} {self._rel_name(r.rel_type_id)} {self._element_name(r.dst_id)}"
+                result.no_longer.append({"kind": "relationship", "id": rid, "name": label})
+
+    def _element_name(self, element_id: str) -> str:
+        e = self.backend.get_element(element_id)
+        return e.name if e else element_id
+
+    def _rel_name(self, rel_type_id: str) -> str:
+        r = self.registry.rel_types.get(rel_type_id)
+        return r.name if r else rel_type_id
+
+    def view(self, result: ProposalResult) -> View:
+        """The change drawn before it is applied: the ticked elements with their states, the
+        relationships among them, and what the change would leave pointing at an element it
+        retires, so the gap is on the picture as well as in the list."""
+        nodes: dict[str, dict[str, Any]] = {}
+        for el in result.elements:
+            if el.include and (el.type_id or el.element_id):
+                nodes[el.ref] = {
+                    "element_id": el.ref,
+                    "name": el.name or el.element_id,
+                    "type_id": el.type_id,
+                    "current_state": el.current_state or ("proposed" if el.action == "new" else "live"),
+                    "target_state": el.target_state or ("new" if el.action == "new" else "keep"),
+                    "focus": el.action == "new" or el.target_state in CHANGING,
+                }
+        edges = [
+            {
+                "src": r.src_ref,
+                "dst": r.dst_ref,
+                "label": self._rel_name(r.rel_type_id) if r.rel_type_id else r.relationship,
+                "target_state": r.target_state or "undecided",
+            }
+            for r in result.relationships
+            if r.include and r.src_ref and r.dst_ref
+        ]
+        dangling = (result.impact or {}).get("dangling") or []
+        others = {e.element_id: e for e in self.backend.elements_by_ids([d["other"] for d in dangling])}
+        for d in dangling:
+            e = others.get(d["other"])
+            if e is None:
+                continue
+            nodes.setdefault(
+                e.element_id,
+                {
+                    "element_id": e.element_id,
+                    "name": e.name,
+                    "type_id": e.type_id,
+                    "current_state": e.current_state,
+                    "target_state": e.target_state,
+                },
+            )
+            edges.append(
+                {
+                    "src": d["src_id"],
+                    "dst": d["dst_id"],
+                    "label": d["relationship"],
+                    "target_state": "undecided",
+                }
+            )
+        return view_of_change(
+            self.registry, list(nodes.values()), edges, result.title or "The proposed change"
+        )
+
+    def change_input(self, result: ProposalResult) -> ChangeInput:
+        """The ticked rows of a proposal as a change set to assess."""
+        els = [el for el in result.elements if el.include]
+        rels = [r for r in result.relationships if r.include]
+        return ChangeInput(
+            changed={
+                el.element_id: el.target_state
+                for el in els
+                if el.action == "link" and el.target_state in CHANGING and not el.on_branch_only
+            },
+            new=[{"ref": el.ref, "name": el.name, "type_id": el.type_id} for el in els if el.action == "new"],
+            links=[
+                (r.src_ref, r.dst_ref)
+                for r in rels
+                if r.src_ref and r.dst_ref and r.target_state != "decommission"
+            ],
+            retired_relationships={
+                r.relationship_id for r in rels if r.target_state == "decommission" and r.relationship_id
+            },
+            named={el.element_id for el in els if el.element_id},
+            touched_types=[el.type_id for el in els if el.type_id],
+        )
 
     def _index(self) -> dict[str, Any]:
         """Every element's identifier and name, to match a proposal against.
@@ -481,6 +640,24 @@ class ProposalService:
             el.issues.append("current state is missing")
         if el.action == "link" and not el.target_state:
             el.issues.append("target state is missing")
+        if el.attrs and el.type_id:
+            el.issues.extend(self._attr_issues(el.type_id, el.attrs))
+
+    def _attr_issues(self, type_id: str, attrs: dict[str, str]) -> list[str]:
+        """What the attribute values a page gives say against the type: one it does not declare,
+        or a value its rules refuse. Only the values given are checked — a blank cell sets nothing."""
+        declared = {a.name for a in self.registry.attributes_for(type_id)}
+        out = []
+        for name, value in attrs.items():
+            if name not in declared:
+                out.append(f"attribute {name!r} is not declared on {self._type_name(type_id)}")
+                continue
+            out.extend(
+                i.message
+                for i in self.registry.validate_element(type_id, {name: value})
+                if i.code != "missing_attribute"
+            )
+        return out
 
     def _resolve_ref(self, text: str, refs: dict[str, ProposedElement], index: dict[str, Any]):
         """(ref, type_id, label) for an endpoint written as a name or an id."""
@@ -508,7 +685,9 @@ class ProposalService:
             rel.issues.append(f"source {rel.source!r} is neither in the Elements table nor in the repository")
         if not rel.dst_ref:
             rel.issues.append(f"target {rel.target!r} is neither in the Elements table nor in the repository")
-        rel.rel_type_id = ""
+        rel.rel_type_id = rel.relationship_id = ""
+        if rel.target_state and rel.target_state not in TARGET_STATES:
+            rel.issues.append(f"target state {rel.target_state!r} is not one of {', '.join(TARGET_STATES)}")
         if not rel.relationship:
             rel.issues.append("relationship is missing")
         elif src_t and dst_t:
@@ -522,6 +701,27 @@ class ProposalService:
                 rel.rel_type_id = rt.id
                 if rel.qualifier and rt.qualifiers and rel.qualifier not in rt.qualifiers:
                     rel.issues.append(f"qualifier {rel.qualifier!r} is not one of {', '.join(rt.qualifiers)}")
+                rel.relationship_id = self._existing_relationship(rel)
+        if rel.target_state == "decommission" and not rel.relationship_id and not rel.issues:
+            rel.issues.append("there is no such relationship to decommission")
+
+    def _existing_relationship(self, rel: ProposedRelationship) -> str:
+        """The relationship this row names when both ends exist and it is already there."""
+        if (
+            not rel.src_ref
+            or not rel.dst_ref
+            or rel.src_ref.startswith("new:")
+            or rel.dst_ref.startswith("new:")
+        ):
+            return ""
+        for r in self.backend.relationships_of(rel.src_ref, "out"):
+            if (r.rel_type_id, r.dst_id, r.qualifier or "") == (
+                rel.rel_type_id,
+                rel.dst_ref,
+                rel.qualifier or "",
+            ):
+                return r.relationship_id
+        return ""
 
     def _type_name(self, type_id: str) -> str:
         t = self.registry.get_type(type_id)
@@ -583,7 +783,9 @@ class ProposalService:
         branch = self.branches.get(branch_id)
         if branch.status != "open":
             raise ValidationError([_issue(f"branch {branch_id} is {branch.status}")])
-        created, linked, rels, skipped = [], [], [], []
+        created, linked, rels, retired, skipped = [], [], [], [], []
+        # what an earlier pass created on this branch: a relationship to it is still new
+        fresh = {el.element_id for el in result.elements if el.on_branch_only}
         with use_branch(branch_id):
             wp_id = result.work_package_id
             if not wp_id and result.work_package:
@@ -622,6 +824,13 @@ class ProposalService:
                         changes["target_work_package"] = wp_id
                     if el.note and el.note != current.target_note:
                         changes["target_note"] = el.note
+                    if el.attrs and {**current.attrs, **el.attrs} != current.attrs:
+                        # a filled cell overwrites; a blank one never empties (it is not in attrs)
+                        changes["attrs"] = {**current.attrs, **el.attrs}
+                    if el.on_branch_only and el.description and el.description != current.description_md:
+                        # an element this proposal created on the branch takes the revised text;
+                        # one main already holds keeps its own, however short the page's is
+                        changes["description_md"] = el.description
                     if changes:
                         self.repo.update_element(el.element_id, actor, current.version, **changes)
                     linked.append(el.element_id)
@@ -635,6 +844,7 @@ class ProposalService:
                         target_state=el.target_state or "new",
                         target_work_package=wp_id,
                         target_note=el.note,
+                        attrs=dict(el.attrs),
                         origin="proposal",
                     )
                     ids[el.ref] = e.element_id
@@ -651,7 +861,20 @@ class ProposalService:
                 if rt is None:
                     skipped.append(f"relationship row {rel.row}: no such relationship between the ends")
                     continue
-                target_state = "new" if (src in created or dst in created) else "keep"
+                if rel.target_state == "decommission":
+                    self.repo.set_relationship_states(
+                        rel.relationship_id,
+                        actor,
+                        target_state="decommission",
+                        target_work_package=wp_id or None,
+                        target_note=rel.note or None,
+                    )
+                    retired.append(rel.relationship_id)
+                    continue
+                target_state = rel.target_state or (
+                    "new" if ({src, dst} & (set(created) | fresh)) else "keep"
+                )
+                changing = target_state not in ("keep", "undecided")
                 r = self.repo.add_relationship(
                     rt.id,
                     src,
@@ -661,33 +884,48 @@ class ProposalService:
                     origin="proposal",
                     current_state="proposed" if target_state == "new" else "live",
                     target_state=target_state,
-                    target_work_package=wp_id if target_state == "new" else "",
+                    target_work_package=wp_id if changing else "",
                     target_note=rel.note,
                 )
+                if rel.target_state and r.target_state != rel.target_state:
+                    # it was there already, meant for something else: the page says what now
+                    r = self.repo.set_relationship_states(
+                        r.relationship_id,
+                        actor,
+                        target_state=rel.target_state,
+                        target_work_package=wp_id if changing else None,
+                        target_note=rel.note or None,
+                    )
                 rels.append(r.relationship_id)
+        applied = {
+            "created": created,
+            "linked": linked,
+            "relationships": rels,
+            "retired": retired,
+            "skipped": skipped,
+        }
         record = self.backend.save_proposal(
             Proposal(
                 proposal_id="",
                 branch_id=branch_id,
                 title=result.title or branch.name,
                 sources=result.sources,
-                result=dict(
-                    result.to_dict(),
-                    applied={"created": created, "linked": linked, "relationships": rels, "skipped": skipped},
-                ),
+                result=dict(result.to_dict(), applied=applied),
                 pushback=[],
                 status="applied",
                 created_by=actor,
+                template_id=result.template_id,
+                revises=result.revises,
             )
         )
         return {
             "proposal_id": record.proposal_id,
             "branch_id": branch_id,
             "work_package_id": wp_id,
-            "created": created,
-            "linked": linked,
-            "relationships": rels,
-            "skipped": skipped,
+            "revises": result.revises,
+            "no_longer": result.no_longer,
+            "impact": result.impact,
+            **applied,
         }
 
 
@@ -706,17 +944,21 @@ def _issue(message: str):
 
 
 class StubProposalProvider:
-    """No language model: reads the template's tables (Markdown or CSV) and nothing else."""
+    """No language model: reads a template's tables (Markdown or CSV) and nothing else."""
 
     name = "stub"
     model = ""
 
-    def extract(self, sources: list[dict[str, str]], service: ProposalService) -> ProposalResult:
+    def extract(
+        self, sources: list[dict[str, str]], service: ProposalService, reading: Reading | None = None
+    ) -> ProposalResult:
+        reading = reading or Reading(service.registry)
         merged = ProposalResult(provider=self.name)
         for s in sources:
             text = s.get("text") or ""
             name = (s.get("name") or "").lower()
-            part = parse_csv(text, name) if name.endswith(".csv") else parse_markdown(text)
+            part = parse_csv(text, name, reading) if name.endswith(".csv") else parse_markdown(text, reading)
+            merged.template_name = merged.template_name or part.template_name
             merged.title = merged.title or part.title
             merged.summary = merged.summary or part.summary
             merged.work_package = merged.work_package or part.work_package
@@ -730,8 +972,8 @@ class StubProposalProvider:
                 merged.relationships.append(rel)
         if not merged.elements and any((s.get("text") or "").strip() for s in sources):
             merged.error = (
-                "No language model is configured, so only the Proposal Template's tables can be read. "
-                "Download the template, fill in its Elements and Relationships tables, and paste or upload it."
+                "No language model is configured, so only a proposal template's tables can be read. "
+                "Download a template, fill in its element and relationship tables, and paste or upload it."
             )
         return merged
 
@@ -768,6 +1010,11 @@ SUBMIT_TOOL = {
                         "current_state": {"type": "string", "enum": CURRENT_STATES},
                         "target_state": {"type": "string", "enum": TARGET_STATES},
                         "note": {"type": "string"},
+                        "attributes": {
+                            "type": "object",
+                            "description": "attribute values the sources give, by the metamodel's attribute name",
+                            "additionalProperties": {"type": "string"},
+                        },
                     },
                     "required": ["type", "name"],
                 },
@@ -787,6 +1034,11 @@ SUBMIT_TOOL = {
                         },
                         "target": {"type": "string"},
                         "qualifier": {"type": "string"},
+                        "target_state": {
+                            "type": "string",
+                            "enum": TARGET_STATES,
+                            "description": "what the change does to the relationship: new, keep, decommission, …",
+                        },
                         "note": {"type": "string"},
                     },
                     "required": ["source", "relationship", "target"],
@@ -806,12 +1058,25 @@ PROPOSAL_PROMPT = """You turn a solution design document into a change set for a
 
 Read the sources the architect handed in. Identify every architectural element the change touches and every relationship between them. For each element decide whether it already exists in the repository: use `search_elements` (by name, then by likely synonyms) and `get_element` to confirm, and give its repository id as `existing_id` when it does. Elements you cannot find are new: give them a type of the loaded metamodel, a description of at least one sentence taken from the sources, current state `proposed` and target state `new` unless the document says otherwise. Existing elements keep their states unless the document changes them (an element being replaced is `decommission`, one being modified is `change`, one merely used is `keep`).
 
-Relationships must use the relationship names of the metamodel between the two element types; call `list_types` first to see them. Do not invent elements or relationships the sources do not support. Put what the sources fail to say into `missing`, element by element, so the architect can complete the document.
+Relationships must use the relationship names of the metamodel between the two element types; call `allowed_relationships` for the pair when unsure. A relationship the change removes is `decommission`; one it adds is `new`; one it only relies on is `keep`. Before proposing that an element is decommissioned or changed, look at what depends on it with `impact` or `neighbours`, and name in `missing` anything that would be left without it. `branch_changes` says what the branch already holds from earlier passes; reuse those elements rather than proposing them again. Give attribute values the sources state under `attributes`, by the metamodel's attribute name. Do not invent elements or relationships the sources do not support. Put what the sources fail to say into `missing`, element by element, so the architect can complete the document.
 
 Finish by calling `submit_proposal` exactly once.
 
 The loaded metamodel:
 """
+
+
+#: The read tools the hosted reader is given, beside `submit_proposal`: enough to find what
+#: exists, to place a new element among it, and to see what a change would disturb.
+READER_TOOLS = (
+    "list_types",
+    "search_elements",
+    "get_element",
+    "neighbours",
+    "impact",
+    "allowed_relationships",
+    "branch_changes",
+)
 
 
 class AnthropicProposalProvider:
@@ -827,16 +1092,21 @@ class AnthropicProposalProvider:
         self.model = model
         self.max_turns = max_turns
 
-    def extract(self, sources: list[dict[str, str]], service: ProposalService) -> ProposalResult:
+    def extract(
+        self, sources: list[dict[str, str]], service: ProposalService, reading: Reading | None = None
+    ) -> ProposalResult:
         anthropic = self._anthropic
         toolbox = service.toolbox
         if toolbox is None:
             return ProposalResult(provider=self.name, model=self.model, error="no toolbox for the model")
-        read_tools = [
-            t for t in toolbox.specs() if t["name"] in ("list_types", "search_elements", "get_element")
-        ]
+        read_tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS]
         tools = read_tools + [SUBMIT_TOOL]
-        system = PROPOSAL_PROMPT + service.registry.summary_markdown()
+        system = (
+            PROPOSAL_PROMPT
+            + service.registry.summary_markdown()
+            + "\n\nHow the page is read:\n"
+            + (reading or Reading(service.registry)).summary()
+        )
         content = "\n\n".join(
             f"--- Source {i + 1}: {s.get('kind', 'text')} {s.get('name', '')} ---\n{(s.get('text') or '')[:60_000]}"
             for i, s in enumerate(sources)
@@ -891,6 +1161,9 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
         work_package=str(payload.get("work_package") or ""),
         provider=provider,
         model=model,
+        template_id=str(payload.get("template_id") or ""),
+        template_name=str(payload.get("template_name") or ""),
+        sources=[dict(x) for x in payload.get("sources") or [] if isinstance(x, dict)],
     )
     for i, e in enumerate(payload.get("elements") or [], start=1):
         result.elements.append(
@@ -903,6 +1176,11 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                 current_state=_state(str(e.get("current_state") or "")),
                 target_state=_state(str(e.get("target_state") or "")),
                 note=str(e.get("note") or ""),
+                attrs={
+                    str(k): str(v)
+                    for k, v in (e.get("attributes") or e.get("attrs") or {}).items()
+                    if k and v not in (None, "")
+                },
                 include=bool(e.get("include", True)),
             )
         )
@@ -915,6 +1193,7 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                 target=str(r.get("target") or ""),
                 qualifier=str(r.get("qualifier") or ""),
                 note=str(r.get("note") or ""),
+                target_state=_state(str(r.get("target_state") or "")),
                 include=bool(r.get("include", True)),
             )
         )

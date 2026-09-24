@@ -1369,6 +1369,176 @@ def runs_show(
             typer.echo(f"  … the run kept {held} of the {found} issues it found ({by_code})")
 
 
+def _proposals():
+    from ea.agent.proposal import ProposalService
+    from ea.agent.tools import ToolBox
+    from ea.services import BranchService, TargetStateService, TemplateService
+
+    settings, backend, registry, repo, graph = _ctx()
+    branches = BranchService(backend, registry)
+    svc = ProposalService(
+        backend,
+        registry,
+        repo,
+        branches,
+        TargetStateService(backend, registry),
+        settings,
+        ToolBox(backend, registry, repo, graph),
+        TemplateService(backend, registry),
+    )
+    return backend, registry, branches, svc
+
+
+@app.command()
+def propose(
+    files: list[Path] = typer.Argument(..., help="the page(s) to read: Markdown, text or CSV"),
+    template: str = typer.Option("", help="template name or id, for a page that names none itself"),
+    apply: bool = typer.Option(
+        False, "--apply", help="write it to the branch (--branch) when nothing is missing"
+    ),
+    new_branch: str = typer.Option("", "--new-branch", help="create this branch from main and apply to it"),
+    work_package: str = typer.Option("", "--work-package", help="the work package, when the page names none"),
+    actor: str = typer.Option("propose"),
+    as_json: bool = typer.Option(False, "--json", help="the whole result as JSON"),
+):
+    """Read a proposal page against the branch it is for: what exists, what is new, what is missing, what it touches."""
+    from ea.backend.branching import current_branch
+
+    backend, registry, branches, svc = _proposals()
+    sources = []
+    for f in files:
+        if not f.is_file():
+            _refuse(f"{f} is not a file")
+        sources.append({"kind": "file", "name": f.name, "text": f.read_text(encoding="utf-8-sig")})
+    key = ""
+    if template:
+        held = svc.templates.find(template)
+        starter = next((s for s in svc.templates.starters() if s.name.lower() == template.lower()), None)
+        if held is None and starter is None:
+            _refuse(f"no template {template!r}; `ea templates list` says which there are")
+        key = held.template_id if held else f"starter:{starter.name}"
+    target = current_branch()
+    if new_branch and not apply:
+        _refuse("--new-branch makes a branch to apply to: add --apply, or read it against --branch")
+    if new_branch:
+        require("create_branch", what="create a branch")
+        target = branches.create(new_branch, actor).branch_id
+    result = svc.analyse(sources, target, key or None)
+    if not result.work_package and work_package:
+        result.work_package = work_package
+        result = svc.resolve(result, target)
+    out: dict[str, Any] = {"branch": target, "result": result.to_dict()}
+    if apply:
+        if target == MAIN:
+            _refuse(
+                "a proposal is applied to a branch: name one with --branch, or --new-branch to create one"
+            )
+        if result.pushback:
+            _refuse("not applied; add the following, then read it again:\n  " + "\n  ".join(result.pushback))
+        out["applied"] = svc.apply(result, target, actor)
+    if as_json:
+        typer.echo(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+        return
+    n_new = sum(1 for e in result.elements if e.action == "new")
+    n_link = sum(1 for e in result.elements if e.action == "link")
+    typer.echo(
+        f"{result.title or 'Untitled'}: {n_new} new, {n_link} linked, {len(result.relationships)} relationship(s)"
+        + (f" · template {result.template_name}" if result.template_name else "")
+        + (f" · on {target}" if target != MAIN else "")
+    )
+    if result.revises:
+        typer.echo(f"  revises {result.revises}")
+        for d in result.no_longer:
+            typer.echo(f"  no longer on the page: {d['name']} [{d['id']}]")
+    for line in result.pushback:
+        typer.echo(f"  missing: {line}")
+    for line in result.missing:
+        typer.echo(f"  the reader found no word on: {line}")
+    impact = result.impact or {}
+    for d in impact.get("dangling") or []:
+        typer.echo(f"  left dangling: {d['relationship']} between {d['retiring_name']} and {d['other_name']}")
+    if impact.get("reached"):
+        typer.echo(
+            f"  reaches {len(impact['reached'])} element(s) on main within {impact.get('depth', 2)} steps"
+            + (" (cut)" if impact.get("truncated") else "")
+        )
+    for i in impact.get("isolated") or []:
+        typer.echo(f"  new and connected to nothing that exists: {i['name']}")
+    if "applied" in out:
+        a = out["applied"]
+        typer.echo(
+            f"applied to {target}: {len(a['created'])} created, {len(a['linked'])} linked, "
+            f"{len(a['relationships'])} relationship(s), {len(a['retired'])} marked for decommissioning"
+        )
+    elif result.pushback:
+        raise typer.Exit(code=1)
+
+
+templates_app = typer.Typer(help="The proposal templates an organisation keeps.", no_args_is_help=True)
+app.add_typer(templates_app, name="templates")
+
+
+def _templates():
+    from ea.services import TemplateService
+
+    _, backend, registry, *_ = _ctx()
+    return TemplateService(backend, registry)
+
+
+@templates_app.command("list")
+def templates_list():
+    """The organisation's own templates, then the starters it may copy."""
+    svc = _templates()
+    kept = svc.list()
+    for t in kept:
+        typer.echo(f"{t.template_id}  {t.name}  (typed in {t.pack_id})")
+    if not kept:
+        typer.echo("no template kept by this organisation")
+    for s in svc.starters():
+        mark = "" if s.pack_id == svc.registry.pack.id else "  [another metamodel]"
+        typer.echo(f"starter  {s.name}{mark}")
+
+
+@templates_app.command("keep")
+def templates_keep(
+    file: Path = typer.Argument(None, help="a template: Markdown with `proposal_template:` front matter"),
+    starter: str = typer.Option("", help="keep a copy of this starter instead"),
+    actor: str = typer.Option("admin"),
+):
+    """Keep a template for the organisation (a template of the same name is replaced)."""
+    svc = _templates()
+    if starter:
+        kept = svc.add_starter(starter, actor)
+    elif file is not None and file.is_file():
+        kept = svc.save(file.read_text(encoding="utf-8-sig"), actor)
+        for line in svc.check(kept.document):
+            typer.echo(f"  note: {line}")
+    else:
+        _refuse("name a template file, or --starter with a starter's name")
+    typer.echo(f"kept {kept.name!r} as {kept.template_id}")
+
+
+@templates_app.command("delete")
+def templates_delete(name: str, actor: str = typer.Option("admin")):
+    svc = _templates()
+    held = svc.find(name)
+    if held is None:
+        _refuse(f"no template {name!r} kept by this organisation")
+    svc.delete(held.template_id, actor)
+    typer.echo(f"deleted {held.name!r}")
+
+
+@templates_app.command("check")
+def templates_check(file: Path):
+    """What the application cannot place in a template, against the organisation's metamodel."""
+    if not file.is_file():
+        _refuse(f"{file} is not a file")
+    notes = _templates().check(file.read_text(encoding="utf-8-sig"))
+    for line in notes:
+        typer.echo(f"  {line}")
+    typer.echo("every heading and column is placed" if not notes else f"{len(notes)} note(s)")
+
+
 # Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a
 # command group registered after this line would not exist by the time `run()` reads the
 # arguments. Everything the application offers has to be declared above it.

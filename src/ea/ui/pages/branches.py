@@ -12,11 +12,23 @@ from dash import ALL, Input, Output, State, dcc, html, no_update
 from dash import ctx as dash_ctx
 from flask import session
 
-from ea.backend.branching import MAIN, set_branch
+from ea.backend.branching import MAIN, set_branch, use_branch
 from ea.models import ChangeItem, ChangeSet, ConflictError, Forbidden, NotFoundError
 from ea.ui import ids, layout
-from ea.ui.components import alert, element_href, icon, page_title, simple_table
+from ea.ui.components import (
+    alert,
+    element_href,
+    empty,
+    icon,
+    impact_panel,
+    layer_chips,
+    mermaid_block,
+    page_title,
+    simple_table,
+)
 from ea.ui.context import AppContext, get_context
+from ea.views import view_from_ids
+from ea.views.mermaid import to_mermaid
 
 STATUS_COLOURS = {
     "open": "green",
@@ -584,7 +596,129 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
             )
             if rows
             else None,
+            _origin(ctx, cs) if rows or ctx.backend.list_proposals(branch_id) else None,
         ]
+    )
+
+
+def _origin(ctx: AppContext, cs: ChangeSet):
+    """What the reviewer reads beside the merge log: the proposals the rows came from — the page
+    as handed in, pass by pass — what the change touches on main, and the change drawn."""
+    branch_id = cs.branch.branch_id
+    proposals = ctx.backend.list_proposals(branch_id)  # newest first
+    passes = {p.proposal_id: n for n, p in enumerate(reversed(proposals), start=1)}
+    items = []
+    for p in proposals:
+        result = p.result or {}
+        pages = [src for src in p.sources if (src.get("text") or "").strip()]
+        applied = result.get("applied") or {}
+        items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(
+                        dmc.Group(
+                            [
+                                dmc.Text(p.title, fw=600, size="sm"),
+                                dmc.Badge(f"pass {passes[p.proposal_id]}", variant="light", size="sm"),
+                                dmc.Text(
+                                    f"by {p.created_by or '?'}"
+                                    + (f", {p.created_at:%Y-%m-%d %H:%M}" if p.created_at else "")
+                                    + (
+                                        f" · template {result.get('template_name')}"
+                                        if result.get("template_name")
+                                        else ""
+                                    )
+                                    + (" · revises the pass before" if p.revises else ""),
+                                    size="xs",
+                                    c="dimmed",
+                                ),
+                            ],
+                            gap="sm",
+                        )
+                    ),
+                    dmc.AccordionPanel(
+                        dmc.Stack(
+                            [
+                                dmc.Text(
+                                    f"{len(applied.get('created') or [])} created, {len(applied.get('linked') or [])} linked, "
+                                    f"{len(applied.get('relationships') or [])} relationship(s) written"
+                                    + (
+                                        f", {len(applied.get('retired'))} marked for decommissioning"
+                                        if applied.get("retired")
+                                        else ""
+                                    ),
+                                    size="sm",
+                                ),
+                                alert(
+                                    html.Ul([html.Li(m) for m in result.get("missing") or []]),
+                                    "blue",
+                                    dismissible=False,
+                                )
+                                if result.get("missing")
+                                else None,
+                                *[
+                                    html.Details(
+                                        [
+                                            html.Summary(
+                                                f"The page as handed in: {src.get('name') or src.get('kind')}"
+                                            ),
+                                            dmc.Code(
+                                                src.get("text") or "",
+                                                block=True,
+                                                style={"maxHeight": "24rem", "overflow": "auto"},
+                                            ),
+                                        ]
+                                    )
+                                    for src in pages
+                                ],
+                            ],
+                            gap="xs",
+                        )
+                    ),
+                ],
+                value=p.proposal_id,
+            )
+        )
+    with use_branch(branch_id):
+        element_ids = [it.entity_id for it in cs.items if it.kind == "element" and it.change != "deleted"]
+        changed = [
+            it.entity_id
+            for it in cs.items
+            if it.kind == "element"
+            and (it.after or {}).get("target_state") not in (None, "", "keep", "undecided")
+        ]
+        for it in cs.items:
+            row = it.after or it.before or {}
+            if it.kind == "relationship":
+                element_ids += [x for x in (row.get("src_id"), row.get("dst_id")) if x]
+        view = view_from_ids(
+            ctx.registry, ctx.graph, element_ids, f"{cs.branch.name}, drawn", focus_ids=changed
+        )
+    impact = ctx.impact.of_branch(branch_id)
+    return dmc.Paper(
+        [
+            dmc.Title("Where it came from, and what it touches", order=2, className="ea-section-title"),
+            dmc.Text(
+                "The proposals this branch was written from, the change drawn, and what it touches on main — "
+                "for reading beside the merge log. None of it stops a review or a merge.",
+                size="xs",
+                c="dimmed",
+                mb="xs",
+            ),
+            dmc.Accordion(items, variant="separated", id=ids.BR_PROPOSALS)
+            if items
+            else empty("No proposal was applied to this branch: its rows were edited or imported."),
+            dmc.Title("The change, drawn", order=3, size="h5", mt="md"),
+            mermaid_block("br-view", to_mermaid(view, marked=True), legend=layer_chips(view))
+            if view.nodes
+            else empty("Nothing to draw."),
+            dmc.Title("What it touches on main", order=3, size="h5", mt="md"),
+            impact_panel(impact.to_dict(), ids.BR_IMPACT),
+        ],
+        p="md",
+        withBorder=True,
+        mt="md",
+        className="ea-card",
     )
 
 

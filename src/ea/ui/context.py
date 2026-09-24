@@ -26,6 +26,7 @@ from ea.metamodel import Registry, load_pack
 from ea.models import Organisation, User
 from ea.services import (
     BranchService,
+    ChangeImpactService,
     GraphService,
     HealthService,
     MetamodelService,
@@ -34,6 +35,7 @@ from ea.services import (
     ReviewService,
     SearchService,
     TargetStateService,
+    TemplateService,
 )
 from ea.services.branches import refusal_for_writing
 from ea.services.identity import WorkspaceGroups, forwarded_identity
@@ -75,6 +77,8 @@ class Bundle:
     search: SearchService
     health: HealthService
     reviews: ReviewService
+    templates: TemplateService
+    impact: ChangeImpactService
     # One Ask agent per conversation, never one per organisation: what a follow-up needs
     # (the messages so far, the identifiers the tools returned) is one reader's own.
     agents: OrderedDict[str, Agent] = field(default_factory=OrderedDict)
@@ -92,6 +96,8 @@ class Bundle:
             search=SearchService(backend, registry),
             health=HealthService(backend, registry),
             reviews=ReviewService(backend, registry, branches),
+            templates=TemplateService(backend, registry),
+            impact=ChangeImpactService(backend, registry),
         )
 
 
@@ -191,6 +197,14 @@ class AppContext:
         return "local"
 
     @property
+    def templates(self) -> TemplateService:
+        return self._bundle().templates
+
+    @property
+    def impact(self) -> ChangeImpactService:
+        return self._bundle().impact
+
+    @property
     def proposals(self) -> ProposalService:
         b = self._bundle()
         if b.proposals is None:
@@ -202,6 +216,8 @@ class AppContext:
                 b.target,
                 self.settings,
                 ToolBox(self.backend, b.registry, b.repo, b.graph),
+                b.templates,
+                b.impact,
             )
         return b.proposals
 

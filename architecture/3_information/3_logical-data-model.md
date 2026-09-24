@@ -133,7 +133,7 @@ so the history survives the feed being deleted — the line above is what a run
 | `branch_review` | a reviewer's decision on a branch | `org_id`, `review_id` | `org_id` |
 | `reviewer_assignment` | who may approve changes to a type | `org_id`, `type_id`, `reviewer` | `org_id` |
 | `proposal` | what an architect handed in and what came of it | `org_id`, `proposal_id` | `org_id` |
-| `proposal_template` | a document shape the organisation proposes in, and how it is read. **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | `org_id`, `template_id` | `org_id` |
+| `proposal_template` | a document shape the organisation proposes in, and how it is read | `org_id`, `template_id` | `org_id` |
 | `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
 | `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
@@ -351,9 +351,9 @@ erDiagram
 | ----- | ----------------- | ---------- | ----- |
 | `branch_review` | `reviewer`, `comment`, `decided_at` | `branch_id` → `branch` | one row per decision, never overwritten, so a branch's review history stays readable |
 | `reviewer_assignment` | `added_by`, `added_at` | `type_id` → `meta_element_type` | the whole set for a type is rewritten when it is saved |
-| `proposal` | `title`, `status`, `created_by`, `created_at` | `branch_id` → `branch`; `template_id` → `proposal_template` and `revises` → `proposal`, both **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md) | kept with the branch; the three JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`. A template or an earlier revision is referred to, never required: a proposal outlives both |
-| `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | **Pending — future initiative:** [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md). The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
-| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers` and `import`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
+| `proposal` | `title`, `status`, `created_by`, `created_at` | `branch_id` → `branch`; `template_id` → `proposal_template`; `revises` → `proposal` | kept with the branch; the three JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`. A template or an earlier revision is referred to, never required: a proposal outlives both |
+| `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
+| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import` and `template`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
 ## Types, JSON and growing the schema
 

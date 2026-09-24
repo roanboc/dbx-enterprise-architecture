@@ -69,6 +69,16 @@ Each is written here so a later word from the Requester overrides it.
 | **Does the impact stop Apply?** | **No.** It informs, like the reader's own finding | It is shown before Apply, stored with the proposal, and read by the reviewer. The pushback rule of initiative 5 stays the one thing that stops Apply |
 | **Can a proposal retire a relationship?** | Yes: the Relationships table gains **Target state** | `decommission` on an existing relationship is written to the branch like any other change, and reviewed with it |
 
+Five more were taken while building, after the gate, and are recorded the same way:
+
+| Question | Call | What follows from it |
+| -------- | ---- | -------------------- |
+| **Who keeps a template for the organisation?** | An admin (adopted — templates are the organisation's configuration, like its feeds and its reviewers) | A new role action, `manage_templates`. An architect needs no kept template to propose: a page's front matter travels with it |
+| **The page names one template, the picker another** | The page wins | A template's reading is in its front matter, which travels with the document. The picker is for a page that names none — one exported from a wiki, where front matter does not survive |
+| **Does a revision rewrite an existing element's description?** | Only one the proposal itself created on the branch | A template asks for a short description where an element exists; overwriting `main`'s text with it would lose what `main` holds. States, the work package, the note and filled attribute cells still apply |
+| **How far does the impact walk?** | Two steps, upstream and downstream, each path in one direction | Mixing directions reaches everything that shares a platform with the element — every system one database realises — which buries what matters. The gap note on weighting stands |
+| **Is a proposal's revision found by title?** | The latest applied proposal of the same title on the same branch | Two different designs on one branch stay two proposals; a renamed page starts a new one, which the architect sees in the preview |
+
 ## What changes in the model
 
 | Identifier | Element | What moved |
@@ -78,6 +88,13 @@ Each is written here so a later word from the Requester overrides it.
 | `DOBJ3.6` | **Proposal** | Kept in revisions, each naming the template it was read with, the reader's own finding and the impact assessed when it was applied |
 | `DOBJ3.9` | **Proposal template** | **New.** A Markdown document an architect fills in, and how the application reads it |
 | `DOBJ3.10` | **Change impact** | **New.** What a change set touches beyond itself |
+| `ASVC9` | **Propose** | Any template, revisions on the branch, the impact and the change drawn before Apply; `ea propose` and `ea templates` |
+| `ASVC7` | **Branches and merge** | The reviewer reads the proposals, the impact and the change drawn beside the merge log; a merge is one transaction |
+| `ACMP10` | **Proposal agent** | Reads with a template's reading, on the branch it is for; the template service beside it |
+| `ACMP3` | **Repository and graph services** | Gains the change impact |
+| `ACMP5` | **Agent** | One conversation per reader; tools for allowed relationships and a branch's changes, states in every element |
+| `ACMP7` | **Command line** | `propose` and `templates list/keep/delete/check` |
+| `ROLE1`, `ROLE4` | **Admin**, **Reader** | The admin keeps the organisation's templates; a reader downloads them |
 | `GAP23` | **A proposal is read in one shape, once, and nobody sees what it touches** | Opened by this initiative under `PLAT4`. Defined in [1_target-state.md](../6_transition/1_target-state.md) |
 
 No stakeholder, driver, goal or principle moves.
@@ -92,14 +109,41 @@ No stakeholder, driver, goal or principle moves.
 | 1_strategy | **No change — aligned.** The change serves `G1` (impact is answered from the model rather than worked out by hand), `G2` and `G5` (a template is configuration, in any framework), and stays inside `P3` (the agent drafts, the architect ticks, a reviewer approves), `P5` (type names live with their pack, never in `src/`), `P6` (the reader cites identifiers the tools returned) and `P8` (the view of a change is generated). |
 | 2_business | [2_processes-and-services.md](../2_business/2_processes-and-services.md): `BPROC2.2` and `BPROC2.4` re-worded as above. No new process, service or role. |
 | 3_information | [1_data-objects.md](../3_information/1_data-objects.md): `DOBJ3.6` widened, `DOBJ3.9` and `DOBJ3.10` added. [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md): PROPOSAL TEMPLATE added. [3_logical-data-model.md](../3_information/3_logical-data-model.md): table `proposal_template`, and `proposal` gains `template_id` and `revises`. |
-| 4_application | **After Understanding.** `ASVC9` Propose and `ASVC7` Branches and merge re-worded; `ACMP10` Proposal agent reads a template's reading and gains tools; the change impact is a service beside the graph services (`ACMP3`); `ea propose` on the command line (`ACMP7`). |
+| 4_application | Aligned after Understanding: [1_application-services.md](../4_application/1_application-services.md) re-words `ASVC9` and `ASVC7`; [2_application-components.md](../4_application/2_application-components.md) re-words `ACMP3`, `ACMP5`, `ACMP7` and `ACMP10`, with `ACMP10` using the view generator (`ACMP8`) and the command line using `ACMP10`. No component is added: the template service sits with the proposal agent it serves, the change impact with the graph services. |
 | 5_technology | **No change.** Same process, same store, one more table in `ea_governance`. |
 | Transition | `GAP23` opens under `PLAT4` and is marked in flight. |
+
+## Delivered
+
+Built on 2026-09-24 on the branch named above, each work package with its unit tests first:
+
+- **WP1.** `src/ea/services/templates.py`: the front matter, the reading against the
+  metamodel, the check, the starters and `TemplateService`; table `proposal_template`
+  per organisation, copied with an organisation and logged on every change;
+  `packs/archimate_core/proposal-template.md`, the reference, and
+  `packs/higher_education/proposal-template.md`, moved from `templates/`; the Propose page's
+  template picker, and for an admin the templates the organisation keeps.
+- **WP2.** A revision recognised on the branch and recorded as `proposal.revises`; what the
+  page no longer carries listed; attribute columns written, blank cells ignored; relationship
+  target states, `decommission` included; the page kept with the proposal;
+  `ea propose` and `ea templates`.
+- **WP3.** `src/ea/services/impact.py` and `ChangeImpact`: reached, dangling, isolated and
+  reviewers, bounded; shown on the Propose preview and kept with the proposal.
+- **WP4.** On the Branches page, beside the merge log: the proposals the branch came from,
+  pass by pass, with the page as handed in; the change drawn; what it touches on `main`. The
+  Propose preview draws the change before it exists (`view_of_change`).
+- **WP5.** The hosted reader is given the template's reading and seven read tools, two of
+  them new (`allowed_relationships`, `branch_changes`); every element a tool returns carries
+  its states and work package; `propose_view` asks the store rather than the in-process graph.
+
+Tests: `tests/test_templates.py`, `tests/test_change_impact.py`, and the revision,
+attribute and retirement cases in `tests/test_proposal.py`, each on both engines.
 
 ## Approvals
 
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-24 | This document, the draft ArchiMate reference template (`packs/archimate_core/proposal-template.md`), `BPROC2.2` and `BPROC2.4` in [2_processes-and-services.md](../2_business/2_processes-and-services.md), `DOBJ3.6`, `DOBJ3.9` and `DOBJ3.10` in [1_data-objects.md](../3_information/1_data-objects.md) with the [conceptual](../3_information/2_conceptual-data-model.md) and [logical](../3_information/3_logical-data-model.md) models, `GAP23` and step 1l on the roadmap, and the strategy layer's "no change" — each linked on the branch, in the session. The calls made without asking were put to the Requester with them. The Requester's word was *"Yes, implement"* |
 
 ## Plateaus
 

@@ -36,10 +36,14 @@ BRANCH_TABLES = [
 # run of it. Neither is content and neither hangs off a branch — they belong to the organisation
 # directly.
 FEED_TABLES = ["source_feed", "import_run"]
+# The document shapes an organisation proposes in (DOBJ3.9): configuration of the organisation,
+# like its feeds, and no part of any branch.
+TEMPLATE_TABLES = ["proposal_template"]
 # Every table whose rows belong to one organisation (decision 0014): the content, the change
-# log, the branches and everything that hangs off a branch, the feeds and their history. The
-# organisation table itself and the metamodel tables are shared by every organisation.
-ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES
+# log, the branches and everything that hangs off a branch, the feeds and their history, the
+# proposal templates. The organisation table itself and the metamodel tables are shared by
+# every organisation.
+ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + TEMPLATE_TABLES
 # What an organisation's deletion leaves behind. The change log is kept because it is the one
 # append-only record of what was done to the store. A run is *not* kept with it: an org_id may
 # be taken again by a later organisation, and a run carries the actor names, file names, issue
@@ -58,7 +62,7 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
     # A feed's configuration sits with the other things that govern how content arrives
     # and is reviewed, rather than with the content itself.
-    "governance": ["branch_review", "reviewer_assignment", "proposal", "source_feed"],
+    "governance": ["branch_review", "reviewer_assignment", "proposal", "proposal_template", "source_feed"],
     # A run is what happened, beside the change log's what changed. Both are read by more
     # people than may write content, which is what the group is for.
     "audit": ["change_log", "import_run"],
@@ -131,6 +135,9 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # tell what the branch changed apart from what main changed, rather than only that both did
     ("branch_element", "base_row", "VARCHAR"),
     ("branch_relationship", "base_row", "VARCHAR"),
+    # initiative 22: a proposal names the template it was read with and the pass it revises
+    ("proposal", "template_id", "VARCHAR"),
+    ("proposal", "revises", "VARCHAR"),
 ] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
@@ -422,6 +429,20 @@ DDL: dict[str, str] = {
             status VARCHAR,
             created_by VARCHAR,
             created_at TIMESTAMP,
+            org_id VARCHAR,
+            template_id VARCHAR,
+            revises VARCHAR
+        )""",
+    "proposal_template": """
+        CREATE TABLE IF NOT EXISTS proposal_template (
+            template_id VARCHAR NOT NULL,
+            name VARCHAR,
+            description VARCHAR,
+            pack_id VARCHAR,
+            document VARCHAR,
+            created_by VARCHAR,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP,
             org_id VARCHAR
         )""",
     "source_feed": """
@@ -627,6 +648,8 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("branch_review_key", "branch_review", True, "(org_id, review_id)"),
     ("reviewer_assignment_key", "reviewer_assignment", True, "(org_id, type_id, reviewer)"),
     ("proposal_key", "proposal", True, "(org_id, proposal_id)"),
+    ("proposal_branch", "proposal", False, "(org_id, branch_id)"),
+    ("proposal_template_key", "proposal_template", True, "(org_id, template_id)"),
     ("import_run_key", "import_run", True, "(org_id, run_id)"),
     # The history is read newest first, and a feed's own history is read the same way.
     ("import_run_recent", "import_run", False, "(org_id, started_at)"),

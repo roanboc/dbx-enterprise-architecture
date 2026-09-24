@@ -1,3 +1,13 @@
+---
+proposal_template:
+  name: Higher education change proposal
+  # The metamodel this template is typed in, by its identifier: the Higher Education EA Metamodel.
+  metamodel: mm_9mqjcx2s4h8y5cx0
+  description: >-
+    A change described in the higher-education metamodel's own types: one Elements table with a
+    Type column, one Relationships table, a diagram, decisions and open points.
+---
+
 # Proposal: <title of the change>
 
 > **How to use this template.** Fill in every section. Keep one row per

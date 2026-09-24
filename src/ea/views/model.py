@@ -169,6 +169,53 @@ def view_from_ids(
     return _finish(view)
 
 
+def view_of_change(
+    registry: Registry,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    title: str,
+    max_nodes: int = DEFAULT_MAX_NODES,
+) -> View:
+    """A change set drawn before it exists: nodes and edges given as rows rather than read.
+
+    A proposal's new elements have no identifier until it is applied, so they cannot be read
+    from the store; each row says what to draw — `element_id` (any string that names the node
+    within the view), `name`, `type_id`, `current_state`, `target_state` and `focus` for a
+    node; `src`, `dst`, `label` and `target_state` for an edge. The shapes are the pack's
+    notation, as every generated view's are (principle `P8`).
+    """
+    focus = [n for n in nodes if n.get("focus")]
+    rest = [n for n in nodes if not n.get("focus")]
+    keep = (focus + rest)[:max_nodes]
+    omitted = max(0, len(nodes) - len(keep))
+    view = View(title=title, focus_ids=[n["element_id"] for n in keep if n.get("focus")], omitted=omitted)
+    for d in keep:
+        t = registry.get_type(d.get("type_id", ""))
+        view.nodes.append(
+            _node(
+                registry,
+                dict(d, type_name=d.get("type_name") or (t.name if t else d.get("type_id", ""))),
+                bool(d.get("focus")),
+            )
+        )
+    present = {n.id for n in view.nodes}
+    for e in edges:
+        if e.get("src") in present and e.get("dst") in present:
+            view.edges.append(
+                ViewEdge(
+                    src=e["src"],
+                    dst=e["dst"],
+                    label=e.get("label", ""),
+                    rel_type_id=e.get("rel_type_id", "") or "",
+                    qualifier=e.get("qualifier", "") or "",
+                    target_state=e.get("target_state") or "undecided",
+                )
+            )
+    if omitted:
+        view.note = f"{omitted} more element(s) not shown."
+    return _finish(view)
+
+
 def view_from_neighbourhood(
     registry: Registry,
     graph: GraphService,

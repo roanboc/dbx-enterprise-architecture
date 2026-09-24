@@ -20,7 +20,7 @@ from ea.models import ElementFilter, ValidationError
 from ea.services import BranchService, RepositoryService, TargetStateService
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = (ROOT / "templates" / "proposal-template.md").read_text(encoding="utf-8")
+TEMPLATE = (ROOT / "packs" / "higher_education" / "proposal-template.md").read_text(encoding="utf-8")
 
 DOC = """# Proposal: Curriculum approval workflow
 
@@ -282,3 +282,146 @@ def test_a_revised_proposal_applied_again_updates_rather_than_duplicates(svc, lo
 def test_fetch_link_refuses_non_http():
     with pytest.raises(ValueError):
         fetch_link("file:///etc/hosts")
+
+
+def test_a_revision_names_the_pass_it_revises_and_what_it_no_longer_carries(svc, loaded, registry):
+    """Handed to the same branch, a page of the same title is a revision of the last one: it is
+    recorded as such, and what the last pass wrote that the page has dropped is listed — never
+    deleted, because the architect decides that by unticking it off the branch."""
+    BranchService(loaded, registry).create("revise", "ana")
+    first = svc.apply(svc.analyse([{"kind": "text", "name": "page", "text": DOC}], "revise"), "revise", "ana")
+    dropped = (
+        DOC.replace(
+            "| Data Entity | CAW_Unit_Proposal | | The record of a proposed unit as it moves through approval, with its outline and outcomes. | proposed | new |\n",
+            "",
+        )
+        .replace("| Curriculum Review Portal | processes | CAW_Unit_Proposal | |\n", "")
+        .replace("| Lakehouse Platform | stores | CAW_Unit_Proposal | reporting copy |\n", "")
+    )
+    again = svc.analyse([{"kind": "text", "name": "page", "text": dropped}], "revise")
+    assert again.revises == first["proposal_id"]
+    gone = {d["name"] for d in again.no_longer}
+    assert "CAW_Unit_Proposal" in gone
+    assert any(d["kind"] == "relationship" and "CAW_Unit_Proposal" in d["name"] for d in again.no_longer)
+    out = svc.apply(again, "revise", "ana")
+    assert out["revises"] == first["proposal_id"] and out["created"] == []
+    records = loaded.list_proposals("revise")
+    assert [p.revises for p in records] == [first["proposal_id"], ""]  # newest first
+    with use_branch("revise"):
+        assert loaded.find_elements(ElementFilter(text="CAW_Unit_Proposal"))  # listed, not deleted
+    # on main, or under another title, a page revises nothing
+    other = svc.analyse(
+        [
+            {
+                "kind": "text",
+                "name": "page",
+                "text": DOC.replace("Curriculum approval workflow", "Another thing"),
+            }
+        ],
+        "revise",
+    )
+    assert other.revises == "" and other.no_longer == []
+
+
+def test_a_revision_updates_what_the_branch_created_and_never_empties_a_field(svc, loaded, registry):
+    BranchService(loaded, registry).create("revise", "ana")
+    svc.apply(svc.analyse([{"kind": "text", "name": "page", "text": DOC}], "revise"), "revise", "ana")
+    main_cms = loaded.get_element("PAC-CMS").description_md
+    main_mgr = dict(loaded.get_element("POS-CURR-MGR").attrs)
+    revised = DOC.replace(
+        "| Type | Name | Existing id | Description | Current state | Target state |",
+        "| Type | Name | Existing id | Description | Current state | Target state | Owner |",
+    ).replace(
+        "| ---- | ---- | ----------- | ----------- | ------------- | ------------ |",
+        "| ---- | ---- | ----------- | ----------- | ------------- | ------------ | ----- |",
+    )
+    revised = (
+        revised.replace(
+            "before publication. | proposed | new |",
+            "before publication, with a comment trail kept on each unit. | proposed | new | Registrar |",
+        )
+        .replace(
+            "| Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |",
+            "| Physical Application Component | Curriculum Management System | PAC-CMS | Short. | live | change | Head of Curriculum |",
+        )
+        .replace(
+            "| Position | Manager, Curriculum Systems | | | live | keep |",
+            "| Position | Manager, Curriculum Systems | | | live | keep | |",
+        )
+    )
+    svc.apply(svc.analyse([{"kind": "text", "name": "page", "text": revised}], "revise"), "revise", "ana")
+    with use_branch("revise"):
+        portal = next(e for e in loaded.find_elements(ElementFilter(text="Curriculum Review Portal")))
+        assert portal.description_md.endswith("comment trail kept on each unit.")  # created here: revised
+        assert portal.attrs.get("owner") == "Registrar"
+        cms = loaded.get_element("PAC-CMS")
+        assert cms.description_md == main_cms  # main's own text is not replaced by the page's short one
+        assert cms.attrs.get("owner") == "Head of Curriculum"
+        assert loaded.get_element("POS-CURR-MGR").attrs == main_mgr  # a blank Owner cell set nothing
+
+
+def test_an_attribute_the_type_does_not_declare_is_pushed_back(svc):
+    page = (
+        DOC.replace(
+            "| Type | Name | Existing id | Description | Current state | Target state |",
+            "| Type | Name | Existing id | Description | Current state | Target state | Approval Status |",
+        )
+        .replace(
+            "| ---- | ---- | ----------- | ----------- | ------------- | ------------ |",
+            "| ---- | ---- | ----------- | ----------- | ------------- | ------------ | --------------- |",
+        )
+        .replace("before publication. | proposed | new |", "before publication. | proposed | new | Maybe |")
+    )
+    r = svc.analyse([{"kind": "text", "name": "page", "text": page}])
+    portal = next(e for e in r.elements if e.name == "Curriculum Review Portal")
+    assert portal.attrs == {"approval_status": "Maybe"}
+    assert any("approval_status" in i and "Maybe" in i for i in portal.issues), portal.issues
+
+
+def test_a_relationship_is_retired_only_when_it_exists(svc, loaded, registry):
+    retire = (
+        DOC.replace(
+            "| Source | Relationship | Target | Note |\n| ------ | ------------ | ------ | ---- |",
+            "| Source | Relationship | Target | Target state | Note |\n| ------ | ------------ | ------ | ------------ | ---- |",
+        )
+        .replace(
+            "| Curriculum Review Portal | processes | CAW_Unit_Proposal | |",
+            "| Curriculum Review Portal | processes | CAW_Unit_Proposal | new | |",
+        )
+        .replace(
+            "| Curriculum Review Portal | is source for | CMS to SRS curriculum sync | approved units flow into the sync |",
+            "| Curriculum Management System | is source for | CMS to SRS curriculum sync | decommission | replaced |",
+        )
+        .replace(
+            "| Manager, Curriculum Systems | owns | Curriculum Review Portal | |",
+            "| Manager, Curriculum Systems | owns | Curriculum Review Portal | new | |",
+        )
+        .replace(
+            "| Lakehouse Platform | stores | CAW_Unit_Proposal | reporting copy |",
+            "| Lakehouse Platform | stores | CAW_Unit_Proposal | decommission | never held |",
+        )
+    )
+    r = svc.analyse([{"kind": "text", "name": "page", "text": retire}])
+    rels = {x.row: x for x in r.relationships}
+    assert rels[2].target_state == "decommission" and rels[2].relationship_id and not rels[2].issues
+    assert any("no such relationship to decommission" in i for i in rels[4].issues)
+    rels[4].include = False
+    BranchService(loaded, registry).create("retire", "ana")
+    out = svc.apply(result_from_payload(r.to_dict()), "retire", "ana")
+    assert out["retired"] == [rels[2].relationship_id]
+    with use_branch("retire"):
+        assert loaded.get_relationship(rels[2].relationship_id).target_state == "decommission"
+    assert loaded.get_relationship(rels[2].relationship_id).target_state != "decommission"  # main untouched
+
+
+def test_the_change_is_drawn_before_it_exists(svc):
+    """New elements have no identifier until Apply, so the view is built from the rows."""
+    r = svc.analyse([{"kind": "text", "name": "page", "text": DOC}])
+    view = svc.view(r)
+    names = {n.name: n for n in view.nodes}
+    assert {"Curriculum Review Portal", "CAW_Unit_Proposal", "Curriculum Management System"} <= set(names)
+    assert names["Curriculum Review Portal"].target_state == "new" and names["Curriculum Review Portal"].focus
+    assert names["Curriculum Management System"].target_state == "change"
+    assert names["Curriculum Review Portal"].layer != "other"  # drawn in the pack's notation
+    labels = {(e.src, e.dst, e.label) for e in view.edges}
+    assert ("new:curriculum review portal", "new:caw unit proposal", "processes") in labels

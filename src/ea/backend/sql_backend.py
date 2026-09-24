@@ -73,6 +73,7 @@ from ea.models import (
     Pack,
     PackVersion,
     Proposal,
+    ProposalTemplate,
     Relationship,
     Review,
     SourceFeed,
@@ -1196,7 +1197,13 @@ class SqlBackend(DatabaseBackend):
             raise ConflictError(f"organisation {dst_org} already holds content; a copy needs an empty one")
         copied: dict[str, int] = {}
         with self._lock:
-            for table in ("element", "relationship", "element_link", "reviewer_assignment"):
+            for table in (
+                "element",
+                "relationship",
+                "element_link",
+                "reviewer_assignment",
+                "proposal_template",
+            ):
                 cols = [c for c in table_columns(table) if c != "org_id"]
                 col_list = ", ".join(cols)
                 self._execute(
@@ -2864,6 +2871,8 @@ class SqlBackend(DatabaseBackend):
                         p.created_by or None,
                         p.created_at,
                         org,
+                        p.template_id or None,
+                        p.revises or None,
                     ]
                 ],
             )
@@ -2872,7 +2881,8 @@ class SqlBackend(DatabaseBackend):
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
         where = " WHERE org_id = ?" + (" AND branch_id = ?" if branch_id else "")
         rows = self._fetch_all(
-            f"SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, created_by, created_at FROM proposal{where} ORDER BY created_at DESC",
+            "SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, "
+            f"created_by, created_at, template_id, revises FROM proposal{where} ORDER BY created_at DESC",
             [self._org(), branch_id] if branch_id else [self._org()],
         )
         out = []
@@ -2888,9 +2898,92 @@ class SqlBackend(DatabaseBackend):
                     status=r[6] or "",
                     created_by=r[7] or "",
                     created_at=r[8],
+                    template_id=r[9] or "",
+                    revises=r[10] or "",
                 )
             )
         return out
+
+    # ------------------------------------------------------------ templates
+    _TEMPLATE_COLUMNS = (
+        "template_id, name, description, pack_id, document, created_by, created_at, updated_at"
+    )
+
+    @staticmethod
+    def _row_to_template(r: tuple) -> ProposalTemplate:
+        return ProposalTemplate(
+            template_id=r[0],
+            name=r[1] or "",
+            description=r[2] or "",
+            pack_id=r[3] or "",
+            document=r[4] or "",
+            created_by=r[5] or "",
+            created_at=r[6],
+            updated_at=r[7],
+        )
+
+    def save_proposal_template(self, t: ProposalTemplate, actor: str) -> ProposalTemplate:
+        org = self._org()
+        now = _now()
+        t.template_id = t.template_id or new_id("tpl")
+        held = self.get_proposal_template(t.template_id)
+        t.created_by = held.created_by if held else (t.created_by or actor)
+        t.created_at = held.created_at if held else now
+        t.updated_at = now
+        with self.transaction():
+            self._put_rows(
+                "proposal_template",
+                ["org_id", "template_id"],
+                [
+                    [
+                        t.template_id,
+                        t.name,
+                        t.description or None,
+                        t.pack_id or None,
+                        t.document,
+                        t.created_by or None,
+                        t.created_at,
+                        t.updated_at,
+                        org,
+                    ]
+                ],
+            )
+            self._log(
+                "template",
+                t.template_id,
+                "update" if held else "insert",
+                actor,
+                {"name": held.name, "pack_id": held.pack_id} if held else None,
+                {"name": t.name, "pack_id": t.pack_id},
+                None,
+                MAIN,
+            )
+        return t
+
+    def list_proposal_templates(self) -> list[ProposalTemplate]:
+        rows = self._fetch_all(
+            f"SELECT {self._TEMPLATE_COLUMNS} FROM proposal_template WHERE org_id = ? ORDER BY name",
+            [self._org()],
+        )
+        return [self._row_to_template(r) for r in rows]
+
+    def get_proposal_template(self, template_id: str) -> ProposalTemplate | None:
+        rows = self._fetch_all(
+            f"SELECT {self._TEMPLATE_COLUMNS} FROM proposal_template WHERE org_id = ? AND template_id = ?",
+            [self._org(), template_id],
+        )
+        return self._row_to_template(rows[0]) if rows else None
+
+    def delete_proposal_template(self, template_id: str, actor: str) -> None:
+        held = self.get_proposal_template(template_id)
+        if held is None:
+            raise NotFoundError(template_id, "proposal template")
+        with self.transaction():
+            self._execute(
+                "DELETE FROM proposal_template WHERE org_id = ? AND template_id = ?",
+                [self._org(), template_id],
+            )
+            self._log("template", template_id, "delete", actor, {"name": held.name}, None, None, MAIN)
 
     # ---------------------------------------------------------------- sql
     #: The content tables a branch overlays, with the branch table holding the overlay rows and
