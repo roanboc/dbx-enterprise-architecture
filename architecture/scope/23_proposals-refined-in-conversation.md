@@ -21,11 +21,21 @@ Databricks Model Serving provides.
 
 **A proposal becomes a conversation.** Today the reader reads the page once and
 answers with rows and a list of what is missing. From here it asks about what it
-cannot settle — a few questions at a time, the most blocking first, each tied to
-the row it is about and offering the choices the model allows:
+cannot settle — a few questions at a time, each tied to the row it is about and
+offering the choices the model allows.
+
+**It settles the change top-down.** The context comes first: why the change is
+made and which business it changes. Questions about information, application and
+technology rows wait until that is clear, and every element below the business
+layer has to trace up — through relationships on the page or in the model — to a
+business or strategy element. The layers are read from the metamodel's own
+notation, so the order holds in any framework.
 
 | It asks when | The choices it offers |
 | ------------ | --------------------- |
+| The page says nothing of why: no goal, driver or capability it serves | The ones the model holds that the page's elements come closest to, or a new one |
+| The page changes no business process, service or role, or names one the model lacks | The ones the change's elements already serve, or *a purely technical change*, recorded as such |
+| An application or technology element traces up to nothing in the business or strategy layers | The processes, services and capabilities it most likely serves |
 | A name matches more than one element, or nearly matches one | The candidates, or *new* |
 | A row names no type, or one the metamodel lacks | The types the metamodel has |
 | Two elements are joined by a relationship the metamodel does not allow | The relationships it allows between them |
@@ -50,7 +60,8 @@ locally.
 | -------- | ---- | -------------------- |
 | **Does it work without a model?** | Yes, for choices | The questions in the table above come from the rules the application already applies, so the model-free reader asks them too and applies a picked choice. Understanding an answer in the architect's own words needs a model |
 | **Who decides a question?** | The architect, always | An answer changes the draft only; nothing is written until the architect applies it (`P3`, decision 0004). The assistant never settles a question it asked |
-| **How many questions at once?** | Five at most, the most blocking first | A long page does not become a wall of questions; the rest follow as the first are answered |
+| **How many questions at once?** | Five at most, top layer first | A long page does not become a wall of questions; technical questions wait until the context is settled |
+| **Does an unanswered context question stop Apply?** | Yes, until answered — *a purely technical change* is an answer | Nothing below the business layer lands without a stated reason, and the reviewer reads which one |
 | **Where does a draft live?** | With the proposal, status `draft`, per architect | Picked up from the Propose page; an empty branch until a new one is created at Apply |
 | **The tool server for external agents (`GAP7`)?** | Not in this initiative | It stays step 5 on the roadmap. The conversation uses the same tools, so the tool server later exposes what is built here |
 | **The direct provider?** | Kept, for development | Model Serving is the default on Databricks; the direct provider and the model-free reader remain for a laptop without a workspace |
@@ -59,7 +70,7 @@ locally.
 
 | Identifier | Element | What moved |
 | ---------- | ------- | ---------- |
-| `BPROC2.2` | **Hand in a proposal** | The assistant asks rather than guesses; the architect answers; the draft is kept between sittings |
+| `BPROC2.2` | **Hand in a proposal** | The assistant settles the change top-down and asks rather than guesses; the architect answers; the draft is kept between sittings |
 | `ACT6`, `ROLE5` | **Architecture assistant**, **Agent** | May ask the architect and redraft from the answers; may not settle its own question |
 | `DOBJ3.6` | **Proposal** | A draft until applied, with its conversation |
 | `GAP24`, `GAP25` | The two gaps above | Opened under `PLAT4` and `PLAT2`; defined in [1_target-state.md](../6_transition/1_target-state.md) |
