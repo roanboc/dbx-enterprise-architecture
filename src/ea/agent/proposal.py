@@ -1110,17 +1110,19 @@ class ProposalService:
         """What the assistant says of a draft without a model: what it holds and what is open."""
         if result.error:
             return result.error
-        parts = [
-            f"The draft holds {sum(1 for e in result.elements if e.include)} elements and "
-            f"{sum(1 for r in result.relationships if r.include)} relationships."
-        ]
+        n_el = sum(1 for e in result.elements if e.include)
+        n_rel = sum(1 for r in result.relationships if r.include)
+        parts = [f"The draft holds {_count(n_el, 'element')} and {_count(n_rel, 'relationship')}."]
         open_now = shown(result.questions)
-        waiting = [q for q in result.questions if q.get("held")]
-        if open_now:
+        total = len(result.questions)
+        if open_now and len(open_now) == total:
+            parts.append(f"{_count(total, 'question')} {'is' if total == 1 else 'are'} open.")
+        elif open_now:
             parts.append(
-                f"{len(result.questions)} question{'s are' if len(result.questions) != 1 else ' is'} open; "
-                f"here {'are' if len(open_now) != 1 else 'is'} the first {len(open_now)}."
+                f"{_count(total, 'question')} are open; {len(open_now)} "
+                f"{'is' if len(open_now) == 1 else 'are'} below, and the rest wait their turn."
             )
+        waiting = [q for q in result.questions if q.get("held")]
         if waiting:
             parts.append(
                 "Questions about the application and technology rows wait until why the change is "
@@ -1183,6 +1185,10 @@ class ProposalService:
         if held.created_by and held.created_by != actor:
             raise PermissionError("this draft belongs to another architect")
         self.backend.delete_proposal(proposal_id)
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}{'' if n == 1 else 's'}"
 
 
 def _turn(role: str, kind: str, text: str, **extra: Any) -> dict[str, Any]:

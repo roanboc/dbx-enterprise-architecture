@@ -13,10 +13,10 @@ than as a guess. Only when the pushback is empty may the change set be applied, 
 only to a branch, never to main.
 
 The template is the fixture the page ships with, so the group pastes the template's own
-content. Four of its five elements already exist in the sample model (the workflow, the
-curriculum management system, the sync and the forms server), one does not
-(`CAW_Unit_Proposal`), and every one of its five relationships is legal in the metamodel —
-so a correct reader links four, adopts one, resolves five, and pushes back on the one thing
+content. Five of its six elements already exist in the sample model (the capability the
+change serves, the workflow, the curriculum management system, the sync and the forms server),
+one does not (`CAW_Unit_Proposal`), and every one of its six relationships is legal in the
+metamodel — so a correct reader links five, adopts one, resolves six, and pushes back on the one thing
 the template deliberately leaves blank: the work package.
 
 Nothing here asserts a total another group could move. The branch this group applies to is
@@ -55,8 +55,8 @@ NEW_WP = "G-CAW rollout"  # named for this group, and only ever created on a bra
 BRANCH = "g-proposal"
 
 # What the template's Elements table should become against the sample model.
-LINKED = {"e0": "PAC-CAW", "e2": "PAC-CMS", "e3": "INT-CMS-SRS", "e4": "PTC-FORMS"}
-NEW_ROW = "e1"  # CAW_Unit_Proposal — the one element the sample model does not carry
+LINKED = {"e0": "CAP-CURR-DEV", "e1": "PAC-CAW", "e3": "PAC-CMS", "e4": "INT-CMS-SRS", "e5": "PTC-FORMS"}
+NEW_ROW = "e2"  # CAW_Unit_Proposal — the one element the sample model does not carry
 
 FREE_TEXT = (
     "We would like to retire the legacy forms server next year and move unit approval into "
@@ -122,6 +122,13 @@ def _pushback(ui) -> str:
 
 def _blocked(ui) -> bool:
     return "Not enough to apply" in _pushback(ui)
+
+
+def _only_questions_left(ui) -> bool:
+    """Every row is complete, and all that stops Apply is what the conversation asks: why the
+    change is made, which business it changes, and what the rows serve (initiative 24)."""
+    text = _pushback(ui)
+    return "Open question:" in text and "Element row" not in text and "Relationship row" not in text
 
 
 def _head(ui) -> str:
@@ -356,8 +363,8 @@ def test_free_text_is_pushed_back(ui, record):
     title="The template's own content links the elements that exist and adopts the new one",
     feature="Propose · analysis",
     expected=(
-        "Pasting the Proposal Template returns five element rows — the four the sample model "
-        "already carries linked to their identifiers, CAW_Unit_Proposal adopted as new — and five "
+        "Pasting the Proposal Template returns six element rows — the five the sample model "
+        "already carries linked to their identifiers, CAW_Unit_Proposal adopted as new — and six "
         "relationships each resolved to a relationship type of the metamodel."
     ),
 )
@@ -367,13 +374,13 @@ def test_template_analysis(ui, record):
     ui.must("the change set came back", ui.grid_row_count("pr-el-grid") > 0)
     counts = _counts(ui)
     ui.check(
-        "one element is adopted as new and four are linked",
-        "1 new" in counts and "4 linked" in counts,
+        "one element is adopted as new and five are linked",
+        "1 new" in counts and "5 linked" in counts,
         f"the counts line reads {counts!r}",
     )
     ui.check(
-        "all five relationships were carried through",
-        "5 relationships" in counts,
+        "all six relationships were carried through",
+        "6 relationships" in counts,
         f"the counts line reads {counts!r}",
     )
     ui.check(
@@ -381,10 +388,10 @@ def test_template_analysis(ui, record):
         "read by stub" in _head(ui),
         f"the counts line reads {_head(ui)!r}",
     )
-    ui.check("the elements grid holds the template's five rows", ui.grid_row_count("pr-el-grid") == 5)
+    ui.check("the elements grid holds the template's six rows", ui.grid_row_count("pr-el-grid") == 6)
     ui.check(
-        "the relationships grid holds the template's five rows",
-        ui.grid_row_count("pr-rel-grid") == 5,
+        "the relationships grid holds the template's six rows",
+        ui.grid_row_count("pr-rel-grid") == 6,
     )
     for key, element_id in LINKED.items():
         ui.check(
@@ -409,10 +416,10 @@ def test_template_analysis(ui, record):
     )
     ui.check(
         "the linked element the template only re-states carries no issue",
-        ui.grid_cell_of("pr-el-grid", "e2", "issues") == "",
-        f"issues read {ui.grid_cell_of('pr-el-grid', 'e2', 'issues')!r}",
+        ui.grid_cell_of("pr-el-grid", "e3", "issues") == "",
+        f"issues read {ui.grid_cell_of('pr-el-grid', 'e3', 'issues')!r}",
     )
-    resolved = [ui.grid_cell_of("pr-rel-grid", f"r{i}", "resolved") for i in range(5)]
+    resolved = [ui.grid_cell_of("pr-rel-grid", f"r{i}", "resolved") for i in range(6)]
     ui.check(
         "every relationship resolved to a type of the metamodel",
         all(resolved) and all("__" in r for r in resolved),
@@ -423,10 +430,10 @@ def test_template_analysis(ui, record):
         resolved[0] == "physical_application_component__processes__data_entity",
         f"row 1 resolved to {resolved[0]!r}",
     )
-    issues = [ui.grid_cell_of("pr-rel-grid", f"r{i}", "issues") for i in range(5)]
+    issues = [ui.grid_cell_of("pr-rel-grid", f"r{i}", "issues") for i in range(6)]
     ui.check("no relationship was left with an issue", not any(issues), f"issues read {issues}")
     ui.shot(
-        "The template read against the model: four elements linked to their identifiers, "
+        "The template read against the model: five elements linked to their identifiers, "
         "CAW_Unit_Proposal adopted as new, and every relationship resolved"
     )
 
@@ -532,10 +539,10 @@ def test_add_element_row(ui, record, finding):
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
     before = ui.grid_row_count("pr-el-grid")
-    ui.must("the change set came back", before == 5)
+    ui.must("the change set came back", before == 6)
     ui.click("pr-add-el")
     ui.check("the grid gained a row", ui.grid_row_count("pr-el-grid") == before + 1, f"was {before}")
-    added = "m1-5"  # the key the page gives the first row added to a five-row grid
+    added = "m1-6"  # the key the page gives the first row added to a six-row grid
     ui.must(
         "the added row is addressable",
         added in ui.grid_row_ids("pr-el-grid"),
@@ -555,8 +562,8 @@ def test_add_element_row(ui, record, finding):
     )
     ui.shot("A row added by hand, named in place, before it has been re-checked")
     ui.click("pr-analyse-again")
-    ui.check("Re-check kept the six rows", ui.grid_row_count("pr-el-grid") == 6)
-    issues = ui.grid_cell_of("pr-el-grid", "e5", "issues")
+    ui.check("Re-check kept the seven rows", ui.grid_row_count("pr-el-grid") == 7)
+    issues = ui.grid_cell_of("pr-el-grid", "e6", "issues")
     ui.check(
         "the re-checked row is told it has no type",
         "type is missing" in issues,
@@ -571,7 +578,7 @@ def test_add_element_row(ui, record, finding):
     ui.check("the change set is blocked again", _blocked(ui), f"pushback reads {text!r}")
     ui.check(
         "the pushback names the row by its number and its name",
-        "Element row 6 (G-Approval Notification Service)" in text,
+        "Element row 7 (G-Approval Notification Service)" in text,
         f"pushback reads {text!r}",
     )
     ui.check(
@@ -582,7 +589,7 @@ def test_add_element_row(ui, record, finding):
     ui.shot("Re-check rows: the hand-added row is held to the same standard as the ones that were read")
     # The issues column is the one that says why a row is blocked, so it has to be readable
     # beside the row it blocks rather than off the right edge of ten columns.
-    overflow = _overflow(ui, "pr-el-grid", "e5", "issues")
+    overflow = _overflow(ui, "pr-el-grid", "e6", "issues")
     ui.check(
         "the column that says why a row is blocked is on screen beside it",
         overflow <= 1,
@@ -622,10 +629,10 @@ def test_add_relationship_row(ui, record):
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
     before = ui.grid_row_count("pr-rel-grid")
-    ui.must("the change set came back", before == 5)
+    ui.must("the change set came back", before == 6)
     ui.click("pr-add-rel")
     ui.check("the grid gained a row", ui.grid_row_count("pr-rel-grid") == before + 1, f"was {before}")
-    added = "m1-5"
+    added = "m1-6"  # the first row added to a six-row grid
     ui.must(
         "the added row is addressable",
         added in ui.grid_row_ids("pr-rel-grid"),
@@ -640,8 +647,8 @@ def test_add_relationship_row(ui, record):
         f"cell reads {ui.grid_cell_of('pr-rel-grid', added, 'target')!r}",
     )
     ui.click("pr-analyse-again")
-    ui.check("Re-check kept the six rows", ui.grid_row_count("pr-rel-grid") == 6)
-    issues = ui.grid_cell_of("pr-rel-grid", "r5", "issues")
+    ui.check("Re-check kept the seven rows", ui.grid_row_count("pr-rel-grid") == 7)
+    issues = ui.grid_cell_of("pr-rel-grid", "r6", "issues")
     ui.check(
         "the row is told its target is in neither the table nor the repository",
         "G-Nothing Of That Name" in issues
@@ -650,15 +657,15 @@ def test_add_relationship_row(ui, record):
     )
     ui.check(
         "the pushback names the relationship row by its number",
-        "Relationship row 6" in _pushback(ui),
+        "Relationship row 7" in _pushback(ui),
         f"pushback reads {_pushback(ui)!r}",
     )
     ui.shot("A relationship to something the model does not carry, named as the issue it is")
-    ui.grid_tick("pr-rel-grid", [5])
+    ui.grid_tick("pr-rel-grid", [6])
     ui.click("pr-analyse-again")
     ui.check(
         "unticking the row takes it out of the pushback",
-        "Relationship row 6" not in _pushback(ui),
+        "Relationship row 7" not in _pushback(ui),
         f"pushback reads {_pushback(ui)!r}",
     )
     ui.check(
@@ -668,7 +675,7 @@ def test_add_relationship_row(ui, record):
     )
     ui.check(
         "the row is still there, left out rather than deleted",
-        ui.grid_row_count("pr-rel-grid") == 6,
+        ui.grid_row_count("pr-rel-grid") == 7,
     )
     ui.shot("The unticked row is left out of the change set rather than deleted, and the block lifts")
 
@@ -680,7 +687,7 @@ def test_add_relationship_row(ui, record):
     feature="Propose · apply",
     expected=(
         "With the destination set to a new branch named g-proposal, Apply writes the change set to "
-        "that branch — one element created as proposed, four linked, five relationships — says so, "
+        "that branch — one element created as proposed, five linked, six relationships — says so, "
         "and links to the branch and to the work package's target state."
     ),
 )
@@ -704,13 +711,13 @@ def test_apply_to_a_new_branch(ui, record):
         f"feedback reads {feedback!r}",
     )
     ui.check(
-        "it says four existing elements were linked",
-        "4 linked" in feedback,
+        "it says five existing elements were linked",
+        "5 linked" in feedback,
         f"feedback reads {feedback!r}",
     )
     ui.check(
-        "it says five relationships were written",
-        "5 relationship(s) written" in feedback,
+        "it says six relationships were written",
+        "6 relationship(s) written" in feedback,
         f"feedback reads {feedback!r}",
     )
     ui.check("nothing was skipped", "skipped" not in feedback, f"feedback reads {feedback!r}")
@@ -974,7 +981,8 @@ def _set_long_text(ui, grid_id: str, row_id: str, col: str, value: str) -> None:
     expected=(
         "Analyse with an empty box returns an empty change set that asks for an Elements table and "
         "complains about nothing else; Add element row then builds a row by hand — named, typed and "
-        "described in the grid — until the change set is ready to apply."
+        "described in the grid — until the row has nothing wrong with it, and all that is left is "
+        "what the conversation asks: why the change is made."
     ),
 )
 def test_analyse_with_nothing(ui, record, finding):
@@ -1055,8 +1063,8 @@ def test_analyse_with_nothing(ui, record, finding):
     )
     ui.click("pr-analyse-again")
     ui.check(
-        "a row built entirely by hand is ready to apply",
-        not _blocked(ui),
+        "a row built entirely by hand is complete, and only the conversation's questions are left",
+        _only_questions_left(ui),
         f"pushback reads {_pushback(ui)!r}",
     )
     ui.check(
@@ -1064,7 +1072,7 @@ def test_analyse_with_nothing(ui, record, finding):
         ui.grid_cell_of("pr-el-grid", "e0", "issues") == "",
         f"issues read {ui.grid_cell_of('pr-el-grid', 'e0', 'issues')!r}",
     )
-    ui.shot("The hand-built change set, complete: one new element and nothing left to add")
+    ui.shot("The hand-built row, complete: what is left is asked in the conversation")
     head, badge = _head(ui), ui.text("pr-provider")
     ui.check(
         "the counts line says the rows were typed here rather than naming a reader called 'manual'",
@@ -1145,7 +1153,11 @@ def test_upload_markdown(ui, record):
         f"Work package: {WP_ID} (existing)" in _head(ui),
         f"the counts line reads {_head(ui)!r}",
     )
-    ui.check("nothing is left to add", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.check(
+        "the rows are complete, and only the conversation's questions are left",
+        _only_questions_left(ui),
+        f"pushback reads {_pushback(ui)!r}",
+    )
     ui.shot("The uploaded file read: one element linked, one new, its relationship resolved")
 
 
@@ -1195,7 +1207,11 @@ def test_upload_csv(ui, record):
         f"Work package: {WP_ID} (existing)" in _head(ui),
         f"the counts line reads {_head(ui)!r}",
     )
-    ui.check("the change set is ready to apply", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.check(
+        "the rows are complete, and only the conversation's questions are left",
+        _only_questions_left(ui),
+        f"pushback reads {_pushback(ui)!r}",
+    )
     ui.shot("A CSV of the Elements columns, read as the table it is")
 
 
@@ -1231,7 +1247,11 @@ def test_document_work_package_wins(ui, record):
         NEW_WP not in head and "will be created" not in head,
         f"the counts line reads {head!r}",
     )
-    ui.check("the change set is ready to apply", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.check(
+        "nothing about the work package is left to add",
+        "work package" not in _pushback(ui).lower(),
+        f"pushback reads {_pushback(ui)!r}",
+    )
     ui.shot("The document names WP-CMS-UPGRADE, so the new name typed in the panel is not used")
 
 
@@ -1470,7 +1490,7 @@ def test_unreadable_link(ui, record, finding):
     feature="Propose · apply · what landed",
     expected=(
         "Reading on g-proposal, Propose offers that branch as the destination and analysing the same "
-        "template links all five elements, CAW_Unit_Proposal included, because the apply created it "
+        "template links all six elements, CAW_Unit_Proposal included, because the apply created it "
         "there. Back on main the same template still adopts it as new, so nothing was written to main."
     ),
 )
@@ -1493,11 +1513,11 @@ def test_what_landed_on_the_branch(ui, record):
         f"the branch select reads {destination!r}",
     )
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
-    ui.must("the template was read against the branch", ui.grid_row_count("pr-el-grid") == 5)
+    ui.must("the template was read against the branch", ui.grid_row_count("pr-el-grid") == 6)
     counts = _counts(ui)
     ui.check(
         "every element of the template is now linked, and none is new",
-        "5 linked" in counts and "0 new" in counts,
+        "6 linked" in counts and "0 new" in counts,
         f"the counts line reads {counts!r}",
     )
     created = ui.grid_cell_of("pr-el-grid", NEW_ROW, "existing_id")
@@ -1519,7 +1539,7 @@ def test_what_landed_on_the_branch(ui, record):
     ui.must("the reader is back on the model", ui.branch_badge().strip().lower() == "main", ui.branch_badge())
     _open(ui)
     _analyse(ui, TEMPLATE, work_package=WP_LABEL)
-    ui.must("the template was read against main", ui.grid_row_count("pr-el-grid") == 5)
+    ui.must("the template was read against main", ui.grid_row_count("pr-el-grid") == 6)
     ui.check(
         "on main the element is still unknown, so the apply wrote to the branch and nowhere else",
         ui.grid_cell_of("pr-el-grid", NEW_ROW, "action") == "new"
@@ -1529,7 +1549,107 @@ def test_what_landed_on_the_branch(ui, record):
     )
     ui.check(
         "and the counts on main are the ones the round started with",
-        "1 new" in _counts(ui) and "4 linked" in _counts(ui),
+        "1 new" in _counts(ui) and "5 linked" in _counts(ui),
         f"the counts line reads {_counts(ui)!r}",
     )
     ui.shot("The same template read on main: the element the branch carries is still new here")
+
+
+# A page with an application below the business layer and nothing above it: the case the
+# conversation exists for. It names a work package, so only the context is missing.
+UNSETTLED = """# Proposal: G-Review portal
+
+| | |
+| --- | --- |
+| **Work package** | WP-CMS-UPGRADE |
+
+## Elements
+
+| Type | Name | Existing id | Description | Current state | Target state |
+| ---- | ---- | ----------- | ----------- | ------------- | ------------ |
+| Physical Application Component | G-Review Portal | | A portal in which review boards read and approve unit proposals. | proposed | new |
+| Physical Application Component | Curriculum Management System | PAC-CMS | | live | change |
+"""
+
+
+def _question(ui, text: str):
+    return ui.page.locator(".ea-question", has_text=text).first
+
+
+def _answer(ui, question: str, choice: str) -> None:
+    card = _question(ui, question)
+    card.get_by_label(choice).check()
+    ui.settle()
+    card.get_by_role("button", name="Answer").click()
+    ui.settle()
+
+
+@pytest.mark.scenario(
+    scenario_id="G22",
+    group="G",
+    title="The assistant settles the change top-down, and the draft is kept between sittings",
+    feature="Propose · conversation · drafts",
+    expected=(
+        "A page that names an application but nothing it serves is asked why the change is made and "
+        "which business it changes first, with the capability the changing system realises offered; "
+        "the application's own question waits. Answering the context releases it; answering it "
+        "clears what stops Apply. The page, reloaded, lists the draft, and Resume brings back its "
+        "conversation."
+    ),
+)
+def test_the_conversation_settles_the_change_top_down(ui, record):
+    _open(ui)
+    _analyse(ui, UNSETTLED, work_package=None)
+    ui.must("the conversation is beside the draft", ui.page.locator("#pr-conv").count() == 1)
+    conv = ui.text("pr-conv")
+    ui.check(
+        "why the change is made is asked first",
+        "What is this change for?" in conv and "Which part of the business" in conv,
+        f"the conversation reads {conv[:400]!r}",
+    )
+    ui.check(
+        "the application's own question waits for the context",
+        "What business or strategy does G-Review Portal serve?" not in conv
+        and "wait until the context is settled" in conv,
+        f"the conversation reads {conv[:600]!r}",
+    )
+    ui.check(
+        "the capability the changing system realises is offered",
+        "Curriculum Development [CAP-CURR-DEV]" in conv,
+        f"the conversation reads {conv[:600]!r}",
+    )
+    ui.check("the open context stops Apply", "Open question: What is this change for?" in _pushback(ui))
+    ui.shot("The context first: why the change is made and which business it changes")
+    _answer(ui, "What is this change for?", "Curriculum Development [CAP-CURR-DEV] — Capability")
+    _answer(ui, "Which part of the business", "None: a purely technical change")
+    conv = ui.text("pr-conv")
+    ui.check(
+        "the application's question is asked once the context is settled",
+        "What business or strategy does G-Review Portal serve?" in conv,
+        f"the conversation reads {conv[-600:]!r}",
+    )
+    _answer(
+        ui, "What business or strategy does G-Review Portal serve?", "Curriculum Development — Capability"
+    )
+    conv = ui.text("pr-conv")
+    ui.check(
+        "the answer became a relationship on the draft",
+        "G-Review Portal realises CAP-CURR-DEV" in conv,
+        f"the conversation reads {conv[-600:]!r}",
+    )
+    ui.check("nothing stops Apply any more", not _blocked(ui), f"pushback reads {_pushback(ui)!r}")
+    ui.shot("Settled: every answer is in the conversation, and the draft is ready to apply")
+    _open(ui)
+    drafts = ui.text("pr-drafts")
+    ui.check("the draft is kept between sittings", "G-Review portal" in drafts, f"drafts read {drafts!r}")
+    ui.page.get_by_role("button", name="Resume the draft G-Review portal").first.click()
+    ui.settle()
+    conv = ui.text("pr-conv")
+    ui.check(
+        "Resume brings the conversation back",
+        "A purely technical change." in conv,
+        f"the conversation reads {conv[-400:]!r}",
+    )
+    ui.page.get_by_role("button", name="Discard the draft G-Review portal").first.click()
+    ui.settle()
+    ui.check("a discarded draft is gone", "G-Review portal" not in ui.text("pr-drafts"))

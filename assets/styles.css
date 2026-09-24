@@ -362,3 +362,14 @@ body { background: #e9ecef; }
   padding: 0.35rem 1.5rem;
   width: 100%;
 }
+
+/* ---- the conversation that settles a proposal (Propose) ---- */
+.ea-turns { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
+.ea-turn { border-radius: 8px; padding: 6px 10px; max-width: 92%; font-size: 0.85rem; line-height: 1.45; }
+.ea-turn-assistant { background: #f1f3f5; align-self: flex-start; }
+.ea-turn-mine { background: #e7f5ff; align-self: flex-end; }
+.ea-turn-text p { margin: 0.1rem 0; }
+.ea-question { border-left: 3px solid #4c6ef5; }
+
+/* ---- the guide ---- */
+.ea-guide-persona { border-top: 3px solid #4c6ef5; }
