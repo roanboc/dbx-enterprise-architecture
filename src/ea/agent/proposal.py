@@ -471,6 +471,7 @@ class ProposalService:
                     "current_state": el.current_state or ("proposed" if el.action == "new" else "live"),
                     "target_state": el.target_state or ("new" if el.action == "new" else "keep"),
                     "focus": el.action == "new" or el.target_state in CHANGING,
+                    "identified": el.action != "new",
                 }
         edges = [
             {

@@ -18,6 +18,7 @@ from ea.backend.branching import use_branch
 from ea.config import Settings
 from ea.models import ElementFilter, ValidationError
 from ea.services import BranchService, RepositoryService, TargetStateService
+from ea.views.mermaid import to_mermaid
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = (ROOT / "packs" / "higher_education" / "proposal-template.md").read_text(encoding="utf-8")
@@ -425,3 +426,6 @@ def test_the_change_is_drawn_before_it_exists(svc):
     assert names["Curriculum Review Portal"].layer != "other"  # drawn in the pack's notation
     labels = {(e.src, e.dst, e.label) for e in view.edges}
     assert ("new:curriculum review portal", "new:caw unit proposal", "processes") in labels
+    drawn = to_mermaid(view, marked=True)
+    assert "[not yet created]" in drawn and "[new:" not in drawn  # the placeholder is never shown
+    assert "[PAC-CMS]" in drawn

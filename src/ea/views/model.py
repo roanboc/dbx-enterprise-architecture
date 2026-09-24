@@ -48,6 +48,9 @@ class ViewNode:
     depth: int = 0
     current_state: str = "live"
     target_state: str = "undecided"
+    # False for an element a proposal would create: it has no identifier until it is applied,
+    # and the drawing says so rather than showing the placeholder that stands in for one
+    identified: bool = True
 
     @property
     def label(self) -> str:
@@ -191,13 +194,13 @@ def view_of_change(
     view = View(title=title, focus_ids=[n["element_id"] for n in keep if n.get("focus")], omitted=omitted)
     for d in keep:
         t = registry.get_type(d.get("type_id", ""))
-        view.nodes.append(
-            _node(
-                registry,
-                dict(d, type_name=d.get("type_name") or (t.name if t else d.get("type_id", ""))),
-                bool(d.get("focus")),
-            )
+        node = _node(
+            registry,
+            dict(d, type_name=d.get("type_name") or (t.name if t else d.get("type_id", ""))),
+            bool(d.get("focus")),
         )
+        node.identified = d.get("identified", True)
+        view.nodes.append(node)
     present = {n.id for n in view.nodes}
     for e in edges:
         if e.get("src") in present and e.get("dst") in present:

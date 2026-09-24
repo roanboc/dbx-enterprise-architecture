@@ -79,7 +79,7 @@ def _state_prefix(n: ViewNode, marked: bool) -> str:
 
 def _node_line(n: ViewNode, marked: bool = False) -> str:
     left, right = SHAPES.get(n.shape, SHAPES["rect"])
-    text = _quote(f"{_state_prefix(n, marked)}{n.label} [{n.id}]")
+    text = _quote(f"{_state_prefix(n, marked)}{n.label} [{n.id if n.identified else 'not yet created'}]")
     return f"{node_id(n.id)}{left}{text}{right}:::{n.layer if n.layer in LAYER_STYLE else 'other'}"
 
 
