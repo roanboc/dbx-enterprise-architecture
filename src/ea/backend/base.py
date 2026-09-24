@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import AbstractContextManager
 from typing import Any
 
 import pandas as pd
@@ -35,6 +36,11 @@ class DatabaseBackend(ABC):
     # ------------------------------------------------------------ lifecycle
     @abstractmethod
     def init_schema(self) -> None: ...
+
+    @abstractmethod
+    def transaction(self) -> AbstractContextManager[None]:
+        """Every write inside lands together or none of it does. One opened inside another
+        joins it, so a service may wrap a call that opens its own."""
 
     @abstractmethod
     def close(self) -> None: ...
