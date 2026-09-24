@@ -11,16 +11,25 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, dcc, html, no_update
 from dash import ctx as dash_ctx
 
+from ea.agent.document import slug
 from ea.agent.proposal import ProposalResult, fetch_link, result_from_payload
 from ea.backend.branching import MAIN
-from ea.config import ROOT
 from ea.models import CURRENT_STATES, TARGET_STATES, ConflictError, Forbidden, NotFoundError, ValidationError
 from ea.services.roles import a_role
 from ea.ui import ids
-from ea.ui.components import alert, icon, markdown_editor, page_title
+from ea.ui.components import (
+    alert,
+    empty,
+    icon,
+    impact_panel,
+    layer_chips,
+    markdown_editor,
+    mermaid_block,
+    page_title,
+)
 from ea.ui.context import AppContext, get_context
+from ea.views.mermaid import to_mermaid
 
-TEMPLATE_PATH = ROOT / "templates" / "proposal-template.md"
 NEW_OPTION = "__new__"
 
 _GRID = dict(
@@ -99,6 +108,9 @@ def element_columns(ctx: AppContext) -> list[dict[str, Any]]:
             "cellEditorParams": {"values": list(TARGET_STATES)},
         },
         {"field": "note", "flex": 1, "minWidth": 140},
+        # What the page's attribute columns gave, by the metamodel's names. Read here and
+        # written on Apply; corrected in the page, since each type declares its own.
+        {"field": "attributes", "flex": 1, "minWidth": 160, "editable": False},
         {
             "field": "issues",
             "flex": 1.5,
@@ -119,6 +131,13 @@ REL_COLUMNS = [
     {"field": "relationship", "flex": 1, "minWidth": 150},
     {"field": "target", "flex": 1.2, "minWidth": 180},
     {"field": "qualifier", "width": 130},
+    {
+        "field": "target_state",
+        "headerName": "target",
+        "width": 130,
+        "cellEditor": "agSelectCellEditor",
+        "cellEditorParams": {"values": ["", *TARGET_STATES]},
+    },
     {"field": "note", "flex": 1, "minWidth": 140},
     {"field": "resolved", "flex": 1, "minWidth": 160, "editable": False},
     {
@@ -145,6 +164,8 @@ def _el_rows(r: ProposalResult) -> list[dict[str, Any]]:
             "current_state": e.current_state,
             "target_state": e.target_state,
             "note": e.note,
+            "attrs": dict(e.attrs),
+            "attributes": "; ".join(f"{k} = {v}" for k, v in e.attrs.items()),
             "issues": "; ".join(e.issues),
         }
         for i, e in enumerate(r.elements)
@@ -160,6 +181,7 @@ def _rel_rows(r: ProposalResult) -> list[dict[str, Any]]:
             "relationship": x.relationship,
             "target": x.target,
             "qualifier": x.qualifier,
+            "target_state": x.target_state,
             "note": x.note,
             "resolved": x.rel_type_id or "",
             "issues": "; ".join(x.issues),
@@ -179,9 +201,14 @@ def _payload_from_rows(
     """The grids (as edited and ticked) back into a proposal payload."""
     el_keys = {r["key"] for r in (el_selected or [])}
     rel_keys = {r["key"] for r in (rel_selected or [])}
+    stored = stored or {}
     return {
-        "title": (stored or {}).get("title", ""),
-        "summary": (stored or {}).get("summary", ""),
+        "title": stored.get("title", ""),
+        "summary": stored.get("summary", ""),
+        "missing": list(stored.get("missing") or []),
+        "template_id": stored.get("template_id", ""),
+        "template_name": stored.get("template_name", ""),
+        "sources": list(stored.get("sources") or []),
         "work_package": work_package,
         "elements": [
             {
@@ -193,6 +220,7 @@ def _payload_from_rows(
                 "current_state": r.get("current_state") or "",
                 "target_state": r.get("target_state") or "",
                 "note": r.get("note") or "",
+                "attrs": dict(r.get("attrs") or {}),
                 "include": r.get("key") in el_keys,
             }
             for i, r in enumerate(el_rows or [])
@@ -205,6 +233,7 @@ def _payload_from_rows(
                 "relationship": r.get("relationship") or "",
                 "target": r.get("target") or "",
                 "qualifier": r.get("qualifier") or "",
+                "target_state": r.get("target_state") or "",
                 "note": r.get("note") or "",
                 "include": r.get("key") in rel_keys,
             }
@@ -212,6 +241,51 @@ def _payload_from_rows(
             if (r.get("source") or r.get("target"))
         ],
     }
+
+
+def _revision_note(r: ProposalResult):
+    """That the page revises the last pass on the branch, and what that pass wrote which the page
+    no longer carries — listed, never deleted: the architect unticks it off the branch."""
+    if not r.revises:
+        return None
+    lines = [
+        dmc.Text(
+            "This page revises the proposal of the same title already on the branch: what that pass "
+            "created is updated rather than written twice.",
+            size="sm",
+            fw=500,
+        )
+    ]
+    if r.no_longer:
+        lines += [
+            dmc.Text(
+                "The earlier pass wrote these, and this page no longer carries them. They stay on the "
+                "branch until you remove them there:",
+                size="sm",
+            ),
+            html.Ul(
+                [html.Li(f"{d['name']} [{d['id']}]", style={"fontSize": "0.85rem"}) for d in r.no_longer],
+                style={"margin": "0.3rem 0 0", "paddingLeft": "1.2rem"},
+            ),
+        ]
+    return html.Div(alert(html.Div(lines), "blue"), style={"marginBottom": "0.5rem"})
+
+
+def _touches_label(r: ProposalResult) -> str:
+    """The Impact tab's name, with the one count a reader should not miss: what is left dangling."""
+    impact = r.impact or {}
+    dangling = len(impact.get("dangling") or [])
+    reached = len(impact.get("reached") or [])
+    if dangling:
+        return f"What it touches ({dangling} left dangling)"
+    return f"What it touches ({reached})" if reached else "What it touches"
+
+
+def _change_view(ctx: AppContext, r: ProposalResult):
+    view = ctx.proposals.view(r)
+    if not view.nodes:
+        return empty("Nothing to draw yet: no row names a type.")
+    return mermaid_block(ids.PR_VIEW, to_mermaid(view, marked=True), legend=layer_chips(view))
 
 
 def _preview(ctx: AppContext, r: ProposalResult):
@@ -250,10 +324,14 @@ def _preview(ctx: AppContext, r: ProposalResult):
                     )
                     if r.provider
                     else None,
+                    dmc.Text(f"template: {r.template_name}", size="xs", c="dimmed")
+                    if r.template_name
+                    else None,
                 ],
                 gap="sm",
                 mb="sm",
             ),
+            _revision_note(r),
             html.Div(
                 alert(
                     html.Div(
@@ -278,51 +356,115 @@ def _preview(ctx: AppContext, r: ProposalResult):
                 ),
                 id=ids.PR_PUSHBACK,
             ),
-            dmc.Title("Elements", order=2, className="ea-section-title"),
-            dmc.Text(
-                "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
-                size="xs",
-                c="dimmed",
-                mb=4,
-            ),
-            dag.AgGrid(
-                id=ids.PR_EL_GRID,
-                columnDefs=element_columns(ctx),
-                rowData=el_rows,
-                getRowId="params.data.key",
-                selectedRows=[x for x in el_rows if x["include"]],
-                **_GRID,
-            ),
-            dmc.Button(
-                "Add element row",
-                id=ids.PR_ADD_EL,
-                size="xs",
-                variant="subtle",
-                leftSection=icon("tabler:plus", 12),
-                mt=4,
-            ),
-            dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
-            dmc.Text(
-                "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
-                size="xs",
-                c="dimmed",
-                mb=4,
-            ),
-            dag.AgGrid(
-                id=ids.PR_REL_GRID,
-                columnDefs=REL_COLUMNS,
-                rowData=rel_rows,
-                getRowId="params.data.key",
-                selectedRows=[x for x in rel_rows if x["include"]],
-                **_GRID,
-            ),
-            dmc.Button(
-                "Add relationship row",
-                id=ids.PR_ADD_REL,
-                size="xs",
-                variant="subtle",
-                leftSection=icon("tabler:plus", 12),
-                mt=4,
+            alert(
+                html.Div(
+                    [
+                        dmc.Text(
+                            "The reader also found the sources silent on the following. It does not stop Apply; answer it in the document or in the rows:",
+                            fw=600,
+                            size="sm",
+                        ),
+                        html.Ul(
+                            [html.Li(m, style={"fontSize": "0.85rem"}) for m in r.missing],
+                            style={"margin": "0.3rem 0 0", "paddingLeft": "1.2rem"},
+                        ),
+                    ]
+                ),
+                "blue",
+            )
+            if r.missing
+            else None,
+            dmc.Tabs(
+                [
+                    dmc.TabsList(
+                        [
+                            dmc.TabsTab(
+                                f"Rows ({len(r.elements)} + {len(r.relationships)})",
+                                value="rows",
+                                leftSection=icon("tabler:table"),
+                            ),
+                            dmc.TabsTab(
+                                _touches_label(r),
+                                value="impact",
+                                leftSection=icon("tabler:target-arrow"),
+                            ),
+                            dmc.TabsTab("Drawn", value="drawn", leftSection=icon("tabler:topology-star")),
+                        ]
+                    ),
+                    dmc.TabsPanel(
+                        html.Div(
+                            [
+                                dmc.Title("Elements", order=2, className="ea-section-title"),
+                                dmc.Text(
+                                    "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                dag.AgGrid(
+                                    id=ids.PR_EL_GRID,
+                                    columnDefs=element_columns(ctx),
+                                    rowData=el_rows,
+                                    getRowId="params.data.key",
+                                    selectedRows=[x for x in el_rows if x["include"]],
+                                    **_GRID,
+                                ),
+                                dmc.Button(
+                                    "Add element row",
+                                    id=ids.PR_ADD_EL,
+                                    size="xs",
+                                    variant="subtle",
+                                    leftSection=icon("tabler:plus", 12),
+                                    mt=4,
+                                ),
+                                dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
+                                dmc.Text(
+                                    "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                dag.AgGrid(
+                                    id=ids.PR_REL_GRID,
+                                    columnDefs=REL_COLUMNS,
+                                    rowData=rel_rows,
+                                    getRowId="params.data.key",
+                                    selectedRows=[x for x in rel_rows if x["include"]],
+                                    **_GRID,
+                                ),
+                                dmc.Button(
+                                    "Add relationship row",
+                                    id=ids.PR_ADD_REL,
+                                    size="xs",
+                                    variant="subtle",
+                                    leftSection=icon("tabler:plus", 12),
+                                    mt=4,
+                                ),
+                            ]
+                        ),
+                        value="rows",
+                        pt="md",
+                    ),
+                    dmc.TabsPanel(
+                        html.Div(
+                            [
+                                dmc.Text(
+                                    "Read from main, before anything is written: what depends on what the change alters or retires, "
+                                    "what it leaves pointing at nothing, and who must review it. It informs; it does not stop Apply.",
+                                    size="xs",
+                                    c="dimmed",
+                                    mb=4,
+                                ),
+                                impact_panel(r.impact, ids.PR_IMPACT),
+                            ]
+                        ),
+                        value="impact",
+                        pt="md",
+                    ),
+                    dmc.TabsPanel(_change_view(ctx, r), value="drawn", pt="md"),
+                ],
+                id=ids.PR_TABS,
+                value="rows",
             ),
             dmc.Divider(my="md"),
             dmc.Group(
@@ -369,6 +511,7 @@ def render(ctx: AppContext) -> html.Div:
     open_branches = [{"value": b.branch_id, "label": f"{b.name} ({b.changes})"} for b in ctx.branches.open()]
     branch_options = open_branches + [{"value": NEW_OPTION, "label": "➕ New branch…"}]
     wp_options = wps + [{"value": NEW_OPTION, "label": "➕ New work package…"}]
+    template_options = [{"value": key, "label": label} for key, label, _ in ctx.templates.offered()]
     return html.Div(
         [
             page_title(
@@ -416,13 +559,24 @@ def render(ctx: AppContext) -> html.Div:
                                     style={"display": "none"},
                                 ),
                                 dmc.Divider(),
+                                dmc.Select(
+                                    id=ids.PR_TPL_PICK,
+                                    label="Template",
+                                    description="The shape the page is written in. A page that names its own template in its front matter is read with that one.",
+                                    data=template_options,
+                                    value=template_options[0]["value"] if template_options else None,
+                                    placeholder="The metamodel's own names",
+                                    clearable=True,
+                                    comboboxProps={"withinPortal": True},
+                                ),
                                 dmc.Group(
                                     [
                                         dmc.Button(
-                                            "Download Proposal Template",
+                                            "Download template",
                                             id=ids.PR_TEMPLATE,
                                             variant="light",
                                             leftSection=icon("tabler:download"),
+                                            disabled=not template_options,
                                         ),
                                         dmc.Button(
                                             "Load example",
@@ -430,16 +584,21 @@ def render(ctx: AppContext) -> html.Div:
                                             variant="subtle",
                                             color="gray",
                                             leftSection=icon("tabler:wand"),
+                                            disabled=not template_options,
                                         ),
                                     ],
                                     gap="xs",
                                 ),
                                 dmc.Text(
-                                    "Start from the template: its tables work without a model key. Load example "
-                                    "puts the same worked example straight into the editor on the right.",
+                                    "Start from a template: its tables work without a model key. Load example "
+                                    "puts its worked example straight into the editor on the right."
+                                    if template_options
+                                    else "No template is offered for this organisation's metamodel. A page whose "
+                                    "table headings name element types is read all the same.",
                                     size="xs",
                                     c="dimmed",
                                 ),
+                                _template_admin(ctx) if ctx.can("manage_templates") else None,
                             ],
                             gap="sm",
                         ),
@@ -519,6 +678,78 @@ def render(ctx: AppContext) -> html.Div:
     )
 
 
+def _kept_rows(ctx: AppContext):
+    kept = ctx.templates.list()
+    if not kept:
+        return dmc.Text("None kept yet: the starters above are offered instead.", size="xs", c="dimmed")
+    return dmc.Stack(
+        [
+            dmc.Group(
+                [
+                    dmc.Text(t.name, size="sm", fw=500),
+                    dmc.Text(
+                        "this metamodel" if t.pack_id == ctx.registry.pack.id else f"typed in {t.pack_id}",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    dmc.Button(
+                        "Delete",
+                        id={"type": ids.PR_TPL_DELETE, "id": t.template_id},
+                        size="compact-xs",
+                        variant="subtle",
+                        color="red",
+                        **{"aria-label": f"Delete the template {t.name}"},
+                    ),
+                ],
+                gap="xs",
+            )
+            for t in kept
+        ],
+        gap=4,
+    )
+
+
+def _template_admin(ctx: AppContext):
+    """Where an admin keeps the organisation's own templates: uploaded, or copied from a starter."""
+    return dmc.Accordion(
+        dmc.AccordionItem(
+            [
+                dmc.AccordionControl("Templates this organisation keeps", icon=icon("tabler:template")),
+                dmc.AccordionPanel(
+                    dmc.Stack(
+                        [
+                            html.Div(_kept_rows(ctx), id=ids.PR_TPL_LIST),
+                            dcc.Upload(
+                                id=ids.PR_TPL_UPLOAD,
+                                children=dmc.Text(
+                                    "Drop a template (Markdown with `proposal_template:` front matter) to keep it",
+                                    size="xs",
+                                ),
+                                style={
+                                    "border": "1px dashed #adb5bd",
+                                    "borderRadius": 8,
+                                    "padding": "0.4rem",
+                                    "cursor": "pointer",
+                                },
+                            ),
+                            dmc.Button(
+                                "Keep the picked starter as our own",
+                                id=ids.PR_TPL_KEEP,
+                                size="xs",
+                                variant="light",
+                            ),
+                            html.Div(id=ids.PR_TPL_FEEDBACK),
+                        ],
+                        gap="xs",
+                    )
+                ),
+            ],
+            value="templates",
+        ),
+        variant="contained",
+    )
+
+
 def _sources(text: str, files: dict[str, str], links_text: str) -> tuple[list[dict[str, str]], list[str]]:
     sources: list[dict[str, str]] = []
     problems: list[str] = []
@@ -538,6 +769,12 @@ def _sources(text: str, files: dict[str, str], links_text: str) -> tuple[list[di
             reason = str(exc)
             problems.append(reason if url in reason else f"{url}: {reason}")
     return sources, problems
+
+
+def _matched_on(branch: str | None) -> str:
+    """The branch a proposal is matched against: the open branch it will be applied to, or
+    `main` when a new branch will be created from it."""
+    return branch if branch and branch != NEW_OPTION else MAIN
 
 
 def _wp_choice(wp: str | None, wp_new: str | None) -> str:
@@ -591,25 +828,85 @@ def register(app: dash.Dash) -> None:
         ]
         return store, dmc.Stack(rows, gap=4)
 
+    def picked(key: str | None) -> tuple[str, str] | None:
+        """(name, document) of the picked template, or of the first offered when none is picked."""
+        templates = get_context().templates
+        offered = templates.offered()
+        key = key or (offered[0][0] if offered else None)
+        return templates.document(key) if key else None
+
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),
         Input(ids.PR_TEMPLATE, "n_clicks"),
+        State(ids.PR_TPL_PICK, "value"),
         prevent_initial_call=True,
     )
-    def template(n):
+    def template(n, key):
         if not n:
             return no_update
-        return dcc.send_string(TEMPLATE_PATH.read_text(encoding="utf-8"), "proposal-template.md")
+        found = picked(key)
+        if found is None:
+            return no_update
+        name, document = found
+        return dcc.send_string(document, f"{slug(name) or 'proposal-template'}.md")
 
     @app.callback(
         Output({"type": ids.MD_TEXT, "id": ids.PR_TEXT}, "value", allow_duplicate=True),
         Input(ids.PR_EXAMPLE, "n_clicks"),
+        State(ids.PR_TPL_PICK, "value"),
         prevent_initial_call=True,
     )
-    def example(n):
+    def example(n, key):
         if not n:
             return no_update
-        return TEMPLATE_PATH.read_text(encoding="utf-8")
+        found = picked(key)
+        return found[1] if found else no_update
+
+    @app.callback(
+        Output(ids.PR_TPL_FEEDBACK, "children"),
+        Output(ids.PR_TPL_LIST, "children"),
+        Output(ids.PR_TPL_PICK, "data"),
+        Input(ids.PR_TPL_UPLOAD, "contents"),
+        Input(ids.PR_TPL_KEEP, "n_clicks"),
+        Input({"type": ids.PR_TPL_DELETE, "id": dash.ALL}, "n_clicks"),
+        State(ids.PR_TPL_UPLOAD, "filename"),
+        State(ids.PR_TPL_PICK, "value"),
+        prevent_initial_call=True,
+    )
+    def keep_templates(contents, keep, deletes, filename, key):
+        trig = dash_ctx.triggered_id
+        ctx = get_context()
+        templates = ctx.templates
+        said: list = []
+        try:
+            if trig == ids.PR_TPL_UPLOAD and contents:
+                _, b64 = contents.split(",", 1)
+                document = base64.b64decode(b64).decode("utf-8-sig", errors="replace")
+                kept = templates.save(document, ctx.actor)
+                notes = templates.check(document)
+                said = [alert(f"Kept {kept.name!r} from {filename}.", "green")] + (
+                    [alert(html.Ul([html.Li(n) for n in notes]), "yellow")] if notes else []
+                )
+            elif trig == ids.PR_TPL_KEEP and keep:
+                if not key or not key.startswith("starter:"):
+                    return (
+                        alert("Pick a starter first: it is the one marked (starter).", "yellow"),
+                        no_update,
+                        no_update,
+                    )
+                kept = templates.add_starter(key.split(":", 1)[1], ctx.actor)
+                said = [alert(f"Kept {kept.name!r} as this organisation's own.", "green")]
+            elif isinstance(trig, dict) and trig.get("type") == ids.PR_TPL_DELETE and any(deletes or []):
+                gone = templates.get(trig["id"])
+                templates.delete(gone.template_id, ctx.actor)
+                said = [alert(f"Deleted {gone.name!r}.", "green")]
+            else:
+                return no_update, no_update, no_update
+        except (ValidationError, NotFoundError, Forbidden) as exc:
+            msg = "; ".join(str(i) for i in exc.issues) if isinstance(exc, ValidationError) else str(exc)
+            return alert(msg, "red"), no_update, no_update
+        options = [{"value": k, "label": label} for k, label, _ in templates.offered()]
+        return html.Div(said), _kept_rows(ctx), options
 
     @app.callback(
         Output(ids.PR_RESULT, "children"),
@@ -620,23 +917,34 @@ def register(app: dash.Dash) -> None:
         State(ids.PR_LINKS, "value"),
         State(ids.PR_WP, "value"),
         State(ids.PR_WP_NEW, "value"),
+        State(ids.PR_BRANCH, "value"),
+        State(ids.PR_TPL_PICK, "value"),
         prevent_initial_call=True,
         running=[(Output(ids.PR_ANALYSE, "loading"), True, False)],
     )
-    def analyse(n, text, files, links, wp, wp_new):
+    def analyse(n, text, files, links, wp, wp_new, branch, template_key):
         if not n:
             return no_update, no_update
         ctx = get_context()
+        on = _matched_on(branch)
         sources, problems = _sources(text, files, links)
         if sources:
-            result = ctx.proposals.analyse(sources)
+            result = ctx.proposals.analyse(sources, on, template_key)
         else:
-            result = ctx.proposals.resolve(ProposalResult(provider="manual"))
+            result = ctx.proposals.resolve(ProposalResult(provider="manual"), on)
         if not result.work_package:
             result.work_package = _wp_choice(wp, wp_new)
-            result = ctx.proposals.resolve(result)
+            result = ctx.proposals.resolve(result, on)
         head = alert("Some links could not be read: " + "; ".join(problems), "red") if problems else None
-        stored = {"title": result.title, "summary": result.summary, "work_package": result.work_package}
+        stored = {
+            "title": result.title,
+            "summary": result.summary,
+            "work_package": result.work_package,
+            "missing": result.missing,
+            "template_id": result.template_id,
+            "template_name": result.template_name,
+            "sources": result.sources,
+        }
         return html.Div([head, _preview(ctx, result)]), stored
 
     @app.callback(
@@ -740,7 +1048,7 @@ def register(app: dash.Dash) -> None:
         payload = _payload_from_rows(
             el_v or el_rows, el_sel, rel_v or rel_rows, rel_sel, stored, work_package
         )
-        result = ctx.proposals.resolve(result_from_payload(payload, "manual"))
+        result = ctx.proposals.resolve(result_from_payload(payload, "manual"), _matched_on(branch))
         if trig == ids.PR_ANALYSE + "-again":
             if not n_check:
                 return no_update, no_update, no_update
@@ -775,7 +1083,9 @@ def register(app: dash.Dash) -> None:
                 dmc.Text(
                     f"Applied to branch {b.name}: {len(out['created'])} element(s) created as proposed, {len(out['linked'])} linked, "
                     f"{len(out['relationships'])} relationship(s) written"
+                    + (f", {len(out['retired'])} marked for decommissioning" if out.get("retired") else "")
                     + (f", {len(out['skipped'])} row(s) skipped" if out["skipped"] else "")
+                    + (" — a revision of the proposal already there" if out.get("revises") else "")
                     + ".",
                     size="sm",
                     fw=500,

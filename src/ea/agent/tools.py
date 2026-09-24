@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ea.backend.base import DatabaseBackend
+from ea.backend.branching import MAIN, current_branch
 from ea.metamodel.registry import Registry
 from ea.models import ElementFilter, NotFoundError
 from ea.services import GraphService, RepositoryService
@@ -21,6 +22,9 @@ def _element_brief(e) -> dict[str, Any]:
         "key": e.key,
         "status": e.status,
         "lifecycle_status": e.lifecycle_status,
+        "current_state": e.current_state,
+        "target_state": e.target_state,
+        "target_work_package": e.target_work_package,
         "description": (e.description_md or "")[:400],
         "attrs": e.attrs,
     }
@@ -110,6 +114,24 @@ class ToolBox:
                 },
             },
             {
+                "name": "allowed_relationships",
+                "description": "The relationship types the metamodel allows from one element type to another, with their names, inverse names and qualifiers. Call it before proposing a relationship between two types.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "source_type": {"type": "string", "description": "element type id or name"},
+                        "target_type": {"type": "string", "description": "element type id or name"},
+                    },
+                    "required": ["source_type", "target_type"],
+                    "additionalProperties": False,
+                },
+            },
+            {
+                "name": "branch_changes",
+                "description": "What the branch being read already changes against main: elements and relationships added, changed or deleted, with their target states. Empty on main.",
+                "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+            {
                 "name": "propose_view",
                 "description": (
                     "Ask for an architecture diagram of the named elements to be included in the answer document. "
@@ -170,13 +192,57 @@ class ToolBox:
 
     # ------------------------------------------------------------- tools
     def tool_propose_view(self, title: str, element_ids: list[str]) -> dict[str, Any]:
-        g = self.graph.graph()
         ids = [i for i in (element_ids or []) if isinstance(i, str)]
-        accepted = [i for i in ids if i in g][:40]
-        unknown = [i for i in ids if i not in g]
+        # asked of the store, not the in-process graph: that one is refused past the size the
+        # application builds it at, and a view of forty elements needs forty rows (decision 0019)
+        known = {e.element_id for e in self.backend.elements_by_ids(ids)}
+        accepted = [i for i in ids if i in known][:40]
+        unknown = [i for i in ids if i not in known]
         if accepted:
             self.requested_views.append({"title": (title or "View")[:120], "element_ids": accepted})
         return {"accepted": accepted, "unknown": unknown, "views_requested": len(self.requested_views)}
+
+    def tool_allowed_relationships(self, source_type: str, target_type: str) -> dict[str, Any]:
+        src, dst = self.registry.resolve_type(source_type), self.registry.resolve_type(target_type)
+        if src is None or dst is None:
+            return {
+                "error": f"unknown type {(source_type if src is None else target_type)!r}",
+                "hint": "call list_types",
+            }
+        return {
+            "source_type": src.id,
+            "target_type": dst.id,
+            "relationships": [
+                {"id": r.id, "name": r.name, "inverse": r.inverse, "qualifiers": list(r.qualifiers or [])}
+                for r in self.registry.allowed_rel_types(src.id, dst.id)
+            ],
+        }
+
+    #: The most rows `branch_changes` returns; a longer change set says it was cut.
+    MAX_BRANCH_ROWS = 200
+
+    def tool_branch_changes(self) -> dict[str, Any]:
+        branch = current_branch()
+        if branch == MAIN:
+            return {"branch": MAIN, "changes": [], "note": "reading main: there is no branch to compare"}
+        items = self.backend.diff_branch(branch).items
+        rows = []
+        for it in items[: self.MAX_BRANCH_ROWS]:
+            row = it.after or it.before or {}
+            rows.append(
+                {
+                    "kind": it.kind,
+                    "change": it.change,
+                    # named the way the grounding record reads an identifier (`_remember`)
+                    ("element_id" if it.kind == "element" else "relationship_id"): it.entity_id,
+                    "name": row.get("name") or "",
+                    "type_id": row.get("type_id") or row.get("rel_type_id") or "",
+                    "src_id": row.get("src_id") or "",
+                    "dst_id": row.get("dst_id") or "",
+                    "target_state": row.get("target_state") or "",
+                }
+            )
+        return {"branch": branch, "changes": rows, "truncated": len(items) > self.MAX_BRANCH_ROWS}
 
     def tool_list_types(self) -> dict[str, Any]:
         s = self.repo.stats()

@@ -1191,7 +1191,7 @@ def test_browse_type_that_the_pack_does_not_hold(ui, record, finding):
 
 # ------------------------------------------------- a branch name the proposal cannot be applied to
 
-TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "templates" / "proposal-template.md"
+TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "packs" / "higher_education" / "proposal-template.md"
 WP_LABEL = "Curriculum Management System Upgrade"  # the sample model's one work package
 IMPOSSIBLE_BRANCH = "###"  # a name with nothing in it an identifier can be made of
 

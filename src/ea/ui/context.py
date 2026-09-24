@@ -9,7 +9,9 @@ rebuilt when the metamodel changes.
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +26,7 @@ from ea.metamodel import Registry, load_pack
 from ea.models import Organisation, User
 from ea.services import (
     BranchService,
+    ChangeImpactService,
     GraphService,
     HealthService,
     MetamodelService,
@@ -32,6 +35,7 @@ from ea.services import (
     ReviewService,
     SearchService,
     TargetStateService,
+    TemplateService,
 )
 from ea.services.branches import refusal_for_writing
 from ea.services.identity import WorkspaceGroups, forwarded_identity
@@ -52,6 +56,11 @@ PERSONAS = {
 }
 
 
+#: The Ask conversations one organisation keeps at once; past it the least recently used is
+#: let go, and its reader's next question starts a new one.
+CONVERSATIONS_KEPT = 200
+
+
 def persona_user(persona: str) -> User:
     return PERSONAS.get(persona, PERSONAS["admin"])
 
@@ -68,7 +77,11 @@ class Bundle:
     search: SearchService
     health: HealthService
     reviews: ReviewService
-    agent: Agent | None = None
+    templates: TemplateService
+    impact: ChangeImpactService
+    # One Ask agent per conversation, never one per organisation: what a follow-up needs
+    # (the messages so far, the identifiers the tools returned) is one reader's own.
+    agents: OrderedDict[str, Agent] = field(default_factory=OrderedDict)
     proposals: ProposalService | None = None
 
     @classmethod
@@ -83,6 +96,8 @@ class Bundle:
             search=SearchService(backend, registry),
             health=HealthService(backend, registry),
             reviews=ReviewService(backend, registry, branches),
+            templates=TemplateService(backend, registry),
+            impact=ChangeImpactService(backend, registry),
         )
 
 
@@ -95,6 +110,7 @@ class AppContext:
     orgs: OrganisationService = field(init=False)
     _bundles: dict[str, Bundle] = field(default_factory=dict, init=False)
     _bundle_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
+    _agent_provider: Any = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.metamodels = MetamodelService(self.backend)
@@ -145,10 +161,48 @@ class AppContext:
 
     @property
     def agent(self) -> Agent:
+        """The Ask agent of the conversation this request belongs to.
+
+        Held per organisation, because its tools read that organisation's metamodel, and per
+        conversation inside it — the signed-in reader and their session — so one reader's
+        question is never answered in the context of another's, and a Reset clears one
+        conversation. The least recently used is let go past `CONVERSATIONS_KEPT`.
+        """
         b = self._bundle()
-        if b.agent is None:
-            b.agent = Agent(ToolBox(self.backend, b.registry, b.repo, b.graph), self.settings)
-        return b.agent
+        key = self._conversation()
+        with self._bundle_lock:
+            agent = b.agents.get(key)
+            if agent is None:
+                if self._agent_provider is None:
+                    self._agent_provider = Agent.make_provider(self.settings)
+                toolbox = ToolBox(self.backend, b.registry, b.repo, b.graph)
+                agent = b.agents[key] = Agent(toolbox, self.settings, self._agent_provider)
+                while len(b.agents) > CONVERSATIONS_KEPT:
+                    b.agents.popitem(last=False)
+            else:
+                b.agents.move_to_end(key)
+            return agent
+
+    def _conversation(self) -> str:
+        """The reader and their session, named once in the signed session cookie; one outside a request."""
+        try:
+            from flask import has_request_context, session
+
+            if has_request_context():
+                if not session.get("conversation"):
+                    session["conversation"] = secrets.token_hex(8)
+                return f"{self.current_user().username}:{session['conversation']}"
+        except RuntimeError:  # a session without a secret key cannot be written: one conversation
+            log.warning("no session to hold an Ask conversation in; using the shared one")
+        return "local"
+
+    @property
+    def templates(self) -> TemplateService:
+        return self._bundle().templates
+
+    @property
+    def impact(self) -> ChangeImpactService:
+        return self._bundle().impact
 
     @property
     def proposals(self) -> ProposalService:
@@ -162,6 +216,8 @@ class AppContext:
                 b.target,
                 self.settings,
                 ToolBox(self.backend, b.registry, b.repo, b.graph),
+                b.templates,
+                b.impact,
             )
         return b.proposals
 

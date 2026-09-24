@@ -313,6 +313,18 @@ PR_APPLY_FEEDBACK = "pr-apply-feedback"
 PR_PUSHBACK = "pr-pushback"
 PR_PROVIDER = "pr-provider"
 PR_RESULT_STORE = "pr-result-store"
+PR_TPL_PICK = "pr-tpl-pick"  # the template a page is read with, when it names none itself
+PR_TPL_UPLOAD = "pr-tpl-upload"  # an admin keeps a template for the organisation
+PR_TPL_KEEP = "pr-tpl-keep"  # an admin keeps the picked starter as the organisation's own
+PR_TPL_DELETE = "pr-tpl-delete"  # pattern-matching: {"type": PR_TPL_DELETE, "id": template_id}
+PR_TPL_LIST = "pr-tpl-list"
+PR_TPL_FEEDBACK = "pr-tpl-feedback"
+PR_IMPACT = "pr-impact"
+PR_VIEW = "pr-view"
+PR_TABS = "pr-tabs"  # the preview: rows, what the change touches, the change drawn
+BR_PROPOSALS = "br-proposals"  # the proposals a branch came from, for the reviewer
+BR_IMPACT = "br-impact"
+BR_TABS = "br-tabs"  # a branch: its changes, the proposals it came from, what it touches, drawn
 
 # Search, bulk edit (initiative 6)
 BROWSE_EMPTY = "browse-empty"  # what the screen says when the grid has nothing in it

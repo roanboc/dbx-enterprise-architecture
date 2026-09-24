@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -653,17 +653,74 @@ class MergeResult:
 
 @dataclass
 class Proposal:
-    """What an architect handed in, what was derived from it, and where it went."""
+    """What an architect handed in, what was derived from it, and where it went.
+
+    One pass of a design onto a branch: a proposal handed to a branch that already holds one
+    of the same title `revises` it, so the branch keeps the design pass by pass.
+    """
 
     proposal_id: str
     branch_id: str
     title: str
-    sources: list[dict[str, Any]] = field(default_factory=list)  # {kind: text|file|link, name, chars}
-    result: dict[str, Any] = field(default_factory=dict)  # the change set as applied
+    sources: list[dict[str, Any]] = field(default_factory=list)  # {kind: text|file|link, name, chars, text}
+    result: dict[str, Any] = field(default_factory=dict)  # the change set as applied, with its impact
     pushback: list[str] = field(default_factory=list)
     status: str = "applied"  # analysed | applied
     created_by: str = ""
     created_at: datetime | None = None
+    template_id: str = ""  # the template it was read with; empty when read as free text
+    revises: str = ""  # the proposal this one revises; empty for the first pass
+
+
+@dataclass
+class ChangeImpact:
+    """What a change set touches beyond itself (DOBJ3.10). It informs; it never stops an Apply.
+
+    `reached`: elements on main within `depth` steps of an element the change changes,
+    decommissions or merges, and not themselves in the change. `dangling`: relationships on
+    main left pointing at an element being decommissioned or merged, and not retired with it.
+    `isolated`: new elements connected, through the change's own relationships, to nothing
+    that exists. `reviewers`: who must review each type the change touches.
+    """
+
+    changed: list[dict[str, Any]] = field(default_factory=list)
+    reached: list[dict[str, Any]] = field(default_factory=list)
+    dangling: list[dict[str, Any]] = field(default_factory=list)
+    isolated: list[dict[str, Any]] = field(default_factory=list)
+    reviewers: list[dict[str, Any]] = field(default_factory=list)
+    depth: int = 2
+    truncated: bool = False
+
+    @property
+    def quiet(self) -> bool:
+        """Nothing beyond the change itself: nothing reached, left dangling or left alone."""
+        return not (self.reached or self.dangling or self.isolated)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> ChangeImpact:
+        d = d or {}
+        return cls(**{k: d[k] for k in cls.__dataclass_fields__ if k in d})
+
+
+@dataclass
+class ProposalTemplate:
+    """A document shape an organisation proposes in (DOBJ3.9): the Markdown, front matter and all.
+
+    The reading is in the front matter, so the document is kept whole and handed back exactly
+    as it was stored.
+    """
+
+    template_id: str
+    name: str
+    document: str
+    pack_id: str = ""  # the metamodel it is typed in
+    description: str = ""
+    created_by: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass

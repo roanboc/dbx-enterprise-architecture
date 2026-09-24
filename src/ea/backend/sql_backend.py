@@ -24,6 +24,7 @@ import threading
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import fields
 from datetime import UTC, datetime
 from typing import Any
@@ -72,6 +73,7 @@ from ea.models import (
     Pack,
     PackVersion,
     Proposal,
+    ProposalTemplate,
     Relationship,
     Review,
     SourceFeed,
@@ -213,6 +215,8 @@ class SqlBackend(DatabaseBackend):
 
     def __init__(self, schema_prefix: str = "ea") -> None:
         self._lock = threading.RLock()
+        #: how deep the open transaction is nested; 0 when none is open
+        self._tx_depth = 0
         #: the tables are grouped into `<prefix>_<group>` schemas; `EA_SCHEMA` names the prefix
         self.schema_prefix = schema_prefix
 
@@ -233,6 +237,12 @@ class SqlBackend(DatabaseBackend):
     def _replace_rows(self, table: str, columns: list[str], rows: list[list[Any]], keys: list[str]) -> None:
         """Land rows by key: a row whose key exists is replaced, any other is appended."""
         raise NotImplementedError
+
+    @contextmanager
+    def _engine_transaction(self) -> Iterator[None]:
+        """Begin; commit when the block ends, roll back when it raises."""
+        raise NotImplementedError
+        yield
 
     def _create_table(self, ddl: str) -> None:
         self._execute(ddl)
@@ -271,7 +281,55 @@ class SqlBackend(DatabaseBackend):
     def close(self) -> None:
         raise NotImplementedError
 
+    # ----------------------------------------------------------- transactions
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Every write inside lands together or none of it does, under the store's lock.
+
+        One opened inside another joins it rather than nesting: the outer one decides.
+        """
+        with self._lock:
+            if self._tx_depth:
+                self._tx_depth += 1
+                try:
+                    yield
+                finally:
+                    self._tx_depth -= 1
+                return
+            self._tx_depth = 1
+            try:
+                with self._engine_transaction():
+                    yield
+            finally:
+                self._tx_depth = 0
+
     # ---------------------------------------------------------------- helpers
+    def _put_rows(self, table: str, keys: list[str], rows: list[list[Any]]) -> None:
+        """Rows in the DDL's column order, written by key: updated where the key is held, inserted
+        where it is not.
+
+        Never a delete and an insert of one key, and only the columns whose value moved are
+        set: inside a transaction, once the row is on disk, DuckDB refuses the first and can
+        refuse an update that rewrites an indexed column to the value it already holds — and a
+        merge is one transaction.
+        """
+        columns = table_columns(table)
+        at = {c: i for i, c in enumerate(columns)}
+        others = [c for c in columns if c not in keys]
+        where = " AND ".join(f"{k} = ?" for k in keys)
+        for row in rows:
+            key = [row[at[k]] for k in keys]
+            held = self._fetch_all(f"SELECT {', '.join(others)} FROM {table} WHERE {where}", key)
+            if not held:
+                self._insert_rows(table, [row])
+                continue
+            moved = [c for c, value in zip(others, held[0], strict=True) if value != row[at[c]]]
+            if moved:
+                self._execute(
+                    f"UPDATE {table} SET {', '.join(f'{c} = ?' for c in moved)} WHERE {where}",
+                    [row[at[c]] for c in moved] + key,
+                )
+
     def _log(
         self,
         kind: str,
@@ -1139,7 +1197,13 @@ class SqlBackend(DatabaseBackend):
             raise ConflictError(f"organisation {dst_org} already holds content; a copy needs an empty one")
         copied: dict[str, int] = {}
         with self._lock:
-            for table in ("element", "relationship", "element_link", "reviewer_assignment"):
+            for table in (
+                "element",
+                "relationship",
+                "element_link",
+                "reviewer_assignment",
+                "proposal_template",
+            ):
                 cols = [c for c in table_columns(table) if c != "org_id"]
                 col_list = ", ".join(cols)
                 self._execute(
@@ -2381,13 +2445,15 @@ class SqlBackend(DatabaseBackend):
 
         Applied and dropped rows leave the branch; the branch closes when nothing remains.
         """
-        change_set = self.diff_branch(branch_id)
-        if change_set.branch.status not in OPEN_STATUSES:
-            raise ConflictError(f"branch {branch_id} is {change_set.branch.status}")
         resolutions = resolutions or {}
         result = MergeResult(branch_id=branch_id)
         now = _now()
-        with self._lock:
+        # One transaction, the diff read inside it: a failure on any row leaves main and the
+        # branch as they were, rather than half the change on main and gone from the branch.
+        with self.transaction():
+            change_set = self.diff_branch(branch_id)
+            if change_set.branch.status not in OPEN_STATUSES:
+                raise ConflictError(f"branch {branch_id} is {change_set.branch.status}")
             # relationships that are deleted go first, elements next, relationships added or changed last,
             # so an added relationship always finds its ends on main
             ordered = (
@@ -2603,18 +2669,23 @@ class SqlBackend(DatabaseBackend):
             e.updated_at, e.updated_by = now, actor
             if item.main_version is None:
                 e.created_at, e.created_by = e.created_at or now, e.created_by or actor
-            self._execute("DELETE FROM element WHERE org_id = ? AND element_id = ?", [org, item.entity_id])
-            self._insert_rows("element", [self._element_values(e) + [org]])
+            self._put_rows("element", ["org_id", "element_id"], [self._element_values(e) + [org]])
             if self._takes_links(item, take):
-                self._execute(
-                    "DELETE FROM element_link WHERE org_id = ? AND element_id = ?", [org, item.entity_id]
-                )
-                self._insert_rows(
+                links = self._branch_links(branch_id, item.entity_id)
+                kept = [ln.link_id for ln in links]
+                # written before the ones the branch dropped are deleted: see `_put_rows`
+                self._put_rows(
                     "element_link",
+                    ["org_id", "link_id"],
                     [
                         [ln.link_id, item.entity_id, ln.url, ln.label or None, ln.sort_order, org]
-                        for ln in self._branch_links(branch_id, item.entity_id)
+                        for ln in links
                     ],
+                )
+                self._execute(
+                    "DELETE FROM element_link WHERE org_id = ? AND element_id = ?"
+                    + (f" AND link_id NOT IN ({', '.join('?' for _ in kept)})" if kept else ""),
+                    [org, item.entity_id, *kept],
                 )
             self._log(
                 "element",
@@ -2649,10 +2720,7 @@ class SqlBackend(DatabaseBackend):
             r = self._merged_rel(item, self._row_to_rel(rows[0]), take)
             r.version = (item.main_version or 0) + 1
             r.updated_at, r.updated_by = now, actor
-            self._execute(
-                "DELETE FROM relationship WHERE org_id = ? AND relationship_id = ?", [org, item.entity_id]
-            )
-            self._insert_rows("relationship", [self._rel_values(r) + [org]])
+            self._put_rows("relationship", ["org_id", "relationship_id"], [self._rel_values(r) + [org]])
             self._log(
                 "relationship",
                 item.entity_id,
@@ -2803,6 +2871,8 @@ class SqlBackend(DatabaseBackend):
                         p.created_by or None,
                         p.created_at,
                         org,
+                        p.template_id or None,
+                        p.revises or None,
                     ]
                 ],
             )
@@ -2811,7 +2881,8 @@ class SqlBackend(DatabaseBackend):
     def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
         where = " WHERE org_id = ?" + (" AND branch_id = ?" if branch_id else "")
         rows = self._fetch_all(
-            f"SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, created_by, created_at FROM proposal{where} ORDER BY created_at DESC",
+            "SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, "
+            f"created_by, created_at, template_id, revises FROM proposal{where} ORDER BY created_at DESC",
             [self._org(), branch_id] if branch_id else [self._org()],
         )
         out = []
@@ -2827,9 +2898,92 @@ class SqlBackend(DatabaseBackend):
                     status=r[6] or "",
                     created_by=r[7] or "",
                     created_at=r[8],
+                    template_id=r[9] or "",
+                    revises=r[10] or "",
                 )
             )
         return out
+
+    # ------------------------------------------------------------ templates
+    _TEMPLATE_COLUMNS = (
+        "template_id, name, description, pack_id, document, created_by, created_at, updated_at"
+    )
+
+    @staticmethod
+    def _row_to_template(r: tuple) -> ProposalTemplate:
+        return ProposalTemplate(
+            template_id=r[0],
+            name=r[1] or "",
+            description=r[2] or "",
+            pack_id=r[3] or "",
+            document=r[4] or "",
+            created_by=r[5] or "",
+            created_at=r[6],
+            updated_at=r[7],
+        )
+
+    def save_proposal_template(self, t: ProposalTemplate, actor: str) -> ProposalTemplate:
+        org = self._org()
+        now = _now()
+        t.template_id = t.template_id or new_id("tpl")
+        held = self.get_proposal_template(t.template_id)
+        t.created_by = held.created_by if held else (t.created_by or actor)
+        t.created_at = held.created_at if held else now
+        t.updated_at = now
+        with self.transaction():
+            self._put_rows(
+                "proposal_template",
+                ["org_id", "template_id"],
+                [
+                    [
+                        t.template_id,
+                        t.name,
+                        t.description or None,
+                        t.pack_id or None,
+                        t.document,
+                        t.created_by or None,
+                        t.created_at,
+                        t.updated_at,
+                        org,
+                    ]
+                ],
+            )
+            self._log(
+                "template",
+                t.template_id,
+                "update" if held else "insert",
+                actor,
+                {"name": held.name, "pack_id": held.pack_id} if held else None,
+                {"name": t.name, "pack_id": t.pack_id},
+                None,
+                MAIN,
+            )
+        return t
+
+    def list_proposal_templates(self) -> list[ProposalTemplate]:
+        rows = self._fetch_all(
+            f"SELECT {self._TEMPLATE_COLUMNS} FROM proposal_template WHERE org_id = ? ORDER BY name",
+            [self._org()],
+        )
+        return [self._row_to_template(r) for r in rows]
+
+    def get_proposal_template(self, template_id: str) -> ProposalTemplate | None:
+        rows = self._fetch_all(
+            f"SELECT {self._TEMPLATE_COLUMNS} FROM proposal_template WHERE org_id = ? AND template_id = ?",
+            [self._org(), template_id],
+        )
+        return self._row_to_template(rows[0]) if rows else None
+
+    def delete_proposal_template(self, template_id: str, actor: str) -> None:
+        held = self.get_proposal_template(template_id)
+        if held is None:
+            raise NotFoundError(template_id, "proposal template")
+        with self.transaction():
+            self._execute(
+                "DELETE FROM proposal_template WHERE org_id = ? AND template_id = ?",
+                [self._org(), template_id],
+            )
+            self._log("template", template_id, "delete", actor, {"name": held.name}, None, None, MAIN)
 
     # ---------------------------------------------------------------- sql
     #: The content tables a branch overlays, with the branch table holding the overlay rows and

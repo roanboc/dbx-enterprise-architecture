@@ -7,6 +7,8 @@ frames registered as tables for the bulk loads.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,17 @@ class DuckDBBackend(SqlBackend):
 
     def _one_schema_store(self) -> str:
         return "main"
+
+    @contextmanager
+    def _engine_transaction(self) -> Iterator[None]:
+        with self._lock:
+            self._conn.begin()
+            try:
+                yield
+            except BaseException:
+                self._conn.rollback()
+                raise
+            self._conn.commit()
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
         with self._lock:

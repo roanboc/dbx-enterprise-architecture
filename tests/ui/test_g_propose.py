@@ -44,7 +44,7 @@ from tests.ui.evidence import Finding
 pytestmark = pytest.mark.gui
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE = (ROOT / "templates" / "proposal-template.md").read_text(encoding="utf-8")
+TEMPLATE = (ROOT / "packs" / "higher_education" / "proposal-template.md").read_text(encoding="utf-8")
 
 # The proposal box is a markdown editor, so its textarea carries a pattern-matching id.
 PASTE = '[id=\'{"id":"pr-text","type":"md-text"}\']'
@@ -269,17 +269,21 @@ def test_work_package_field(ui, record):
 @pytest.mark.scenario(
     scenario_id="G04",
     group="G",
-    title="Download Proposal Template hands back the template the reader can read",
+    title="Download template hands back the template the reader can read",
     feature="Propose · the template",
     expected=(
-        "The button downloads proposal-template.md, and the file carries the Elements and "
-        "Relationships tables the stub reader parses, byte for byte as the repository holds it."
+        "With the starter the organisation's metamodel offers picked, the button downloads it, "
+        "named for the template, and the file carries the Elements and Relationships tables the "
+        "stub reader parses, byte for byte as the repository holds it beside its pack."
     ),
 )
 def test_download_template(ui, record):
     _open(ui)
     path = ui.download("pr-template", ".md")
     text = path.read_text(encoding="utf-8")
+    ui.check(
+        "the file is named for the template", path.name == "higher-education-change-proposal.md", path.name
+    )
     ui.check("the file is the template the repository holds", text == TEMPLATE)
     ui.check("it carries an Elements section", "## Elements" in text)
     ui.check("it carries a Relationships section", "## Relationships" in text)
@@ -321,8 +325,8 @@ def test_free_text_is_pushed_back(ui, record):
         f"pushback reads {text!r}",
     )
     ui.check(
-        "it says only the Proposal Template's tables can be read",
-        "only the Proposal Template's tables can be read" in text,
+        "it says only a proposal template's tables can be read",
+        "only a proposal template's tables can be read" in text,
     )
     ui.check(
         "it says an Elements table is what is missing",

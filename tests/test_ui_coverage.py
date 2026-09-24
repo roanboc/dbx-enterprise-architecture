@@ -37,7 +37,7 @@ DOWNLOAD_TRIGGERS = {
     "mm-view-drawio": "the metamodel's architecture view as draw.io",
     "im-template": "the import template archive",
     "im-export": "the organisation's content, written back out as the contract",
-    "pr-template": "the Proposal Template",
+    "pr-template": "a proposal template, the one picked",
     "feed-example": "the example rows a feed's staging tables take",
     "browse-export": "the Browse result set as CSV",
 }

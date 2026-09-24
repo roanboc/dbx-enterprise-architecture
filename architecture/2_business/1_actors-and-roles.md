@@ -67,7 +67,7 @@ flowchart LR
 | `ACT3` | **Solution architect** — designs changes to the enterprise and describes them as proposals; the main author of branches (stakeholder `STK3`) | Wants to draft quickly, see the impact of a change, and hand a design page in rather than retype it |
 | `ACT4` | **Content steward** — owns the instances of a type on behalf of a domain (the pack's `instance_owner`); reviews changes to the elements of that type | Wants to see exactly what changes before it lands, and nothing else |
 | `ACT5` | **Enterprise architecture team** — the owners of the enterprise's metamodel and of the current EA tool (stakeholder `STK4`) | Expects the metamodel respected; administers packs |
-| `ACT6` | **Architecture assistant** — the AI agent that answers questions and reads proposals through tools (component `ACMP5`, `ACMP10`) | May read everything a reader may; never writes an approval (principle `P3`) |
+| `ACT6` | **Architecture assistant** — the AI agent that answers questions and reads proposals through tools, asking the architect about what a proposal leaves unclear (component `ACMP5`, `ACMP10`) | May read everything a reader may; never writes an approval (principle `P3`) |
 
 ## Roles
 
@@ -109,11 +109,11 @@ Reader, Architect adds to Reader, Admin holds everything.
 
 | ID | Role | May | May not |
 | -- | ---- | --- | ------- |
-| `ROLE1` | **Admin** — the framework owner's role | Everything: edit the metamodel and its notation, load packs, create and abandon any branch, import onto `main`, edit on `main`, merge with or without a review, assign reviewers per type, act as every other role | — |
+| `ROLE1` | **Admin** — the framework owner's role | Everything: edit the metamodel and its notation, load packs, create and abandon any branch, import onto `main`, edit on `main`, merge with or without a review, assign reviewers per type, keep the organisation's proposal templates, act as every other role | — |
 | `ROLE2` | **Architect** — the author's role | Create branches; edit elements, relationships and links on a branch; import onto a branch; hand in proposals; edit states; request a review of a branch; merge a branch once it is approved; ask | Edit on `main` directly; approve a branch, including their own; edit the metamodel |
 | `ROLE3` | **Reviewer** — the approver's role, scoped by element type | Approve or send back a branch for the element types assigned to them (or any type, when no reviewer is assigned to it); leave a review comment; everything a reader may | Edit content; merge; approve a branch they authored |
-| `ROLE4` | **Reader** — every signed-in user | Browse, search, open elements, run impact and target-state analyses, ask the assistant, download views and documents, download the Proposal Template | Change anything |
-| `ROLE5` | **Agent** — the assistant's role, held by `ACT6` | Read through the tools a reader could use; draft a proposal's change set for an architect to review | Write to `main`; write an approval; write anything an architect has not ticked |
+| `ROLE4` | **Reader** — every signed-in user | Browse, search, open elements, run impact and target-state analyses, ask the assistant, download views and documents, download the proposal templates | Change anything |
+| `ROLE5` | **Agent** — the assistant's role, held by `ACT6` | Read through the tools a reader could use; draft a proposal's change set for an architect to review; ask the architect about what the draft leaves unclear, and redraft from the answers | Write to `main`; write an approval; write anything an architect has not ticked; settle a question it asked by itself |
 
 ## Business objects
 

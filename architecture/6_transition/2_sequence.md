@@ -32,13 +32,15 @@ flowchart LR
   s1i["1i — prepared for real content"]:::implementation
   s1j["1j — browse filters and branch safety"]:::implementation
   s1k["1k — metamodel identity and starters"]:::implementation
+  s1l["1l — proposal templates, revisions and impact"]:::implementation
+  s1m["1m — proposals refined in conversation"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s3b["3b — sources reached over a protocol"]:::implementation
   s4["4 — governed change on the platform"]:::implementation
   s5["5 — semantic front doors"]:::implementation
   s6["6 — the current EA tool retired"]:::implementation
-  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i --> s1j --> s1k
+  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i --> s1j --> s1k --> s1l --> s1m
   s1g --> s2
   s1g --> s3
   s3 --> s3b
@@ -61,6 +63,8 @@ flowchart LR
   s1i["1i — prepared for real content"]:::implementation
   s1j["1j — browse filters and branch safety"]:::implementation
   s1k["1k — metamodel identity and starters"]:::implementation
+  s1l["1l — proposal templates, revisions and impact"]:::implementation
+  s1m["1m — proposals refined in conversation"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s5["5 — semantic front doors"]:::implementation
@@ -76,6 +80,9 @@ flowchart LR
   s1i -.->|prepares| p3
   s1j -->|extends on DuckDB| p1
   s1k -->|extends on DuckDB| p1
+  s1l -.->|extends, in flight| p4
+  s1m -.->|extends, in flight| p4
+  s1m -.->|prepares, in flight| p2
   s2 -.->|reaches, in flight| p2
   s3 -.->|reaches, in flight| p3
   s5 -.->|reaches| p5
@@ -96,6 +103,8 @@ flowchart LR
 | 1i — prepared for real content (initiative 16, built 2026-09-20) | `GAP18` | `PLAT1`, extended | Step 1h, and the store measured by decisions 0016 to 0018 | The Health page says how large the model is against the capacity the application is assessed for; a trace on a seeded hundred thousand elements answers from the store without building the graph; an attribute's group is picked from a list the metamodel declares, not typed; and a second pack, in a different framework, is loaded into an organisation of its own |
 | 1j — browse filters and branch safety (initiative 20, built 2026-09-21) | `GAP21` | `PLAT1`, extended | Step 1i | An architect narrows the model by type, state, work package, source and an attribute at once, sends the address to a colleague and exports the result set; two architects edit different fields of one element and both changes survive the merge, because a conflict is a field both of them moved rather than a version that went up |
 | 1k — metamodel identity and starters (initiative 21, built 2026-09-22) | `GAP22` | `PLAT1`, extended | Step 1j | An admin corrects the name of a published metamodel and every organisation applying it keeps working, because nothing ever keyed off the name; and a newcomer picks the ArchiMate Core from the starters on a screen and lands in a new, empty organisation typed against it, with the organisation they were in untouched |
+| 1l — proposal templates, revisions and impact ([initiative 22](../scope/22_proposal-templates-revisions-and-impact.md), in flight) | `GAP23` | `PLAT4`, its intake, on DuckDB | Step 1k | An architect fills in the ArchiMate reference template, hands it in, reads before Apply that the component it decommissions still serves two processes, applies it to a branch, revises the page twice onto the same branch, and a reviewer approves it reading the page, its revisions, its impact and a generated view of the change |
+| 1m — proposals refined in conversation ([initiative 24](../scope/24_proposals-refined-in-conversation.md), in flight) | `GAP24`, `GAP25`, `GAP26` | `PLAT4`, its intake; prepares `PLAT2` | Step 1l; a Databricks Model Serving endpoint serving the model, for the served reader | An architect hands in a page whose component names match two systems; the assistant asks which one is meant and whether the forms server's other consumer should move with it, offering the choices; the architect picks one and answers the other in a sentence; the assistant offers to link a component's internal modules from the component rather than model them; the draft redraws, is saved, is picked up the next day and applied; the reviewer reads the conversation beside the merge log |
 | 2 — Databricks (initiatives 13 and 14, built 2026-09-09 and 2026-09-11; the workspace run pending) | `GAP1`, `GAP2`, `GAP16` | `PLAT2` | A workspace with Apps enabled and Lakebase available; a service principal | The same app on Databricks Apps, the same data in a Lakebase database, the same tests green |
 | 3 — provenance and feeds (initiative 18, built 2026-09-21; in flight) | `GAP4`, and `GAP19` opened | `PLAT3` | The per-type source-of-record table agreed with the enterprise architecture team (open question 5); read access to the extracts of the CMDB, the HR system, the project portfolio tool, the information asset register and the data platform's metadata catalogue (the last through its existing platform pipelines); and, outside the application, whatever fires a schedule | A source leaves rows in the store's own staging schema and a configured feed loads them through the same validation, report, branch and role rules a file gets — on demand today, on its schedule once something outside fires it; every run is kept and readable afterwards. **Still to come:** a CMDB change appearing without anyone pressing anything, which needs the source-of-record table and a trigger; and a source reached over a protocol rather than through a table somebody else fills (`GAP20`) |
 | 3b — sources reached over a protocol | `GAP20` | `PLAT3` | Step 3 (the pipeline a connected source is put through is the one step 3 built) and `PLAT2` (the platform is what reaches the source on a user's behalf); the source-of-record table, so a connected source knows which types it masters | A source is added by filling in where it lives and what it masters — no pipeline written for it — and its rows arrive validated, attributed to it, and on the branch its configuration names |

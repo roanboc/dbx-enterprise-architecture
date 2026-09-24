@@ -112,13 +112,23 @@ class BranchService:
         change log then says the merge happened without a review (decision 0009)."""
         require("merge", what="merge a branch")
         b = self.get(branch_id)
-        if b.status != "approved":
-            require("merge_without_review", what="merge a branch that is not approved")
-            if b.status in ("open", "in_review"):
-                self.backend._log(
-                    "branch", branch_id, "merge_without_review", actor, None, {"status": b.status}, None, MAIN
-                )  # noqa: SLF001
-        return self.backend.merge_branch(branch_id, actor, include, resolutions)
+        # The record of a merge without review lands with the merge or not at all: a merge
+        # that failed did not happen, reviewed or not.
+        with self.backend.transaction():
+            if b.status != "approved":
+                require("merge_without_review", what="merge a branch that is not approved")
+                if b.status in ("open", "in_review"):
+                    self.backend._log(
+                        "branch",
+                        branch_id,
+                        "merge_without_review",
+                        actor,
+                        None,
+                        {"status": b.status},
+                        None,
+                        MAIN,
+                    )  # noqa: SLF001
+            return self.backend.merge_branch(branch_id, actor, include, resolutions)
 
     def abandon(self, branch_id: str, actor: str) -> Branch:
         require("abandon_branch", what="abandon a branch")

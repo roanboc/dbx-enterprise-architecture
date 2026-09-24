@@ -618,3 +618,84 @@ def view_toolbar(
         text = dmc.Text(note, size="xs", c="dimmed")
         items.append(html.Div(text, id=note_id) if note_id else text)
     return dmc.Group(items, gap="sm", mt="xs", align="center")
+
+
+def impact_panel(impact: dict[str, Any] | None, block_id: str) -> Any:
+    """What a change touches beyond itself (DOBJ3.10), for the architect before Apply and for
+    the reviewer on the branch. It informs; nothing in it stops anything."""
+    impact = impact or {}
+    reached = impact.get("reached") or []
+    dangling = impact.get("dangling") or []
+    isolated = impact.get("isolated") or []
+    reviewers = impact.get("reviewers") or []
+    if not (reached or dangling or isolated or reviewers):
+        return empty("Nothing to assess: the change neither changes nor retires anything that exists.")
+    parts: list[Any] = []
+    if dangling:
+        parts += [
+            dmc.Text(f"Left pointing at an element being retired ({len(dangling)})", fw=600, size="sm"),
+            simple_table(
+                ["relationship", "from", "to", "why it matters"],
+                [
+                    [
+                        d.get("relationship", ""),
+                        element_anchor(
+                            {
+                                "element_id": d["src_id"],
+                                "name": d["retiring_name"]
+                                if d["src_id"] == d["retiring"]
+                                else d.get("other_name", d["src_id"]),
+                            }
+                        ),
+                        element_anchor(
+                            {
+                                "element_id": d["dst_id"],
+                                "name": d["retiring_name"]
+                                if d["dst_id"] == d["retiring"]
+                                else d.get("other_name", d["dst_id"]),
+                            }
+                        ),
+                        f"{d['retiring_name']} is being retired; the change does not retire this relationship",
+                    ]
+                    for d in dangling
+                ],
+            ),
+        ]
+    if reached:
+        parts += [
+            dmc.Text(
+                f"What the changed elements reach on main within {impact.get('depth', 2)} steps ({len(reached)}"
+                + (", cut" if impact.get("truncated") else "")
+                + ")",
+                fw=600,
+                size="sm",
+                mt="sm",
+            ),
+            simple_table(
+                ["element", "type", "via", "path", "steps"],
+                [
+                    [
+                        element_anchor(r),
+                        r.get("type", ""),
+                        r.get("via_name", r.get("via", "")),
+                        ("← " if r.get("direction") == "in" else "→ ") + " · ".join(r.get("path") or []),
+                        r.get("depth", ""),
+                    ]
+                    for r in reached
+                ],
+            ),
+        ]
+    if isolated:
+        parts += [
+            dmc.Text("New, and connected to nothing that exists", fw=600, size="sm", mt="sm"),
+            dmc.Text(", ".join(i["name"] for i in isolated), size="sm"),
+        ]
+    if reviewers:
+        parts += [
+            dmc.Text("Who must review it", fw=600, size="sm", mt="sm"),
+            simple_table(
+                ["type", "reviewers"],
+                [[r["type"], ", ".join(r["reviewers"]) or "any reviewer (none assigned)"] for r in reviewers],
+            ),
+        ]
+    return html.Div(parts, id=block_id)

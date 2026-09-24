@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import AbstractContextManager
 from typing import Any
 
 import pandas as pd
@@ -19,6 +20,7 @@ from ea.models import (
     Pack,
     PackVersion,
     Proposal,
+    ProposalTemplate,
     Relationship,
     Review,
     SourceFeed,
@@ -35,6 +37,11 @@ class DatabaseBackend(ABC):
     # ------------------------------------------------------------ lifecycle
     @abstractmethod
     def init_schema(self) -> None: ...
+
+    @abstractmethod
+    def transaction(self) -> AbstractContextManager[None]:
+        """Every write inside lands together or none of it does. One opened inside another
+        joins it, so a service may wrap a call that opens its own."""
 
     @abstractmethod
     def close(self) -> None: ...
@@ -251,7 +258,23 @@ class DatabaseBackend(ABC):
     def save_proposal(self, p: Proposal) -> Proposal: ...
 
     @abstractmethod
-    def list_proposals(self, branch_id: str | None = None) -> list[Proposal]: ...
+    def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
+        """Newest first."""
+
+    # The document shapes an organisation proposes in (initiative 22).
+    @abstractmethod
+    def save_proposal_template(self, t: ProposalTemplate, actor: str) -> ProposalTemplate:
+        """A new template, or the one with the same identifier replaced; the change is logged."""
+
+    @abstractmethod
+    def list_proposal_templates(self) -> list[ProposalTemplate]:
+        """The organisation's templates, by name."""
+
+    @abstractmethod
+    def get_proposal_template(self, template_id: str) -> ProposalTemplate | None: ...
+
+    @abstractmethod
+    def delete_proposal_template(self, template_id: str, actor: str) -> None: ...
 
     # ---------------------------------------------------------------- feeds
     @abstractmethod

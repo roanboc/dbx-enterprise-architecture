@@ -27,7 +27,8 @@ import logging
 import os
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pandas as pd
@@ -193,11 +194,19 @@ class LakebaseBackend(SqlBackend):
                             return [], []
                         return cur.fetchall(), [d.name for d in (cur.description or [])]
                 except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
-                    if attempt == 2 or not self._connection_gone(exc):
+                    # Inside a transaction a new connection would carry on outside it, with
+                    # the statements before this one lost: the transaction fails instead.
+                    if attempt == 2 or self._tx_depth or not self._connection_gone(exc):
                         raise
                     log.warning("the connection was closed (%s); signing in again", exc)
                     self._conn = self._connect()
         return [], []  # unreachable
+
+    @contextmanager
+    def _engine_transaction(self) -> Iterator[None]:
+        """psycopg's own: a block inside it that opens one (a bulk replace) takes a savepoint."""
+        with self._lock, self._conn.transaction():
+            yield
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> None:
         self._run(sql, params, fetch=False)

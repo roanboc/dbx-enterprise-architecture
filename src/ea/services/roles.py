@@ -47,6 +47,9 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     # Where content comes from, and whether a source lands on main without review, is an
     # admin's decision; running a feed that is already configured is an import.
     "manage_feeds": ("admin",),
+    # The document shapes the organisation proposes in are its configuration, like its feeds;
+    # proposing in one needs no template kept, since a page's front matter travels with it.
+    "manage_templates": ("admin",),
     "assign_reviewers": ("admin",),
 }
 DESCRIPTIONS = {

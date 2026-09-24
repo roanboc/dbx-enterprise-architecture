@@ -533,3 +533,88 @@ def test_an_import_onto_a_branch_keeps_what_the_branch_started_from(loaded, bran
         repo.update_element("PAC-CMS", "ana", cms.version, name="Branch name")
         loaded.upsert_elements([loaded.get_element("PAC-CMS")], "ana")
     assert branches.diff("fed").items[0].base is not None
+
+
+def test_a_merge_that_fails_part_way_leaves_main_and_the_branch_as_they_were(
+    loaded, branches, registry, monkeypatch
+):
+    """A merge is one transaction: all of it lands on main, or none of it does.
+
+    It used to run under a lock only, so an error on the third row left the first two on
+    main and gone from the branch — half a change, with nothing left to merge it from.
+    """
+    branches.create("half", "ana")
+    repo = RepositoryService(loaded, registry)
+    with use_branch("half"):
+        repo.create_element("data_entity", "Unit proposal", "ana", element_id="DE-HALF-1")
+        repo.create_element("data_entity", "Course proposal", "ana", element_id="DE-HALF-2")
+        cms = loaded.get_element("PAC-CMS")
+        repo.update_element("PAC-CMS", "ana", cms.version, description_md="Changed on the branch.")
+    before_main = loaded.get_element("PAC-CMS").description_md
+    rows_before = branches.get("half").changes
+    log_before = len(loaded.history(limit=1000))
+
+    real, applied = loaded._apply_item, []
+
+    def fail_on_the_third(branch_id, item, *args, **kwargs):
+        if len(applied) == 2:
+            raise RuntimeError("the store went away")
+        applied.append(item.key)
+        return real(branch_id, item, *args, **kwargs)
+
+    monkeypatch.setattr(loaded, "_apply_item", fail_on_the_third)
+    with pytest.raises(RuntimeError):
+        branches.merge("half", "ana")
+    monkeypatch.undo()
+
+    assert len(applied) == 2  # two rows were written before the failure …
+    assert loaded.get_element("DE-HALF-1") is None and loaded.get_element("DE-HALF-2") is None
+    assert loaded.get_element("PAC-CMS").description_md == before_main  # … and none of it stayed
+    b = branches.get("half")
+    assert b.status == "open" and b.changes == rows_before
+    assert len(loaded.history(limit=1000)) == log_before
+    # and the store is usable afterwards: the same merge goes through
+    out = branches.merge("half", "ana")
+    assert out.closed and loaded.get_element("DE-HALF-1") is not None
+    assert loaded.get_element("PAC-CMS").description_md == "Changed on the branch."
+
+
+def test_a_merge_on_a_store_file_rewrites_what_main_already_holds(tmp_path, pack, registry):
+    """One transaction on a DuckDB file: rows main already holds are updated, not replaced.
+
+    DuckDB refuses to delete a row and insert one under the same unique key inside one
+    transaction once the row is on disk, which an in-memory store never shows. A merge that
+    rewrote an element, its links and a relationship by delete-and-insert failed on every
+    store file the moment it became one transaction.
+    """
+    from tests.conftest import SAMPLE
+
+    from ea.backend.duckdb_backend import DuckDBBackend
+    from ea.importer import import_directory
+    from ea.services.organisations import OrganisationService
+
+    path = tmp_path / "ea.duckdb"
+    store = DuckDBBackend(path)
+    store.save_pack(pack)
+    OrganisationService(store).ensure_default(pack)
+    assert import_directory(store, registry, SAMPLE, "sample").ok
+    store.close()
+    store = DuckDBBackend(path)  # what is merged onto is now on disk, as it is for the app
+    try:
+        branches, repo = BranchService(store, registry), RepositoryService(store, registry)
+        branches.create("on-disk", "ana")
+        with use_branch("on-disk"):
+            cms = store.get_element("PAC-CMS")
+            repo.update_element("PAC-CMS", "ana", cms.version, description_md="Rewritten on the branch.")
+            store.set_links(
+                "PAC-CMS", [*store.get_links("PAC-CMS"), Link("PAC-CMS", "https://example.org/a")], "ana"
+            )
+            rel = store.relationships_of("PAC-CMS", "out")[0]
+            repo.set_relationship_states(rel.relationship_id, "ana", target_state="change")
+        out = branches.merge("on-disk", "ana")
+        assert out.closed, out
+        assert store.get_element("PAC-CMS").description_md == "Rewritten on the branch."
+        assert "https://example.org/a" in [ln.url for ln in store.get_links("PAC-CMS")]
+        assert store.get_relationship(rel.relationship_id).target_state == "change"
+    finally:
+        store.close()

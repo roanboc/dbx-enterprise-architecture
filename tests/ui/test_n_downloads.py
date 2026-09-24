@@ -665,18 +665,29 @@ def test_import_template_archive(ui, record):
 @pytest.mark.scenario(
     scenario_id="N10",
     group="N",
-    title="The Proposal Template downloads as the Markdown the analysis reads",
+    title="The proposal template downloads as the Markdown the analysis reads",
     feature="Downloads · Propose · the template",
-    expected="Download Proposal Template returns proposal-template.md: a titled document with the "
+    expected="Download template returns the picked starter, named for it: a titled document with the "
     "sections a proposal needs and the two tables — elements and relationships — the analysis reads, "
     "each with its worked example row.",
 )
 def test_proposal_template(ui, record):
     ui.goto("/propose")
     path = ui.download("pr-template", ".md")
-    ui.check("the file is named for what it is", path.name == "proposal-template.md", path.name)
+    ui.check(
+        "the file is named for what it is", path.name == "higher-education-change-proposal.md", path.name
+    )
     text = _text(path)
-    ui.check("it opens as a proposal", text.lstrip().startswith("# Proposal:"), text.splitlines()[0])
+    ui.check(
+        "it names itself in its front matter",
+        text.startswith("---\nproposal_template:"),
+        text.splitlines()[0],
+    )
+    ui.check(
+        "it opens as a proposal after the front matter",
+        text.split("\n---\n", 1)[-1].lstrip().startswith("# Proposal:"),
+        "",
+    )
     for heading in ("## Summary", "## Elements", "## Relationships"):
         ui.check(f"it offers the '{heading.strip('# ')}' section", heading in text, "")
     ui.check(
@@ -1344,7 +1355,8 @@ def test_a_reader_may_take_every_file(ui, record):
     proposal = ui.download("pr-template", ".md")
     ui.check(
         "and may take the proposal template, which is how a Reader asks for a change",
-        _text(proposal).lstrip().startswith("# Proposal:"),
+        # the template names itself in its front matter, then opens as a proposal
+        _text(proposal).split("\n---\n", 1)[-1].lstrip().startswith("# Proposal:"),
         _text(proposal).splitlines()[0],
     )
     ui.shot("The Propose page as a Reader, handing over the template it starts from")

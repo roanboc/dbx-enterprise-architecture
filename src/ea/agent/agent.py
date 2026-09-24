@@ -288,18 +288,21 @@ class AnthropicProvider:
 
 
 class Agent:
-    def __init__(self, toolbox: ToolBox, settings: Settings | None = None):
+    """One conversation: its history and its toolbox are its own; the provider may be shared."""
+
+    def __init__(self, toolbox: ToolBox, settings: Settings | None = None, provider: Any = None):
         self.toolbox = toolbox
         self.settings = settings or Settings.from_env()
         self.history: list[dict[str, Any]] = []
-        self.provider = self._make_provider()
+        self.provider = provider or self.make_provider(self.settings)
 
-    def _make_provider(self):
-        choice = self.settings.agent_provider
+    @staticmethod
+    def make_provider(settings: Settings):
+        choice = settings.agent_provider
         has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
         if choice == "anthropic" or (choice == "auto" and has_key):
             try:
-                return AnthropicProvider(self.settings.agent_model)
+                return AnthropicProvider(settings.agent_model)
             except Exception:  # noqa: BLE001 — missing SDK or credentials; the stub keeps the app usable
                 if choice == "anthropic":
                     raise
