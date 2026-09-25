@@ -66,7 +66,10 @@ flowchart LR
   render(["⬯ In-browser rendering [TSVC3]"]):::technology
   lake(["⬯ Lakebase SQL store [TSVC6]"]):::technology
   idp(["⬯ Workspace identity [TSVC5]"]):::technology
+  serve(["⬯ Model serving [TSVC7]"]):::technology
   ui["⊞ Web application [ACMP6]"]:::application
+  agent["⊞ Agent [ACMP5]"]:::application
+  reader["⊞ Proposal agent [ACMP10]"]:::application
   store["⊞ DuckDB backend [ACMP2.1]"]:::application
   engine["⊞ Lakebase backend [ACMP2.3]"]:::application
   roles["⊞ Roles and review [ACMP12]"]:::application
@@ -80,6 +83,9 @@ flowchart LR
   cli -->|uses| sql
   dbx -.->|provides, pending| lake
   dbx -.->|provides, pending| idp
+  dbx -.->|provides, pending| serve
+  agent -.->|uses, pending| serve
+  reader -.->|uses, pending| serve
   engine -.->|uses, pending| lake
   roles -.->|uses, pending| idp
   ui -.->|hosted on, pending| dbx
@@ -95,6 +101,7 @@ flowchart LR
 | `TSVC3` | **In-browser rendering** — Mermaid renders the generated views, Cytoscape lays out the graph panel, AG Grid draws the tables; the arrange-and-export script runs here | `NODE1.3` | `ACMP6`, `ACMP8` | Running |
 | `TSVC5` | **Workspace identity** — the signed-in user's e-mail, username and, with the `iam.current-user:read` scope, an access token forwarded on every request; the user's groups read from the workspace's directory with that token, or as the app's service principal | `NODE2` | `ACMP12`, `ACMP6` | **Pending — plateau `PLAT2`**: the lookup exists, the workspace has not run it |
 | `TSVC6` | **Lakebase SQL store** — SQL over a Lakebase database, the platform's Postgres, in a schema per group of tables named from `EA_SCHEMA` (decision 0018), reached over the Postgres protocol with TLS; the portable DDL read as written, a statement bound with as many values as it needs, a bulk load held in one transaction; the app's service principal signs in with an OAuth token the SDK generates for the instance, good for an hour, under the Postgres role its database resource gives it (connect to the database, create in it) | `NODE2` | `ACMP2.3` | **Pending — plateau `PLAT2`**: the engine exists, an instance has not run it |
+| `TSVC7` | **Model serving** — the assistant's model as a Databricks Model Serving endpoint, queried over the chat completions API every served model speaks at `<workspace>/serving-endpoints/<endpoint>/invocations`; which model answers — one, or several behind the endpoint's AI Gateway with traffic splitting and fallbacks — is the workspace's choice, and the bundle names none; each request signed with a token the Databricks SDK issues — the app's service principal on the platform, the architect's own credentials on a laptop — and renewed as it expires; the bundle grants the app `CAN_QUERY` on the one endpoint it names (decision [0023](../decisions/0023-the-model-is-served-by-the-platform.md)) | `NODE2` | `ACMP5`, `ACMP10` | **Pending — plateau `PLAT2`**: the provider exists and is proven against a stand-in endpoint; a workspace has not run it |
 
 ## Artifacts
 
@@ -128,7 +135,7 @@ flowchart LR
 | `ART3` | **Exchange files** — the CSV files of the contract and a source's mapping | `data/sample/`, `connectors/` | The sample is committed; institutional exports are not |
 | `ART4` | **Source repository** — the code, the packs, the connectors and this model, in git | the repository root | Apache-2.0; public |
 | `ART5` | **Bundled assets** — the Mermaid renderer, the icon set, the styles and the view-arranging script the browser runs | `assets/` | Attributed in `NOTICE` |
-| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Lakebase database instance and the app with the database resource it connects through and the app's configuration; the resource grants the app's service principal what the store needs, so nothing follows the deploy but the start | `databricks.yml` | Committed; `make deploy`, `make deploy-run` |
+| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Lakebase database instance and the app with the database resource it connects through and the app's configuration; the resources grant the app's service principal what the store needs and `CAN_QUERY` on the serving endpoint the assistant uses (decision 0023), so nothing follows the deploy but the start | `databricks.yml` | Committed; `make deploy`, `make deploy-run` |
 
 ## Relationships
 
@@ -155,6 +162,9 @@ flowchart LR
 | `ACMP6` | ▭ «Application Component» Web application | `NODE2` | ⬒ «Node» Databricks workspace | hosted on | **Pending — plateau `PLAT2`** |
 | `NODE2` | ⬒ «Node» Databricks workspace | `TSVC6` | ⚙ «Technology Service» Lakebase SQL store | provides | **Pending — plateau `PLAT2`** |
 | `NODE2` | ⬒ «Node» Databricks workspace | `TSVC5` | ⚙ «Technology Service» Workspace identity | provides | **Pending — plateau `PLAT2`** |
+| `NODE2` | ⬒ «Node» Databricks workspace | `TSVC7` | ⚙ «Technology Service» Model serving | provides | **Pending — plateau `PLAT2`** |
+| `ACMP5` | ▭ «Application Component» Agent | `TSVC7` | ⚙ «Technology Service» Model serving | uses | **Pending — plateau `PLAT2`**: the provider exists |
+| `ACMP10` | ▭ «Application Component» Proposal agent | `TSVC7` | ⚙ «Technology Service» Model serving | uses | **Pending — plateau `PLAT2`**: the provider exists |
 | `ACMP2.3` | ▭ «Application Component» Lakebase backend | `TSVC6` | ⚙ «Technology Service» Lakebase SQL store | uses | **Pending — plateau `PLAT2`**: the engine exists |
 | `ACMP12` | ▭ «Application Component» Roles and review | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the lookup exists |
 | `ACMP6` | ▭ «Application Component» Web application | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the forwarded headers |

@@ -19,8 +19,14 @@ class Settings:
     db_path: str = str(ROOT / "data" / "ea.duckdb")
     pack_path: str = str(ROOT / "packs" / "higher_education" / "metamodel.yaml")
     auth: str = "mock"
-    agent_provider: str = "auto"  # auto | anthropic | stub
-    agent_model: str = "claude-opus-5"
+    agent_provider: str = "auto"  # auto | databricks | anthropic | stub (ea.agent.llm)
+    agent_model: str = "claude-opus-5"  # the direct way's model (EA_AGENT_MODEL)
+    #: The Model Serving endpoint the assistant queries on Databricks (decision 0023); `auto`
+    #: picks it when set. Its workspace is DATABRICKS_HOST, or the SDK's own profile.
+    agent_endpoint: str = ""
+    databricks_host: str = ""
+    #: The longest reply the served model is asked for; the workspace's model sets the ceiling.
+    agent_max_tokens: int = 8192
     max_rows: int = 5000
     admin_contact: str = ""
     #: The zone times are written and shown in. A schedule means what it says where the
@@ -53,6 +59,9 @@ class Settings:
             auth=env.get("EA_AUTH", "mock"),
             agent_provider=env.get("EA_AGENT_PROVIDER", "auto"),
             agent_model=env.get("EA_AGENT_MODEL", "claude-opus-5"),
+            agent_endpoint=env.get("EA_AGENT_ENDPOINT", ""),
+            databricks_host=env.get("DATABRICKS_HOST", ""),
+            agent_max_tokens=int(env.get("EA_AGENT_MAX_TOKENS") or 8192),
             max_rows=int(env.get("EA_MAX_ROWS", "5000")),
             admin_contact=env.get("EA_ADMIN_CONTACT", ""),
             timezone=env.get("EA_TIMEZONE", "UTC"),

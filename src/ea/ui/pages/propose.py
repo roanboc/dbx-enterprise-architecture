@@ -1,4 +1,9 @@
-"""Propose: hand in a design (text, files, links); review the derived change set as an editable merge log; apply it to a branch."""
+"""Propose: hand in a design (text, files, links); settle it in conversation with the assistant;
+review the derived change set as an editable merge log; apply it to a branch.
+
+The assistant asks what the draft leaves unclear, a few questions at a time and the context
+first (initiative 24); the architect answers with a choice, in words, or by editing the rows.
+The draft and its conversation are kept between sittings, per architect."""
 
 from __future__ import annotations
 
@@ -8,11 +13,12 @@ from typing import Any
 import dash
 import dash_ag_grid as dag
 import dash_mantine_components as dmc
-from dash import Input, Output, State, dcc, html, no_update
+from dash import ALL, MATCH, Input, Output, State, dcc, html, no_update
 from dash import ctx as dash_ctx
 
 from ea.agent.document import slug
 from ea.agent.proposal import ProposalResult, fetch_link, result_from_payload
+from ea.agent.questions import MAX_SHOWN, shown
 from ea.backend.branching import MAIN
 from ea.models import CURRENT_STATES, TARGET_STATES, ConflictError, Forbidden, NotFoundError, ValidationError
 from ea.services.roles import a_role
@@ -31,6 +37,23 @@ from ea.ui.context import AppContext, get_context
 from ea.views.mermaid import to_mermaid
 
 NEW_OPTION = "__new__"
+WORDS = "__words__"  # the choice that answers a question in the architect's own words
+#: What the page keeps of a draft beside its rows: the rows live in the grids, the rest here.
+STORED = (
+    "title",
+    "summary",
+    "work_package",
+    "missing",
+    "template_id",
+    "template_name",
+    "sources",
+    "answers",
+    "asked",
+    "reason",
+    "technical",
+    "provider",
+    "model",
+)
 
 _GRID = dict(
     className="ag-theme-alpine",
@@ -166,7 +189,12 @@ def _el_rows(r: ProposalResult) -> list[dict[str, Any]]:
             "note": e.note,
             "attrs": dict(e.attrs),
             "attributes": "; ".join(f"{k} = {v}" for k, v in e.attrs.items()),
-            "issues": "; ".join(e.issues),
+            "issues": "; ".join(e.issues)
+            or (f"linked from its system: {e.reference_url}" if e.referenced_from else ""),
+            # what the conversation settled about the row, carried with it and not shown
+            "confirmed_new": e.confirmed_new,
+            "referenced_from": e.referenced_from,
+            "reference_url": e.reference_url,
         }
         for i, e in enumerate(r.elements)
     ]
@@ -209,6 +237,10 @@ def _payload_from_rows(
         "template_id": stored.get("template_id", ""),
         "template_name": stored.get("template_name", ""),
         "sources": list(stored.get("sources") or []),
+        "answers": dict(stored.get("answers") or {}),
+        "asked": list(stored.get("asked") or []),
+        "reason": stored.get("reason", ""),
+        "technical": bool(stored.get("technical", False)),
         "work_package": work_package,
         "elements": [
             {
@@ -222,6 +254,9 @@ def _payload_from_rows(
                 "note": r.get("note") or "",
                 "attrs": dict(r.get("attrs") or {}),
                 "include": r.get("key") in el_keys,
+                "confirmed_new": bool(r.get("confirmed_new")),
+                "referenced_from": r.get("referenced_from") or "",
+                "reference_url": r.get("reference_url") or "",
             }
             for i, r in enumerate(el_rows or [])
             if (r.get("name") or r.get("type"))
@@ -241,6 +276,212 @@ def _payload_from_rows(
             if (r.get("source") or r.get("target"))
         ],
     }
+
+
+def _stored(r: ProposalResult) -> dict[str, Any]:
+    """What the page keeps of a draft beside its rows."""
+    d = r.to_dict()
+    return {k: d.get(k) for k in STORED}
+
+
+def _result_from_page(ctx: AppContext, el_rows, el_sel, rel_rows, rel_sel, stored, wp, wp_new, branch):
+    """The draft as the page holds it now: the rows as edited and ticked, and the rest as kept."""
+    stored = stored or {}
+    work_package = stored.get("work_package") or _wp_choice(wp, wp_new)
+    payload = _payload_from_rows(el_rows, el_sel, rel_rows, rel_sel, stored, work_package)
+    result = result_from_payload(payload, stored.get("provider") or "manual", stored.get("model") or "")
+    return ctx.proposals.resolve(result, _matched_on(branch))
+
+
+def _turn_bubble(turn: dict[str, Any]):
+    mine = turn.get("role") == "architect"
+    head = "You" if mine else "Assistant"
+    if turn.get("kind") == "answer" and turn.get("question"):
+        head += " — answered: " + turn["question"][:90] + ("…" if len(turn["question"]) > 90 else "")
+    return html.Div(
+        [
+            dmc.Text(head, size="xs", c="dimmed", fw=500),
+            # an identifier in brackets is text, not a Markdown link reference
+            dcc.Markdown(
+                (turn.get("text") or "").replace("[", "\\[").replace("]", "\\]"), className="ea-turn-text"
+            ),
+        ],
+        className="ea-turn " + ("ea-turn-mine" if mine else "ea-turn-assistant"),
+    )
+
+
+def _question_options(q: dict[str, Any], converses: bool) -> list[dict[str, Any]]:
+    """A question's choices, and — when the assistant has a model — an answer in words."""
+    options = [dict(o) for o in q.get("options") or []]
+    if converses and not any(o.get("needs") == "text" and not o.get("choices") for o in options):
+        options.append({"key": WORDS, "label": "In my own words", "needs": "text", "choices": [], "hint": ""})
+    for o in options:
+        o["key"] = o.get("key") or WORDS
+    return options
+
+
+def _question_card(q: dict[str, Any], converses: bool):
+    options = _question_options(q, converses)
+    tags = [
+        dmc.Badge("stops Apply", color="orange", variant="light", size="xs") if q.get("blocking") else None,
+        dmc.Badge("asked by the assistant", color="indigo", variant="light", size="xs")
+        if q.get("asked_by") == "assistant"
+        else None,
+    ]
+    qid = q["qid"]
+    return dmc.Paper(
+        dmc.Stack(
+            [
+                dmc.Group([t for t in tags if t is not None], gap=4) if any(tags) else None,
+                dmc.Text(q.get("text", ""), size="sm", fw=500),
+                dcc.Store(id={"type": ids.PR_Q_DATA, "qid": qid}, data=options),
+                dmc.RadioGroup(
+                    dmc.Stack([dmc.Radio(label=o["label"], value=o["key"]) for o in options], gap=6),
+                    id={"type": ids.PR_Q_OPT, "qid": qid},
+                    value=options[0]["key"] if len(options) == 1 else None,
+                    size="sm",
+                    **{"aria-label": q.get("text", "")},
+                ),
+                dmc.Select(
+                    id={"type": ids.PR_Q_CHOICE, "qid": qid},
+                    data=[],
+                    searchable=True,
+                    style={"display": "none"},
+                    comboboxProps={"withinPortal": True},
+                ),
+                dmc.TextInput(id={"type": ids.PR_Q_TEXT, "qid": qid}, style={"display": "none"}),
+                dmc.Group(
+                    dmc.Button("Answer", id={"type": ids.PR_Q_SEND, "qid": qid}, size="compact-sm"),
+                    justify="flex-end",
+                ),
+            ],
+            gap=6,
+        ),
+        p="sm",
+        withBorder=True,
+        className="ea-question",
+    )
+
+
+def _conversation_panel(ctx: AppContext, r: ProposalResult, conversation: list[dict[str, Any]]):
+    """The conversation beside the draft: what was said, and the questions open now."""
+    converses = ctx.proposals.converses
+    open_now = shown(r.questions, MAX_SHOWN)
+    waiting = len(r.questions) - len(open_now)
+    held = sum(1 for q in r.questions if q.get("held"))
+    return dmc.Paper(
+        dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        dmc.Text("Conversation", fw=700, size="sm"),
+                        dmc.Anchor("What belongs here? The guide", href="/guide#the-boundary", size="xs"),
+                    ],
+                    justify="space-between",
+                ),
+                dmc.Text(
+                    "The assistant asks what the draft leaves unclear, the context first. You decide "
+                    "every answer; nothing is written until you apply.",
+                    size="xs",
+                    c="dimmed",
+                ),
+                html.Div(
+                    [_turn_bubble(t) for t in conversation[-24:]],
+                    className="ea-turns",
+                ),
+                dmc.Stack([_question_card(q, converses) for q in open_now], gap="xs")
+                if open_now
+                else dmc.Text("No question is open.", size="sm", c="dimmed"),
+                dmc.Text(
+                    f"{waiting} more question{'s' if waiting != 1 else ''} waiting"
+                    + (
+                        f"; {held} about the application and technology rows wait until the context is settled."
+                        if held
+                        else "."
+                    ),
+                    size="xs",
+                    c="dimmed",
+                )
+                if waiting
+                else None,
+                dmc.Textarea(
+                    id=ids.PR_MESSAGE,
+                    label="Tell the assistant",
+                    placeholder="What the change is for, what a row means, what to add…"
+                    if converses
+                    else "No model is configured: pick a choice above, or edit the rows",
+                    autosize=True,
+                    minRows=2,
+                    disabled=not converses,
+                ),
+                dmc.Group(
+                    dmc.Button(
+                        "Send",
+                        id=ids.PR_SEND,
+                        size="compact-sm",
+                        variant="light",
+                        leftSection=icon("tabler:send", 14),
+                        disabled=not converses,
+                    ),
+                    justify="flex-end",
+                ),
+                html.Div(id=ids.PR_TURN_FEEDBACK),
+            ],
+            gap="xs",
+        ),
+        p="sm",
+        withBorder=True,
+        className="ea-card",
+        id=ids.PR_CONV,
+    )
+
+
+def _drafts_panel(ctx: AppContext):
+    """The architect's drafts, to pick up where they were left."""
+    drafts = ctx.proposals.drafts(ctx.actor) if ctx.can("propose") else []
+    if not drafts:
+        return html.Div(id=ids.PR_DRAFTS, style={"marginBottom": "0.75rem"})
+    rows = []
+    for d in drafts[:10]:
+        questions = len((d.result or {}).get("questions") or [])
+        when = d.updated_at.strftime("%Y-%m-%d %H:%M") if d.updated_at else ""
+        rows.append(
+            dmc.Group(
+                [
+                    dmc.Text(d.title, size="sm", fw=500),
+                    dmc.Text(
+                        f"{questions} question{'s' if questions != 1 else ''} open · {when}",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    dmc.Button(
+                        "Resume",
+                        id={"type": ids.PR_DRAFT_RESUME, "id": d.proposal_id},
+                        size="compact-xs",
+                        variant="light",
+                        **{"aria-label": f"Resume the draft {d.title}"},
+                    ),
+                    dmc.Button(
+                        "Discard",
+                        id={"type": ids.PR_DRAFT_DISCARD, "id": d.proposal_id},
+                        size="compact-xs",
+                        variant="subtle",
+                        color="red",
+                        **{"aria-label": f"Discard the draft {d.title}"},
+                    ),
+                ],
+                gap="xs",
+            )
+        )
+    return html.Div(
+        alert(
+            dmc.Stack([dmc.Text("Your drafts, kept between sittings", size="sm", fw=600)] + rows, gap=4),
+            "blue",
+            dismissible=False,
+        ),
+        id=ids.PR_DRAFTS,
+        style={"marginBottom": "0.75rem"},
+    )
 
 
 def _revision_note(r: ProposalResult):
@@ -288,8 +529,9 @@ def _change_view(ctx: AppContext, r: ProposalResult):
     return mermaid_block(ids.PR_VIEW, to_mermaid(view, marked=True), legend=layer_chips(view))
 
 
-def _preview(ctx: AppContext, r: ProposalResult):
-    """The change-set preview: pushback, then the two editable grids with include ticks."""
+def _preview(ctx: AppContext, r: ProposalResult, conversation: list[dict[str, Any]] | None = None):
+    """The change-set preview: pushback, then the conversation beside the draft's tabs — the two
+    editable grids with include ticks, what the change touches, and the change drawn."""
     el_rows, rel_rows = _el_rows(r), _rel_rows(r)
     n_new = sum(1 for e in r.elements if e.action == "new")
     n_link = sum(1 for e in r.elements if e.action == "link")
@@ -337,7 +579,8 @@ def _preview(ctx: AppContext, r: ProposalResult):
                     html.Div(
                         [
                             dmc.Text(
-                                "Not enough to apply. Add the following, then analyse again or correct the rows below:",
+                                "Not enough to apply yet. Answer the open questions in the conversation, "
+                                "or correct the rows, then re-check:",
                                 fw=600,
                                 size="sm",
                             ),
@@ -374,97 +617,116 @@ def _preview(ctx: AppContext, r: ProposalResult):
             )
             if r.missing
             else None,
-            dmc.Tabs(
+            dmc.Grid(
                 [
-                    dmc.TabsList(
-                        [
-                            dmc.TabsTab(
-                                f"Rows ({len(r.elements)} + {len(r.relationships)})",
-                                value="rows",
-                                leftSection=icon("tabler:table"),
-                            ),
-                            dmc.TabsTab(
-                                _touches_label(r),
-                                value="impact",
-                                leftSection=icon("tabler:target-arrow"),
-                            ),
-                            dmc.TabsTab("Drawn", value="drawn", leftSection=icon("tabler:topology-star")),
-                        ]
+                    dmc.GridCol(
+                        _conversation_panel(ctx, r, conversation or []),
+                        span={"base": 12, "lg": 4},
                     ),
-                    dmc.TabsPanel(
-                        html.Div(
+                    dmc.GridCol(
+                        dmc.Tabs(
                             [
-                                dmc.Title("Elements", order=2, className="ea-section-title"),
-                                dmc.Text(
-                                    "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
-                                    size="xs",
-                                    c="dimmed",
-                                    mb=4,
+                                dmc.TabsList(
+                                    [
+                                        dmc.TabsTab(
+                                            f"Rows ({len(r.elements)} + {len(r.relationships)})",
+                                            value="rows",
+                                            leftSection=icon("tabler:table"),
+                                        ),
+                                        dmc.TabsTab(
+                                            _touches_label(r),
+                                            value="impact",
+                                            leftSection=icon("tabler:target-arrow"),
+                                        ),
+                                        dmc.TabsTab(
+                                            "Drawn", value="drawn", leftSection=icon("tabler:topology-star")
+                                        ),
+                                    ]
                                 ),
-                                dag.AgGrid(
-                                    id=ids.PR_EL_GRID,
-                                    columnDefs=element_columns(ctx),
-                                    rowData=el_rows,
-                                    getRowId="params.data.key",
-                                    selectedRows=[x for x in el_rows if x["include"]],
-                                    **_GRID,
+                                dmc.TabsPanel(
+                                    html.Div(
+                                        [
+                                            dmc.Title("Elements", order=2, className="ea-section-title"),
+                                            dmc.Text(
+                                                "new = will be created as proposed on the branch; link = an element that exists, updated only in its states. Edit any cell in place; untick a row to leave it out.",
+                                                size="xs",
+                                                c="dimmed",
+                                                mb=4,
+                                            ),
+                                            dag.AgGrid(
+                                                id=ids.PR_EL_GRID,
+                                                columnDefs=element_columns(ctx),
+                                                rowData=el_rows,
+                                                getRowId="params.data.key",
+                                                selectedRows=[x for x in el_rows if x["include"]],
+                                                **_GRID,
+                                            ),
+                                            dmc.Button(
+                                                "Add element row",
+                                                id=ids.PR_ADD_EL,
+                                                size="xs",
+                                                variant="subtle",
+                                                leftSection=icon("tabler:plus", 12),
+                                                mt=4,
+                                            ),
+                                            dmc.Title(
+                                                "Relationships",
+                                                order=2,
+                                                className="ea-section-title",
+                                                mt="md",
+                                            ),
+                                            dmc.Text(
+                                                "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
+                                                size="xs",
+                                                c="dimmed",
+                                                mb=4,
+                                            ),
+                                            dag.AgGrid(
+                                                id=ids.PR_REL_GRID,
+                                                columnDefs=REL_COLUMNS,
+                                                rowData=rel_rows,
+                                                getRowId="params.data.key",
+                                                selectedRows=[x for x in rel_rows if x["include"]],
+                                                **_GRID,
+                                            ),
+                                            dmc.Button(
+                                                "Add relationship row",
+                                                id=ids.PR_ADD_REL,
+                                                size="xs",
+                                                variant="subtle",
+                                                leftSection=icon("tabler:plus", 12),
+                                                mt=4,
+                                            ),
+                                        ]
+                                    ),
+                                    value="rows",
+                                    pt="md",
                                 ),
-                                dmc.Button(
-                                    "Add element row",
-                                    id=ids.PR_ADD_EL,
-                                    size="xs",
-                                    variant="subtle",
-                                    leftSection=icon("tabler:plus", 12),
-                                    mt=4,
+                                dmc.TabsPanel(
+                                    html.Div(
+                                        [
+                                            dmc.Text(
+                                                "Read from main, before anything is written: what depends on what the change alters or retires, "
+                                                "what it leaves pointing at nothing, and who must review it. It informs; it does not stop Apply.",
+                                                size="xs",
+                                                c="dimmed",
+                                                mb=4,
+                                            ),
+                                            impact_panel(r.impact, ids.PR_IMPACT),
+                                        ]
+                                    ),
+                                    value="impact",
+                                    pt="md",
                                 ),
-                                dmc.Title("Relationships", order=2, className="ea-section-title", mt="md"),
-                                dmc.Text(
-                                    "Refer to the elements by the names above or by repository id; the relationship is a name of the metamodel.",
-                                    size="xs",
-                                    c="dimmed",
-                                    mb=4,
-                                ),
-                                dag.AgGrid(
-                                    id=ids.PR_REL_GRID,
-                                    columnDefs=REL_COLUMNS,
-                                    rowData=rel_rows,
-                                    getRowId="params.data.key",
-                                    selectedRows=[x for x in rel_rows if x["include"]],
-                                    **_GRID,
-                                ),
-                                dmc.Button(
-                                    "Add relationship row",
-                                    id=ids.PR_ADD_REL,
-                                    size="xs",
-                                    variant="subtle",
-                                    leftSection=icon("tabler:plus", 12),
-                                    mt=4,
-                                ),
-                            ]
+                                dmc.TabsPanel(_change_view(ctx, r), value="drawn", pt="md"),
+                            ],
+                            id=ids.PR_TABS,
+                            value="rows",
                         ),
-                        value="rows",
-                        pt="md",
+                        span={"base": 12, "lg": 8},
                     ),
-                    dmc.TabsPanel(
-                        html.Div(
-                            [
-                                dmc.Text(
-                                    "Read from main, before anything is written: what depends on what the change alters or retires, "
-                                    "what it leaves pointing at nothing, and who must review it. It informs; it does not stop Apply.",
-                                    size="xs",
-                                    c="dimmed",
-                                    mb=4,
-                                ),
-                                impact_panel(r.impact, ids.PR_IMPACT),
-                            ]
-                        ),
-                        value="impact",
-                        pt="md",
-                    ),
-                    dmc.TabsPanel(_change_view(ctx, r), value="drawn", pt="md"),
                 ],
-                id=ids.PR_TABS,
-                value="rows",
+                gutter="md",
             ),
             dmc.Divider(my="md"),
             dmc.Group(
@@ -504,7 +766,7 @@ def render(ctx: AppContext) -> html.Div:
     badge = dmc.Badge(
         f"reader: {provider.name}" + (f" · {provider.model}" if getattr(provider, "model", "") else ""),
         variant="light",
-        color="indigo" if provider.name == "anthropic" else "gray",
+        color="gray" if provider.name == "stub" else "indigo",
         id=ids.PR_PROVIDER,
     )
     wps = ctx.work_package_options()
@@ -516,9 +778,13 @@ def render(ctx: AppContext) -> html.Div:
         [
             page_title(
                 "Propose a change",
-                "Hand in a design page, a document or links. The reader identifies the elements it names, links the ones that exist, adopts the new ones as proposed, and pushes back on what is missing. You review every row, add what it missed, and apply the result to a branch.",
+                "Hand in a design page, a document or links. The assistant identifies the elements it "
+                "names, links the ones that exist, adopts the new ones as proposed, and asks about what "
+                "it cannot settle — why the change is made and which business it changes first. You "
+                "answer, review every row, and apply the result to a branch.",
                 badge,
             ),
+            _drafts_panel(ctx),
             dmc.SimpleGrid(
                 [
                     dmc.Paper(
@@ -673,6 +939,8 @@ def render(ctx: AppContext) -> html.Div:
                 mb="md",
             ),
             dcc.Store(id=ids.PR_RESULT_STORE, data=None),
+            dcc.Store(id=ids.PR_CONV_STORE, data=[]),
+            dcc.Store(id=ids.PR_DRAFT_STORE, data=""),
             html.Div(id=ids.PR_RESULT),
         ]
     )
@@ -908,9 +1176,22 @@ def register(app: dash.Dash) -> None:
         options = [{"value": k, "label": label} for k, label, _ in templates.offered()]
         return html.Div(said), _kept_rows(ctx), options
 
+    def keep(ctx: AppContext, result: ProposalResult, conversation, branch, draft_id) -> str:
+        """The draft kept between sittings, when the role may propose; its identifier."""
+        if not ctx.can("propose"):
+            return draft_id or ""
+        on = branch if branch and branch != NEW_OPTION else ""
+        try:
+            return ctx.proposals.save_draft(result, conversation, ctx.actor, on, draft_id or "").proposal_id
+        except PermissionError:  # another architect's: this sitting becomes a draft of its own
+            return ctx.proposals.save_draft(result, conversation, ctx.actor, on).proposal_id
+
     @app.callback(
         Output(ids.PR_RESULT, "children"),
         Output(ids.PR_RESULT_STORE, "data"),
+        Output(ids.PR_CONV_STORE, "data"),
+        Output(ids.PR_DRAFT_STORE, "data"),
+        Output(ids.PR_DRAFTS, "children"),
         Input(ids.PR_ANALYSE, "n_clicks"),
         State({"type": ids.MD_TEXT, "id": ids.PR_TEXT}, "value"),
         State(ids.PR_STORE, "data"),
@@ -924,28 +1205,198 @@ def register(app: dash.Dash) -> None:
     )
     def analyse(n, text, files, links, wp, wp_new, branch, template_key):
         if not n:
-            return no_update, no_update
+            return (no_update,) * 5
         ctx = get_context()
         on = _matched_on(branch)
         sources, problems = _sources(text, files, links)
         if sources:
-            result = ctx.proposals.analyse(sources, on, template_key)
+            result, conversation = ctx.proposals.start(sources, on, template_key)
         else:
-            result = ctx.proposals.resolve(ProposalResult(provider="manual"), on)
-        if not result.work_package:
+            result, conversation = ctx.proposals.resolve(ProposalResult(provider="manual"), on), []
+        if not result.work_package and _wp_choice(wp, wp_new):
             result.work_package = _wp_choice(wp, wp_new)
             result = ctx.proposals.resolve(result, on)
+        # what the assistant says reads the draft as it now stands
+        conversation = [t for t in conversation if t.get("role") != "assistant"] + [
+            {
+                "role": "assistant",
+                "kind": "reply",
+                "text": ctx.proposals.summary(result),
+                "questions": [q["qid"] for q in shown(result.questions)],
+            }
+        ]
+        draft_id = keep(ctx, result, conversation, branch, "")
         head = alert("Some links could not be read: " + "; ".join(problems), "red") if problems else None
-        stored = {
-            "title": result.title,
-            "summary": result.summary,
-            "work_package": result.work_package,
-            "missing": result.missing,
-            "template_id": result.template_id,
-            "template_name": result.template_name,
-            "sources": result.sources,
-        }
-        return html.Div([head, _preview(ctx, result)]), stored
+        return (
+            html.Div([head, _preview(ctx, result, conversation)]),
+            _stored(result),
+            conversation,
+            draft_id,
+            _drafts_panel(ctx).children,
+        )
+
+    @app.callback(
+        Output({"type": ids.PR_Q_CHOICE, "qid": MATCH}, "data"),
+        Output({"type": ids.PR_Q_CHOICE, "qid": MATCH}, "style"),
+        Output({"type": ids.PR_Q_CHOICE, "qid": MATCH}, "label"),
+        Output({"type": ids.PR_Q_CHOICE, "qid": MATCH}, "value"),
+        Output({"type": ids.PR_Q_TEXT, "qid": MATCH}, "style"),
+        Output({"type": ids.PR_Q_TEXT, "qid": MATCH}, "label"),
+        Output({"type": ids.PR_Q_TEXT, "qid": MATCH}, "placeholder"),
+        Input({"type": ids.PR_Q_OPT, "qid": MATCH}, "value"),
+        State({"type": ids.PR_Q_DATA, "qid": MATCH}, "data"),
+    )
+    def what_a_choice_needs(key, options):
+        """The second pick and the words a choice needs, shown only when it needs them."""
+        hidden = {"display": "none"}
+        o = next((x for x in options or [] if x.get("key") == key), None)
+        if o is None:
+            return [], hidden, "", None, hidden, "", ""
+        choices = [{"value": c["key"], "label": c["label"]} for c in o.get("choices") or []]
+        choice_label = "Type" if o["key"] == "new" else "Relationship"
+        text_label = {
+            "text": "Your answer",
+            "name": "Name",
+            "url": "The page that describes it",
+        }.get(o.get("needs") or "", "")
+        return (
+            choices,
+            {} if choices else hidden,
+            choice_label,
+            choices[0]["value"] if len(choices) == 1 else None,
+            {} if o.get("needs") else hidden,
+            text_label,
+            o.get("hint") or ("https://…" if o.get("needs") == "url" else ""),
+        )
+
+    @app.callback(
+        Output(ids.PR_RESULT, "children", allow_duplicate=True),
+        Output(ids.PR_RESULT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_CONV_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFTS, "children", allow_duplicate=True),
+        Input({"type": ids.PR_Q_SEND, "qid": ALL}, "n_clicks"),
+        Input(ids.PR_SEND, "n_clicks"),
+        State({"type": ids.PR_Q_OPT, "qid": ALL}, "value"),
+        State({"type": ids.PR_Q_CHOICE, "qid": ALL}, "value"),
+        State({"type": ids.PR_Q_TEXT, "qid": ALL}, "value"),
+        State(ids.PR_MESSAGE, "value"),
+        State(ids.PR_EL_GRID, "virtualRowData"),
+        State(ids.PR_EL_GRID, "rowData"),
+        State(ids.PR_EL_GRID, "selectedRows"),
+        State(ids.PR_REL_GRID, "virtualRowData"),
+        State(ids.PR_REL_GRID, "rowData"),
+        State(ids.PR_REL_GRID, "selectedRows"),
+        State(ids.PR_RESULT_STORE, "data"),
+        State(ids.PR_CONV_STORE, "data"),
+        State(ids.PR_DRAFT_STORE, "data"),
+        State(ids.PR_BRANCH, "value"),
+        State(ids.PR_WP, "value"),
+        State(ids.PR_WP_NEW, "value"),
+        prevent_initial_call=True,
+        running=[(Output(ids.PR_SEND, "loading"), True, False)],
+    )
+    def converse(
+        sends, send, picked, second, words, message, el_v, el_rows, el_sel, rel_v, rel_rows, rel_sel,
+        stored, conversation, draft_id, branch, wp, wp_new,
+    ):  # fmt: skip
+        trig = dash_ctx.triggered_id
+        if not dash_ctx.triggered or not dash_ctx.triggered[0].get("value"):
+            return (no_update,) * 5
+        ctx = get_context()
+        answers: list[dict[str, str]] = []
+        text = ""
+        if isinstance(trig, dict) and trig.get("type") == ids.PR_Q_SEND:
+            qid = trig["qid"]
+
+            def value_of(kind: str):
+                for group in dash_ctx.states_list:
+                    for item in group if isinstance(group, list) else []:
+                        if item["id"].get("type") == kind and item["id"].get("qid") == qid:
+                            return item.get("value")
+                return None
+
+            key = value_of(ids.PR_Q_OPT)
+            if not key:
+                return (no_update,) * 5
+            answers.append(
+                {
+                    "qid": qid,
+                    "key": "" if key == WORDS else key,
+                    "choice": value_of(ids.PR_Q_CHOICE) or "",
+                    "text": value_of(ids.PR_Q_TEXT) or "",
+                }
+            )
+        elif trig == ids.PR_SEND:
+            text = (message or "").strip()
+            if not text:
+                return (no_update,) * 5
+        result = _result_from_page(
+            ctx, el_v or el_rows, el_sel, rel_v or rel_rows, rel_sel, stored, wp, wp_new, branch
+        )
+        result, conversation = ctx.proposals.turn(
+            result, conversation or [], answers, text, ctx.actor, _matched_on(branch)
+        )
+        draft_id = keep(ctx, result, conversation, branch, draft_id)
+        return (
+            _preview(ctx, result, conversation),
+            _stored(result),
+            conversation,
+            draft_id,
+            _drafts_panel(ctx).children,
+        )
+
+    @app.callback(
+        Output(ids.PR_RESULT, "children", allow_duplicate=True),
+        Output(ids.PR_RESULT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_CONV_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFTS, "children", allow_duplicate=True),
+        Output(ids.PR_BRANCH, "value", allow_duplicate=True),
+        Input({"type": ids.PR_DRAFT_RESUME, "id": ALL}, "n_clicks"),
+        Input({"type": ids.PR_DRAFT_DISCARD, "id": ALL}, "n_clicks"),
+        State(ids.PR_DRAFT_STORE, "data"),
+        prevent_initial_call=True,
+    )
+    def drafts(resumes, discards, current):
+        trig = dash_ctx.triggered_id
+        if not isinstance(trig, dict) or not dash_ctx.triggered[0].get("value"):
+            return (no_update,) * 6
+        ctx = get_context()
+        pid = trig["id"]
+        if trig.get("type") == ids.PR_DRAFT_DISCARD:
+            try:
+                ctx.proposals.discard_draft(pid, ctx.actor)
+            except (PermissionError, ValueError, Forbidden):
+                return (no_update,) * 6
+            cleared = pid == current
+            return (
+                html.Div() if cleared else no_update,
+                None if cleared else no_update,
+                [] if cleared else no_update,
+                "" if cleared else no_update,
+                _drafts_panel(ctx).children,
+                no_update,
+            )
+        d = ctx.proposals.draft(pid)
+        if d is None:
+            return (no_update,) * 6
+        open_ids = {b.branch_id for b in ctx.branches.open()}
+        branch = d.branch_id if d.branch_id in open_ids else None
+        result = ctx.proposals.resolve(
+            result_from_payload(
+                d.result, (d.result or {}).get("provider") or "manual", (d.result or {}).get("model") or ""
+            ),
+            branch or MAIN,
+        )
+        return (
+            _preview(ctx, result, d.conversation),
+            _stored(result),
+            d.conversation,
+            d.proposal_id,
+            no_update,
+            branch,
+        )
 
     @app.callback(
         Output(ids.PR_EL_GRID, "rowData"),
@@ -1011,6 +1462,9 @@ def register(app: dash.Dash) -> None:
         Output(ids.PR_RESULT, "children", allow_duplicate=True),
         Output(ids.PR_APPLY_FEEDBACK, "children"),
         Output(ids.BRANCH_SELECT, "data", allow_duplicate=True),
+        Output(ids.PR_RESULT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFT_STORE, "data", allow_duplicate=True),
+        Output(ids.PR_DRAFTS, "children", allow_duplicate=True),
         Input(ids.PR_ANALYSE + "-again", "n_clicks"),
         Input(ids.PR_APPLY, "n_clicks"),
         State(ids.PR_EL_GRID, "virtualRowData"),
@@ -1020,6 +1474,8 @@ def register(app: dash.Dash) -> None:
         State(ids.PR_REL_GRID, "rowData"),
         State(ids.PR_REL_GRID, "selectedRows"),
         State(ids.PR_RESULT_STORE, "data"),
+        State(ids.PR_CONV_STORE, "data"),
+        State(ids.PR_DRAFT_STORE, "data"),
         State(ids.PR_BRANCH, "value"),
         State(ids.PR_BRANCH_NEW, "value"),
         State(ids.PR_WP, "value"),
@@ -1028,37 +1484,36 @@ def register(app: dash.Dash) -> None:
         running=[(Output(ids.PR_APPLY, "loading"), True, False)],
     )
     def recheck_or_apply(
-        n_check,
-        n_apply,
-        el_v,
-        el_rows,
-        el_sel,
-        rel_v,
-        rel_rows,
-        rel_sel,
-        stored,
-        branch,
-        branch_new,
-        wp,
-        wp_new,
-    ):
+        n_check, n_apply, el_v, el_rows, el_sel, rel_v, rel_rows, rel_sel, stored, conversation,
+        draft_id, branch, branch_new, wp, wp_new,
+    ):  # fmt: skip
         trig = dash_ctx.triggered_id
         ctx = get_context()
-        work_package = (stored or {}).get("work_package") or _wp_choice(wp, wp_new)
-        payload = _payload_from_rows(
-            el_v or el_rows, el_sel, rel_v or rel_rows, rel_sel, stored, work_package
+        conversation = conversation or []
+        result = _result_from_page(
+            ctx, el_v or el_rows, el_sel, rel_v or rel_rows, rel_sel, stored, wp, wp_new, branch
         )
-        result = ctx.proposals.resolve(result_from_payload(payload, "manual"), _matched_on(branch))
         if trig == ids.PR_ANALYSE + "-again":
             if not n_check:
-                return no_update, no_update, no_update
-            return _preview(ctx, result), no_update, no_update
+                return (no_update,) * 6
+            draft_id = keep(ctx, result, conversation, branch, draft_id)
+            return (
+                _preview(ctx, result, conversation),
+                no_update,
+                no_update,
+                _stored(result),
+                draft_id,
+                _drafts_panel(ctx).children,
+            )
         if not n_apply:
-            return no_update, no_update, no_update
+            return (no_update,) * 6
         if result.pushback:
             return (
-                _preview(ctx, result),
+                _preview(ctx, result, conversation),
                 alert("Not applied: see what is missing above.", "yellow"),
+                no_update,
+                _stored(result),
+                no_update,
                 no_update,
             )
         new_name = (branch_new or "").strip()
@@ -1073,10 +1528,12 @@ def register(app: dash.Dash) -> None:
             else:
                 title = result.title or f"proposal {len(ctx.branches.list()) + 1}"
                 b = ctx.branches.create(title, ctx.actor, f"Proposal: {title}", result.work_package_id or "")
-            out = ctx.proposals.apply(result, b.branch_id, ctx.actor)
+            # the draft as it stands now, so the applied proposal carries the whole conversation
+            draft_id = keep(ctx, result, conversation, b.branch_id, draft_id)
+            out = ctx.proposals.apply(result, b.branch_id, ctx.actor, draft_id=draft_id)
         except (ValidationError, ConflictError, NotFoundError, ValueError, Forbidden) as exc:
             msg = "; ".join(str(i) for i in exc.issues) if isinstance(exc, ValidationError) else str(exc)
-            return no_update, alert(f"Not applied: {msg}", "red"), no_update
+            return no_update, alert(f"Not applied: {msg}", "red"), no_update, no_update, no_update, no_update
         ctx.graph.invalidate()
         summary = html.Div(
             [
@@ -1084,6 +1541,11 @@ def register(app: dash.Dash) -> None:
                     f"Applied to branch {b.name}: {len(out['created'])} element(s) created as proposed, {len(out['linked'])} linked, "
                     f"{len(out['relationships'])} relationship(s) written"
                     + (f", {len(out['retired'])} marked for decommissioning" if out.get("retired") else "")
+                    + (
+                        f", {len(out['referenced'])} part(s) linked from their system"
+                        if out.get("referenced")
+                        else ""
+                    )
                     + (f", {len(out['skipped'])} row(s) skipped" if out["skipped"] else "")
                     + (" — a revision of the proposal already there" if out.get("revises") else "")
                     + ".",
@@ -1112,4 +1574,11 @@ def register(app: dash.Dash) -> None:
                 else None,
             ]
         )
-        return no_update, alert(summary, "green"), ctx.branch_options()
+        return (
+            no_update,
+            alert(summary, "green"),
+            ctx.branch_options(),
+            no_update,
+            "",
+            _drafts_panel(ctx).children,
+        )

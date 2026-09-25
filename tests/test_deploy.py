@@ -23,12 +23,18 @@ def test_the_bundle_runs_the_app_on_its_own_lakebase_instance_with_the_extra_ins
     # the deployed names, not the variables: development mode prefixes what it creates
     assert env["EA_LAKEBASE_INSTANCE"]["value"] == "${resources.database_instances.ea.name}"
     assert env["PGDATABASE"]["value"] == "${var.database}" and env["EA_SCHEMA"]["value"] == "${var.schema}"
-    [database] = app["resources"]
+    database, endpoint = app["resources"]
     assert database["database"] == {
         "instance_name": "${resources.database_instances.ea.name}",
         "database_name": "${var.database}",
         "permission": "CAN_CONNECT_AND_CREATE",
     }
+    # the assistant's model: one serving endpoint the app may query, and nothing more (decision 0023)
+    assert endpoint["serving_endpoint"] == {"name": "${var.serving_endpoint}", "permission": "CAN_QUERY"}
+    assert env["EA_AGENT_ENDPOINT"]["value"] == "${var.serving_endpoint}"
+    # which model answers is the workspace's choice: the bundle names an endpoint, never a model
+    assert "default" not in bundle["variables"]["serving_endpoint"]
+    assert "ANTHROPIC_API_KEY" not in env, "no model key lives in the app on Databricks"
     assert "sql_warehouse" not in text and "schemas" not in bundle["resources"], (
         "no warehouse, no catalog schema"
     )

@@ -40,15 +40,18 @@ flowchart LR
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
   s11(["⬮ Organisation management [ASVC11]"]):::application
+  s13(["⬮ Guide [ASVC13]"]):::application
   reader --> s2
   reader --> s5
   reader --> s8
   reader --> s10
   reader --> s11
+  reader --> s13
   arch --> s2
   arch --> s3
   arch --> s7
   arch --> s9
+  arch --> s13
   rev --> s7
   admin --> s1
   admin --> s11
@@ -69,10 +72,11 @@ flowchart LR
 | `ASVC6` | **Architecture views** — a neighbourhood, an impact or an answer rendered as an architecture diagram in the notation of this repository's own documents (Mermaid), every shape filled by its architecture layer and a chip per layer above the diagram in that layer's colour, copied or downloaded as Markdown; the same view as a draft draw.io file with ArchiMate stencils and a link on every shape; shapes can be moved on the canvas and the draw.io export follows the arrangement, which is never saved | Architects, the agent | Element (Graph tab), Impact and Ask pages; `ea view` |
 | `ASVC7` | **Branches and merge** — start a branch from `main`, work on it (edit, import, ask, propose) as if it were the model, see its change set against `main` as a merge log with conflicts; request a review, which freezes the branch and names the reviewers of every element type it touches; reviewers approve their types or send the branch back with a comment; beside the merge log, the reviewer reads the proposals the branch was written from — the page as handed in, pass by pass — the change drawn, and what it touches on `main`; once every touched type is approved (or by an admin at any time), merge it item by item and field by field — what is not ticked remains on the branch, and an applied row is `main`'s current row with the branch's changed fields laid over it, so a branch that moved on does not revert what `main` did to the fields it never touched; a merge is one transaction, so it lands whole or not at all. **A row is a conflict only where both sides changed the same field**, and each disputed field is settled on its own (the branch's value or `main`'s); a row nobody has decided is held back with the reason, never guessed at — or abandon the branch; it closes only when nothing remains | Architects, reviewers | Header branch selector and New branch modal, Branches page (merge log, review panel); `ea branch list/create/diff/review/approve/merge/abandon`, `--branch` on every command |
 | `ASVC8` | **Target state** — current state against target state for every element and relationship, counted and listed per work package with a current-by-target matrix, drawn as a generated view with state markers (new dashed green, change amber, decommission red, merge violet) in Mermaid and draw.io; derived from lifecycle text on import | Architects, the organisation | Target state page, the State card and Edit fields on the Element page, the state columns on Browse; `ea target` |
-| `ASVC9` | **Propose** — hand in a document (text, files, links) describing a change, in a template the organisation keeps or one the repository ships (the ArchiMate reference among them) or in no template at all; the page is read against the metamodel's own names, so a table under a heading that names an element type holds that type and a column that names an attribute fills it, and the template's front matter declares only what it names differently. A reader derives the change set on the branch it is for, links what exists (by identifier, then by name, with near-matches flagged rather than linked), adopts what is new as proposed, retires the relationships the page marks for decommissioning, and pushes back with the minimum to add when the sources are insufficient; before Apply the architect reads the change's impact — what depends on what it alters or retires, what it leaves pointing at nothing, who must review it — and the change drawn, reviews the result as an editable merge log with include ticks and manual rows, and applies it to a branch (a new one, or an open one). A page of the same title handed to the same branch revises the last pass: what that pass created is updated, a blank cell empties nothing, and what the page no longer carries is listed. Every pass is kept with the branch, with the page as handed in | Architects; admins keep the organisation's templates | Propose page (template picker; the templates an organisation keeps, for an admin); `ea propose`, `ea templates list/keep/delete/check`; starters in `packs/<pack>/proposal-template.md`; the stub reader parses a template's tables, the hosted reader reads free text |
+| `ASVC9` | **Propose** — hand in a document (text, files, links) describing a change, in a template the organisation keeps or one the repository ships (the ArchiMate reference among them) or in no template at all; the page is read against the metamodel's own names, so a table under a heading that names an element type holds that type and a column that names an attribute fills it, and the template's front matter declares only what it names differently. A reader derives the change set on the branch it is for, links what exists (by identifier, then by name, with near-matches flagged rather than linked), adopts what is new as proposed, retires the relationships the page marks for decommissioning, and pushes back with the minimum to add when the sources are insufficient; before Apply the architect reads the change's impact — what depends on what it alters or retires, what it leaves pointing at nothing, who must review it — and the change drawn, reviews the result as an editable merge log with include ticks and manual rows, and applies it to a branch (a new one, or an open one). A page of the same title handed to the same branch revises the last pass: what that pass created is updated, a blank cell empties nothing, and what the page no longer carries is listed. Every pass is kept with the branch, with the page as handed in. **The change is settled in conversation, top-down:** the assistant asks why the change is made and which business it changes before anything below the business layer, whether each new or changing element below it traces up, and whether a new element is a system's inside (principle `P9`) — a few questions at a time, each with the choices the metamodel allows; the architect answers with a choice, in words (read by a hosted model), or by editing a row, and open context, trace and boundary questions stop Apply. A part linked rather than modelled lands as an element link on its system. The draft and its conversation are kept between sittings, per architect, and the reviewer reads how each row was settled | Architects; admins keep the organisation's templates | Propose page (the conversation beside the draft; the drafts to resume; the template picker; the templates an organisation keeps, for an admin); `ea propose` (`--interactive` asks in the terminal), `ea templates list/keep/delete/check`; starters in `packs/<pack>/proposal-template.md`; `src/ea/agent/questions.py` asks without a model, a hosted reader reads free text and asks in its own words |
 | `ASVC10` | **Model health** — how large the model is against the capacity the application is assessed for (decision 0019); freshness per source system (when each last loaded, how many rows have not moved in 30, 90 and 180 days, the change activity of the last weeks) and completeness per element type (descriptions, links, relationships, required attributes, decided target states), each with the rows behind the number one click away | Readers, stewards | Health page; `ea health` |
 | `ASVC11` | **Organisation management** — every element, relationship, link, branch and review belongs to one organisation, and every read and write honours the one the user is in; create an organisation, copy another's content into it **or start it empty on a metamodel the repository ships**, switch to it from the header, rename it, name one the default, and delete one with everything it holds; apply a metamodel version to an organisation, which first validates all of its content against that version and refuses on errors unless it is forced; the default organisation is what the application opens, and a copy of it is where a version is tried before the default applies it | Admins (every change); every user (the organisation they are in) | Organisations page and the organisation selector in the header; `ea org list/create/rename/default/apply/delete`, `--org` on every command |
 | `ASVC12` | **Source feeds** — a source leaves rows in the staging schema of the store's own database and the application loads them through the same validation, report, identity rules and branch targeting a file gets; a feed says which staging table holds its elements, its relationships and its links, and carries the same mapping a file import would use; what was loaded is emptied after the load, so a run that stops repeats itself rather than losing rows, and a feed reading a table something else maintains leaves it alone. The application never reaches into the catalogue (decision 0020) | A platform job, or whatever replicates a catalogue table into the store | Feeds page (configure, run one now, what each reads and where it writes) and `ea feed list/save/run/delete`; a feed's schedule is kept and shown in the zone it was written in, and the application shows it rather than firing it. Configuring a feed is an admin's decision, running one that is configured is an import. **Every import is kept as a run** (`DOBJ3.7`) — a feed's, a file uploaded on the Import page, or one from the command line — with what it read, where it wrote, what it changed, a bounded sample of its issues beside the complete count of them, and the reason when it stopped — including a load that stopped half way, which is recorded with what it had already written rather than with zeros, since the three writes of an import share no transaction. A run is recorded only for a caller who may import: a refusal of state is a run, a refusal at the door is not. Read newest first, a page at a time, on the Feeds page and through `ea runs list/show`. A run is an account and not an undo: **reversing one is not built** (`GAP19`) |
+| `ASVC13` | **Guide** — what the repository is for and how to work in it, for each role that uses it — the enterprise architect, the solution architect, the reviewer and steward, the reader and the metamodel's owner: the boundary of principle `P9` in the C4 model's terms (system context, containers, components, code), with the element types the organisation's metamodel places on each side; how a change is settled top-down; what states, work packages, branches, proposals and reviews are for. Conceptual and procedural, not a manual of the screens | Everyone | Guide page, reached from the navigation and from the conversation on Propose; the pages in `docs/guide/`, the types read by `src/ea/services/guide.py` |
 
 ## How the services lean on each other
 
@@ -89,6 +93,7 @@ flowchart TB
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
   s11(["⬮ Organisation management [ASVC11]"]):::application
+  s13(["⬮ Guide [ASVC13]"]):::application
   s2 -->|constrained by| s1
   s3 -->|constrained by| s1
   s2 -->|constrained by| s7
@@ -103,6 +108,7 @@ flowchart TB
   s11 --> s1
   s2 -->|scoped by| s11
   s7 -->|scoped by| s11
+  s13 --> s1
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -119,9 +125,11 @@ flowchart LR
   s9(["⬮ Propose [ASVC9]"]):::application
   s10(["⬮ Model health [ASVC10]"]):::application
   s11(["⬮ Organisation management [ASVC11]"]):::application
+  s13(["⬮ Guide [ASVC13]"]):::application
   c1["⊞ Metamodel registry [ACMP1]"]:::application
   c3["⊞ Repository and graph services [ACMP3]"]:::application
   c5["⊞ Agent [ACMP5]"]:::application
+  c6["⊞ Web application [ACMP6]"]:::application
   c9["⊞ Branch overlay and merge [ACMP9]"]:::application
   c10["⊞ Proposal agent [ACMP10]"]:::application
   c11["⊞ Health and search services [ACMP11]"]:::application
@@ -137,6 +145,7 @@ flowchart LR
   s9 -->|realized by| c10
   s10 -->|realized by| c11
   s11 -->|realized by| c13
+  s13 -->|realized by| c6
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -172,3 +181,5 @@ flowchart LR
 | `ASVC9` | ⚙ «Application Service» Propose | `ACMP3` | ▭ «Application Component» Repository and graph services | realized by | the change impact |
 | `ASVC10` | ⚙ «Application Service» Model health | `ACMP11` | ▭ «Application Component» Health and search services | realized by | |
 | `ASVC2` | ⚙ «Application Service» Element browsing and editing | `ASVC7` | ⚙ «Application Service» Branches and merge | constrained by | edits, imports and applied proposals land on the current branch |
+| `ASVC13` | ⚙ «Application Service» Guide | `ASVC1` | ⚙ «Application Service» Metamodel management | uses | which types sit at the enterprise level and which below it |
+| `ASVC13` | ⚙ «Application Service» Guide | `ACMP6` | ▭ «Application Component» Web application | realized by | the Guide page |

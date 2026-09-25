@@ -551,6 +551,7 @@ dependencies = [
     { name = "dash-mantine-components" },
     { name = "duckdb" },
     { name = "gunicorn" },
+    { name = "httpx2" },
     { name = "markdown" },
     { name = "networkx" },
     { name = "pandas" },
@@ -579,7 +580,7 @@ gui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.60" },
+    { name = "anthropic", specifier = ">=1.4" },
     { name = "dash", specifier = ">=3.0" },
     { name = "dash-ag-grid", specifier = ">=31.3" },
     { name = "dash-cytoscape", specifier = ">=1.0" },
@@ -587,6 +588,7 @@ requires-dist = [
     { name = "databricks-sdk", marker = "extra == 'databricks'", specifier = ">=0.60" },
     { name = "duckdb", specifier = ">=1.1" },
     { name = "gunicorn", specifier = ">=23.0" },
+    { name = "httpx2", specifier = ">=2.0" },
     { name = "markdown", specifier = ">=3.6" },
     { name = "networkx", specifier = ">=3.3" },
     { name = "pandas", specifier = ">=2.2" },
@@ -601,7 +603,7 @@ provides-extras = ["databricks"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "pytest-xdist", specifier = ">=3.8" },
     { name = "ruff", specifier = ">=0.6" },
 ]
 gui = [

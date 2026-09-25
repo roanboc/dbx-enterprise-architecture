@@ -594,7 +594,8 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
             else None,
         ]
     )
-    proposals = ctx.backend.list_proposals(branch_id)  # newest first
+    # newest first; a draft is its architect's own until it is applied
+    proposals = ctx.backend.list_proposals(branch_id, status="applied")
     if not rows and not proposals:
         tabs = changes
     else:
@@ -653,6 +654,31 @@ def _detail(ctx: AppContext, branch_id: str, message: Any = None, review_message
     )
 
 
+def _how_it_was_settled(result: dict[str, Any]) -> Any:
+    """What the architect answered in the conversation that settled the proposal (initiative
+    24), so the reviewer reads why each row is as it is."""
+    answers = result.get("answers") or {}
+    if not answers:
+        return None
+    return html.Details(
+        [
+            html.Summary(f"How it was settled: {len(answers)} answer{'s' if len(answers) != 1 else ''}"),
+            html.Ul(
+                [
+                    html.Li(
+                        [
+                            dmc.Text(a.get("question") or qid, size="xs", c="dimmed"),
+                            dmc.Text(a.get("said") or a.get("text") or "", size="sm"),
+                        ]
+                    )
+                    for qid, a in answers.items()
+                ],
+                style={"margin": "0.3rem 0 0", "paddingLeft": "1.2rem"},
+            ),
+        ]
+    )
+
+
 def _proposals_panel(proposals: list) -> Any:
     """The proposals the branch was written from, pass by pass, with the page as handed in."""
     if not proposals:
@@ -707,6 +733,7 @@ def _proposals_panel(proposals: list) -> Any:
                                 )
                                 if result.get("missing")
                                 else None,
+                                _how_it_was_settled(result),
                                 *[
                                     html.Details(
                                         [

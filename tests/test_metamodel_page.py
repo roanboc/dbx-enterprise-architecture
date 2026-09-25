@@ -142,3 +142,16 @@ def test_the_attributes_a_type_declares_carry_their_group(registry):
     assert registry.group_name("risk_ratings") == "Risk ratings"
     rows = _attr_rows(registry)
     assert next(r for r in rows if r["name"] == "alias")["group"] == "identification"
+
+
+def test_a_type_placed_below_the_enterprise_level_is_saved_so(registry, rows):
+    """Principle P9's line is the organisation's to draw: the level is edited in the types grid
+    and a wrong one is refused, like any value the pack cannot hold (initiative 24)."""
+    assert {r["level"] for r in rows["types"]} == {"enterprise"}  # both shipped packs, every type
+    row = next(r for r in rows["types"] if r["id"] == TYPE)
+    row["level"] = "solution"
+    saved = _pack(registry, rows)
+    assert saved.types[TYPE].level == "solution" and saved.types[SUB].level == "enterprise"
+    row["level"] = "component"
+    with pytest.raises(ValueError, match="level 'component' is not one of enterprise, solution"):
+        _pack(registry, rows)

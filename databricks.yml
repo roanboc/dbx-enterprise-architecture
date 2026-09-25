@@ -4,6 +4,9 @@
 #   make deploy          # validate and deploy: the database instance and the app, not yet running
 #   make deploy-run      # start the app
 #
+# The assistant's serving endpoint is the workspace's to choose, so the bundle names none:
+# BUNDLE_VAR_serving_endpoint=<endpoint> make deploy.
+#
 # What the platform injects at run time (DATABRICKS_HOST, the app's service
 # principal, DATABRICKS_APP_PORT) is never set here; what the bundle owns is
 # set from its resources, so the app follows the names the target deploys —
@@ -33,8 +36,13 @@ variables:
     description: Which workspace groups grant which role (decision 0008); nobody listed is a Reader.
     default: "admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers"
   agent_provider:
-    description: "auto: a hosted model when its key is bound as a secret, the stub otherwise."
+    description: "auto: the serving endpoint below; databricks, anthropic or stub to force one (decision 0023)."
     default: auto
+  serving_endpoint:
+    description: >-
+      The workspace's Model Serving endpoint the assistant queries for Ask and Propose — any chat
+      model it serves, or several behind the endpoint's AI Gateway; the app may query it and
+      nothing else. No default: the workspace chooses (BUNDLE_VAR_serving_endpoint or --var).
 
 resources:
   database_instances:
@@ -82,12 +90,20 @@ resources:
             value: ${var.role_groups}
           - name: EA_AGENT_PROVIDER
             value: ${var.agent_provider}
+          - name: EA_AGENT_ENDPOINT
+            value: ${var.serving_endpoint}
       resources:
         - name: database
           database:
             instance_name: ${resources.database_instances.ea.name}
             database_name: ${var.database}
             permission: CAN_CONNECT_AND_CREATE
+        # The assistant's model: the app's service principal may query this one endpoint,
+        # and the request is signed as the app (src/ea/agent/llm.py, decision 0023).
+        - name: serving-endpoint
+          serving_endpoint:
+            name: ${var.serving_endpoint}
+            permission: CAN_QUERY
 
 targets:
   dev:

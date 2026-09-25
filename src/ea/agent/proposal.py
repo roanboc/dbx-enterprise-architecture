@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import os
 import re
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
@@ -24,12 +23,21 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from ea import capacity
+from ea.agent.llm import MALFORMED, ChatModel, ModelError, chat_model, tool_result
+from ea.agent.questions import (
+    MIN_DESCRIPTION_CHARS,
+    AnswerError,
+    Question,
+    QuestionRules,
+    shown,
+)
+from ea.agent.questions import now as _now
 from ea.agent.tools import ToolBox
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch, use_branch
 from ea.config import Settings
 from ea.metamodel.registry import Registry
-from ea.models import CURRENT_STATES, TARGET_STATES, Element, Proposal, ValidationError
+from ea.models import CURRENT_STATES, TARGET_STATES, Element, Link, Proposal, ValidationError
 from ea.services import BranchService, ChangeImpactService, ChangeInput, RepositoryService, TargetStateService
 from ea.services.impact import CHANGING
 from ea.services.roles import require
@@ -51,12 +59,12 @@ from ea.services.templates import (
 from ea.views import View, view_of_change
 
 MAX_LINK_BYTES = 400_000
-MIN_DESCRIPTION_CHARS = 20
 FUZZY_CUTOFF = 0.88
 #: How much of each source is kept with the proposal, so a reviewer reads the page it came from.
 MAX_SOURCE_CHARS = 200_000
 
 __all__ = [
+    "AnswerError",
     "ELEMENT_HEADERS",
     "RELATIONSHIP_HEADERS",
     "ProposalResult",
@@ -93,6 +101,11 @@ class ProposedElement:
     issues: list[str] = field(default_factory=list)
     include: bool = True
     on_branch_only: bool = False  # linked to an element an earlier pass created on this branch
+    confirmed_new: bool = False  # the architect said it is new, whatever it resembles
+    # A system's inside, linked from the system rather than modelled (principle P9): the
+    # system's reference and the page that describes the part. The row itself is not applied.
+    referenced_from: str = ""
+    reference_url: str = ""
 
     @property
     def ref(self) -> str:
@@ -139,6 +152,14 @@ class ProposalResult:
     # What the pass it revises wrote and this page no longer carries: listed, never deleted.
     no_longer: list[dict[str, str]] = field(default_factory=list)
     impact: dict[str, Any] = field(default_factory=dict)  # the change impact, when assessed
+    # The conversation that settles it (initiative 24). `questions` is what is still open,
+    # top layer first, recomputed on every pass; `answers` what the architect said, by
+    # question; `asked` the assistant's own questions, open until answered.
+    questions: list[dict[str, Any]] = field(default_factory=list)
+    answers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    asked: list[dict[str, Any]] = field(default_factory=list)
+    reason: str = ""  # why the change is made, in the architect's words
+    technical: bool = False  # the architect said it changes no business
 
     @property
     def complete(self) -> bool:
@@ -175,6 +196,11 @@ class ProposalResult:
             revises=d.get("revises", ""),
             no_longer=list(d.get("no_longer") or []),
             impact=dict(d.get("impact") or {}),
+            questions=list(d.get("questions") or []),
+            answers=dict(d.get("answers") or {}),
+            asked=list(d.get("asked") or []),
+            reason=d.get("reason", ""),
+            technical=bool(d.get("technical", False)),
         )
 
 
@@ -336,19 +362,13 @@ class ProposalService:
         self.toolbox = toolbox
         self.templates = templates or TemplateService(backend, registry)
         self.impact = impact or ChangeImpactService(backend, registry)
+        self.rules = QuestionRules(backend, registry, target)
         self.provider = self._make_provider()
 
     # ------------------------------------------------------------ provider
     def _make_provider(self):
-        choice = self.settings.agent_provider
-        has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-        if choice == "anthropic" or (choice == "auto" and has_key):
-            try:
-                return AnthropicProposalProvider(self.settings.agent_model)
-            except Exception:  # noqa: BLE001 — missing SDK or credentials; the stub keeps the page usable
-                if choice == "anthropic":
-                    raise
-        return StubProposalProvider()
+        model = chat_model(self.settings)
+        return HostedProposalProvider(model) if model is not None else StubProposalProvider()
 
     # ------------------------------------------------------------- analyse
     def analyse(
@@ -406,8 +426,9 @@ class ProposalService:
             self._resolve_relationship(rel, refs, index)
         self._resolve_work_package(result)
         self._resolve_revision(result, on_branch)
-        result.pushback = self.pushback(result)
         result.impact = self.impact.assess(self.change_input(result)).to_dict()
+        result.questions = [q.to_dict() for q in self.rules.open_questions(result)]
+        result.pushback = self.pushback(result)
         return result
 
     def _on_main(self, ids: list[str]) -> set[str]:
@@ -581,9 +602,11 @@ class ProposalService:
             if len(same) == 1:
                 existing, el.match = same[0], "exact"
             elif len(same) > 1:
-                el.issues.append(
-                    f"name {el.name!r} matches several elements: " + ", ".join(e.element_id for e in same[:5])
-                )
+                if not el.confirmed_new:
+                    el.issues.append(
+                        f"name {el.name!r} matches several elements: "
+                        + ", ".join(e.element_id for e in same[:5])
+                    )
                 el.candidates = [
                     {"element_id": e.element_id, "name": e.name, "type_id": e.type_id} for e in same[:5]
                 ]
@@ -617,7 +640,7 @@ class ProposalService:
         else:
             el.element_id = ""
             el.action = "new"
-            if el.candidates and not el.issues:
+            if el.candidates and not el.issues and not el.confirmed_new:
                 el.issues.append(
                     "a similar element exists: "
                     + ", ".join(f"{c['name']} [{c['element_id']}]" for c in el.candidates)
@@ -769,12 +792,21 @@ class ProposalService:
             out.append(
                 "Name the work package (initiative) the change belongs to: an existing id, or the name of a new one."
             )
+        # what the rows alone do not say: the context, the trace upward and the boundary (P9)
+        for q in result.questions:
+            if q.get("blocking") and q.get("kind") in CONTEXT_KINDS:
+                out.append(f"Open question: {q['text']}")
         return out
 
     # ---------------------------------------------------------------- apply
-    def apply(self, result: ProposalResult, branch_id: str, actor: str) -> dict[str, Any]:
-        """Write the ticked rows to the branch and keep the proposal with it. Pushback stops it."""
+    def apply(self, result: ProposalResult, branch_id: str, actor: str, draft_id: str = "") -> dict[str, Any]:
+        """Write the ticked rows to the branch and keep the proposal with it. Pushback stops it.
+
+        `draft_id` names the draft it was settled in: the same record becomes the applied
+        proposal, its conversation kept for the reviewer.
+        """
         require("propose", what="apply a proposal")
+        draft = self.draft(draft_id) if draft_id else None
         # Resolved on the branch it is written to, whatever branch the caller stands on: a
         # revised page applied again then links what the last apply created instead of
         # creating it a second time.
@@ -850,6 +882,7 @@ class ProposalService:
                     )
                     ids[el.ref] = e.element_id
                     created.append(e.element_id)
+            referenced = self._reference(result, ids, actor, skipped)
             for rel in result.relationships:
                 if not rel.include:
                     continue
@@ -903,20 +936,23 @@ class ProposalService:
             "linked": linked,
             "relationships": rels,
             "retired": retired,
+            "referenced": referenced,
             "skipped": skipped,
         }
         record = self.backend.save_proposal(
             Proposal(
-                proposal_id="",
+                proposal_id=draft.proposal_id if draft else "",
                 branch_id=branch_id,
                 title=result.title or branch.name,
                 sources=result.sources,
                 result=dict(result.to_dict(), applied=applied),
                 pushback=[],
                 status="applied",
-                created_by=actor,
+                created_by=draft.created_by if draft else actor,
+                created_at=draft.created_at if draft else None,
                 template_id=result.template_id,
                 revises=result.revises,
+                conversation=list(draft.conversation) if draft else [],
             )
         )
         return {
@@ -928,6 +964,239 @@ class ProposalService:
             "impact": result.impact,
             **applied,
         }
+
+    def _reference(
+        self, result: ProposalResult, ids: dict[str, str], actor: str, skipped: list[str]
+    ) -> list[dict[str, str]]:
+        """A system's inside, linked from the system rather than modelled (P9): one element
+        link per part the architect referenced, added to the links the system already carries."""
+        out = []
+        for el in result.elements:
+            if el.include or not el.referenced_from or not el.reference_url:
+                continue
+            system = ids.get(el.referenced_from, el.referenced_from)
+            if system.startswith("new:"):
+                skipped.append(f"{el.name}: the system it is linked from was not applied")
+                continue
+            current = self.repo.element(system)
+            links = list(current.links)
+            if not any(x.url == el.reference_url for x in links):
+                links.append(Link(system, el.reference_url, el.name, sort_order=len(links)))
+                self.repo.update_element(system, actor, current.version, links=links)
+            out.append({"name": el.name, "system": system, "url": el.reference_url})
+        return out
+
+    # --------------------------------------------------------- conversation
+    def answer(
+        self,
+        result: ProposalResult,
+        qid: str,
+        key: str = "",
+        text: str = "",
+        choice: str = "",
+        actor: str = "",
+        branch_id: str | None = None,
+    ) -> tuple[ProposalResult, str]:
+        """Apply the architect's answer to one open question and redraft. Returns the new draft
+        and the answer in words.
+
+        A picked choice is applied by the rules, with or without a model. An answer in words
+        with no choice is understood without a model only where the question takes one (a
+        reason, a description, a name); anywhere else it needs the assistant's turn
+        (`turn`). Raises `AnswerError` when the answer does not fit the question.
+        """
+        q = next((Question.from_dict(x) for x in result.questions if x.get("qid") == qid), None)
+        if q is None:
+            raise AnswerError("that question is no longer open")
+        if not key:
+            if not (text or "").strip():
+                raise AnswerError("pick a choice or write an answer")
+            free = next((o for o in q.options if o.needs in ("text", "name") and not o.choices), None)
+            if not q.free or free is None:
+                raise AnswerError(
+                    "an answer in words to this question needs the assistant's model; pick a choice or edit the rows"
+                )
+            key = free.key
+        said = self.rules.apply_answer(result, q, key, text, choice, actor)
+        return self.resolve(result, branch_id), said
+
+    def turn(
+        self,
+        result: ProposalResult,
+        conversation: list[dict[str, Any]],
+        answers: list[dict[str, str]] | None = None,
+        message: str = "",
+        actor: str = "",
+        branch_id: str | None = None,
+    ) -> tuple[ProposalResult, list[dict[str, Any]]]:
+        """One turn of the conversation: the architect's answers and words, then the assistant's
+        redraft and its next questions. Returns the draft and the conversation with both turns.
+
+        Picked choices are applied by the rules. Words — a message, or an answer the rules
+        cannot read — go to the assistant's model when there is one; without one, the reply
+        says so and nothing is guessed.
+        """
+        conversation = list(conversation)
+        words: list[dict[str, str]] = []
+        for a in answers or []:
+            q = next((x for x in result.questions if x.get("qid") == a.get("qid")), None)
+            if q is None:
+                continue
+            try:
+                result, said = self.answer(
+                    result,
+                    a["qid"],
+                    a.get("key", ""),
+                    a.get("text", ""),
+                    a.get("choice", ""),
+                    actor,
+                    branch_id,
+                )
+            except AnswerError as exc:
+                if a.get("key") or not self.converses:
+                    conversation.append(_turn("assistant", "refused", f"{q['text']} — {exc}", qid=a["qid"]))
+                    continue
+                words.append({"qid": a["qid"], "question": q["text"], "text": a.get("text", "")})
+                conversation.append(_turn("architect", "answer", a.get("text", ""), qid=a["qid"]))
+                continue
+            conversation.append(_turn("architect", "answer", said, qid=a["qid"], question=q["text"]))
+            if q.get("kind") == "assistant":  # its own question: the assistant reads the answer
+                words.append({"qid": a["qid"], "question": q["text"], "text": said})
+        if (message or "").strip():
+            conversation.append(_turn("architect", "message", message.strip()))
+        if (message.strip() or words) and self.converses:
+            with _on(branch_id):
+                result, reply = self.provider.converse(result, conversation, words, self)
+            result = self.resolve(result, branch_id)
+        elif message.strip() or words:
+            reply = (
+                "No model is configured, so I cannot read an answer in words. Pick one of the "
+                "choices, or edit the rows."
+            )
+        else:
+            reply = self.summary(result)
+        conversation.append(
+            _turn("assistant", "reply", reply, questions=[q["qid"] for q in shown(result.questions)])
+        )
+        return result, conversation
+
+    @property
+    def converses(self) -> bool:
+        """Whether the assistant has a model to read the architect's words with."""
+        return hasattr(self.provider, "converse")
+
+    def start(
+        self,
+        sources: list[dict[str, str]],
+        branch_id: str | None = None,
+        template: str | None = None,
+    ) -> tuple[ProposalResult, list[dict[str, Any]]]:
+        """The first turn: the sources read into a draft, and the questions it leaves open."""
+        result = self.analyse(sources, branch_id, template)
+        names = ", ".join(s.get("name") or s.get("kind") or "text" for s in sources) or "nothing"
+        conversation = [
+            _turn("architect", "sources", f"Handed in: {names}."),
+            _turn(
+                "assistant",
+                "reply",
+                self.summary(result),
+                questions=[q["qid"] for q in shown(result.questions)],
+            ),
+        ]
+        return result, conversation
+
+    @staticmethod
+    def summary(result: ProposalResult) -> str:
+        """What the assistant says of a draft without a model: what it holds and what is open."""
+        if result.error:
+            return result.error
+        n_el = sum(1 for e in result.elements if e.include)
+        n_rel = sum(1 for r in result.relationships if r.include)
+        parts = [f"The draft holds {_count(n_el, 'element')} and {_count(n_rel, 'relationship')}."]
+        open_now = shown(result.questions)
+        total = len(result.questions)
+        if open_now and len(open_now) == total:
+            parts.append(f"{_count(total, 'question')} {'is' if total == 1 else 'are'} open.")
+        elif open_now:
+            parts.append(
+                f"{_count(total, 'question')} are open; {len(open_now)} "
+                f"{'is' if len(open_now) == 1 else 'are'} below, and the rest wait their turn."
+            )
+        waiting = [q for q in result.questions if q.get("held")]
+        if waiting:
+            parts.append(
+                "Questions about the application and technology rows wait until why the change is "
+                "made and which business it changes are settled."
+            )
+        rows_only = [p for p in result.pushback if not p.startswith("Open question:")]
+        if not result.questions and rows_only:
+            parts.append("Some rows still need fixing: see what stops Apply.")
+        if not result.questions and not result.pushback:
+            parts.append("Nothing is unclear. Check the rows, then apply when ready.")
+        return " ".join(parts)
+
+    # --------------------------------------------------------------- drafts
+    def save_draft(
+        self,
+        result: ProposalResult,
+        conversation: list[dict[str, Any]],
+        actor: str,
+        branch_id: str = "",
+        proposal_id: str = "",
+    ) -> Proposal:
+        """Keep a draft between sittings: the draft change set and its conversation, per architect.
+
+        `branch_id` is the branch it is meant for, empty when Apply is to open a new one.
+        """
+        require("propose", what="keep a draft proposal")
+        held = self.draft(proposal_id) if proposal_id else None
+        if held is not None and held.created_by and held.created_by != actor:
+            raise PermissionError("this draft belongs to another architect")
+        return self.backend.save_proposal(
+            Proposal(
+                proposal_id=proposal_id,
+                branch_id=branch_id or "",
+                title=result.title or "Untitled proposal",
+                sources=result.sources,
+                result=result.to_dict(),
+                pushback=list(result.pushback),
+                status="draft",
+                created_by=held.created_by if held else actor,
+                created_at=held.created_at if held else None,
+                template_id=result.template_id,
+                revises=result.revises,
+                conversation=list(conversation),
+            )
+        )
+
+    def draft(self, proposal_id: str) -> Proposal | None:
+        p = self.backend.get_proposal(proposal_id)
+        return p if p is not None and p.status == "draft" else None
+
+    def drafts(self, actor: str) -> list[Proposal]:
+        """The architect's own drafts, the latest first."""
+        return self.backend.list_proposals(status="draft", created_by=actor)
+
+    def discard_draft(self, proposal_id: str, actor: str) -> None:
+        require("propose", what="discard a draft proposal")
+        held = self.draft(proposal_id)
+        if held is None:
+            raise AnswerError("no such draft")
+        if held.created_by and held.created_by != actor:
+            raise PermissionError("this draft belongs to another architect")
+        self.backend.delete_proposal(proposal_id)
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def _turn(role: str, kind: str, text: str, **extra: Any) -> dict[str, Any]:
+    return {"role": role, "kind": kind, "text": text, "at": _now(), **extra}
+
+
+#: The questions whose open state is pushback of its own; the rest restate a row's issue.
+CONTEXT_KINDS = ("why", "business", "trace", "boundary")
 
 
 def _on(branch_id: str | None):
@@ -1080,28 +1349,101 @@ READER_TOOLS = (
 )
 
 
-class AnthropicProposalProvider:
-    """A hosted model reads free text and tables, checks the repository with tools, and submits a structured result."""
+ASK_TOOL = {
+    "name": "ask_architect",
+    "description": (
+        "Ask the architect something neither the sources nor the repository settle: what a row "
+        "means, which of several elements is meant, why the change is made, what business it "
+        "serves, whether a part belongs at the enterprise level. Ask about one row or the change "
+        "as a whole, and offer the plausible answers as choices when there are a few. The "
+        "architect decides; never answer your own question."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string"},
+            "about": {
+                "type": "string",
+                "description": "the name of the element row it is about, or empty for the change as a whole",
+            },
+            "choices": {"type": "array", "items": {"type": "string"}, "maxItems": 6},
+        },
+        "required": ["question"],
+    },
+}
 
-    name = "anthropic"
+CONVERSE_PROMPT = """You help an architect settle a proposed change to an enterprise architecture repository, in conversation.
 
-    def __init__(self, model: str, max_turns: int = 16):
-        import anthropic
+You are given the draft change set (element and relationship rows, numbered), the questions still open, what the architect has answered, and the conversation so far. The architect's latest words follow. Interpret them and redraft.
 
-        self._anthropic = anthropic
-        self.client = anthropic.Anthropic()
-        self.model = model
+Rules:
+- Settle the change top-down. Why it is made (the motivation and strategy layers) and which business it changes come before its application, data and technology rows. Every new or changing element below the business layer must trace up, through relationships, to a business, strategy or motivation element.
+- An element belongs at the enterprise level only when something outside its own system relates to it (principle P9). The inside of a system — parts nothing else uses — is not modelled: it is linked from the system, with the page that describes it. Do not add such parts; ask whether to link them.
+- The architect decides. Apply what they said; when their words leave a row unclear, ask with `ask_architect`, offering the choices the metamodel allows. Never settle a question on their behalf.
+- Every repository identifier you use must come from a tool result. Use the metamodel's element type and relationship names; `allowed_relationships` says which apply between two types.
+- When the rows change, call `submit_proposal` once with the whole change set — every row, not only those that changed — keeping each row's existing id. When nothing changes, do not call it.
+- Finish with a short reply: what you changed and what you still need, in plain words, a few sentences at most.
+
+The loaded metamodel:
+"""
+
+#: The most the assistant may ask in one turn: a long list is a wall, not a conversation.
+MAX_ASKED = 3
+
+
+class HostedProposalProvider:
+    """A hosted model — whichever the workspace serves, or a provider's API directly — reads free
+    text and tables, checks the repository with tools, asks what it cannot settle, and submits
+    a structured result."""
+
+    def __init__(self, model: ChatModel, max_turns: int = 16):
+        self.chat = model
+        self.name, self.model = model.provider, model.model
         self.max_turns = max_turns
+
+    def _loop(self, system: str, content: str, toolbox: ToolBox) -> dict[str, Any]:
+        """The tool loop: read tools answered from the repository, a submitted change set and
+        the questions asked kept. Returns {submitted, asked, text, error}."""
+        tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS] + [SUBMIT_TOOL, ASK_TOOL]
+        messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        out: dict[str, Any] = {"submitted": None, "asked": [], "text": "", "error": ""}
+        for _ in range(self.max_turns):
+            try:
+                reply = self.chat.turn(system, messages, tools)
+            except ModelError as exc:
+                out["error"] = str(exc)
+                return out
+            if reply.stop == "refused":
+                out["error"] = "The model declined to read these sources."
+                return out
+            messages.append(reply.message)
+            out["text"] = reply.text
+            if not reply.tool_uses:
+                break
+            for use in reply.tool_uses:
+                args = use.arguments
+                if use.malformed:
+                    answer = MALFORMED
+                elif use.name == "submit_proposal":
+                    out["submitted"] = args
+                    answer = "received"
+                elif use.name == "ask_architect":
+                    if len(out["asked"]) < MAX_ASKED and (args.get("question") or "").strip():
+                        out["asked"].append(args)
+                        answer = "asked; the architect answers in the next turn"
+                    else:
+                        answer = f"not asked: at most {MAX_ASKED} questions a turn"
+                else:
+                    answer = toolbox.call(use.name, args)
+                messages.append(tool_result(use, answer))
+        return out
 
     def extract(
         self, sources: list[dict[str, str]], service: ProposalService, reading: Reading | None = None
     ) -> ProposalResult:
-        anthropic = self._anthropic
         toolbox = service.toolbox
         if toolbox is None:
             return ProposalResult(provider=self.name, model=self.model, error="no toolbox for the model")
-        read_tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS]
-        tools = read_tools + [SUBMIT_TOOL]
         system = (
             PROPOSAL_PROMPT
             + service.registry.summary_markdown()
@@ -1112,46 +1454,168 @@ class AnthropicProposalProvider:
             f"--- Source {i + 1}: {s.get('kind', 'text')} {s.get('name', '')} ---\n{(s.get('text') or '')[:60_000]}"
             for i, s in enumerate(sources)
         )
-        messages: list[dict[str, Any]] = [{"role": "user", "content": content or "(no sources)"}]
-        submitted: dict[str, Any] | None = None
-        for _ in range(self.max_turns):
-            try:
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=16000,
-                    system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                    tools=tools,
-                    messages=messages,
-                )
-            except anthropic.APIError as exc:
-                return ProposalResult(provider=self.name, model=self.model, error=f"model API error: {exc}")
-            messages.append({"role": "assistant", "content": response.content})
-            uses = [b for b in response.content if b.type == "tool_use"]
-            if response.stop_reason != "tool_use" or not uses:
-                break
-            results = []
-            for tu in uses:
-                if tu.name == "submit_proposal":
-                    submitted = dict(tu.input or {})
-                    results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "received"})
-                else:
-                    results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tu.id,
-                            "content": toolbox.call(tu.name, dict(tu.input or {})),
-                        }
-                    )
-            messages.append({"role": "user", "content": results})
-            if submitted is not None:
-                break
-        if submitted is None:
+        out = self._loop(system, content or "(no sources)", toolbox)
+        if out["error"]:
+            return ProposalResult(provider=self.name, model=self.model, error=out["error"])
+        if out["submitted"] is None:
             return ProposalResult(
                 provider=self.name,
                 model=self.model,
                 error="the model did not submit a proposal; try again or use the template",
             )
-        return result_from_payload(submitted, self.name, self.model)
+        result = result_from_payload(out["submitted"], self.name, self.model)
+        result.asked = asked_questions(out["asked"], result, service.rules, start=1)
+        return result
+
+    def converse(
+        self,
+        result: ProposalResult,
+        conversation: list[dict[str, Any]],
+        words: list[dict[str, str]],
+        service: ProposalService,
+    ) -> tuple[ProposalResult, str]:
+        """One turn: the architect's words read against the draft, the draft redrafted, and the
+        assistant's reply. What the rules settle stays settled; what the model asks is kept."""
+        toolbox = service.toolbox
+        if toolbox is None:
+            return result, "The assistant has no tools in this context; pick a choice or edit the rows."
+        system = CONVERSE_PROMPT + service.registry.summary_markdown()
+        out = self._loop(system, conversation_brief(result, conversation, words), toolbox)
+        if out["error"]:
+            return result, out["error"]
+        for w in words:
+            result.answers[w["qid"]] = {
+                "question": w.get("question", ""),
+                "kind": "words",
+                "key": "",
+                "text": w.get("text", ""),
+                "choice": "",
+                "said": w.get("text", ""),
+                "holds": False,
+                "at": _now(),
+            }
+        if out["submitted"] is not None:
+            result = redraft(result, result_from_payload(out["submitted"], self.name, self.model))
+        start = 1 + max(
+            (int(q["qid"].split(":")[1]) for q in result.asked if q["qid"].count(":") == 1), default=0
+        )
+        result.asked = [q for q in result.asked if q["qid"] not in result.answers] + asked_questions(
+            out["asked"], result, service.rules, start
+        )
+        return result, out["text"] or "I have redrafted the change."
+
+
+def asked_questions(asked: list[dict[str, Any]], result: ProposalResult, rules: QuestionRules, start: int):
+    """The model's questions in the shape the rules' questions take, so the page and the
+    command line ask both alike."""
+    from ea.agent.questions import Option
+
+    out = []
+    for n, a in enumerate(asked, start=start):
+        about = (a.get("about") or "").strip()
+        row = next((el for el in result.elements if _norm(el.name) == _norm(about)), None) if about else None
+        choices = [str(c) for c in a.get("choices") or [] if str(c).strip()][:6]
+        out.append(
+            Question(
+                qid=f"ask:{n}",
+                kind="assistant",
+                layer=rules.layer(row.type_id) if row is not None else "",
+                about=f"element:{row.row}" if row is not None else "change",
+                text=str(a.get("question") or "").strip(),
+                options=[Option(f"opt:{i}", c) for i, c in enumerate(choices)]
+                + [Option("words", "Answer in words", needs="text")],
+                free=True,
+                blocking=False,
+                asked_by="assistant",
+            ).to_dict()
+        )
+    return out
+
+
+def redraft(before: ProposalResult, after: ProposalResult) -> ProposalResult:
+    """The model's redraft, keeping what the conversation settled that its payload does not carry."""
+    for field_name in ("title", "summary", "work_package"):
+        if not getattr(after, field_name):
+            setattr(after, field_name, getattr(before, field_name))
+    after.template_id, after.template_name = before.template_id, before.template_name
+    after.sources, after.revises = before.sources, before.revises
+    after.answers, after.asked = before.answers, before.asked
+    after.reason, after.technical = before.reason, before.technical
+    after.missing = after.missing or before.missing
+    held = {_norm(el.name): el for el in before.elements}
+    for el in after.elements:
+        was = held.get(_norm(el.name))
+        if was is None:
+            continue
+        el.confirmed_new = was.confirmed_new
+        if was.referenced_from:
+            el.referenced_from, el.reference_url, el.include = was.referenced_from, was.reference_url, False
+    # a referenced part the redraft left out is still referenced
+    kept = {_norm(el.name) for el in after.elements}
+    for el in before.elements:
+        if el.referenced_from and _norm(el.name) not in kept:
+            el.row = max((x.row for x in after.elements), default=0) + 1
+            after.elements.append(el)
+    return after
+
+
+def conversation_brief(
+    result: ProposalResult, conversation: list[dict[str, Any]], words: list[dict[str, str]]
+) -> str:
+    """What the model is handed for one turn: the draft, what is open, and what was said."""
+    draft = {
+        "title": result.title,
+        "summary": result.summary,
+        "work_package": result.work_package,
+        "reason": result.reason,
+        "technical": result.technical,
+        "elements": [
+            {
+                "row": el.row,
+                "type": el.type_label,
+                "name": el.name,
+                "existing_id": el.element_id or el.existing_id,
+                "description": el.description,
+                "current_state": el.current_state,
+                "target_state": el.target_state,
+                "attributes": el.attrs,
+                "included": el.include,
+                "linked_from": el.referenced_from,
+                "issues": el.issues,
+            }
+            for el in result.elements
+        ],
+        "relationships": [
+            {
+                "row": r.row,
+                "source": r.source,
+                "relationship": r.relationship,
+                "target": r.target,
+                "qualifier": r.qualifier,
+                "target_state": r.target_state,
+                "included": r.include,
+                "issues": r.issues,
+            }
+            for r in result.relationships
+        ],
+    }
+    open_questions = [
+        {"qid": q["qid"], "question": q["text"], "choices": [o["label"] for o in q.get("options") or []]}
+        for q in result.questions
+    ]
+    said = [f"{t.get('role')}: {t.get('text')}" for t in conversation[-30:]]
+    return "\n\n".join(
+        [
+            "The draft change set:\n" + json.dumps(draft, ensure_ascii=False, default=str),
+            "Questions still open:\n" + json.dumps(open_questions, ensure_ascii=False),
+            "Answered so far:\n"
+            + json.dumps({k: v.get("said") for k, v in result.answers.items()}, ensure_ascii=False),
+            "The conversation so far:\n" + "\n".join(said),
+            "The architect's answers in words, to interpret now:\n" + json.dumps(words, ensure_ascii=False)
+            if words
+            else "Interpret the architect's latest message above.",
+        ]
+    )
 
 
 def result_from_payload(payload: dict[str, Any], provider: str = "", model: str = "") -> ProposalResult:
@@ -1183,6 +1647,9 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                     if k and v not in (None, "")
                 },
                 include=bool(e.get("include", True)),
+                confirmed_new=bool(e.get("confirmed_new", False)),
+                referenced_from=str(e.get("referenced_from") or ""),
+                reference_url=str(e.get("reference_url") or ""),
             )
         )
     for i, r in enumerate(payload.get("relationships") or [], start=1):
@@ -1199,6 +1666,13 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
             )
         )
     result.missing = [str(m) for m in payload.get("missing") or [] if m]
+    # the conversation so far: what the architect answered, and what the assistant asked
+    result.answers = {
+        str(k): dict(v) for k, v in (payload.get("answers") or {}).items() if isinstance(v, dict)
+    }
+    result.asked = [dict(q) for q in payload.get("asked") or [] if isinstance(q, dict)]
+    result.reason = str(payload.get("reason") or "")
+    result.technical = bool(payload.get("technical", False))
     return result
 
 

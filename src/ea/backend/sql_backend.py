@@ -707,6 +707,7 @@ class SqlBackend(DatabaseBackend):
                     pack.version,
                     t.abstract,
                     json.dumps(t.properties, ensure_ascii=False, default=str) if t.properties else None,
+                    t.level or "enterprise",
                 ]
             )
             attribute_rows += [attr_row(a, t.id, None, i) for i, a in enumerate(t.attributes)]
@@ -932,8 +933,8 @@ class SqlBackend(DatabaseBackend):
         element_types = []
         for row in self._fetch_all(
             "SELECT type_id, name, plural, supertype_id, active, deactivation_reason, domain_id, provenance, prefix, "
-            "description, examples, source_of_record, type_owner, instance_owner, notation, abstract, properties "
-            "FROM meta_element_type WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
+            "description, examples, source_of_record, type_owner, instance_owner, notation, abstract, properties, "
+            "level FROM meta_element_type WHERE pack_id = ? AND pack_version = ? ORDER BY sort_order",
             [pid, version],
         ):
             tid = row[0]
@@ -956,6 +957,7 @@ class SqlBackend(DatabaseBackend):
                     "notation": json.loads(row[14] or "{}"),
                     "abstract": bool(row[15]),
                     "properties": _loads(row[16]),
+                    "level": row[17] or "enterprise",
                     "attributes": [attr_dict(a) for a in attrs if a[0] == tid],
                 }
             )
@@ -2851,18 +2853,24 @@ class SqlBackend(DatabaseBackend):
             self._log("reviewers", type_id, "assign", actor, None, {"reviewers": reviewers}, None, MAIN)
 
     # ----------------------------------------------------------- proposals
+    _PROPOSAL_COLUMNS = (
+        "proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, "
+        "created_by, created_at, template_id, revises, conversation_json, updated_at"
+    )
+
     def save_proposal(self, p: Proposal) -> Proposal:
         p.proposal_id = p.proposal_id or new_id("prp")
         p.created_at = p.created_at or _now()
+        p.updated_at = _now()
         org = self._org()
-        with self._lock:
-            self._execute("DELETE FROM proposal WHERE org_id = ? AND proposal_id = ?", [org, p.proposal_id])
-            self._insert_rows(
+        with self.transaction():
+            self._put_rows(
                 "proposal",
+                ["org_id", "proposal_id"],
                 [
                     [
                         p.proposal_id,
-                        p.branch_id,
+                        p.branch_id or "",
                         p.title,
                         json.dumps(p.sources, ensure_ascii=False, default=str),
                         json.dumps(p.result, ensure_ascii=False, default=str),
@@ -2873,36 +2881,58 @@ class SqlBackend(DatabaseBackend):
                         org,
                         p.template_id or None,
                         p.revises or None,
+                        json.dumps(p.conversation, ensure_ascii=False, default=str),
+                        p.updated_at,
                     ]
                 ],
             )
         return p
 
-    def list_proposals(self, branch_id: str | None = None) -> list[Proposal]:
-        where = " WHERE org_id = ?" + (" AND branch_id = ?" if branch_id else "")
-        rows = self._fetch_all(
-            "SELECT proposal_id, branch_id, title, sources_json, result_json, pushback_json, status, "
-            f"created_by, created_at, template_id, revises FROM proposal{where} ORDER BY created_at DESC",
-            [self._org(), branch_id] if branch_id else [self._org()],
+    @staticmethod
+    def _row_to_proposal(r: tuple) -> Proposal:
+        return Proposal(
+            proposal_id=r[0],
+            branch_id=r[1] or "",
+            title=r[2] or "",
+            sources=json.loads(r[3] or "[]"),
+            result=json.loads(r[4] or "{}"),
+            pushback=json.loads(r[5] or "[]"),
+            status=r[6] or "",
+            created_by=r[7] or "",
+            created_at=r[8],
+            template_id=r[9] or "",
+            revises=r[10] or "",
+            conversation=json.loads(r[11] or "[]"),
+            updated_at=r[12] or r[8],
         )
-        out = []
-        for r in rows:
-            out.append(
-                Proposal(
-                    proposal_id=r[0],
-                    branch_id=r[1],
-                    title=r[2] or "",
-                    sources=json.loads(r[3] or "[]"),
-                    result=json.loads(r[4] or "{}"),
-                    pushback=json.loads(r[5] or "[]"),
-                    status=r[6] or "",
-                    created_by=r[7] or "",
-                    created_at=r[8],
-                    template_id=r[9] or "",
-                    revises=r[10] or "",
-                )
+
+    def list_proposals(
+        self, branch_id: str | None = None, status: str | None = None, created_by: str | None = None
+    ) -> list[Proposal]:
+        where, params = ["org_id = ?"], [self._org()]
+        for column, value in (("branch_id", branch_id), ("status", status), ("created_by", created_by)):
+            if value:
+                where.append(f"{column} = ?")
+                params.append(value)
+        rows = self._fetch_all(
+            f"SELECT {self._PROPOSAL_COLUMNS} FROM proposal WHERE {' AND '.join(where)} "
+            "ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC",
+            params,
+        )
+        return [self._row_to_proposal(r) for r in rows]
+
+    def get_proposal(self, proposal_id: str) -> Proposal | None:
+        rows = self._fetch_all(
+            f"SELECT {self._PROPOSAL_COLUMNS} FROM proposal WHERE org_id = ? AND proposal_id = ?",
+            [self._org(), proposal_id],
+        )
+        return self._row_to_proposal(rows[0]) if rows else None
+
+    def delete_proposal(self, proposal_id: str) -> None:
+        with self._lock:
+            self._execute(
+                "DELETE FROM proposal WHERE org_id = ? AND proposal_id = ?", [self._org(), proposal_id]
             )
-        return out
 
     # ------------------------------------------------------------ templates
     _TEMPLATE_COLUMNS = (
