@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ea.agent import Agent
+from ea.agent.deep_dive import DeepDiveAnalyst
+from ea.agent.llm import chat_model
 from ea.agent.proposal import ProposalService
 from ea.agent.tools import ToolBox
 from ea.backend import DatabaseBackend, backend_from_settings
@@ -114,6 +116,8 @@ class AppContext:
     _bundles: dict[str, Bundle] = field(default_factory=dict, init=False)
     _bundle_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _agent_provider: Any = field(default=None, init=False)
+    _deep_model: Any = field(default=None, init=False)
+    _deep_model_read: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         self.metamodels = MetamodelService(self.backend)
@@ -210,6 +214,24 @@ class AppContext:
     @property
     def deep_dives(self) -> DeepDiveService:
         return self._bundle().deep_dives
+
+    @property
+    def analyst(self) -> DeepDiveAnalyst:
+        """Settles a deep dive's brief and analyses it, with the hosted model when one is configured.
+
+        Cheap to make: it holds no state of its own between requests, only the organisation's
+        registry and catalogue, and the model, which is looked up once.
+        """
+        b = self._bundle()
+        with self._bundle_lock:
+            if not self._deep_model_read:
+                try:
+                    self._deep_model = chat_model(self.settings)
+                except Exception:  # noqa: BLE001 — a model that cannot be reached leaves the rules
+                    log.exception("no model for deep dives; the rules answer alone")
+                    self._deep_model = None
+                self._deep_model_read = True
+        return DeepDiveAnalyst(self.backend, b.registry, model=self._deep_model, dives=b.deep_dives)
 
     @property
     def proposals(self) -> ProposalService:

@@ -43,6 +43,7 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.pages.deep_dives import deep_dives_card
 from ea.ui.pages.target import current_badge, target_badge
 from ea.views import view_from_neighbourhood
 from ea.views.drawio import to_drawio
@@ -427,6 +428,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 withBorder=True,
             ),
             _state_card(ctx, e),
+            deep_dives_card(ctx, e.element_id),
         ],
         cols={"base": 1, "md": 2},
         spacing="md",

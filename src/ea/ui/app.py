@@ -23,8 +23,10 @@ from ea.ui.components import alert, register_markdown
 from ea.ui.context import PERSONAS, get_context
 from ea.ui.pages import (
     ask,
+    ask_deep,
     branches,
     browse,
+    deep_dives,
     element,
     feeds,
     guide,
@@ -52,6 +54,7 @@ PAGES = {
     "impact",
     "import",
     "ask",
+    "deep-dives",
     "branches",
     "target",
     "propose",
@@ -227,7 +230,9 @@ def create_app() -> dash.Dash:
             elif page == "feeds":
                 body = feeds.render(ctx)
             elif page == "ask":
-                body = ask.render(ctx)
+                body = ask.render(ctx, search)
+            elif page == "deep-dives":
+                body = deep_dives.render(ctx, search)
             elif page == "branches":
                 body = branches.render(ctx, search)
             elif page == "target":
@@ -416,6 +421,8 @@ def create_app() -> dash.Dash:
         import_page,
         feeds,
         ask,
+        ask_deep,
+        deep_dives,
         branches,
         target,
         propose,

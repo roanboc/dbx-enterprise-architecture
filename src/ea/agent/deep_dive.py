@@ -1611,7 +1611,7 @@ class DeepDiveAnalyst:
         layers = {r["layer"] for r in content["elements"].values() if r["role"] != "context"}
         read = content["read"]
         parts = [
-            f"{content['brief_sentence']} It read {read['elements']} element(s) across {len(layers)} layer(s)"
+            f"It read {read['elements']} element(s) across {len(layers)} layer(s)"
             + (", and stopped at the most it may read in one analysis." if read["truncated"] else "."),
             content["confidence"]["text"],
         ]

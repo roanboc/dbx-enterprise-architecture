@@ -387,6 +387,8 @@ def test_the_analysis_is_a_deep_dive_ready_to_keep(loaded, registry, analyst):
     roles = {e.element_id: e.role for e in d.elements}
     assert roles["PAC-CMS"] == "subject" and roles["CAP-CURR-DEV"] == "drawn"
     assert d.content["summary"] and d.content["brief_sentence"].startswith("An impact analysis")
+    # the brief stands above the summary wherever it is shown, so the summary does not repeat it
+    assert d.content["brief_sentence"] not in d.content["summary"]
     assert d.content["trace"]["provider"] == "rules" and d.content["trace"]["steps"]
     with use_role("reader"):
         kept = DeepDiveService(loaded, registry).keep(d, "ada")

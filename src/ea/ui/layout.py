@@ -28,6 +28,7 @@ NAV_SECTIONS = [
         [
             ("Browse", "/browse", "tabler:list-search"),
             ("Ask", "/ask", "tabler:message-chatbot"),
+            ("Deep dives", "/deep-dives", "tabler:report-analytics"),
             ("Impact", "/impact", "tabler:radar"),
             ("Target state", "/target", "tabler:target-arrow"),
         ],

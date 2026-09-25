@@ -246,6 +246,45 @@ IMP_GRAPH_NOTE = "imp-graph-note"  # how many hops the picture draws, against wh
 ASK_DOC_MD = "ask-doc-md"
 ASK_DOC_DRAWIO = "ask-doc-drawio"
 ASK_DOC_STORE = "ask-doc-store"
+# ask — the deep mode (initiative 25)
+ASK_MODE = "ask-mode"  # a quick answer, or a deep dive
+ASK_QUICK = "ask-quick"
+ASK_DEEP = "ask-deep"
+ASK_DD_INPUT = "ask-dd-input"
+ASK_DD_START = "ask-dd-start"
+ASK_DD_BRIEF = "ask-dd-brief"
+ASK_DD_SENTENCE = "ask-dd-sentence"
+ASK_DD_STORE = "ask-dd-store"
+ASK_DD_Q_OPT = "ask-dd-q-opt"  # pattern type: {"type", "qid"}
+ASK_DD_Q_TEXT = "ask-dd-q-text"  # pattern type
+ASK_DD_Q_SEND = "ask-dd-q-send"  # pattern type
+ASK_DD_WRITE = "ask-dd-write"
+ASK_DD_WRITE_HINT = "ask-dd-write-hint"
+ASK_DD_RESULT = "ask-dd-result"
+ASK_DD_KEPT = "ask-dd-kept"
+ASK_DD_PACK = "ask-dd-pack"
+
+# deep dives
+DD_TEXT = "dd-text"
+DD_KIND = "dd-kind"
+DD_DOMAIN = "dd-domain"
+DD_TYPE = "dd-type"
+DD_WP = "dd-wp"
+DD_ELEMENT = "dd-element"
+DD_RATING = "dd-rating"
+DD_WITHDRAWN = "dd-withdrawn"
+DD_COUNT = "dd-count"
+DD_LIST = "dd-list"
+DD_DETAIL = "dd-detail"
+DD_OPEN_STORE = "dd-open-store"
+DD_REFRESH = "dd-refresh"
+DD_STARS = "dd-stars"
+DD_WHY = "dd-why"
+DD_RATE = "dd-rate"
+DD_PACK = "dd-pack"
+DD_AGAIN = "dd-again"
+DD_WITHDRAW = "dd-withdraw"
+DD_FEEDBACK = "dd-feedback"
 
 # Branches (initiative 4)
 BRANCH_SELECT = "branch-select"  # header: the branch the reader is on
