@@ -139,9 +139,7 @@ GEOMETRY_JS = """() => {
     'the new-branch button': box(document.getElementById('branch-new-open')),
     'the role badge': box(document.getElementById('role-badge')),
     'the persona switcher': box(document.getElementById('persona-select')),
-    'the pack badge': box(Array.from(
-      document.querySelectorAll('.mantine-AppShell-header .mantine-Badge-root')
-    ).filter(b => b.innerText.toLowerCase().includes('metamodel'))[0]),
+    'the pack badge': box(document.querySelector('#pack-badge .mantine-Badge-root')),
   };
   return {
     header: box(document.querySelector('.mantine-AppShell-header')),
@@ -413,7 +411,13 @@ def test_header(ui, record):
     flat = header.replace("\n", " · ")
 
     ui.check("the application is named", "EA Repository" in header, flat[:140])
-    ui.check("the pack is badged", "higher education ea metamodel" in header.lower(), flat[:140])
+    # The badge names the version the organisation applies, and the metamodel only where the
+    # store holds more than one: one pack's name there costs the organisation's the width it needs.
+    ui.check(
+        "the pack badge names the version the organisation applies",
+        SHIPPED.version in ui.text("pack-badge"),
+        ui.text("pack-badge"),
+    )
     ui.check("the branch badge says main", ui.branch_badge().lower() == "main", ui.branch_badge())
     ui.check("the role badge names the signed-in user", "admin" in ui.role_badge().lower(), ui.role_badge())
     ui.check("the branch selector is offered", ui.visible("branch-select"))
