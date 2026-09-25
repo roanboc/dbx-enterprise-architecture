@@ -37,6 +37,10 @@ BRANCH_ID = "o-negative"
 REFUSED_BRANCH = "O not created"  # asked for on the Propose page, and never to be created
 REFUSED_BRANCH_ID = "o-not-created"
 
+# Home is headed by the organisation it summarises (initiative 15), and names the metamodel
+# under that; the group runs in the default organisation.
+HOME = "Default organisation"
+
 PROBE_TOKEN = "oprobe"  # one word, in this group's element only, so a search finds it alone
 PROBE_NAME = f"O Probe Element {PROBE_TOKEN}"
 PROBE_TYPE = "Data Entity"
@@ -265,7 +269,7 @@ def test_unknown_element_id(ui, record, finding):
 def test_unknown_route(ui, record, finding):
     ui.goto("/o-no-such-page")
     body = _page(ui)
-    ui.check("Home is rendered instead", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("Home is rendered instead", _heading(ui) == HOME, _heading(ui))
     ui.check("nothing reports a crash", "This page failed to render" not in body, _brief(body))
     marked = [
         nav
@@ -284,7 +288,7 @@ def test_unknown_route(ui, record, finding):
     ui.goto("/element")
     ui.check(
         "an /element address with no identifier lands on Home too",
-        "Higher Education EA Metamodel" in _heading(ui),
+        _heading(ui) == HOME,
         _heading(ui),
     )
     ui.check("and not on an error", "This page failed to render" not in _page(ui), _brief(_page(ui)))
@@ -890,7 +894,7 @@ def test_unknown_route_names_the_address(ui, record, finding):
         "yellow" in _alert_colour(ui, "no page"),
         _alert_colour(ui, "no page"),
     )
-    ui.check("Home is rendered under it", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("Home is rendered under it", _heading(ui) == HOME, _heading(ui))
     ui.check(
         "and the warning comes first, so it is read before the page it fell back to",
         0 <= _top(ui, "#page .mantine-Alert-root") < _top(ui, "#page h1"),
@@ -914,7 +918,7 @@ def test_unknown_route_names_the_address(ui, record, finding):
         not any("no page at" in a.lower() for a in _page_alerts(ui)),
         f"the alerts on Home read {_page_alerts(ui) or 'nothing'}",
     )
-    ui.check("and Home is Home", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("and Home is Home", _heading(ui) == HOME, _heading(ui))
     ui.shot("The front door itself: Home, and no warning about the address")
 
     ui.goto(SURPLUS_PATH)
