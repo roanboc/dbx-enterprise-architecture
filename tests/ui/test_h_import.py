@@ -1,8 +1,8 @@
 """Group H — Import: CSV files in, checked against the metamodel, then loaded.
 
 The Import page is one pipeline with a gate in the middle. The banner at the top says
-where a load would land — main changes the model directly, a branch stages it for a
-merge. The left panel takes files and lists what it read from each; the right panel
+where a load would land: never on main, which Load is off on, and on a branch it is staged
+for a merge. The left panel takes files and lists what it read from each; the right panel
 says which source system the rows belong to, which mapping reads them, and offers the
 three actions: download the template, validate only, load.
 
@@ -14,12 +14,13 @@ report the same counts, and only the second one changes the model.
 
 Everything this group creates is prefixed `H-` and carries the nonsense word `hqmark`
 in its description, so a search finds this group's rows and nothing else, and no later
-group can be moved by them. The branch it makes is `h-import`; it is left open, and the
-group ends on main.
+group can be moved by them. Every load is made on the branch `h-import`, which is left open,
+and the group ends on main.
 """
 
 from __future__ import annotations
 
+import re
 import zipfile
 from pathlib import Path
 
@@ -36,7 +37,8 @@ MARKER = "hqmark"  # only this group's rows carry it, so a search returns only t
 LDC = "H-LDC-ADMISSIONS"
 DE = "H-DE-APPLICANT"
 
-MAIN_BANNER = "You are on main: what you load changes the model directly."
+MAIN_BANNER = "You are on main: switch to a branch in the header first. Import never writes to main directly"
+LOAD_OFF_ON_MAIN = "Load is disabled on main: switch to a branch to load."
 BRANCH_BANNER = f"You are on branch {BRANCH_ID}:"
 NO_FILES = "Upload at least one CSV file first."
 NO_MATCH = "None of the files matched the element/relationship/link file patterns of the mapping."
@@ -214,6 +216,15 @@ def _switch_to_branch(ui) -> None:
     ui.settle()
 
 
+def _onto_branch(ui) -> None:
+    """Open the Import page on this group's branch: Load is off on main, where an import never
+    writes, so every load here is staged on `h-import` and read back there."""
+    ui.goto("/import")
+    _switch_to_branch(ui)
+    _open(ui)
+    ui.must("the load will land on this group's branch", BRANCH_BANNER in _banner(ui), _banner(ui))
+
+
 # ------------------------------------------------------------------------------ the page
 
 
@@ -223,17 +234,19 @@ def _switch_to_branch(ui) -> None:
     title="The Import page says where a load would land and offers the template, Validate and Load",
     feature="Import · the page on main",
     expected=(
-        "On main a blue banner warns that a load changes the model directly, and an Admin sees the "
-        "upload zone, the source system, the mapping, and the three buttons with Load enabled."
+        "On main a blue banner says an import never writes to main and to switch to a branch; an Admin "
+        "sees the upload zone, the source system, the mapping and the three buttons, with Load off "
+        "and the reason beside it."
     ),
 )
 def test_page_on_main(ui, record):
     _open(ui)
     ui.check("the page is titled Import", ui.text("#page h1") == "Import", ui.text("#page h1"))
-    ui.check("the banner names main and what a load there does", MAIN_BANNER in ui.body(), _banner(ui))
+    ui.check("the banner says a load never lands on main", MAIN_BANNER in ui.body(), _banner(ui))
     for control in ("im-upload", "im-source", "im-mapping", "im-template", "im-validate", "im-load"):
         ui.check(f"{control} is on the page", ui.visible(control))
-    ui.check("Load is offered to an Admin on main", not ui.disabled("im-load"))
+    ui.check("Load is off on main, even for an Admin", ui.disabled("im-load"))
+    ui.check("and the page says why, beside it", LOAD_OFF_ON_MAIN in ui.body(), _banner(ui))
     source = ui.page.locator("#im-source").input_value()
     ui.check("the source system is filled in ready to change", source == "tool-export", source)
     mapping = ui.page.locator("#im-mapping").input_value()
@@ -242,7 +255,7 @@ def test_page_on_main(ui, record):
         "the page says what the contract is and where the command line does the same",
         "connectors/README.md" in ui.body() and "ea import" in ui.body(),
     )
-    ui.shot("The Import page on main: the warning banner, the upload zone, and the three actions")
+    ui.shot("The Import page on main: the banner, the upload zone, and Load off until a branch is chosen")
 
 
 @pytest.mark.scenario(
@@ -408,7 +421,7 @@ def test_validate_writes_nothing(ui, record):
     ),
 )
 def test_load_writes(ui, record):
-    _open(ui)
+    _onto_branch(ui)
     _upload(
         ui, _write(ui, "h-elements.csv", ELEMENTS_CSV), _write(ui, "h-relationships.csv", RELATIONSHIPS_CSV)
     )
@@ -555,6 +568,7 @@ def test_mapping_classifies_and_renames(ui, record):
     ),
 )
 def test_reimport_updates(ui, record):
+    _onto_branch(ui)
     ui.goto(f"/browse?q={MARKER}")
     before = ui.grid_row_count("browse-grid")
     ui.must("the first import is in the model to re-import", before > 0, f"{before} rows match {MARKER}")
@@ -761,7 +775,7 @@ def test_ragged_file_beside_a_sound_one(ui, record, finding):
     ),
 )
 def test_load_that_writes_nothing(ui, record):
-    _open(ui)
+    _onto_branch(ui)
     _upload(
         ui,
         _write(ui, "h-broken-elements.csv", BROKEN_ELEMENTS_CSV),
@@ -773,8 +787,17 @@ def test_load_that_writes_nothing(ui, record):
     ui.check("the report does not claim a load it did not make", LOADED not in text, text[:200])
     ui.check("it says plainly that nothing was written", NOTHING_LOADED in text, text[:200])
     ui.check("while making clear this was a load and not a validation", DRY not in text, text[:200])
-    ui.check("every element row was skipped", "elements 0/2 loaded (2 skipped)" in text, text[:300])
-    ui.check("and so was the edge", "relationships 0/1 loaded (1 skipped)" in text, text[:300])
+    # The counts say what the load did to each row — new, updated, unchanged — before the skipped.
+    ui.check(
+        "every element row was skipped",
+        re.search(r"elements 0/2 loaded \([^)]*\b2 skipped\)", text) is not None,
+        text[:300],
+    )
+    ui.check(
+        "and so was the edge",
+        re.search(r"relationships 0/1 loaded \([^)]*\b1 skipped\)", text) is not None,
+        text[:300],
+    )
     ui.check("the three defects are still counted", "3 errors" in text, text[:300])
     ui.shot("Load with nothing loadable: 'Nothing was loaded.', and the three defects behind it")
     ui.goto("/element/H-BROKEN-ONE")
@@ -797,6 +820,7 @@ def test_load_that_writes_nothing(ui, record):
     ),
 )
 def test_relationship_type_refused_names_what_is_allowed(ui, record):
+    _onto_branch(ui)
     ui.goto(f"/browse?q={MARKER}")
     ui.must(
         "the elements of the earlier load are in the model to point at",
@@ -938,7 +962,7 @@ def test_source_system_falls_back(ui, record):
     ),
 )
 def test_mapping_reads_the_tools_own_words(ui, record):
-    _open(ui)
+    _onto_branch(ui)
     _upload(ui, _write(ui, "h-tool-objects.csv", TOOL_OBJECTS_CSV))
     ui.select("im-mapping", "EA tool export")
     ui.fill("im-source", "")
@@ -979,7 +1003,7 @@ def test_mapping_reads_the_tools_own_words(ui, record):
     ),
 )
 def test_links_inline_and_by_file(ui, record, finding):
-    _open(ui)
+    _onto_branch(ui)
     _upload(ui, _write(ui, "h-inline-elements.csv", INLINE_LINKS_CSV))
     ui.click("im-validate")
     inline = _report(ui)
@@ -1091,7 +1115,11 @@ def test_load_onto_a_branch_stays_there(ui, record):
     ui.click("im-load")
     text = _report(ui)
     ui.check("the load reports the row it wrote", LOADED in text, text[:200])
-    ui.check("one element, and nothing skipped", "elements 1/1 loaded (0 skipped)" in text, text[:300])
+    ui.check(
+        "one element, and nothing skipped",
+        re.search(r"elements 1/1 loaded \([^)]*\b0 skipped\)", text) is not None,
+        text[:300],
+    )
     ui.shot("A load on the branch: one element written where the banner said it would land")
     ui.goto(f"/browse?q={BRANCH_MARKER}")
     on_branch = ui.grid_row_count("browse-grid")
