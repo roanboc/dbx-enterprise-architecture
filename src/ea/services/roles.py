@@ -40,6 +40,11 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     "merge": ("architect", "admin"),  # an architect only an approved branch
     "merge_without_review": ("admin",),
     "propose": ("architect", "admin"),
+    # A deep dive writes to the catalogue, never to the model; the assistant writes neither
+    # and judges nothing (decision 0024).
+    "keep_deep_dive": ("reader", "reviewer", "architect", "admin"),
+    "rate_deep_dive": ("reader", "reviewer", "architect", "admin"),
+    "withdraw_deep_dive": ("reader", "reviewer", "architect", "admin"),  # the author, or an admin
     "edit_metamodel": ("admin",),  # a draft version: save, load a file, start a draft, delete a draft
     "publish_metamodel": ("admin",),  # publish or retire a version
     "apply_metamodel": ("admin",),  # apply a version to an organisation
@@ -53,7 +58,7 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     "assign_reviewers": ("admin",),
 }
 DESCRIPTIONS = {
-    "reader": "Browse, search, analyse, ask and download. Changes nothing.",
+    "reader": "Browse, search, analyse, ask, keep and rate deep dives, and download. Changes nothing in the model.",
     "reviewer": "A reader who approves or sends back branches for the element types assigned to them.",
     "architect": "A reader who drafts on branches, imports, proposes, requests reviews and merges approved branches.",
     "admin": "Everything, including the metamodel and its versions, the organisations, main, reviewer assignments and merging without a review.",
