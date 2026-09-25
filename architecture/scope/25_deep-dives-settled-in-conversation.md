@@ -3,7 +3,7 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/beautiful-hamilton-vci1sy` (drafted for Understanding; not built).
+**Delivered as:** branch `claude/beautiful-hamilton-vci1sy` (Understanding granted 2026-09-25; in flight).
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 24.
 **Target plateau:** `PLAT1` The repository running locally, extended.
@@ -196,6 +196,7 @@ came from.
 
 | Gate | Granted | When | What was shown |
 | ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-25 | This document; `BPROC3` and `BSVC1` in [2_processes-and-services.md](../2_business/2_processes-and-services.md); `ACT6`, `ROLE4` and `ROLE5` in [1_actors-and-roles.md](../2_business/1_actors-and-roles.md); `DOBJ3.11` in [1_data-objects.md](../3_information/1_data-objects.md), the entities `DEEP_DIVE` and `DEEP_DIVE_RATING` in [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md) and the three tables in [3_logical-data-model.md](../3_information/3_logical-data-model.md); [decision 0024](../decisions/0024-deep-dives-are-kept.md); `GAP27` and `GAP28` on the roadmap — each linked on the branch, in the session. Presented three times: the first draft handed out Markdown and kept nothing; the Requester asked for a styled PDF with draw.io diagrams in a ZIP, for the maturity and the inconsistencies to be weighed, and for deep dives to be catalogued, kept, rated and linked from their elements, with the linked documentation read later; then for the document to read from the top down, the high level drawn to be presented and the detail in the application's ArchiMate style. The word was *"Yes, approved"*, with more changes to come |
 
 ## Work packages
 

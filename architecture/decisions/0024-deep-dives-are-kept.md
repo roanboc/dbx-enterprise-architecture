@@ -2,10 +2,10 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Proposed 2026-09-25 (initiative 25), at the Requester's word — *"this deep analysis can
+**Status:** Adopted 2026-09-25 (initiative 25, its Understanding granted), at the Requester's word — *"this deep analysis can
 be valuable to the tool and should be catalogued (domain, type, etc) and stored in the platform …
 the user can set later the level of confidence, quality and usefulness (with a single star rating
-1 to 5)"* — to be adopted with the initiative's Understanding. **Touches:** `DOBJ3.5`, `DOBJ3.11`,
+1 to 5)"*. **Touches:** `DOBJ3.5`, `DOBJ3.11`,
 `BPROC3`, `BSVC1`, `ROLE4`, `GAP27`.
 
 ## Context
