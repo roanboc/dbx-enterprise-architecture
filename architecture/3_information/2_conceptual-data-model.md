@@ -80,6 +80,8 @@ is what lets a version be tried in one organisation without touching another
 | **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went; one pass of a design onto a branch, revising the pass before it; a draft until it is applied, with the conversation that refined it | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService` |
 | **PROPOSAL_TEMPLATE** | one document shape an organisation proposes in, typed in one metamodel | [`DOBJ3.9`] Proposal template | `ProposalTemplate` in `src/ea/models.py`, `TemplateService` |
 | **CHANGE_LOG_ENTRY** | one change to one thing: who, when, before and after | [`DOBJ3.4`] Change log | `history()` in `src/ea/backend/base.py` |
+| **DEEP_DIVE** | one analysis a reader settled with the assistant: its brief, its catalogue entry, the maturity of what it rests on, its views, findings and references | [`DOBJ3.11`] Deep dive | **Pending — [initiative 25](../scope/25_deep-dives-settled-in-conversation.md)** |
+| **DEEP_DIVE_RATING** | one person's judgement of one deep dive: one to five stars and a line of why | part of [`DOBJ3.11`] Deep dive | **Pending — [initiative 25](../scope/25_deep-dives-settled-in-conversation.md)** |
 
 ## What may exist — the metamodel
 
@@ -168,6 +170,29 @@ erDiagram
 | ORGANISATION | keeps | PROPOSAL_TEMPLATE | one to many | an organisation's templates are its own; the starters the repository ships become one of them when picked |
 | PROPOSAL_TEMPLATE | is typed in | METAMODEL_VERSION | many to exactly one | by the pack's identifier; a template naming a type the applied version lacks says so when it is checked, and is not refused |
 | CHANGE_LOG_ENTRY | records a change to | ELEMENT, RELATIONSHIP, METAMODEL_VERSION, ORGANISATION, BRANCH | many to one | by kind and identifier rather than by a reference, because the log outlives what it records |
+
+## Knowledge kept — deep dives
+
+```mermaid
+erDiagram
+  ORGANISATION ||--o{ DEEP_DIVE : "keeps"
+  DEEP_DIVE }o..o{ ELEMENT : "cites"
+  DEEP_DIVE }o..o{ ELEMENT_TYPE : "is catalogued by"
+  DEEP_DIVE }o..o| BRANCH : "was read on"
+  DEEP_DIVE }o..|| METAMODEL_VERSION : "was read in"
+  DEEP_DIVE ||--o{ DEEP_DIVE_RATING : "is rated in"
+  DEEP_DIVE }o..o{ DEEP_DIVE : "considers"
+```
+
+| From | Relationship | To | How many | Rule |
+| ---- | ------------ | -- | -------- | ---- |
+| ORGANISATION | keeps | DEEP_DIVE | one to many | an organisation's deep dives are its own, as its content is |
+| DEEP_DIVE | cites | ELEMENT | many to many | as its subject, in a view or in a finding, each with the maturity it had when it was read; an element retired later keeps the deep dives that cited it |
+| DEEP_DIVE | is catalogued by | ELEMENT_TYPE | many to many | the types of its subject, and through them their domains |
+| DEEP_DIVE | was read on | BRANCH | many to none or one | none for `main`; a deep dive read on a branch says so wherever it is listed |
+| DEEP_DIVE | was read in | METAMODEL_VERSION | many to exactly one | the version the organisation applied when it was read |
+| DEEP_DIVE | is rated in | DEEP_DIVE_RATING | one to many | one rating per person, which they may change |
+| DEEP_DIVE | considers | DEEP_DIVE | many to many | the earlier deep dives on the same elements, as references with their ratings; a withdrawn one is not considered |
 
 ## The rules that hold across the model
 

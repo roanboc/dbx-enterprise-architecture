@@ -62,6 +62,7 @@ erDiagram
   ea_content ||--o{ ea_branch : "is changed on"
   ea_branch ||--o{ ea_governance : "is decided in"
   ea_content ||--o{ ea_audit : "is recorded in"
+  ea_content ||--o{ ea_knowledge : "is analysed in"
 ```
 
 The groups below are not a way of reading the document: they are the schemas the
@@ -76,6 +77,7 @@ given per group.
 | `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
 | `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from | reviewers and admins |
 | `ea_audit` | the change log and the history of every import | anyone who may read the content; never updated, only appended |
+| `ea_knowledge` | the deep dives kept on the content, the elements each cites and the ratings people gave them | anyone who may read the content; written by whoever may ask, and rated by anyone who may read |
 | `ea_staging` | **nothing the store makes.** The one schema it creates and never fills: a source leaves rows here in the contract's own shape and a feed reads them (decision 0020) | the store reads it; whatever writes it is outside the application |
 
 Every statement that makes or alters a table names its schema; everything else
@@ -106,10 +108,13 @@ erDiagram
   organisation ||--o{ source_feed : "holds"
   organisation ||--o{ import_run : "holds"
   source_feed ||--o{ import_run : "was run as"
+  organisation ||--o{ deep_dive : "keeps"
+  deep_dive ||--o{ deep_dive_element : "cites"
+  deep_dive ||--o{ deep_dive_rating : "is rated in"
 ```
 
-Twenty tables. The six `meta_` tables are shared by every organisation and keyed
-by pack and version, and so is the `organisation` table itself; the thirteen
+Twenty-three tables. The six `meta_` tables are shared by every organisation and keyed
+by pack and version, and so is the `organisation` table itself; the sixteen
 others carry `org_id` and belong to exactly one organisation (decision 0014).
 A run names the feed it was of and keeps that feed's name beside the identifier,
 so the history survives the feed being deleted — the line above is what a run
@@ -137,6 +142,9 @@ so the history survives the feed being deleted — the line above is what a run
 | `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
 | `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
+| `deep_dive` | one analysis a reader settled with the assistant: its brief, catalogue entry, views, findings and references | `org_id`, `deep_dive_id` | `org_id` |
+| `deep_dive_element` | an element one deep dive cites, how, and the maturity it had then | `org_id`, `deep_dive_id`, `element_id` | `org_id` |
+| `deep_dive_rating` | one person's stars for one deep dive | `org_id`, `deep_dive_id`, `rated_by` | `org_id` |
 
 ## The metamodel tables
 
@@ -356,6 +364,45 @@ erDiagram
 | `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
 | `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import` and `template`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
+## Deep dives
+
+```mermaid
+erDiagram
+  deep_dive {
+    varchar org_id PK
+    varchar deep_dive_id PK
+    varchar branch_id FK "none for main"
+    varchar pack_id FK "the version it was read in, with pack_version"
+    varchar kind "impact, landscape, transition, flow or quality"
+    varchar domain_ids "JSON: the domains of its subject"
+    varchar type_ids "JSON: the element types of its subject"
+    varchar brief_json "what was settled in conversation"
+    varchar content_json "summary, views, findings and references, as read"
+  }
+  deep_dive_element {
+    varchar org_id PK
+    varchar deep_dive_id PK
+    varchar element_id PK
+    varchar role "subject, drawn or in a finding"
+    integer maturity "one to five, when it was read"
+  }
+  deep_dive_rating {
+    varchar org_id PK
+    varchar deep_dive_id PK
+    varchar rated_by PK
+    integer stars "one to five"
+  }
+  deep_dive ||--o{ deep_dive_element : "cites"
+  deep_dive ||--o{ deep_dive_rating : "is rated in"
+  deep_dive }o..o| branch : "was read on"
+```
+
+| Table | Its other columns | References | Notes |
+| ----- | ----------------- | ---------- | ----- |
+| `deep_dive` | `title`, `work_package`, `status` (`kept` or `withdrawn`), `pack_version`, `created_by`, `created_at` | `branch_id` → `branch`; `pack_id`, `pack_version` → `meta_pack` | the pack is generated from `content_json` when it is downloaded, so what is kept is the analysis as it was read, never a file; a withdrawn one keeps its row |
+| `deep_dive_element` | none | `element_id` → `element`, by identifier, so an element retired later keeps the deep dives that cited it | what the element page reads to list the deep dives on an element |
+| `deep_dive_rating` | `comment`, `rated_at` | `deep_dive_id` → `deep_dive` | one row per person, rewritten when they change it |
+
 ## Types, JSON and growing the schema
 
 Four column types, chosen because both engines read them as written:
@@ -374,6 +421,7 @@ SQL client (principle `P4`).
 | `enum_values`, `examples`, `qualifiers`, `diagrams`, `provenance_values`, `type_ids` | the metamodel tables and `branch_review` | lists |
 | `before_json`, `after_json` | `change_log` | the whole row before and after |
 | `sources_json`, `result_json`, `pushback_json`, `conversation_json` | `proposal` | what was handed in, derived — with the reader's own finding and the impact — pushed back, and asked and answered |
+| `domain_ids`, `type_ids`, `brief_json`, `content_json` | `deep_dive` | its catalogue entry, what the reader settled, and what the analysis read and found |
 
 A column added after a table first shipped is listed in `MIGRATIONS` in
 `src/ea/backend/sql.py` and applied on start-up with `ADD COLUMN IF NOT EXISTS`,
@@ -403,6 +451,7 @@ Two kinds, both in `INDEXES` in `src/ea/backend/sql.py`.
 | `element (org_id, type_id)` | the elements of a type | the counts per type, and browsing by type |
 | `element_link (org_id, element_id)`, `branch_link (org_id, branch_id, element_id)` | the links of an element | read and rewritten whole, per element |
 | `change_log (org_id, entity_id)` | the history of one thing | the log grows without bound and is read one element at a time |
+| `deep_dive_element (org_id, element_id)` | the deep dives that cite an element | read on every element page, and by every deep dive for the earlier ones on its elements |
 | `meta_attribute (pack_id, pack_version)` | the attributes of a version | the one metamodel table with no unique key: its key holds `type_id` or `rel_type_id` and never both, and the two engines do not agree on whether two NULLs are the same value |
 
 The two traversal indexes are what decides whether the graph stays usable as the
@@ -432,6 +481,8 @@ of a hub that every element depends on.
 | PROPOSAL | `proposal` | [`DOBJ3.6`] Proposal |
 | PROPOSAL_TEMPLATE | `proposal_template` | [`DOBJ3.9`] Proposal template |
 | CHANGE_LOG_ENTRY | `change_log` | [`DOBJ3.4`] Change log |
+| DEEP_DIVE | `deep_dive`, `deep_dive_element` | [`DOBJ3.11`] Deep dive |
+| DEEP_DIVE_RATING | `deep_dive_rating` | part of [`DOBJ3.11`] Deep dive |
 
 The notation [`DOBJ1.5`] has no table: it is the `notation` column of
 `meta_element_type` and `meta_domain`. The architecture view [`DOBJ2.4`], the
