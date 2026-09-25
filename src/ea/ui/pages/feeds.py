@@ -632,7 +632,8 @@ def render(ctx: AppContext) -> html.Div:
             # them across two screens would make neither of them the history.
             dmc.Title("Import history", order=2, size="h4", mt="xl", mb="xs"),
             dmc.Text(
-                "Every run, whoever or whatever started it: what it read, where it wrote and how "
+                "Every run, whoever or whatever started it — a feed above, a file uploaded on the "
+                "Import page, or a load from the command line: what it read, where it wrote and how "
                 "it went. A run is an account of what happened — nothing here undoes one.",
                 size="sm",
                 c="dimmed",

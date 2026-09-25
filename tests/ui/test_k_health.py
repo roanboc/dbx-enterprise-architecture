@@ -249,8 +249,9 @@ def _create_elsewhere(ui, name: str) -> str:
     group="K",
     title="Health opens with freshness, activity, completeness and the unused relationship types",
     feature="Health · the page",
-    expected="The page names the branch it measured, offers Recompute, and draws four sections; the "
-    "freshness table carries a column per figure and a row per source system.",
+    expected="The page names the branch it measured, offers Recompute, and draws five sections — the "
+    "size against the assessed capacity first; the freshness table carries a column per figure and a "
+    "row per source system.",
 )
 def test_health_opens(ui, record):
     _open_health(ui)
@@ -263,13 +264,19 @@ def test_health_opens(ui, record):
     ui.check("the subtitle says which branch was measured", "on main" in subtitle, subtitle)
     ui.check("Recompute is offered", ui.visible("health-refresh") and not ui.disabled("health-refresh"))
     ui.check(
-        "freshness and completeness are two cards",
-        ui.page.locator("#health-body .ea-card").count() == 2,
+        "size, freshness and completeness are three cards",
+        ui.page.locator("#health-body .ea-card").count() == 3,
         f"{ui.page.locator('#health-body .ea-card').count()} card(s)",
     )
 
     titles = _section_titles(ui)
-    for wanted in ("freshness", "change activity", "completeness", "relationship types with no instance"):
+    for wanted in (
+        "size · against the assessed capacity",
+        "freshness",
+        "change activity",
+        "completeness",
+        "relationship types with no instance",
+    ):
         ui.check(f"there is a '{wanted}' section", any(wanted in t for t in titles), str(titles))
     ui.check(
         "freshness says when it was computed",
@@ -685,7 +692,7 @@ def test_recompute(ui, record):
         _number(after[NEVER_UPDATED]) == before_never + 1,
         f"{after[NEVER_UPDATED]} after {before_never}",
     )
-    ui.check("the page kept its four sections", len(_section_titles(ui)) == 4, str(_section_titles(ui)))
+    ui.check("the page kept its five sections", len(_section_titles(ui)) == 5, str(_section_titles(ui)))
     ui.shot("Recompute redraws the page and the new element appears under (authored)")
 
 
@@ -1271,7 +1278,7 @@ def test_health_as_a_reader(ui, record):
     _open_health(ui)
     ui.must("Health opens for a Reader at all", ui.visible("health-body"))
     ui.check(
-        "with the same four sections",
+        "with the same five sections",
         [t.split(" · as of")[0] for t in _section_titles(ui)]
         == [t.split(" · as of")[0] for t in admin_sections],
         str(_section_titles(ui)),

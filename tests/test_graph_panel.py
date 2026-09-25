@@ -1,5 +1,9 @@
 """The graph panel: grouping, prefixed ids, grid positions without overlaps, type graph."""
 
+import json
+
+import pytest
+
 from ea.ui import graph as gp
 
 
@@ -51,3 +55,65 @@ def test_type_graph_has_any_diamond_and_subtype_edges(registry):
     assert not any_node["data"].get("parent")
     typed = next(e for e in els if e["classes"].startswith("type"))
     assert gp.is_element_node(typed["data"]) and gp.element_id_of(typed["data"]) == typed["data"]["type_id"]
+
+
+def test_every_layout_spec_leaves_cytoscape_its_defaults():
+    """A spec travels as JSON, so an option set to None arrives as null and replaces the
+    layout's own default rather than leaving it be. Concentric's `concentric` is a function
+    Cytoscape calls on every node; null there threw on every run, and the half-applied update
+    it left behind lost the group boxes in every layout chosen after it."""
+
+    def nulls(value, path=""):
+        if value is None:
+            return [path]
+        if isinstance(value, dict):
+            return [p for k, v in value.items() for p in nulls(v, f"{path}.{k}")]
+        return []
+
+    for option in gp.LAYOUT_OPTIONS:
+        spec = gp.layout_spec(option["value"])
+        assert not nulls(spec), f"{option['label']} sets {nulls(spec)} to null"
+        assert spec["name"], option
+
+
+@pytest.mark.parametrize(
+    ("page", "tabs", "panel"), [("element", "el-tabs", "el"), ("metamodel", "mm-tabs", "mm")]
+)
+def test_a_graph_on_a_tab_is_fitted_when_the_tab_opens(page, tabs, panel):
+    """A panel drawn while its tab is hidden is measured at no size at all, so it opens with
+    part of the graph off the canvas unless it is fitted again when the tab is shown. The
+    Metamodel page's type graph opened that way, with a third of its types out of sight."""
+    import importlib
+
+    import dash
+
+    app = dash.Dash(__name__)
+    importlib.import_module(f"ea.ui.pages.{page}").register(app)
+    cy = json.dumps(gp.cy_id(panel), sort_keys=True, separators=(",", ":"))
+    fits = [
+        cb
+        for cb in app.callback_map.values()
+        if {"id": tabs, "property": "value"} in cb["inputs"] and str(cb["output"]).startswith(cy)
+    ]
+    assert fits, f"nothing fits the {panel!r} graph when {tabs} changes"
+
+
+def test_the_panel_selects_cannot_be_emptied(registry):
+    """A Mantine select clears itself when its own option is chosen again, so a reader who
+    re-picked the grouping lost it — boxes gone, the box blank — and one who re-picked the
+    layout got the grouped grid under an empty box. Every choice is a value; none is 'nothing'."""
+    panel = gp.graph_panel("t", registry, gp.EMPTY)
+    found = {}
+
+    def walk(node):
+        if isinstance(getattr(node, "id", None), dict) and node.id.get("type") in (gp.GROUP, gp.LAYOUT):
+            found[node.id["type"]] = node
+        children = getattr(node, "children", None)
+        for child in children if isinstance(children, (list, tuple)) else [children]:
+            if child is not None and not isinstance(child, str):
+                walk(child)
+
+    walk(panel)
+    assert set(found) == {gp.GROUP, gp.LAYOUT}
+    for kind, select in found.items():
+        assert getattr(select, "allowDeselect", True) is False, f"the {kind} select can be emptied"

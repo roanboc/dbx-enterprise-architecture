@@ -974,23 +974,7 @@ def register(app: dash.Dash) -> None:
             layer_chips(view),
         )
 
-    app.clientside_callback(
-        """
-        function(tab) {
-          if (tab !== 'graph') { return window.dash_clientside.no_update; }
-          const id = JSON.stringify({id: 'el', type: 'gp-cy'});
-          setTimeout(function() {
-            const el = document.getElementById(id);
-            const cy = el && el._cyreg ? el._cyreg.cy : null;
-            if (cy) { cy.resize(); cy.fit(undefined, 30); }
-          }, 150);
-          return window.dash_clientside.no_update;
-        }
-        """,
-        Output(gp.cy_id("el"), "pan", allow_duplicate=True),
-        Input(ids.EL_TABS, "value"),
-        prevent_initial_call=True,
-    )
+    gp.fit_when_shown(app, ids.EL_TABS, "graph", "el")
 
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),

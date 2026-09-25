@@ -15,6 +15,7 @@ from pathlib import Path
 # The groups a scenario can belong to, in reading order. The report follows this order,
 # so a reviewer walks the application the way a person would rather than alphabetically.
 GROUPS: dict[str, str] = {
+    "S": "Critical path",
     "A": "Shell and navigation",
     "B": "Browse",
     "C": "Element",

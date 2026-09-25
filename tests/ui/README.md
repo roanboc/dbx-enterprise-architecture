@@ -7,8 +7,8 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**433 scenarios in seventeen groups**, and around forty-five minutes end to end. The
-command-line group (M, 70 scenarios) needs no browser and also runs in `make check`.
+**469 scenarios in nineteen groups**, and around fifty minutes end to end. The
+command-line group (M, 74 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
 make gui-install   # once: the browser driver and its browser
@@ -19,6 +19,15 @@ make gui           # the round — writes .testrun/<stamp>/report.md
 The round needs no model key and no running app: it seeds a database of its own, starts
 the application on a free port with the stub agent provider, and stops it afterwards.
 Nothing it does touches `data/ea.duckdb`.
+
+The application under test runs on DuckDB. `EA_ROUND_ENGINE=postgres` seeds and serves it
+on Postgres instead — the engine a Lakebase instance is — started for the run as the unit
+suite starts one (`initdb` and `pg_ctl` on the `PATH`), or the one `EA_TEST_POSTGRES` names.
+Before a deployment, the critical path is the group worth running that way:
+
+```bash
+EA_ROUND_ENGINE=postgres .venv/bin/python -m pytest tests/ui/test_s_critical_path.py -m gui -q
+```
 
 ## What is committed, and what is not
 
@@ -59,23 +68,25 @@ where the round is the only thing that can see it.
 
 | | Group | Covers | Scenarios |
 | - | ----- | ------ | --------- |
+| S | Critical path | One new organisation from nothing to deleted, in the order each step needs the last: its own metamodel version, elements by hand and by import, a merge, discovery, every graph mode, a proposal, a question, updates and deletions, export and isolation | 11 |
 | A | Shell and navigation | The header, the four navigation groups, routing, the narrow viewport | 19 |
 | B | Browse | Filters, ranked search, the grid, the New element modal, bulk edit | 29 |
 | C | Element | Five tabs, editing, relationships, the graph, the generated view, history | 35 |
 | D | Impact | Closure both ways, completeness, the graph and the view | 19 |
 | E | Target state | Work packages, the current-by-target matrix, the marked view | 16 |
 | F | Ask | The answer document, its views, the trace, grounding | 20 |
-| G | Propose | Sources, analysis, pushback, the editable merge log, applying | 21 |
+| G | Propose | Sources, analysis, pushback, the editable merge log, applying | 23 |
 | H | Import | Validation, loading, the issue report, the template | 23 |
 | I | Branches | Overlay, merge log, conflicts, review and the freeze | 26 |
 | J | Metamodel | One version at a time: the lists and what deleting a row takes with it, the type graph, the architecture view, notation, versions and their lifecycle, reviewers, export and load | 25 |
 | Q | Organisations | The partition a version is tried in: creating a sandbox, switching, isolation, checking and applying a version, the default, deleting | 7 |
+| R | Feeds | Sources configured, scheduled and run, and the history of every import | 15 |
 | K | Health | Freshness, completeness, and the links behind every figure | 18 |
 | L | Roles and permissions | Four personas against every gated control | 32 |
-| M | Command line | Every command, and the flags that change who and where | 70 |
-| N | Downloads | Every file the application can produce | 25 |
+| M | Command line | Every command, and the flags that change who and where | 74 |
+| N | Downloads | Every file the application can produce | 28 |
 | O | Negative paths | What is supposed to fail, failing well | 18 |
-| P | Screen audit | Every screen against the usability checklist | 30 |
+| P | Screen audit | Every screen against the usability checklist | 31 |
 
 ## The usability checklist
 

@@ -24,16 +24,26 @@ from __future__ import annotations
 import re
 
 import pytest
+from tests.conftest import HIGHER_ED, PACK
+
+from ea.metamodel import load_pack
 
 pytestmark = pytest.mark.gui
 
 HEADER = ".mantine-AppShell-header"
 NAVBAR = ".mantine-AppShell-navbar"
 
+# Home is headed by the organisation it summarises (initiative 15), and names the metamodel the
+# organisation applies under that, by its name and version: the pack's key is opaque (decision
+# 0021) and shown nowhere on it. The round runs in the default organisation on the shipped pack.
+HOME = "Default organisation"
+SHIPPED = load_pack(PACK)
+
 # label, path, the id layout.py gives the link, and the heading the page answers with
 # In the order `layout.NAV_SECTIONS` draws them, because A03 compares the two lists whole.
 NAV = [
-    ("Home", "/", "nav-home", "Default organisation"),
+    ("Home", "/", "nav-home", HOME),
+    ("Guide", "/guide", "nav-guide", "Guide"),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
     ("Impact", "/impact", "nav-impact", "Impact"),
@@ -71,6 +81,12 @@ def _tiles(ui) -> dict[str, str]:
 def _page_heading(ui) -> str:
     heading = ui.page.locator("#page h1, #page h1").first
     return heading.inner_text().strip() if heading.count() else ""
+
+
+def _page_subtitle(ui) -> str:
+    """The line under the page's title, which on Home names the metamodel the organisation applies."""
+    line = ui.page.locator("#page h1 + p").first
+    return line.inner_text().strip() if line.count() else ""
 
 
 def _marked(ui, nav_id: str) -> bool:
@@ -124,9 +140,7 @@ GEOMETRY_JS = """() => {
     'the new-branch button': box(document.getElementById('branch-new-open')),
     'the role badge': box(document.getElementById('role-badge')),
     'the persona switcher': box(document.getElementById('persona-select')),
-    'the pack badge': box(Array.from(
-      document.querySelectorAll('.mantine-AppShell-header .mantine-Badge-root')
-    ).filter(b => b.innerText.toLowerCase().includes('metamodel'))[0]),
+    'the pack badge': box(document.querySelector('#pack-badge .mantine-Badge-root')),
   };
   return {
     header: box(document.querySelector('.mantine-AppShell-header')),
@@ -222,19 +236,22 @@ def _first_element_id(ui) -> str:
     group="A",
     title="Home summarises the loaded model",
     feature="Shell · Home",
-    expected="Home names the pack and its version, shows the six stat tiles with their counts, and "
-    "lists the elements by type and the most used relationships under headings that say so.",
+    expected="Home is headed by the organisation and names the metamodel it applies, and its version, "
+    "under that; shows the six stat tiles with their counts; and lists the elements by type and the "
+    "most used relationships under headings that say so.",
 )
 def test_home(ui, record):
     ui.goto("/")
     ui.must("Home renders a heading", bool(_page_heading(ui)), _page_heading(ui))
+    ui.check("the heading names the organisation", _page_heading(ui) == HOME, _page_heading(ui))
+    subtitle = _page_subtitle(ui)
     ui.check(
-        "the heading names the pack",
-        _page_heading(ui) == "Higher Education EA Metamodel",
-        _page_heading(ui),
+        "the line under it names the metamodel and its version",
+        subtitle.startswith(f"{SHIPPED.name}, version {SHIPPED.version}"),
+        subtitle,
     )
+    ui.check("and never the pack's opaque key", HIGHER_ED not in ui.text("page"), subtitle)
     body = ui.body()
-    ui.check("the pack id and version are named", "higher_education" in body and "version" in body)
 
     tiles = _tiles(ui)
     ui.check("six stat tiles are shown", len(tiles) == 6, f"tiles: {sorted(tiles)}")
@@ -269,7 +286,9 @@ def test_home(ui, record):
         ui.page.locator("#page .mantine-Title-root").count() >= 3,
         f"{ui.page.locator('#page .mantine-Title-root').count()} headings rendered on Home",
     )
-    ui.shot("Home: the pack, the six stat tiles, and the two summary tables")
+    ui.shot(
+        "Home: the organisation, the metamodel it applies, the six stat tiles, and the two summary tables"
+    )
 
 
 @pytest.mark.scenario(
@@ -277,8 +296,8 @@ def test_home(ui, record):
     group="A",
     title="Every navigation link routes to its page and the current one is marked",
     feature="Shell · navigation",
-    expected="Clicking each of the ten links changes the address, renders that page's heading without "
-    "an error, and leaves that link — and only that link — marked as the current page.",
+    expected="Clicking each link in the navigation changes the address, renders that page's heading "
+    "without an error, and leaves that link — and only that link — marked as the current page.",
 )
 def test_navigation_routes(ui, record):
     ui.goto("/")
@@ -366,7 +385,7 @@ def test_unknown_path(ui, record):
     ui.check("the address is left as it was typed", ui.page.url.endswith("/no-such-page"), ui.page.url)
     ui.check(
         "Home is rendered instead",
-        _page_heading(ui) == "Higher Education EA Metamodel",
+        _page_heading(ui) == HOME,
         _page_heading(ui),
     )
     ui.check("nothing reports a failure", "This page failed to render" not in ui.body())
@@ -393,7 +412,13 @@ def test_header(ui, record):
     flat = header.replace("\n", " · ")
 
     ui.check("the application is named", "EA Repository" in header, flat[:140])
-    ui.check("the pack is badged", "higher education ea metamodel" in header.lower(), flat[:140])
+    # The badge names the version the organisation applies, and the metamodel only where the
+    # store holds more than one: one pack's name there costs the organisation's the width it needs.
+    ui.check(
+        "the pack badge names the version the organisation applies",
+        SHIPPED.version in ui.text("pack-badge"),
+        ui.text("pack-badge"),
+    )
     ui.check("the branch badge says main", ui.branch_badge().lower() == "main", ui.branch_badge())
     ui.check("the role badge names the signed-in user", "admin" in ui.role_badge().lower(), ui.role_badge())
     ui.check("the branch selector is offered", ui.visible("branch-select"))
@@ -514,7 +539,7 @@ def test_new_branch_modal(ui, record):
         ui.page.locator("#branch-select").first.input_value(),
     )
     ui.check("the branch badge still says main", ui.branch_badge().lower() == "main", ui.branch_badge())
-    ui.check("Home is still the page underneath", _page_heading(ui) == "Higher Education EA Metamodel")
+    ui.check("Home is still the page underneath", _page_heading(ui) == HOME, _page_heading(ui))
 
 
 @pytest.mark.scenario(
@@ -754,7 +779,7 @@ def test_back_and_forward(ui, record):
     ui.settle()
     ui.check(
         "Back again returns Home",
-        _page_heading(ui) == "Higher Education EA Metamodel",
+        _page_heading(ui) == HOME,
         _page_heading(ui),
     )
     ui.check("and marks Home in the navigation", _marks(ui) == ["nav-home"], f"{_marks(ui) or 'nothing'}")
@@ -883,9 +908,9 @@ def test_header_controls_when_narrow(ui, record):
     group="A",
     title="Every address typed straight into the browser renders its own page",
     feature="Shell · routing",
-    expected="Each of the ten addresses opened directly, rather than by clicking, renders that page and "
-    "marks that link; a trailing slash is tolerated; and an address nobody recognises marks the Home it "
-    "falls back to.",
+    expected="Each address in the navigation, opened directly rather than by clicking, renders that "
+    "page and marks that link; a trailing slash is tolerated; and an address nobody recognises marks "
+    "the Home it falls back to.",
 )
 def test_addresses_opened_directly(ui, record):
     wrong_page: list[str] = []
@@ -969,15 +994,20 @@ def test_branch_controls(ui, record):
     group="A",
     title="The navigation draws an icon for every link and says what the repository is",
     feature="Shell · navigation",
-    expected="Each of the twelve links carries an icon of its own, no two the same, the navigation closes "
-    "by saying what the repository is, and the brand in the header carries its name and its tagline.",
+    expected="Each link in the navigation carries an icon of its own, no two the same, the navigation "
+    "closes by saying what the repository is, and the brand in the header carries its name and its "
+    "tagline.",
 )
 def test_navigation_furniture(ui, record):
     ui.goto("/")
     icons = ui.page.evaluate(NAV_ICONS_JS)
-    # Twelve, not ten: the navigation gained Feeds and Organisations with initiatives 15 and 18
-    # and this count was not moved with them, so the scenario had been failing before this change.
-    ui.must("the twelve links are read back", len(icons["links"]) == 12, f"{len(icons['links'])} links")
+    # Counted from NAV, as A03 counts: a number written here went stale each time the navigation
+    # gained a link — Feeds and Organisations, then Guide.
+    ui.must(
+        f"the {len(NAV)} links are read back",
+        len(icons["links"]) == len(NAV),
+        f"{len(icons['links'])} links, NAV has {len(NAV)}",
+    )
     without = [row["label"] for row in icons["links"] if not row["icon"]]
     ui.check("every link draws an icon", not without, "; ".join(without) if without else "")
     unsized = [

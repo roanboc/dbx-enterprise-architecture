@@ -12,6 +12,7 @@ write the store.
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -389,8 +390,9 @@ def layout_spec(name: str) -> dict[str, Any]:
             "animate": False,
             "fit": True,
             "padding": 30,
+            # No `concentric` key: Cytoscape's own ranks a node by its degree, and a spec travels
+            # as JSON, so anything set here would arrive as data where a function is called.
             "minNodeSpacing": 50,
-            "concentric": None,
         }
     if name == "breadthfirst":
         return {
@@ -520,6 +522,7 @@ def graph_panel(
                         w=200,
                         size="xs",
                         **{"aria-label": "Group the graph by"},
+                        allowDeselect=False,  # re-picking the current option would empty it
                         # rendered inline (not in a body-level portal), or the dropdown is invisible in full screen
                         comboboxProps={"withinPortal": False},
                     ),
@@ -530,6 +533,7 @@ def graph_panel(
                         w=150,
                         size="xs",
                         **{"aria-label": "Lay the graph out as"},
+                        allowDeselect=False,  # re-picking the current option would empty it
                         comboboxProps={"withinPortal": False},
                     ),
                     dmc.Button(
@@ -589,6 +593,27 @@ def legend(registry: Registry) -> dmc.Group:
             for d in registry.pack.domains
         ],
         gap="xs",
+    )
+
+
+def fit_when_shown(app: dash.Dash, tabs_id: str, tab_value: str, panel_id: str) -> None:
+    """Fit a panel again when the tab holding it is opened.
+
+    A panel drawn while its tab is hidden is measured at no size at all, so it would open with
+    part of the graph off the canvas; resizing and fitting once the tab is on screen puts the
+    whole graph in view."""
+    app.clientside_callback(
+        "function(tab) {"
+        f"  if (tab !== {json.dumps(tab_value)}) {{ return window.dash_clientside.no_update; }}"
+        "  setTimeout(function() {"
+        f"    const cy = window.eaGraph && window.eaGraph.instance({json.dumps(panel_id)});"
+        "    if (cy) { cy.resize(); cy.fit(undefined, 30); }"
+        "  }, 150);"
+        "  return window.dash_clientside.no_update;"
+        "}",
+        Output(cy_id(panel_id), "pan", allow_duplicate=True),
+        Input(tabs_id, "value"),
+        prevent_initial_call=True,
     )
 
 

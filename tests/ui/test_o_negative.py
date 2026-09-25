@@ -10,9 +10,9 @@ silently, or that half-applies a change, is a defect however tidy the screen loo
 Everything the group creates carries an `O` so no other group can be moved by it: the
 branch `o-negative`, created once so that the same name can be refused a second time; the
 element `O Probe Element oprobe`, whose whole purpose is to be saved badly; and the CSV
-rows `O-BROKEN-…`, which are never meant to reach the model at all. One row does reach
-it — the element the ragged file in O11 fabricates — and it is loaded onto `o-negative`
-rather than onto main, so the defect is evidenced without the model other groups read
+rows `O-BROKEN-…`, which are never meant to reach the model at all. The Import page loads
+onto a branch only, so every file the group loads is loaded onto `o-negative`: a row that
+reached the model by mistake would be evidenced there without the model other groups read
 being touched. The group ends on main as Admin, with nothing open.
 """
 
@@ -36,6 +36,10 @@ BRANCH_NAME = "O negative"
 BRANCH_ID = "o-negative"
 REFUSED_BRANCH = "O not created"  # asked for on the Propose page, and never to be created
 REFUSED_BRANCH_ID = "o-not-created"
+
+# Home is headed by the organisation it summarises (initiative 15), and names the metamodel
+# under that; the group runs in the default organisation.
+HOME = "Default organisation"
 
 PROBE_TOKEN = "oprobe"  # one word, in this group's element only, so a search finds it alone
 PROBE_NAME = f"O Probe Element {PROBE_TOKEN}"
@@ -157,6 +161,28 @@ def _upload(ui, *paths: Path) -> None:
     ui.settle()
 
 
+def _import_on_branch(ui) -> None:
+    """Open the Import page on this group's branch, where Load is on.
+
+    Load is off on main — an import never writes there directly — so a load that should
+    write nothing is pressed where anything it wrote by mistake stays out of the model the
+    other groups read.
+    """
+    ui.goto("/import")
+    _pick(ui, "branch-select", BRANCH_NAME)
+    ui.must(
+        "the header left main for this group's branch",
+        ui.branch_badge().strip().lower() != "main",
+        f"the branch badge reads {ui.branch_badge()!r}",
+    )
+    ui.goto("/import")
+    ui.must(
+        "and the Import page says the load will be staged on it",
+        f"You are on branch {BRANCH_ID}:" in _page(ui),
+        _brief(_page(ui)),
+    )
+
+
 def _new_branch(ui, name: str) -> str:
     """Open the New branch modal from the header, ask for `name`, and return what it said."""
     ui.goto("/browse")
@@ -265,7 +291,7 @@ def test_unknown_element_id(ui, record, finding):
 def test_unknown_route(ui, record, finding):
     ui.goto("/o-no-such-page")
     body = _page(ui)
-    ui.check("Home is rendered instead", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("Home is rendered instead", _heading(ui) == HOME, _heading(ui))
     ui.check("nothing reports a crash", "This page failed to render" not in body, _brief(body))
     marked = [
         nav
@@ -284,7 +310,7 @@ def test_unknown_route(ui, record, finding):
     ui.goto("/element")
     ui.check(
         "an /element address with no identifier lands on Home too",
-        "Higher Education EA Metamodel" in _heading(ui),
+        _heading(ui) == HOME,
         _heading(ui),
     )
     ui.check("and not on an error", "This page failed to render" not in _page(ui), _brief(_page(ui)))
@@ -605,12 +631,13 @@ def test_bulk_edit_without_a_tick(ui, record):
     feature="Negative · import · a broken file",
     expected=(
         "Loading files with an unknown type, a nameless row, a row with no id and an edge into nowhere "
-        "writes nothing: the report counts four errors, 0 of 3 elements loaded, and the ids are not in "
-        "the model afterwards."
+        "onto this group's branch writes nothing: the report counts four errors, 0 of 3 elements "
+        "loaded, and the ids are not on the branch afterwards."
     ),
+    branch=BRANCH_ID,
 )
 def test_broken_csv_loads_nothing(ui, record, finding):
-    ui.goto("/import")
+    _import_on_branch(ui)
     ui.must("the Import page rendered its upload zone", ui.visible("im-upload"))
     _upload(
         ui,
@@ -626,8 +653,17 @@ def test_broken_csv_loads_nothing(ui, record, finding):
 
     ui.click("im-load")
     loaded = ui.text("im-report")
-    ui.check("no element was loaded", "elements 0/3 loaded (3 skipped)" in loaded, _brief(loaded))
-    ui.check("no relationship was loaded", "relationships 0/1 loaded (1 skipped)" in loaded, _brief(loaded))
+    # The counts say what the load did to each row — new, updated, unchanged — before the skipped.
+    ui.check(
+        "no element was loaded",
+        bool(re.search(r"elements 0/3 loaded \([^)]*\b3 skipped\)", loaded)),
+        _brief(loaded),
+    )
+    ui.check(
+        "no relationship was loaded",
+        bool(re.search(r"relationships 0/1 loaded \([^)]*\b1 skipped\)", loaded)),
+        _brief(loaded),
+    )
     for code in ("unknown_type", "missing_name", "missing_id", "dangling_relationship"):
         ui.check(f"the {code} defect is named by its code", code in loaded, _brief(loaded, 600))
     ui.check(
@@ -643,10 +679,10 @@ def test_broken_csv_loads_nothing(ui, record, finding):
     ui.shot("Load on the same files: nothing written, and every defect named with its file and row")
 
     ui.goto("/element/O-BROKEN-TYPE")
-    ui.check("the row with the unknown type is not in the model", _heading(ui) == "Not found", _heading(ui))
+    ui.check("the row with the unknown type is not on the branch", _heading(ui) == "Not found", _heading(ui))
     ui.goto("/element/O-BROKEN-NAME")
     ui.check("nor is the row with no name", _heading(ui) == "Not found", _heading(ui))
-    ui.shot("Neither identifier reached the model: the element page says Not found for both")
+    ui.shot("Neither identifier reached the branch: the element page says Not found for both")
 
     if re.match(r"^Loaded\.", loaded.strip()):
         finding.append(
@@ -701,20 +737,7 @@ def test_ragged_csv_is_refused(ui, record):
     )
     ui.shot("A row with more fields than its header declares is refused, and the file is named")
 
-    # Staged onto this group's branch, never onto main: if a load did write something, it
-    # must not reach the model the other groups are reading.
-    _pick(ui, "branch-select", BRANCH_NAME)
-    ui.must(
-        "the header left main for this group's branch",
-        ui.branch_badge().strip().lower() != "main",
-        f"the branch badge reads {ui.branch_badge()!r}",
-    )
-    ui.goto("/import")
-    ui.must(
-        "and the Import page says the load will be staged on it",
-        f"You are on branch {BRANCH_ID}:" in _page(ui),
-        _brief(_page(ui)),
-    )
+    _import_on_branch(ui)
     _upload(ui, _write(ui, "o-ragged-elements.csv", RAGGED_CSV))
     ui.click("im-load")
     loaded = ui.text("im-report")
@@ -890,7 +913,7 @@ def test_unknown_route_names_the_address(ui, record, finding):
         "yellow" in _alert_colour(ui, "no page"),
         _alert_colour(ui, "no page"),
     )
-    ui.check("Home is rendered under it", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("Home is rendered under it", _heading(ui) == HOME, _heading(ui))
     ui.check(
         "and the warning comes first, so it is read before the page it fell back to",
         0 <= _top(ui, "#page .mantine-Alert-root") < _top(ui, "#page h1"),
@@ -914,7 +937,7 @@ def test_unknown_route_names_the_address(ui, record, finding):
         not any("no page at" in a.lower() for a in _page_alerts(ui)),
         f"the alerts on Home read {_page_alerts(ui) or 'nothing'}",
     )
-    ui.check("and Home is Home", "Higher Education EA Metamodel" in _heading(ui), _heading(ui))
+    ui.check("and Home is Home", _heading(ui) == HOME, _heading(ui))
     ui.shot("The front door itself: Home, and no warning about the address")
 
     ui.goto(SURPLUS_PATH)
@@ -1050,11 +1073,12 @@ def _server_log(ui, needle: str) -> str:
     expected=(
         "Validating a CSV that holds no bytes at all reports the file by name and says it could not be "
         "read, the way a file whose rows do not match its header is reported; a file that holds its "
-        "header and no rows loads nothing and says so."
+        "header and no rows loads nothing onto this group's branch and says so."
     ),
+    branch=BRANCH_ID,
 )
 def test_empty_csv_is_refused(ui, record):
-    ui.goto("/import")
+    _import_on_branch(ui)
     ui.must("the Import page rendered its upload zone", ui.visible("im-upload"))
     _upload(ui, _write(ui, "o-empty-elements.csv", EMPTY_CSV))
     listed = ui.text("im-files")

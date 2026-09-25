@@ -1648,6 +1648,8 @@ def _shown(ctx: AppContext, ref: str | None) -> Registry:
 
 # --------------------------------------------------------------- callbacks
 def register(app: dash.Dash) -> None:
+    gp.fit_when_shown(app, ids.MM_TABS, "graph", "mm")
+
     body_outputs = [
         Output(ids.MM_FEEDBACK, "children", allow_duplicate=True),
         Output(ids.MM_BODY, "children", allow_duplicate=True),

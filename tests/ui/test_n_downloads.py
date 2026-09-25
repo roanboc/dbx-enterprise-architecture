@@ -68,6 +68,7 @@ from tests.conftest import HIGHER_ED
 from tests.ui.evidence import Finding
 
 from ea.metamodel import Registry, load_pack
+from ea.models import slugify
 
 pytestmark = pytest.mark.gui
 
@@ -80,7 +81,6 @@ WP_NAME = "Curriculum Management System Upgrade"
 FORMS = "PTC-FORMS"  # Legacy Forms Server — the decommissioned element in that work package
 OFFERING = "DE-SRS-COURSE-OFFERING"  # the element the stub's impact answer is about
 GHOST = "FX-GHOST-ENTITY"  # shaped like an identifier, carried by nothing: an answer with no diagram
-PACK = "higher_education"
 
 ASK_QUESTION = "What is the impact of changing SRS_Course_Offering?"
 DOCUMENT = "#ask-answer .ea-document"
@@ -561,13 +561,13 @@ def test_answer_document_downloads(ui, record):
     group="N",
     title="The metamodel exports as YAML the application can load back as a pack",
     feature="Downloads · metamodel · YAML",
-    expected="Export YAML returns <pack>-metamodel.yaml which parses as YAML, names the pack it came "
-    "from, and loads through the same loader the application loads a pack with.",
+    expected="Export YAML returns <name>-<version>-metamodel.yaml, named for the metamodel rather than "
+    "its opaque key, which parses as YAML, carries the identifier the pack is stored under, and loads "
+    "through the same loader the application loads a pack with.",
 )
 def test_metamodel_yaml(ui, record):
     ui.goto("/metamodel")
     path = ui.download("mm-export", ".yaml")
-    ui.check("the file is named for the pack", path.name == f"{PACK}-metamodel.yaml", path.name)
     try:
         data = yaml.safe_load(_text(path))
     except yaml.YAMLError as exc:
@@ -576,7 +576,15 @@ def test_metamodel_yaml(ui, record):
     ui.must("the export parses as YAML into a mapping", isinstance(data, dict), type(data).__name__)
     for section in ("pack", "domains", "element_types", "relationship_types"):
         ui.check(f"it holds the {section} section", section in data, f"it holds {sorted(data)}")
-    ui.check("the pack names itself", data.get("pack", {}).get("id") == PACK, str(data.get("pack", {}))[:120])
+    # The key is opaque (decision 0021), so a file is named for the metamodel's name and version:
+    # an identifier in a file name is a file nobody can pick out of a folder.
+    head = data.get("pack", {})
+    named = f"{slugify(str(head.get('name', '')))}-{head.get('version')}-metamodel.yaml"
+    ui.check("the file is named for the metamodel's name and version", path.name == named, path.name)
+    ui.check("and not for its opaque key", HIGHER_ED not in path.name, path.name)
+    ui.check(
+        "the pack carries the identifier it is stored under", head.get("id") == HIGHER_ED, str(head)[:120]
+    )
     ui.check(
         "and gives the pack a name and a version",
         bool(data.get("pack", {}).get("name")) and bool(data.get("pack", {}).get("version")),
