@@ -35,3 +35,4 @@ alternative?".
 | [0022](./0022-a-name-is-not-frozen.md) | A published version is frozen in what it defines, and a name is not part of that | Adopted 2026-09-22, at the Requester's word (initiative 21) | `DOBJ1.6`, `ASVC1`, `ACMP2`, `ACMP13` |
 | [0023](./0023-the-model-is-served-by-the-platform.md) | The assistant's model is a Model Serving endpoint, and which model is the workspace's choice | Adopted 2026-09-24, at the Requester's word (initiative 24) | `ACMP5`, `ACMP10`, `TSVC7`, `ART6`, `GAP25` |
 | [0024](./0024-deep-dives-are-kept.md) | A deep dive is kept, catalogued and rated; an answer is not | Adopted 2026-09-25, at the Requester's word (initiative 25) | `DOBJ3.5`, `DOBJ3.11`, `BPROC3`, `BSVC1`, `ROLE4`, `GAP27` |
+| [0025](./0025-a-pdf-drawn-in-python.md) | A deep dive's PDF is drawn in Python, with ReportLab | Adopted 2026-09-25, the agent's call (initiative 25) | `ACMP8`, `ART4` |
