@@ -616,7 +616,7 @@ def test_matrix(ui, record, finding):
     group="E",
     title="The generated view is marked with each artefact's target state, and says what the marks mean",
     feature="Target state · the marked view",
-    expected="The view renders as a layered diagram in which every shape carries its element "
+    expected="The view renders under a chip per layer it draws, and every shape carries its element "
     "identifier and the changing ones carry their target state's glyph, above a legend line that "
     "names only the markers the diagram actually uses.",
 )
@@ -629,10 +629,13 @@ def test_marked_view(ui, record):
     ui.check("the work package itself is drawn", f"[{WP}]" in drawn, _brief(drawn))
     for element_id in ("PAC-CAW", "PTC-FORMS", "PAC-CMS"):
         ui.check(f"every shape carries its identifier ({element_id})", f"[{element_id}]" in drawn)
+    # No box is drawn round a layer (initiative 15): the fill colour is the layer, and a chip per
+    # layer above the diagram, in that layer's colour, names it.
+    chips = ui.text('[id=\'{"id":"tg-view","type":"mermaid-legend"}\']')
     ui.check(
-        "the shapes are stacked in labelled layers",
-        sum(word in drawn for word in ("Application", "Technology", "Implementation")) >= 2,
-        _brief(drawn),
+        "the layers the shapes are filled by are named above the diagram",
+        sum(word in chips for word in ("Application", "Technology", "Implementation")) >= 2,
+        _brief(chips) or "(no chips above the diagram)",
     )
     for state, glyph in (("new", "+"), ("change", "Δ"), ("decommission", "×")):
         ui.check(f"what is {state} is marked with {glyph}", glyph in drawn, _brief(drawn))
