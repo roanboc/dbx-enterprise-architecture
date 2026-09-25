@@ -107,6 +107,21 @@ def _create(ui, name: str, copy_from: str | None, version: str | None = None, de
     return ui.text("orgs-feedback")
 
 
+def _holds(ui) -> tuple[str, str]:
+    """What the organisation the reader is in holds on main, as Home's two tiles count it.
+
+    Read rather than written down: the groups before this one add to the default's main, so
+    the round and a run of this group alone see different totals, and both are right."""
+    ui.goto("/")
+    cells = ui.page.locator("#page .mantine-SimpleGrid-root").first.locator("> *")
+    tiles: dict[str, str] = {}
+    for i in range(cells.count()):
+        lines = [x.strip() for x in cells.nth(i).inner_text().splitlines() if x.strip()]
+        if len(lines) >= 2:
+            tiles[lines[1].lower()] = lines[0]
+    return tiles.get("elements", "?"), tiles.get("relationships", "?")
+
+
 def _draft(ui, version: str) -> None:
     """A draft of the shipped version to try in the sandbox, made where drafts are made."""
     ui.goto("/metamodel")
@@ -139,6 +154,7 @@ def _draft(ui, version: str) -> None:
     ),
 )
 def test_the_list(ui, record):
+    elements, relationships = _holds(ui)
     _open(ui)
     body = ui.text("page")
     ui.check(
@@ -152,7 +168,11 @@ def test_the_list(ui, record):
     ui.check("and as where the reader is", "you are here" in row, row)
     ui.check("it says which version it applies", PUBLISHED_LABEL.lower() in row, row)
     ui.check("and that the version is published", "published" in row, row)
-    ui.check("it counts what the organisation holds", re.search(r"\b47\b", row) is not None, row)
+    ui.check(
+        f"it counts what the organisation holds: {elements} elements, {relationships} relationships",
+        re.search(rf"\b{elements} {relationships}\b", row) is not None,
+        row,
+    )
     ui.check("the header names the organisation", _org_badge(ui) == DEFAULT_NAME, _org_badge(ui))
     ui.check("and the version it applies", _pack_badge(ui) == PUBLISHED_VERSION, _pack_badge(ui))
     ui.check("Switch to is off for the organisation the reader is in", ui.disabled(_switch_button(DEFAULT)))
@@ -172,17 +192,22 @@ def test_the_list(ui, record):
     ),
 )
 def test_create_a_sandbox(ui, record):
+    elements, relationships = _holds(ui)
     _open(ui)
     said = _create(ui, SANDBOX, DEFAULT_NAME, description="Where group Q tries a metamodel version.")
     ui.must("the sandbox was created", f"Organisation {SANDBOX} created" in said, said or "(no feedback)")
     ui.check("it applies the version it was given", PUBLISHED_LABEL in said, said)
-    ui.check("it says what was copied", "47 elements" in said and "99 relationships" in said, said)
+    ui.check(
+        "it says what was copied",
+        f"{elements} elements and {relationships} relationships" in said,
+        said,
+    )
     ui.check("and where it was copied from", f"copied from {DEFAULT}" in said, said)
     ui.check("it says how to work in it", "Switch to it with the selector in the header" in said, said)
     row = _row(ui, SANDBOX)
     ui.must("the sandbox is in the list", bool(row), ui.text("orgs-list")[:400])
     ui.check("the row carries the id derived from the name", SANDBOX_ID in row, row)
-    ui.check("the row says what it holds", "47" in row and "99" in row, row)
+    ui.check("the row says what it holds", f"{elements} {relationships}" in row, row)
     ui.check(
         "the row says what it was copied from and what it is for",
         "copied from default" in row and "group q tries" in row,  # the row is read without case
@@ -396,6 +421,7 @@ def test_default_and_delete(ui, record):
     )
     ui.check("the default organisation cannot be deleted again", ui.disabled(_action("delete", DEFAULT)))
     # the sandbox the round created goes, and everything in it with it
+    held = re.search(r"\b(\d+) \d+ \d+ copied from", _row(ui, SANDBOX))
     ui.click(_action("delete", SANDBOX_ID))
     ui.page.wait_for_timeout(300)
     ui.settle()
@@ -406,7 +432,11 @@ def test_default_and_delete(ui, record):
         SANDBOX in asked and "removed for good" in asked,
         asked,
     )
-    ui.check("and counts what it holds", "47 elements" in asked, asked)
+    ui.check(
+        "and counts what it holds",
+        held is not None and f"Its {held.group(1)} elements" in asked,
+        f"the row counted {held.group(1) if held else 'nothing'}; the dialog says: {asked}",
+    )
     ui.shot("Deleting an organisation asks first, and says what goes")
     ui.click("orgs-confirm-yes")
     ui.page.wait_for_timeout(500)
