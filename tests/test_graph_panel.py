@@ -96,3 +96,24 @@ def test_a_graph_on_a_tab_is_fitted_when_the_tab_opens(page, tabs, panel):
         if {"id": tabs, "property": "value"} in cb["inputs"] and str(cb["output"]).startswith(cy)
     ]
     assert fits, f"nothing fits the {panel!r} graph when {tabs} changes"
+
+
+def test_the_panel_selects_cannot_be_emptied(registry):
+    """A Mantine select clears itself when its own option is chosen again, so a reader who
+    re-picked the grouping lost it — boxes gone, the box blank — and one who re-picked the
+    layout got the grouped grid under an empty box. Every choice is a value; none is 'nothing'."""
+    panel = gp.graph_panel("t", registry, gp.EMPTY)
+    found = {}
+
+    def walk(node):
+        if isinstance(getattr(node, "id", None), dict) and node.id.get("type") in (gp.GROUP, gp.LAYOUT):
+            found[node.id["type"]] = node
+        children = getattr(node, "children", None)
+        for child in children if isinstance(children, (list, tuple)) else [children]:
+            if child is not None and not isinstance(child, str):
+                walk(child)
+
+    walk(panel)
+    assert set(found) == {gp.GROUP, gp.LAYOUT}
+    for kind, select in found.items():
+        assert getattr(select, "allowDeselect", True) is False, f"the {kind} select can be emptied"

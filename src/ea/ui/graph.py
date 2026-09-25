@@ -522,6 +522,7 @@ def graph_panel(
                         w=200,
                         size="xs",
                         **{"aria-label": "Group the graph by"},
+                        allowDeselect=False,  # re-picking the current option would empty it
                         # rendered inline (not in a body-level portal), or the dropdown is invisible in full screen
                         comboboxProps={"withinPortal": False},
                     ),
@@ -532,6 +533,7 @@ def graph_panel(
                         w=150,
                         size="xs",
                         **{"aria-label": "Lay the graph out as"},
+                        allowDeselect=False,  # re-picking the current option would empty it
                         comboboxProps={"withinPortal": False},
                     ),
                     dmc.Button(
