@@ -24,16 +24,25 @@ from __future__ import annotations
 import re
 
 import pytest
+from tests.conftest import HIGHER_ED, PACK
+
+from ea.metamodel import load_pack
 
 pytestmark = pytest.mark.gui
 
 HEADER = ".mantine-AppShell-header"
 NAVBAR = ".mantine-AppShell-navbar"
 
+# Home is headed by the organisation it summarises (initiative 15), and names the metamodel the
+# organisation applies under that, by its name and version: the pack's key is opaque (decision
+# 0021) and shown nowhere on it. The round runs in the default organisation on the shipped pack.
+HOME = "Default organisation"
+SHIPPED = load_pack(PACK)
+
 # label, path, the id layout.py gives the link, and the heading the page answers with
 # In the order `layout.NAV_SECTIONS` draws them, because A03 compares the two lists whole.
 NAV = [
-    ("Home", "/", "nav-home", "Default organisation"),
+    ("Home", "/", "nav-home", HOME),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
     ("Impact", "/impact", "nav-impact", "Impact"),
@@ -71,6 +80,12 @@ def _tiles(ui) -> dict[str, str]:
 def _page_heading(ui) -> str:
     heading = ui.page.locator("#page h1, #page h1").first
     return heading.inner_text().strip() if heading.count() else ""
+
+
+def _page_subtitle(ui) -> str:
+    """The line under the page's title, which on Home names the metamodel the organisation applies."""
+    line = ui.page.locator("#page h1 + p").first
+    return line.inner_text().strip() if line.count() else ""
 
 
 def _marked(ui, nav_id: str) -> bool:
@@ -222,19 +237,22 @@ def _first_element_id(ui) -> str:
     group="A",
     title="Home summarises the loaded model",
     feature="Shell · Home",
-    expected="Home names the pack and its version, shows the six stat tiles with their counts, and "
-    "lists the elements by type and the most used relationships under headings that say so.",
+    expected="Home is headed by the organisation and names the metamodel it applies, and its version, "
+    "under that; shows the six stat tiles with their counts; and lists the elements by type and the "
+    "most used relationships under headings that say so.",
 )
 def test_home(ui, record):
     ui.goto("/")
     ui.must("Home renders a heading", bool(_page_heading(ui)), _page_heading(ui))
+    ui.check("the heading names the organisation", _page_heading(ui) == HOME, _page_heading(ui))
+    subtitle = _page_subtitle(ui)
     ui.check(
-        "the heading names the pack",
-        _page_heading(ui) == "Higher Education EA Metamodel",
-        _page_heading(ui),
+        "the line under it names the metamodel and its version",
+        subtitle.startswith(f"{SHIPPED.name}, version {SHIPPED.version}"),
+        subtitle,
     )
+    ui.check("and never the pack's opaque key", HIGHER_ED not in ui.text("page"), subtitle)
     body = ui.body()
-    ui.check("the pack id and version are named", "higher_education" in body and "version" in body)
 
     tiles = _tiles(ui)
     ui.check("six stat tiles are shown", len(tiles) == 6, f"tiles: {sorted(tiles)}")
@@ -269,7 +287,9 @@ def test_home(ui, record):
         ui.page.locator("#page .mantine-Title-root").count() >= 3,
         f"{ui.page.locator('#page .mantine-Title-root').count()} headings rendered on Home",
     )
-    ui.shot("Home: the pack, the six stat tiles, and the two summary tables")
+    ui.shot(
+        "Home: the organisation, the metamodel it applies, the six stat tiles, and the two summary tables"
+    )
 
 
 @pytest.mark.scenario(
@@ -366,7 +386,7 @@ def test_unknown_path(ui, record):
     ui.check("the address is left as it was typed", ui.page.url.endswith("/no-such-page"), ui.page.url)
     ui.check(
         "Home is rendered instead",
-        _page_heading(ui) == "Higher Education EA Metamodel",
+        _page_heading(ui) == HOME,
         _page_heading(ui),
     )
     ui.check("nothing reports a failure", "This page failed to render" not in ui.body())
@@ -514,7 +534,7 @@ def test_new_branch_modal(ui, record):
         ui.page.locator("#branch-select").first.input_value(),
     )
     ui.check("the branch badge still says main", ui.branch_badge().lower() == "main", ui.branch_badge())
-    ui.check("Home is still the page underneath", _page_heading(ui) == "Higher Education EA Metamodel")
+    ui.check("Home is still the page underneath", _page_heading(ui) == HOME, _page_heading(ui))
 
 
 @pytest.mark.scenario(
@@ -754,7 +774,7 @@ def test_back_and_forward(ui, record):
     ui.settle()
     ui.check(
         "Back again returns Home",
-        _page_heading(ui) == "Higher Education EA Metamodel",
+        _page_heading(ui) == HOME,
         _page_heading(ui),
     )
     ui.check("and marks Home in the navigation", _marks(ui) == ["nav-home"], f"{_marks(ui) or 'nothing'}")
