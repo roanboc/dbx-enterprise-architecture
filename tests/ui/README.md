@@ -20,6 +20,15 @@ The round needs no model key and no running app: it seeds a database of its own,
 the application on a free port with the stub agent provider, and stops it afterwards.
 Nothing it does touches `data/ea.duckdb`.
 
+The application under test runs on DuckDB. `EA_ROUND_ENGINE=postgres` seeds and serves it
+on Postgres instead — the engine a Lakebase instance is — started for the run as the unit
+suite starts one (`initdb` and `pg_ctl` on the `PATH`), or the one `EA_TEST_POSTGRES` names.
+Before a deployment, the critical path is the group worth running that way:
+
+```bash
+EA_ROUND_ENGINE=postgres .venv/bin/python -m pytest tests/ui/test_s_critical_path.py -m gui -q
+```
+
 ## What is committed, and what is not
 
 **The scenarios are the record**, and they are committed: `test_*.py` in this folder,

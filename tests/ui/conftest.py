@@ -84,14 +84,19 @@ def _land_for_feeds(backend) -> None:
     )
 
 
-def _seed(db_path: Path) -> str:
-    """Load the pack and the sample model into a database this round owns."""
-    from ea.backend.duckdb_backend import DuckDBBackend
+def _seed(db_path: Path, backend=None) -> str:
+    """Load the pack and the sample model into a database this round owns.
+
+    A DuckDB file at `db_path`, unless a store is handed in — the round on Postgres hands in
+    the one it made, and it is closed here like the file would be."""
     from ea.importer import import_directory
     from ea.metamodel import Registry, load_pack
 
     pack = load_pack(PACK)
-    backend = DuckDBBackend(str(db_path))
+    if backend is None:
+        from ea.backend.duckdb_backend import DuckDBBackend
+
+        backend = DuckDBBackend(str(db_path))
     try:
         backend.save_pack(pack)
         report = import_directory(backend, Registry(pack), SAMPLE, "sample")
@@ -116,10 +121,32 @@ def run_dir() -> Path:
     return d
 
 
+#: Which engine the application under test runs on. DuckDB unless `EA_ROUND_ENGINE=postgres`,
+#: which seeds and serves the round on a Postgres — the engine a Lakebase instance is — started
+#: for the run, or the one `EA_TEST_POSTGRES` names, as the unit suite does.
+ENGINE = os.environ.get("EA_ROUND_ENGINE", "duckdb").strip().lower()
+
+
 @pytest.fixture(scope="session")
-def app_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+def app_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, str]]:
     db = tmp_path_factory.mktemp("ea-under-test") / "ea.duckdb"
-    seed = _seed(db)
+    let_go = None
+    engine: dict[str, str] = {"EA_BACKEND": "duckdb"}
+    if ENGINE == "postgres":
+        from tests.postgres_server import postgres_for_the_run
+
+        from ea.backend.lakebase_backend import LakebaseBackend
+
+        dsn, let_go = postgres_for_the_run()
+        if dsn is None:
+            pytest.exit("EA_ROUND_ENGINE=postgres needs initdb and pg_ctl on the PATH, or EA_TEST_POSTGRES")
+        schema = f"round_{os.getpid()}"
+        seed = _seed(db, LakebaseBackend.from_dsn(dsn, schema)) + " on Postgres"
+        engine = {"EA_BACKEND": "lakebase", "EA_POSTGRES_DSN": dsn, "EA_SCHEMA": schema}
+    elif ENGINE == "duckdb":
+        seed = _seed(db)
+    else:
+        pytest.exit(f"EA_ROUND_ENGINE is duckdb or postgres, not {ENGINE!r}")
     env = dict(os.environ)
     env.update(
         EA_DB_PATH=str(db),
@@ -127,7 +154,7 @@ def app_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
         EA_AUTH="mock",
         EA_AGENT_PROVIDER="stub",
         EA_SECRET_KEY="test-round-fixed-key",
-        EA_BACKEND="duckdb",
+        **engine,
         # A zone that is not UTC, so the round proves a time is converted rather than
         # merely printed. Any zone with an offset would do; this one has no daylight saving.
         EA_TIMEZONE="Australia/Brisbane",
@@ -135,7 +162,9 @@ def app_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
     env["_EA_SEED_SUMMARY"] = seed
-    return env
+    yield env
+    if let_go is not None:
+        let_go()
 
 
 @pytest.fixture(scope="session")
