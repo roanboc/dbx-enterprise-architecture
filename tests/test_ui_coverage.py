@@ -32,6 +32,8 @@ DOWNLOAD_TRIGGERS = {
     "tg-view-drawio": "the target-state view as draw.io",
     "ask-doc-md": "the answer document as Markdown",
     "ask-doc-drawio": "the answer document as draw.io",
+    "ask-dd-pack": "a deep dive's pack, as it is written on Ask",
+    "dd-pack": "a deep dive's pack, from the catalogue",
     "mm-export": "the metamodel as a YAML pack",
     "mm-view-md": "the metamodel's architecture view as Markdown",
     "mm-view-drawio": "the metamodel's architecture view as draw.io",

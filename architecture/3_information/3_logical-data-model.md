@@ -362,7 +362,7 @@ erDiagram
 | `reviewer_assignment` | `added_by`, `added_at` | `type_id` → `meta_element_type` | the whole set for a type is rewritten when it is saved |
 | `proposal` | `title`, `status` (`draft` or `applied`), `created_by`, `created_at`, `updated_at` | `branch_id` → `branch`; `template_id` → `proposal_template`; `revises` → `proposal` | kept with the branch; the JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`, the conversation that refined a draft in `conversation_json`. A draft for a branch not yet created carries an empty `branch_id`. A template or an earlier revision is referred to, never required: a proposal outlives both |
 | `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
-| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import` and `template`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
+| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import`, `template` and `deep_dive`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
 ## Deep dives
 

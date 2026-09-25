@@ -371,6 +371,7 @@ NAV_FOR = {
     "/": "nav-home",
     "/browse": "nav-browse",
     "/ask": "nav-ask",
+    "/deep-dives": "nav-deep-dives",
     "/impact": "nav-impact",
     "/target": "nav-target",
     "/propose": "nav-propose",
@@ -834,6 +835,18 @@ def test_target_audit(ui, record, finding):
 )
 def test_ask_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Ask", "/ask", "src/ea/ui/pages/ask.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P31",
+    group="P",
+    title="Deep dives against the usability checklist",
+    feature="Screen audit · Deep dives",
+    expected="The Deep dives page loads with its filters, the catalogue and the panel a deep dive "
+    "opens in, and the seven automated checkpoints are applied to it.",
+)
+def test_deep_dives_audit(ui, record, finding):
+    audit_screen(ui, record, finding, "Deep dives", "/deep-dives", "src/ea/ui/pages/deep_dives.py")
 
 
 @pytest.mark.scenario(

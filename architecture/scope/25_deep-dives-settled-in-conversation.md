@@ -3,7 +3,7 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/beautiful-hamilton-vci1sy` (Understanding granted 2026-09-25; in flight).
+**Delivered as:** branch `claude/beautiful-hamilton-vci1sy`, built 2026-09-25 (Understanding granted the same day).
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 24.
 **Target plateau:** `PLAT1` The repository running locally, extended.
@@ -165,6 +165,12 @@ came from.
 | **How is the PDF made?** | In the application, from what is kept, with a library that needs nothing installed beside Python | So it runs on Databricks Apps as it runs locally; chosen when the technology layer is aligned, and recorded as a decision |
 | **Which kinds of analysis?** | The five above | They are the product's, not a framework's: layers and states are read from the metamodel's notation and the model's vocabularies (principle `P5`) |
 | **On the command line?** | Not in this initiative | Ask has no command today |
+| **What does "the links its type expects" mean, when no type says which links it expects?** | Adopted — a description of a sentence or more, every attribute its type requires filled, and no link that is malformed or repeated | No metamodel declares expected links today; one that does is one more thing the maturity reads |
+| **How many dependants make a single point of dependency?** | Adopted — five or more elements in the area read that depend on it directly; eight or more is a high finding. A work package that plans a change to it is not a dependant | The threshold is the analyst's; a Requester who sees too many or too few says so |
+| **When is an approved element current?** | Adopted — refreshed from its source or by a person within 180 days, the longest staleness Health reports | One measure of *recent* across the application |
+| **When does a description name another element?** | Adopted — its identifier, its key, or a name of two words or more, whole; a name inside a longer name the text uses is the longer name's | A single-word name (*Course*) would be named by nearly every description |
+| **How far is principle `P9` tested?** | Adopted — over what the analysis read first, then at most forty walks through the store, as Propose's questions walk; past that the answer is *not known*, which is neither a finding nor held against the element's maturity | So an analysis stays within what a request may read |
+| **What shape is the PDF?** | Adopted — A4 upright, the standard fonts, a diagram scaled to the page and never enlarged; its draw.io file carries it at full size | Printed and read on a screen alike; the draw.io file is where a diagram is worked on |
 
 ## What changes in the model
 

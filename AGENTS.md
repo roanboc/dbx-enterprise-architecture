@@ -124,7 +124,11 @@ until the application has users and runs on Databricks. The enterprise content i
   source carry the same legend as a swatch and a name (`views.mermaid.layer_legend`),
   which is as close as a text format comes to showing a colour. `ui/graph.py`
   is the one network-graph panel (grouping, layouts, pack colours);
-  `assets/ea-views.js` lets a reader arrange a generated view without saving it. A module imports only from layers to its
+  `assets/ea-views.js` lets a reader arrange a generated view without saving it. A deep
+  dive's pack (initiative 25) is drawn from what the deep dive kept: one layout per figure
+  (`views/deep_dive_layout.py`) written both as a draw.io file and into a PDF composed with
+  ReportLab (`views/deep_dive_pdf.py`, decision 0025), the analysis itself in
+  `agent/deep_dive.py` and the catalogue in `services/deep_dives.py`. A module imports only from layers to its
   left; SQL lives in `backend/` only; framework and institution names live in
   `packs/` and `connectors/` only.
 - **Organisations and metamodel versions.** The store holds more than one
