@@ -30,6 +30,9 @@ header says what it adds.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from tests.conftest import HIGHER_ED
 from tests.ui.evidence import Check, Finding
@@ -4000,4 +4003,77 @@ def test_m73_metamodel_rename(cli, record):
         "and it is renamed back the same way, so the rest of the round reads the shipped name",
         rc_back == 0 and f"is now {SHIPPED_NAME}" in back,
         back_ev,
+    )
+
+
+TEMPLATE_FILE = Path(__file__).resolve().parents[2] / "packs" / "higher_education" / "proposal-template.md"
+KEPT_TEMPLATE = "M round template"
+
+
+@pytest.mark.scenario(
+    scenario_id="M74",
+    group="M",
+    title="templates list, check, keep and delete: a proposal template kept by the organisation and let go",
+    feature="Command line · templates list/check/keep/delete",
+    expected=(
+        "`templates list` names the starters the organisation may copy and says it keeps none; "
+        "`templates check` places every heading and column of the shipped template; `templates keep` "
+        "keeps a file under the name in its front matter, and a starter by its name; `templates list` "
+        "then lists both; `templates delete` lets one go, and refuses a name the organisation does "
+        "not keep."
+    ),
+)
+def test_m74_templates(cli, record, tmp_path):
+    rc, listed, ev = run(cli, "templates", "list", limit=300)
+    must(record, "templates list ran", rc == 0, ev)
+    # A starter typed in another metamodel is marked so; the one to keep is typed in this one's.
+    starters = [
+        line.split("  ", 1)[1]
+        for line in listed.splitlines()
+        if line.startswith("starter") and "[another metamodel]" not in line
+    ]
+    check(record, "it names a starter typed in the organisation's metamodel", bool(starters), ev)
+    check(record, "and says the organisation keeps none yet", "no template kept" in listed, ev)
+
+    rc_check, checked, check_ev = run(cli, "templates", "check", str(TEMPLATE_FILE), limit=200)
+    check(
+        record,
+        "the shipped template has every heading and column placed",
+        rc_check == 0 and "every heading and column is placed" in checked,
+        check_ev,
+    )
+
+    mine = tmp_path / "m-template.md"
+    text = TEMPLATE_FILE.read_text(encoding="utf-8")
+    mine.write_text(re.sub(r"(?m)^  name: .*$", f"  name: {KEPT_TEMPLATE}", text, count=1), encoding="utf-8")
+    rc_keep, kept, keep_ev = run(cli, "templates", "keep", str(mine), limit=200)
+    check(
+        record,
+        "a file is kept under the name it carries",
+        rc_keep == 0 and f"kept '{KEPT_TEMPLATE}'" in kept,
+        keep_ev,
+    )
+    if starters:
+        rc_start, started, start_ev = run(cli, "templates", "keep", "--starter", starters[0], limit=200)
+        check(record, "a starter is kept by its name", rc_start == 0 and "kept " in started, start_ev)
+
+    _, again, again_ev = run(cli, "templates", "list", limit=300)
+    check(record, "the list now carries the kept file", KEPT_TEMPLATE in again, again_ev)
+    check(record, "and the kept starter", not starters or again.count(starters[0]) >= 2, again_ev)
+
+    rc_del, deleted, del_ev = run(cli, "templates", "delete", KEPT_TEMPLATE, limit=160)
+    check(
+        record,
+        "delete lets the kept file go",
+        rc_del == 0 and f"deleted '{KEPT_TEMPLATE}'" in deleted,
+        del_ev,
+    )
+    if starters:
+        run(cli, "templates", "delete", starters[0], expect=None)
+    rc_none, refused, none_ev = run(cli, "templates", "delete", KEPT_TEMPLATE, expect=None, limit=160)
+    check(
+        record,
+        "a template the organisation does not keep is refused by name",
+        rc_none == 1 and f"no template '{KEPT_TEMPLATE}' kept" in refused,
+        none_ev,
     )
