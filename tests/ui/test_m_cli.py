@@ -832,12 +832,9 @@ def test_m14_target_md(cli, record):
 def test_m15_health(cli, record):
     rc, out, ev = run(cli, "health", limit=160)
     must(record, "health ran", rc == 0 and "Freshness" in out and "Completeness" in out, ev)
-    check(
-        record,
-        "freshness is stamped with when it was read",
-        "as of" in out.splitlines()[0],
-        out.splitlines()[0],
-    )
+    # The size against the assessed capacity comes first (decision 0019); freshness follows it.
+    fresh = next((line for line in out.splitlines() if line.startswith("Freshness")), "")
+    check(record, "freshness is stamped with when it was read", "as of" in fresh, fresh or out[:200])
     check(
         record,
         "the sample source is reported",
