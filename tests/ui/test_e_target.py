@@ -634,7 +634,8 @@ def test_marked_view(ui, record):
     chips = ui.text('[id=\'{"id":"tg-view","type":"mermaid-legend"}\']')
     ui.check(
         "the layers the shapes are filled by are named above the diagram",
-        sum(word in chips for word in ("Application", "Technology", "Implementation")) >= 2,
+        # a chip is a badge, drawn in capitals whatever it was written in
+        sum(word in chips.lower() for word in ("application", "technology", "implementation")) >= 2,
         _brief(chips) or "(no chips above the diagram)",
     )
     for state, glyph in (("new", "+"), ("change", "Δ"), ("decommission", "×")):
