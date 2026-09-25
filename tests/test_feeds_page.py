@@ -345,3 +345,17 @@ def test_a_run_that_did_not_run_is_named_with_the_feed_it_was_of():
 
     # a feed deleted between the render and the click still names something a reader can use
     assert "feed-1 did not run" in _run_failed(None, "feed-1", RuntimeError("gone"))
+
+
+def test_the_history_says_where_its_runs_come_from_once_it_holds_one(app_context):
+    """The history holds every import, not only the feeds above it. The empty state said so, and
+    the heading's own line did not: once a single run was kept — a feed's, which is the first one
+    most readers see — the page stopped saying that an upload or a command would land here too."""
+    from ea.ui.pages import feeds
+
+    with recorded(app_context.backend, trigger="feed", actor="t", source_system="s") as run:
+        run.report = ImportReport(source_system="s")
+    page = _texts(feeds.render(app_context))
+    assert "No imports have been recorded yet" not in page
+    history = page[page.index("Import history") :]
+    assert "Import page" in history and "command line" in history, history[:300]
