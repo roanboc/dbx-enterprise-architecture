@@ -1,5 +1,9 @@
 """The graph panel: grouping, prefixed ids, grid positions without overlaps, type graph."""
 
+import json
+
+import pytest
+
 from ea.ui import graph as gp
 
 
@@ -70,3 +74,25 @@ def test_every_layout_spec_leaves_cytoscape_its_defaults():
         spec = gp.layout_spec(option["value"])
         assert not nulls(spec), f"{option['label']} sets {nulls(spec)} to null"
         assert spec["name"], option
+
+
+@pytest.mark.parametrize(
+    ("page", "tabs", "panel"), [("element", "el-tabs", "el"), ("metamodel", "mm-tabs", "mm")]
+)
+def test_a_graph_on_a_tab_is_fitted_when_the_tab_opens(page, tabs, panel):
+    """A panel drawn while its tab is hidden is measured at no size at all, so it opens with
+    part of the graph off the canvas unless it is fitted again when the tab is shown. The
+    Metamodel page's type graph opened that way, with a third of its types out of sight."""
+    import importlib
+
+    import dash
+
+    app = dash.Dash(__name__)
+    importlib.import_module(f"ea.ui.pages.{page}").register(app)
+    cy = json.dumps(gp.cy_id(panel), sort_keys=True, separators=(",", ":"))
+    fits = [
+        cb
+        for cb in app.callback_map.values()
+        if {"id": tabs, "property": "value"} in cb["inputs"] and str(cb["output"]).startswith(cy)
+    ]
+    assert fits, f"nothing fits the {panel!r} graph when {tabs} changes"
