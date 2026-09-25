@@ -39,11 +39,14 @@ FEED_TABLES = ["source_feed", "import_run"]
 # The document shapes an organisation proposes in (DOBJ3.9): configuration of the organisation,
 # like its feeds, and no part of any branch.
 TEMPLATE_TABLES = ["proposal_template"]
+# The deep dives kept on an organisation's content, the elements each cites and the ratings
+# people gave them (decision 0024): the organisation's own, and no part of any branch.
+KNOWLEDGE_TABLES = ["deep_dive", "deep_dive_element", "deep_dive_rating"]
 # Every table whose rows belong to one organisation (decision 0014): the content, the change
 # log, the branches and everything that hangs off a branch, the feeds and their history, the
-# proposal templates. The organisation table itself and the metamodel tables are shared by
-# every organisation.
-ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + TEMPLATE_TABLES
+# proposal templates, the deep dives. The organisation table itself and the metamodel tables are
+# shared by every organisation.
+ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + TEMPLATE_TABLES + KNOWLEDGE_TABLES
 # What an organisation's deletion leaves behind. The change log is kept because it is the one
 # append-only record of what was done to the store. A run is *not* kept with it: an org_id may
 # be taken again by a later organisation, and a run carries the actor names, file names, issue
@@ -66,6 +69,8 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     # A run is what happened, beside the change log's what changed. Both are read by more
     # people than may write content, which is what the group is for.
     "audit": ["change_log", "import_run"],
+    # What was learnt from the content: read by everyone who reads it, written by whoever asks.
+    "knowledge": list(KNOWLEDGE_TABLES),
     # The store creates the schema and never a table in it. What lands here is put there
     # from outside — a platform job writing Postgres, or a catalogue table replicated into
     # it — and the application's contract with a source is the shape of the table, nothing
@@ -441,6 +446,41 @@ DDL: dict[str, str] = {
             conversation_json VARCHAR,
             updated_at TIMESTAMP
         )""",
+    "deep_dive": """
+        CREATE TABLE IF NOT EXISTS deep_dive (
+            deep_dive_id VARCHAR NOT NULL,
+            title VARCHAR,
+            kind VARCHAR,
+            brief_json VARCHAR,
+            content_json VARCHAR,
+            domain_ids VARCHAR,
+            type_ids VARCHAR,
+            work_package VARCHAR,
+            branch_id VARCHAR,
+            pack_id VARCHAR,
+            pack_version VARCHAR,
+            status VARCHAR,
+            created_by VARCHAR,
+            created_at TIMESTAMP,
+            org_id VARCHAR
+        )""",
+    "deep_dive_element": """
+        CREATE TABLE IF NOT EXISTS deep_dive_element (
+            deep_dive_id VARCHAR NOT NULL,
+            element_id VARCHAR NOT NULL,
+            role VARCHAR,
+            maturity INTEGER,
+            org_id VARCHAR
+        )""",
+    "deep_dive_rating": """
+        CREATE TABLE IF NOT EXISTS deep_dive_rating (
+            deep_dive_id VARCHAR NOT NULL,
+            rated_by VARCHAR NOT NULL,
+            stars INTEGER,
+            comment VARCHAR,
+            rated_at TIMESTAMP,
+            org_id VARCHAR
+        )""",
     "proposal_template": """
         CREATE TABLE IF NOT EXISTS proposal_template (
             template_id VARCHAR NOT NULL,
@@ -659,6 +699,11 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("proposal_branch", "proposal", False, "(org_id, branch_id)"),
     ("proposal_template_key", "proposal_template", True, "(org_id, template_id)"),
     ("import_run_key", "import_run", True, "(org_id, run_id)"),
+    ("deep_dive_key", "deep_dive", True, "(org_id, deep_dive_id)"),
+    ("deep_dive_element_key", "deep_dive_element", True, "(org_id, deep_dive_id, element_id)"),
+    # what the element page reads, and what a deep dive reads for the earlier ones on its elements
+    ("deep_dive_element_element", "deep_dive_element", False, "(org_id, element_id)"),
+    ("deep_dive_rating_key", "deep_dive_rating", True, "(org_id, deep_dive_id, rated_by)"),
     # The history is read newest first, and a feed's own history is read the same way.
     ("import_run_recent", "import_run", False, "(org_id, started_at)"),
     ("import_run_feed", "import_run", False, "(org_id, feed_id, started_at)"),

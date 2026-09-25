@@ -719,6 +719,68 @@ class ChangeImpact:
         return cls(**{k: d[k] for k in cls.__dataclass_fields__ if k in d})
 
 
+#: The kinds of analysis a deep dive answers (initiative 25). They are the product's, not a
+#: framework's: every one is read through the metamodel's own notation and states.
+DEEP_DIVE_KINDS = ["impact", "landscape", "transition", "flow", "quality"]
+#: A deep dive is kept, or withdrawn by its author or an admin — never deleted (decision 0024).
+DEEP_DIVE_STATUSES = ["kept", "withdrawn"]
+#: How an element takes part in a deep dive: what it is about, what a view draws, what a finding names.
+DEEP_DIVE_ROLES = ["subject", "drawn", "finding"]
+#: How far an element can be trusted, read from what it carries (1 lowest).
+MATURITY_LEVELS = {1: "Named", 2: "Described", 3: "Related", 4: "Approved", 5: "Current"}
+
+
+@dataclass
+class DeepDiveElement:
+    """An element a deep dive cites, how it takes part, and the maturity it had when it was read."""
+
+    element_id: str
+    role: str = "drawn"
+    maturity: int = 1
+
+
+@dataclass
+class DeepDiveRating:
+    """One person's judgement of one deep dive: one to five stars and a line of why."""
+
+    deep_dive_id: str
+    rated_by: str
+    stars: int
+    comment: str = ""
+    rated_at: datetime | None = None
+
+
+@dataclass
+class DeepDive:
+    """An analysis a reader settled with the assistant, and what came of it (DOBJ3.11).
+
+    `brief` is what was settled in conversation — the question, the subject, the kind of
+    analysis, how far it reaches and what it is for. `content` is what the analysis read and
+    found, as it was read: the summary, the views level by level, the findings, the maturity of
+    every element, the inconsistencies and the references. The catalogue entry is the rest.
+    Kept once and never edited; running it again makes a new one.
+    """
+
+    title: str
+    kind: str = "impact"
+    brief: dict[str, Any] = field(default_factory=dict)
+    content: dict[str, Any] = field(default_factory=dict)
+    domain_ids: list[str] = field(default_factory=list)
+    type_ids: list[str] = field(default_factory=list)
+    work_package: str = ""
+    elements: list[DeepDiveElement] = field(default_factory=list)
+    deep_dive_id: str = ""
+    branch_id: str = ""  # empty for main
+    pack_id: str = ""
+    pack_version: str = ""
+    status: str = "kept"
+    created_by: str = ""
+    created_at: datetime | None = None
+    # read from the ratings, never written
+    rating_average: float | None = None
+    rating_count: int = 0
+
+
 @dataclass
 class ProposalTemplate:
     """A document shape an organisation proposes in (DOBJ3.9): the Markdown, front matter and all.
