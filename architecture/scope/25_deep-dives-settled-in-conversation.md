@@ -16,7 +16,9 @@ as it does on Propose — it holds a conversation to settle what kind of analysi
 needs — and ends in a **deep dive**. Shown the first draft, the Requester widened it: the
 deep dive is a comprehensive, styled **PDF** whose diagrams are **draw.io** diagrams, handed
 out together in a ZIP; the analysis weighs the **maturity** of the elements it rests on and
-recognises where an element and its documentation **disagree**; and a deep dive is
+recognises where an element and its documentation **disagree**; it **reads from the top
+down**, the high level drawn to be presented — varied diagrams, colour, icons — and the detail
+in the application's ArchiMate style; and a deep dive is
 **catalogued and kept** in the platform, **rated** by the people who read it, **linked** from
 the elements it covers and **weighed by later analyses**. In the Requester's words, this is
 what can change enterprise architecture work: an analysis built on the model and on the
@@ -94,19 +96,43 @@ rules have nothing to offer, writes the summary from the findings and the views,
 what it read — every identifier it cites checked against what the tools returned, as in every
 answer (principle `P6`).
 
-**The deep dive is a pack.** One ZIP holding a styled PDF and a draw.io file for each view,
-and nothing in Markdown. The PDF's diagrams are drawn from the same layout as the draw.io
-files, so what is printed is what opens in draw.io.
+**The deep dive is a pack.** One ZIP holding a styled PDF and a draw.io file for each
+diagram, and nothing in Markdown. The PDF's diagrams are drawn from the same layout as the
+draw.io files, so what is printed is what opens in draw.io.
+
+**It reads from the top down, in two styles.** Every deep dive starts at the highest level
+and zooms in, and the way it draws changes as it does. The high level is drawn to be shared
+and presented — varied kinds of diagram, colour, icons and shapes chosen for a reader who is
+not an architect. The detail is drawn as the application draws a view today: the metamodel's
+own notation, ArchiMate in shape and colour.
+
+| Level | What it shows | Drawn as |
+| ----- | ------------- | -------- |
+| **1 — Context** | The subject in its enterprise: the goals, capabilities and business it serves, and who is concerned | **Presentation**: a context map around the subject, icons and colour by layer |
+| **2 — Overview** | The landscape the analysis covers, layer by layer, with where the findings and the low maturity sit | **Presentation**: layer bands with icons, a heat map of the area coloured by maturity or by finding, and charts of the maturity and the findings |
+| **3 — Architecture** | One chapter per aspect of the analysis — what it serves, what depends on it, the trace, the transition | **Architecture**: the metamodel's notation, as the application draws a view |
+| **4 — Detail** | The key elements up close — each one's neighbourhood, its maturity, and where it and its documentation disagree | **Architecture**, as above |
+
+Both styles are generated from the model and never drawn by hand, and every shape that stands
+for an element carries its identifier, however it is styled (principle `P8`); a chart carries
+figures, never an element. An icon is picked from what the metamodel's notation already says
+the element is — its ArchiMate kind, the way the draw.io export picks a stencil today — and
+from its layer where the notation says nothing, so no framework's names enter the code
+(principle `P5`).
 
 | The PDF, in order | What it holds |
 | ----------------- | ------------- |
 | **Cover** | The title, the brief in one sentence, the organisation, the branch and the metamodel version it read, who asked and when |
-| **What you need to know** | The findings that matter most for what the analysis is for, and how far they can be trusted |
-| **One chapter per view** | The diagram, and the table of what it draws with each element's maturity |
-| **Findings** | Each with its severity, what was found, the elements it rests on and why it matters |
+| **What you need to know** | The findings that matter most for what the analysis is for, how far they can be trusted, and the figures behind them |
+| **Context**, then **Overview** | Levels 1 and 2, each diagram with a short reading of it |
+| **Architecture**, then **Detail** | Levels 3 and 4, each diagram with the table of what it draws and each element's maturity |
+| **Findings** | Each with its severity, what was found, the elements it rests on and why it matters, placed at the level it concerns |
 | **Inconsistencies** | Where an element and its documentation disagree |
 | **References** | The earlier deep dives it weighed, with their ratings, and the elements it cites |
 | **How it was answered** | The tool trace, and any identifier no tool returned |
+
+The draw.io files are numbered in the same order, level first, so the pack reads top-down in a
+folder as the PDF does on paper.
 
 **A deep dive is catalogued, kept, linked and rated** (decision
 [0024](../decisions/0024-deep-dives-are-kept.md)). It is kept the moment it is written, in the
@@ -134,6 +160,8 @@ came from.
 | **Does it work without a model?** | Yes | The brief's questions are choices; the analysis, the maturity, the inconsistencies and the findings are rules. Reading an answer in the reader's own words needs a model; without one, words are searched as names |
 | **Which branch does it read?** | The one the reader is on | Kept with the branch, and listed as read on it |
 | **How much does it read?** | No more than a quick answer may | Three steps at most, the same limit on what a view draws, every read paged (decision [0019](../decisions/0019-the-size-the-application-declares.md)) |
+| **Do the presentation diagrams keep principle `P8`?** | Yes | Generated from the model like every view; a shape that stands for an element carries its identifier, in small type beneath its name. Only a chart carries none, because it draws figures, not elements |
+| **Where do the icons come from?** | The element's ArchiMate kind in the metamodel's notation, else its layer | As the draw.io export picks a stencil today; a metamodel that wants its own icons would add them to its notation, later |
 | **How is the PDF made?** | In the application, from what is kept, with a library that needs nothing installed beside Python | So it runs on Databricks Apps as it runs locally; chosen when the technology layer is aligned, and recorded as a decision |
 | **Which kinds of analysis?** | The five above | They are the product's, not a framework's: layers and states are read from the metamodel's notation and the model's vocabularies (principle `P5`) |
 | **On the command line?** | Not in this initiative | Ask has no command today |
@@ -160,7 +188,7 @@ came from.
 | 1_strategy | **Aligned — no change.** Serves `G1` **Query the architecture sustainably** — answers without drawing tools, which is the Requester's *instead of architects creating diagrams from scratch* — and `DRV2` **Agents need a queryable model**. Stays inside `P2` (the maturity reads the provenance every element carries), `P3` (it writes nothing to the model; people rate, the assistant does not), `P6` (every finding cites the elements it rests on), `P8` (every diagram is generated from the model) and `P9` (a trace to nothing is a finding). |
 | 2_business | [2_processes-and-services.md](../2_business/2_processes-and-services.md): `BPROC3`, `BSVC1`. [1_actors-and-roles.md](../2_business/1_actors-and-roles.md): `ACT6`, `ROLE4`, `ROLE5`. |
 | 3_information | [1_data-objects.md](../3_information/1_data-objects.md): `DOBJ3.11` **Deep dive**, added, with what it cites, embeds, is read on and is catalogued by; its retention. [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md): the entities `DEEP_DIVE` and `DEEP_DIVE_RATING`. [3_logical-data-model.md](../3_information/3_logical-data-model.md): tables `deep_dive`, `deep_dive_element` and `deep_dive_rating` in a new schema group `ea_knowledge`, and the index that lists an element's deep dives. Recorded as [decision 0024](../decisions/0024-deep-dives-are-kept.md). |
-| 4_application | To align after Understanding: `ASVC5` **Grounded question answering** gains the deep dive; a **Deep dives** service for the catalogue — list, narrow, open, download, rate, withdraw, run again; `ACMP5` **Agent** gains the brief, the analyses, the maturity, the inconsistencies and the findings, and read tools for a work package's target state and an area's health; `ACMP8` **View generator** writes the PDF and a draw.io file per view from one layout; `ACMP6` **Web application** gains the mode on the Ask page, the Deep dives page and the list on the element page; the store gains the three tables on both engines; the roles gain keeping, rating and withdrawing. |
+| 4_application | To align after Understanding: `ASVC5` **Grounded question answering** gains the deep dive; a **Deep dives** service for the catalogue — list, narrow, open, download, rate, withdraw, run again; `ACMP5` **Agent** gains the brief, the analyses, the maturity, the inconsistencies and the findings, and read tools for a work package's target state and an area's health; `ACMP8` **View generator** gains the presentation style beside the architecture style, and writes the PDF and a draw.io file per diagram from one layout; `ACMP6` **Web application** gains the mode on the Ask page, the Deep dives page and the list on the element page; the store gains the three tables on both engines; the roles gain keeping, rating and withdrawing. |
 | 5_technology | To align after Understanding: a PDF library in the runtime, needing nothing installed beside Python; the `ea_knowledge` schema in the Lakebase database the bundle already creates, within the grant the app already holds. The same assistant model answers a deep dive. |
 | Transition | `GAP27` opened and closed; `GAP28` opened, not started; step 1n recorded on the roadmap when this is built, extending `PLAT1`. |
 
@@ -177,7 +205,7 @@ came from.
 | 2 — The analyses | The five kinds of analysis over the store, each within the assessed capacity, and the views each draws |
 | 3 — Maturity and inconsistencies | The maturity of every element an analysis rests on, and the inconsistencies between an element and its documentation |
 | 4 — The findings | The seven rules above, each with its severity and the elements it cites; the summary led by them, with how far they can be trusted |
-| 5 — The pack | The styled PDF and a draw.io file per view, drawn from one layout, in one ZIP |
+| 5 — The pack | The styled PDF, top-down from context to detail; the presentation style for the high level — context maps, layer bands, heat maps, charts — and the metamodel's notation for the detail; a draw.io file per diagram, drawn from one layout, numbered by level, in one ZIP |
 | 6 — The catalogue | The three tables on both engines; a deep dive kept when written, catalogued, linked from its elements; ratings; withdrawing; running again; earlier deep dives weighed by their rating |
 | 7 — The pages | The choice between a quick answer and a deep dive on Ask, with the conversation beside the brief; the Deep dives page; the deep dives on the element page |
 
@@ -187,7 +215,7 @@ came from.
 | -------- | ------------ |
 | A deep dive on the Ask page, settled in conversation | A deep dive on the command line |
 | Five kinds of analysis; the maturity; the inconsistencies between an element and what the repository holds about it | Reading the pages an element links to, and comparing them with the model (`GAP28`) |
-| A PDF and draw.io files in one ZIP | A pack in any other format |
+| A PDF and draw.io files in one ZIP, top-down, in two styles | A pack in any other format; icons a metamodel declares for itself |
 | Deep dives catalogued, kept, linked from elements, rated and weighed by later ones | Editing a kept deep dive; publishing the catalogue to the platform's own catalogue, or logging questions and answers for monitoring (`PLAT5`) |
 | One rating per person, one to five stars | Several rated dimensions; a maturity a steward sets by hand |
 
