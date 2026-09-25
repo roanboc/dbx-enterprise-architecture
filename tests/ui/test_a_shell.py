@@ -43,6 +43,7 @@ SHIPPED = load_pack(PACK)
 # In the order `layout.NAV_SECTIONS` draws them, because A03 compares the two lists whole.
 NAV = [
     ("Home", "/", "nav-home", HOME),
+    ("Guide", "/guide", "nav-guide", "Guide"),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
     ("Impact", "/impact", "nav-impact", "Impact"),
@@ -295,8 +296,8 @@ def test_home(ui, record):
     group="A",
     title="Every navigation link routes to its page and the current one is marked",
     feature="Shell · navigation",
-    expected="Clicking each of the ten links changes the address, renders that page's heading without "
-    "an error, and leaves that link — and only that link — marked as the current page.",
+    expected="Clicking each link in the navigation changes the address, renders that page's heading "
+    "without an error, and leaves that link — and only that link — marked as the current page.",
 )
 def test_navigation_routes(ui, record):
     ui.goto("/")
@@ -907,9 +908,9 @@ def test_header_controls_when_narrow(ui, record):
     group="A",
     title="Every address typed straight into the browser renders its own page",
     feature="Shell · routing",
-    expected="Each of the ten addresses opened directly, rather than by clicking, renders that page and "
-    "marks that link; a trailing slash is tolerated; and an address nobody recognises marks the Home it "
-    "falls back to.",
+    expected="Each address in the navigation, opened directly rather than by clicking, renders that "
+    "page and marks that link; a trailing slash is tolerated; and an address nobody recognises marks "
+    "the Home it falls back to.",
 )
 def test_addresses_opened_directly(ui, record):
     wrong_page: list[str] = []
@@ -993,15 +994,20 @@ def test_branch_controls(ui, record):
     group="A",
     title="The navigation draws an icon for every link and says what the repository is",
     feature="Shell · navigation",
-    expected="Each of the twelve links carries an icon of its own, no two the same, the navigation closes "
-    "by saying what the repository is, and the brand in the header carries its name and its tagline.",
+    expected="Each link in the navigation carries an icon of its own, no two the same, the navigation "
+    "closes by saying what the repository is, and the brand in the header carries its name and its "
+    "tagline.",
 )
 def test_navigation_furniture(ui, record):
     ui.goto("/")
     icons = ui.page.evaluate(NAV_ICONS_JS)
-    # Twelve, not ten: the navigation gained Feeds and Organisations with initiatives 15 and 18
-    # and this count was not moved with them, so the scenario had been failing before this change.
-    ui.must("the twelve links are read back", len(icons["links"]) == 12, f"{len(icons['links'])} links")
+    # Counted from NAV, as A03 counts: a number written here went stale each time the navigation
+    # gained a link — Feeds and Organisations, then Guide.
+    ui.must(
+        f"the {len(NAV)} links are read back",
+        len(icons["links"]) == len(NAV),
+        f"{len(icons['links'])} links, NAV has {len(NAV)}",
+    )
     without = [row["label"] for row in icons["links"] if not row["icon"]]
     ui.check("every link draws an icon", not without, "; ".join(without) if without else "")
     unsized = [
