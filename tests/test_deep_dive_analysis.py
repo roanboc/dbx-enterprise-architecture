@@ -362,6 +362,8 @@ def test_a_transition_draws_the_package_as_it_is_as_targeted_and_what_it_touches
     assert views[1]["marked"] and not views[0]["marked"]
     targeted = view_from_dict(views[1]["view"])
     assert {"PAC-CAW", "PTC-FORMS", "PAC-CMS"} <= set(targeted.ids())
+    # what is only proposed or planned — the work package itself among them — is not there yet
+    assert not {"PAC-CAW", "IF-CMS-SRS", "WP-CMS-UPGRADE"} & set(view_from_dict(views[0]["view"]).ids())
 
 
 def test_the_detail_zooms_into_the_key_elements_subject_first(analyst):

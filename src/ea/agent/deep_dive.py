@@ -117,6 +117,8 @@ MAX_CANDIDATES = 5
 MAX_KEY = 3
 #: Upper-layer elements the context map shows around the subject, per group.
 MAX_CONTEXT = 8
+#: The business, strategy and motivation elements "What it serves" draws, nearest first.
+MAX_SERVES = 10
 #: How recently an approved element must have been refreshed to be current.
 RECENT_DAYS = STALE_DAYS[-1]
 #: How many elements must depend on one directly for it to be a single point of dependency.
@@ -862,7 +864,8 @@ class DeepDiveAnalyst:
                 else "Approved, but when it was last refreshed is not recorded."
             )
         else:
-            why = f"Described, related and approved, and refreshed {age} day(s) ago."
+            when = "today" if age == 0 else f"{age} day(s) ago"
+            why = f"Described, related and approved, and refreshed {when}."
         return level, why
 
     # ------------------------------------------------ inconsistencies
@@ -1288,7 +1291,7 @@ class DeepDiveAnalyst:
     ) -> dict[str, Any]:
         wanted = [i for i in dict.fromkeys([*[i for i in ids if i in focus], *ids]) if i in rows]
         if real_only:
-            wanted = [i for i in wanted if rows[i]["current_state"] not in NOT_REAL or i in focus]
+            wanted = [i for i in wanted if rows[i]["current_state"] not in NOT_REAL]
         view = view_of_change(
             self.registry,
             self._node_rows(rows, wanted, focus),
@@ -1429,17 +1432,26 @@ class DeepDiveAnalyst:
         up = sorted(area.up, key=lambda i: (area.up[i], i))
         down = sorted(area.down, key=lambda i: (area.down[i], i))
         if brief.kind == "impact":
-            upper = [
-                i
-                for i in dict.fromkeys([*scope, *area.context])
-                if i in rows and rows[i]["layer"] in UPPER_LAYERS
+            # what it serves, not who is concerned: the people are on the context map
+            upper = sorted(
+                (
+                    i
+                    for i in dict.fromkeys([*scope, *area.context])
+                    if i in rows and rows[i]["layer"] in UPPER_LAYERS and rows[i]["archimate"] not in PEOPLE
+                ),
+                key=lambda i: (area.depth.get(i, area.context.get(i, 9)), i),
+            )[:MAX_SERVES]
+            path = [
+                n
+                for i in upper
+                for n in area.paths.get(i, [])
+                if n in rows and rows[n]["archimate"] not in PEOPLE
             ]
-            path = [n for i in upper for n in area.paths.get(i, []) if n in rows]
             arch(
                 "What it serves",
                 [*centre, *path, *upper],
-                f"From {subject_names} up to the {len(upper)} business, strategy and motivation element(s) it "
-                "reaches, with the elements between.",
+                f"From {subject_names} up to the {len(upper)} business, strategy and motivation element(s) "
+                "nearest it, with the elements between.",
                 marked=True,
             )
             arch(
@@ -1538,8 +1550,8 @@ class DeepDiveAnalyst:
                 4,
                 "view",
                 f"{rows[k]['name']} [{k}] up close",
-                f"Maturity {rows[k]['maturity']} — {rows[k]['maturity_label']}: {rows[k]['maturity_why']} "
-                f"{len(about)} finding(s) cite it.",
+                f"Maturity {rows[k]['maturity']} of 5, {rows[k]['maturity_label'].lower()}. "
+                f"{rows[k]['maturity_why']} {len(about)} finding(s) cite it.",
                 view=view_to_dict(view),
                 marked=True,
                 element_id=k,
