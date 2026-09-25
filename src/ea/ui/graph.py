@@ -389,8 +389,9 @@ def layout_spec(name: str) -> dict[str, Any]:
             "animate": False,
             "fit": True,
             "padding": 30,
+            # No `concentric` key: Cytoscape's own ranks a node by its degree, and a spec travels
+            # as JSON, so anything set here would arrive as data where a function is called.
             "minNodeSpacing": 50,
-            "concentric": None,
         }
     if name == "breadthfirst":
         return {

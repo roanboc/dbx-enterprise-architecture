@@ -51,3 +51,22 @@ def test_type_graph_has_any_diamond_and_subtype_edges(registry):
     assert not any_node["data"].get("parent")
     typed = next(e for e in els if e["classes"].startswith("type"))
     assert gp.is_element_node(typed["data"]) and gp.element_id_of(typed["data"]) == typed["data"]["type_id"]
+
+
+def test_every_layout_spec_leaves_cytoscape_its_defaults():
+    """A spec travels as JSON, so an option set to None arrives as null and replaces the
+    layout's own default rather than leaving it be. Concentric's `concentric` is a function
+    Cytoscape calls on every node; null there threw on every run, and the half-applied update
+    it left behind lost the group boxes in every layout chosen after it."""
+
+    def nulls(value, path=""):
+        if value is None:
+            return [path]
+        if isinstance(value, dict):
+            return [p for k, v in value.items() for p in nulls(v, f"{path}.{k}")]
+        return []
+
+    for option in gp.LAYOUT_OPTIONS:
+        spec = gp.layout_spec(option["value"])
+        assert not nulls(spec), f"{option['label']} sets {nulls(spec)} to null"
+        assert spec["name"], option
