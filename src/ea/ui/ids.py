@@ -435,3 +435,18 @@ RV_FEEDBACK = "rv-feedback"
 MM_REVIEWERS_GRID = "mm-reviewers-grid"
 MM_REVIEWERS_SAVE = "mm-reviewers-save"
 MM_REVIEWERS_FEEDBACK = "mm-reviewers-feedback"
+
+# Connected systems (initiative 26): the enterprise's systems the assistant may read over MCP
+SYS_LIST = "sys-list"
+SYS_FEEDBACK = "sys-feedback"
+SYS_NAME = "sys-name"
+SYS_URL = "sys-url"
+SYS_TOOLS = "sys-tools"
+SYS_SPEAKS_FOR = "sys-speaks-for"
+SYS_PAGES = "sys-pages"
+SYS_PAGE_TOOL = "sys-page-tool"
+SYS_AUTH = "sys-auth"
+SYS_CREDENTIAL = "sys-credential"
+SYS_ROLES = "sys-roles"
+SYS_SAVE = "sys-save"
+SYS_REMOVE = "sys-remove"  # pattern-matching: {"type": SYS_REMOVE, "id": <system_id>}

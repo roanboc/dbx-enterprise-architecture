@@ -36,6 +36,9 @@ BRANCH_TABLES = [
 # run of it. Neither is content and neither hangs off a branch — they belong to the organisation
 # directly.
 FEED_TABLES = ["source_feed", "import_run"]
+# The systems the assistant may read over the Model Context Protocol (initiative 26): the
+# organisation's configuration, beside its feeds, and no part of any branch.
+CONNECTED_TABLES = ["connected_system"]
 # The document shapes an organisation proposes in (DOBJ3.9): configuration of the organisation,
 # like its feeds, and no part of any branch.
 TEMPLATE_TABLES = ["proposal_template"]
@@ -46,7 +49,9 @@ KNOWLEDGE_TABLES = ["deep_dive", "deep_dive_element", "deep_dive_rating"]
 # log, the branches and everything that hangs off a branch, the feeds and their history, the
 # proposal templates, the deep dives. The organisation table itself and the metamodel tables are
 # shared by every organisation.
-ORG_TABLES = CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + TEMPLATE_TABLES + KNOWLEDGE_TABLES
+ORG_TABLES = (
+    CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + CONNECTED_TABLES + TEMPLATE_TABLES + KNOWLEDGE_TABLES
+)
 # What an organisation's deletion leaves behind. The change log is kept because it is the one
 # append-only record of what was done to the store. A run is *not* kept with it: an org_id may
 # be taken again by a later organisation, and a run carries the actor names, file names, issue
@@ -65,7 +70,14 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
     "branch": ["branch", "branch_element", "branch_relationship", "branch_link"],
     # A feed's configuration sits with the other things that govern how content arrives
     # and is reviewed, rather than with the content itself.
-    "governance": ["branch_review", "reviewer_assignment", "proposal", "proposal_template", "source_feed"],
+    "governance": [
+        "branch_review",
+        "reviewer_assignment",
+        "proposal",
+        "proposal_template",
+        "source_feed",
+        "connected_system",
+    ],
     # A run is what happened, beside the change log's what changed. Both are read by more
     # people than may write content, which is what the group is for.
     "audit": ["change_log", "import_run"],
@@ -493,6 +505,27 @@ DDL: dict[str, str] = {
             updated_at TIMESTAMP,
             org_id VARCHAR
         )""",
+    "connected_system": """
+        CREATE TABLE IF NOT EXISTS connected_system (
+            system_id VARCHAR NOT NULL,
+            name VARCHAR,
+            description VARCHAR,
+            url VARCHAR,
+            speaks_for VARCHAR,
+            link_prefixes VARCHAR,
+            tools VARCHAR,
+            page_tool VARCHAR,
+            page_argument VARCHAR,
+            auth VARCHAR,
+            credential_env VARCHAR,
+            roles VARCHAR,
+            enabled BOOLEAN,
+            created_at TIMESTAMP,
+            created_by VARCHAR,
+            updated_at TIMESTAMP,
+            updated_by VARCHAR,
+            org_id VARCHAR
+        )""",
     "source_feed": """
         CREATE TABLE IF NOT EXISTS source_feed (
             feed_id VARCHAR NOT NULL,
@@ -684,6 +717,7 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("element_link_key", "element_link", True, "(org_id, link_id)"),
     ("element_link_element", "element_link", False, "(org_id, element_id)"),
     ("source_feed_key", "source_feed", True, "(org_id, feed_id)"),
+    ("connected_system_key", "connected_system", True, "(org_id, system_id)"),
     ("change_log_key", "change_log", True, "(org_id, change_id)"),
     ("change_log_entity", "change_log", False, "(org_id, entity_id)"),
     ("branch_key", "branch", True, "(org_id, branch_id)"),

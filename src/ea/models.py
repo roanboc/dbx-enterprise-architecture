@@ -898,6 +898,44 @@ class SourceFeed:
         return not self.target_branch
 
 
+#: How a person is known to a connected system: their own platform identity, a credential the
+#: platform holds for the organisation, or nothing at all (a server open inside the network).
+CONNECTED_AUTH = ("reader", "credential", "none")
+
+
+@dataclass
+class ConnectedSystem:
+    """A system of the enterprise the assistant may read over the Model Context Protocol (DOBJ3.12).
+
+    Configuration, not content: what the system says is read when an answer needs it, cited as
+    the system's, and never written into the model (initiative 26). It is reached at `url` over
+    the protocol's streamable HTTP, and only the `tools` listed may be called — each one a read.
+    `speaks_for` names the element types it masters; `link_prefixes` the addresses of the pages
+    it answers for, which a deep dive reads through `page_tool` with the address in
+    `page_argument`. `auth` says how a person is known to it: `reader` passes the reader's own
+    platform identity on, `credential` a token the platform holds in the environment variable
+    `credential_env` — used only for the `roles` listed — and `none` nothing.
+    """
+
+    system_id: str = ""
+    name: str = ""
+    description: str = ""
+    url: str = ""
+    speaks_for: list[str] = field(default_factory=list)
+    link_prefixes: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
+    page_tool: str = ""
+    page_argument: str = "url"
+    auth: str = "reader"
+    credential_env: str = ""
+    roles: list[str] = field(default_factory=list)
+    enabled: bool = True
+    created_at: Any = None
+    created_by: str = ""
+    updated_at: Any = None
+    updated_by: str = ""
+
+
 @dataclass
 class ImportReport:
     source_system: str

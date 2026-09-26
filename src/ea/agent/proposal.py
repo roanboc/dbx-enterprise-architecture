@@ -403,6 +403,8 @@ class ProposalService:
             first = next((s.get("text") for s in pages if (s.get("text") or "").strip()), None)
             reading, template_id, template_name = self.templates.reading(template, first)
             if pages or not drawings:
+                if self.toolbox is not None:
+                    self.toolbox.begin()
                 result = self.provider.extract(pages, self, reading)
             else:
                 # a drawing is read by rules, with or without a model (decision 0026)
@@ -1102,6 +1104,8 @@ class ProposalService:
             conversation.append(_turn("architect", "message", message.strip()))
         if (message.strip() or words) and self.converses:
             with _on(branch_id):
+                if self.toolbox is not None:
+                    self.toolbox.begin()
                 result, reply = self.provider.converse(result, conversation, words, self)
             result = self.resolve(result, branch_id)
         elif message.strip() or words:
@@ -1459,7 +1463,11 @@ class HostedProposalProvider:
     def _loop(self, system: str, content: str, toolbox: ToolBox) -> dict[str, Any]:
         """The tool loop: read tools answered from the repository, a submitted change set and
         the questions asked kept. Returns {submitted, asked, text, error}."""
-        tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS] + [SUBMIT_TOOL, ASK_TOOL]
+        tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS]
+        if toolbox.reader is not None:
+            # what the enterprise's connected systems say about what the draft changes (initiative 26)
+            tools += toolbox.reader.specs()
+        tools += [SUBMIT_TOOL, ASK_TOOL]
         messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
         out: dict[str, Any] = {"submitted": None, "asked": [], "text": "", "error": ""}
         for _ in range(self.max_turns):

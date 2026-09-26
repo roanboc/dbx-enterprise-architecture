@@ -11,12 +11,13 @@ import dash
 import dash_cytoscape as cyto
 import dash_mantine_components as dmc
 from dash import ALL, MATCH, Input, Output, State, ctx, no_update
-from flask import session
+from flask import request, session
 
 from ea.backend.branching import MAIN, set_branch
 from ea.backend.organisations import set_org
 from ea.config import ROOT
 from ea.models import ConflictError, Forbidden, NotFoundError
+from ea.services.identity import forwarded_identity, set_token
 from ea.services.roles import set_role
 from ea.ui import graph, ids, layout
 from ea.ui.components import alert, register_markdown
@@ -37,6 +38,7 @@ from ea.ui.pages import (
     metamodel,
     organisations,
     propose,
+    systems,
     target,
 )
 
@@ -51,6 +53,7 @@ PAGES = {
     "metamodel",
     "organisations",
     "feeds",
+    "systems",
     "impact",
     "import",
     "ask",
@@ -152,6 +155,8 @@ def create_app() -> dash.Dash:
             branch = MAIN
         set_branch(branch)
         set_role(ctx.current_user().role)
+        # the reader's own platform token, for a connected system that knows people (initiative 26)
+        set_token(forwarded_identity(request.headers)[2] if ctx.settings.auth == "databricks" else "")
 
     def _shell():
         ctx = get_context()
@@ -228,6 +233,8 @@ def create_app() -> dash.Dash:
                 body = import_page.render(ctx)
             elif page == "feeds":
                 body = feeds.render(ctx)
+            elif page == "systems":
+                body = systems.render(ctx)
             elif page == "ask":
                 body = ask.render(ctx, search)
             elif page == "branches":
@@ -424,6 +431,7 @@ def create_app() -> dash.Dash:
         target,
         propose,
         health,
+        systems,
     ):
         module.register(app)
     return app

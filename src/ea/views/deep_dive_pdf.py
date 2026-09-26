@@ -74,6 +74,7 @@ RULE_LABEL = {
     "state": "A state contradicts its relationships",
     "status": "The status contradicts what is written",
     "link": "A link is malformed or repeated",
+    "source_disagrees": "The page it links to disagrees with the model",
 }
 LEVEL_NOTE = {
     "presentation": "Drawn to be shared and presented: colour by layer, an icon for what each element is.",
@@ -834,18 +835,35 @@ def deep_dive_pdf(
     links = refs.get("links") or []
     if links:
         story.append(Paragraph("Documentation the key elements link to", H2))
-        story.append(Paragraph("Listed, not read: the analysis rests on what the repository holds.", SMALL))
+        read = [x for x in links if x.get("read")]
+        story.append(
+            Paragraph(
+                f"{len(read)} read through the organisation's connected systems, as the reader, and cited as "
+                "theirs; the rest listed, not read."
+                if read
+                else "Listed, not read: the analysis rests on what the repository holds.",
+                SMALL,
+            )
+        )
         story.append(
             _table(
-                [[Paragraph("<b>Element</b>", CELL), Paragraph("<b>Link</b>", CELL)]]
+                [[Paragraph(f"<b>{h}</b>", CELL) for h in ("Element", "Link", "Read")]]
                 + [
                     [
                         Paragraph(_p(_name(rows, x["element_id"])), CELL),
                         Paragraph(_p(f"{x.get('label') or ''} {x['url']}".strip()), CELL),
+                        Paragraph(
+                            _p(
+                                f"from {x.get('system')}, {str(x.get('read_at') or '')[:16]}"
+                                if x.get("read")
+                                else "not read"
+                            ),
+                            CELL,
+                        ),
                     ]
                     for x in links
                 ],
-                [width * 0.35, width * 0.65],
+                [width * 0.3, width * 0.45, width * 0.25],
             )
         )
     story.append(Paragraph("The elements it cites", H2))

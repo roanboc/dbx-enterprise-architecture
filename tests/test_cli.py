@@ -425,3 +425,24 @@ def test_propose_interactive_refuses_json(ea_env):
     doc.write_text("# Proposal: x\n", encoding="utf-8")
     out = runner.invoke(app, ["propose", str(doc), "--interactive", "--json"])
     assert out.exit_code != 0 and "choose one" in out.output
+
+
+def test_an_admin_connects_a_system_from_the_command_line(ea_env):
+    """Initiative 26: `ea systems` keeps the organisation's connected systems; only an admin connects one."""
+    add = ["systems", "add", "Wiki", "--url", "http://127.0.0.1:9/mcp", "--tools", "read_page", "--pages",
+           "https://wiki.example.org/", "--page-tool", "read_page", "--auth", "none"]  # fmt: skip
+    refused = runner.invoke(app, ["--as", "architect", *add])
+    assert refused.exit_code != 0 and "may not connect a system" in str(refused.exception or refused.output)
+    added = runner.invoke(app, add)
+    assert added.exit_code == 0 and "connected 'Wiki'" in added.output
+    listed = runner.invoke(app, ["systems", "list"])
+    assert "Wiki" in listed.output and "reads pages under: https://wiki.example.org/" in listed.output
+    unreachable = runner.invoke(app, ["systems", "check", "Wiki"])
+    assert unreachable.exit_code == 1 and "did not answer" in unreachable.output
+    removed = runner.invoke(app, ["systems", "remove", "Wiki"])
+    assert removed.exit_code == 0 and "no system connected" in runner.invoke(app, ["systems", "list"]).output
+
+
+def test_mcp_serves_the_read_tools_over_stdio(ea_env):
+    help_text = runner.invoke(app, ["mcp", "--help"]).output
+    assert "Model Context Protocol" in help_text and "--http" in help_text

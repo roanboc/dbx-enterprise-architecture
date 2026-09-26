@@ -1620,6 +1620,125 @@ def templates_check(file: Path):
     typer.echo("every heading and column is placed" if not notes else f"{len(notes)} note(s)")
 
 
+systems_app = typer.Typer(
+    help="The enterprise's systems the assistant may read over the Model Context Protocol.",
+    no_args_is_help=True,
+)
+app.add_typer(systems_app, name="systems")
+
+
+def _systems():
+    from ea.services.connected import ConnectedSystemService
+
+    _, backend, registry, *_ = _ctx()
+    return ConnectedSystemService(backend, registry)
+
+
+def _csv(text: str) -> list[str]:
+    return [x.strip() for x in (text or "").split(",") if x.strip()]
+
+
+@systems_app.command("list")
+def systems_list():
+    """The organisation's connected systems: where each is, what it speaks for, as whom it is read."""
+    held = _systems().list()
+    for s in held:
+        state = "" if s.enabled else "  [off]"
+        typer.echo(f"{s.system_id}  {s.name}  {s.url}  as {s.auth}  tools: {', '.join(s.tools)}{state}")
+        if s.speaks_for:
+            typer.echo(f"    speaks for: {', '.join(s.speaks_for)}")
+        if s.link_prefixes:
+            typer.echo(f"    reads pages under: {', '.join(s.link_prefixes)} with {s.page_tool}")
+    if not held:
+        typer.echo("no system connected in this organisation")
+
+
+@systems_app.command("add")
+def systems_add(
+    name: str = typer.Argument(..., help="what the system is called"),
+    url: str = typer.Option(..., "--url", help="where it answers the protocol's streamable HTTP"),
+    tools: str = typer.Option(
+        ..., "--tools", help="the tools the assistant may call, comma-separated; each a read"
+    ),
+    speaks_for: str = typer.Option("", "--speaks-for", help="the element types it masters, comma-separated"),
+    pages: str = typer.Option(
+        "", "--pages", help="the link addresses it answers for, comma-separated prefixes"
+    ),
+    page_tool: str = typer.Option("", "--page-tool", help="the tool that reads a page"),
+    page_argument: str = typer.Option(
+        "url", "--page-argument", help="the argument the page tool takes the address in"
+    ),
+    auth: str = typer.Option(
+        "reader", "--auth", help="reader (the person's own identity), credential or none"
+    ),
+    credential_env: str = typer.Option(
+        "", "--credential-env", help="the environment variable holding its credential"
+    ),
+    roles: str = typer.Option(
+        "", "--roles", help="with a credential: the roles it is read for, comma-separated"
+    ),
+    description: str = typer.Option("", "--description"),
+    system_id: str = typer.Option("", "--id", help="replace the system with this id"),
+    actor: str = typer.Option("admin"),
+):
+    """Connect a system for the assistant to read (an admin's decision; initiative 26)."""
+    from ea.models import ConnectedSystem
+
+    kept = _systems().save(
+        ConnectedSystem(
+            system_id=system_id,
+            name=name,
+            description=description,
+            url=url,
+            tools=_csv(tools),
+            speaks_for=_csv(speaks_for),
+            link_prefixes=_csv(pages),
+            page_tool=page_tool,
+            page_argument=page_argument,
+            auth=auth,
+            credential_env=credential_env,
+            roles=_csv(roles),
+        ),
+        actor,
+    )
+    typer.echo(f"connected {kept.name!r} as {kept.system_id}")
+
+
+@systems_app.command("remove")
+def systems_remove(system: str, actor: str = typer.Option("admin")):
+    """Disconnect a system: the assistant stops reading it."""
+    svc = _systems()
+    held = svc.find(system)
+    if held is None:
+        _refuse(f"no connected system {system!r}; `ea systems list` says which there are")
+    svc.delete(held.system_id, actor)
+    typer.echo(f"disconnected {held.name!r}")
+
+
+@systems_app.command("check")
+def systems_check(
+    system: str,
+    token: str = typer.Option(
+        "", envvar="EA_READER_TOKEN", help="the reader's own token, for a system that reads as the person"
+    ),
+):
+    """Reach a system and say which of its tools the assistant is given, as the person asking."""
+    from ea.agent.connected import ConnectedReader
+
+    held = _systems().find(system)
+    if held is None:
+        _refuse(f"no connected system {system!r}; `ea systems list` says which there are")
+    reader = ConnectedReader([held], token=token)
+    specs = reader.specs()
+    for spec in specs:
+        typer.echo(f"  {spec['name']}")
+    if held.name in reader.unavailable:
+        _refuse(f"{held.name} cannot be read: {reader.unavailable[held.name]}")
+    if not specs:
+        _refuse(f"{held.name} answered, and offers none of the tools listed: {', '.join(held.tools)}")
+    typer.echo(f"{held.name}: {len(specs)} tool(s) given to the assistant")
+
+
 @app.command("mcp")
 def mcp(
     http: bool = typer.Option(

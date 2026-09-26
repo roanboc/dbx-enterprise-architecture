@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from ea.backend.base import DatabaseBackend
@@ -34,11 +35,31 @@ class ToolBox:
     """Read-only tools over the repository, described once for any provider."""
 
     def __init__(
-        self, backend: DatabaseBackend, registry: Registry, repo: RepositoryService, graph: GraphService
+        self,
+        backend: DatabaseBackend,
+        registry: Registry,
+        repo: RepositoryService,
+        graph: GraphService,
+        connected: Callable[[], Any] | None = None,
     ):
         self.backend, self.registry, self.repo, self.graph = backend, registry, repo, graph
         self.seen_ids: set[str] = set()
         self.requested_views: list[dict[str, Any]] = []  # views the model asked for, drawn by the app
+        # The enterprise's connected systems (initiative 26): `connected()` makes the reader of
+        # one answer, for the person and organisation of the request; `reader` is that answer's.
+        self.connected = connected
+        self.reader: Any = None
+
+    def begin(self) -> None:
+        """A new answer: what the last one read is forgotten, and the connected systems are read afresh."""
+        self.seen_ids.clear()
+        self.requested_views.clear()
+        self.reader = None
+        if self.connected is not None:
+            try:
+                self.reader = self.connected()
+            except Exception:  # noqa: BLE001 — the model's own tools answer without them
+                self.reader = None
 
     # ------------------------------------------------------------- specs
     def specs(self) -> list[dict[str, Any]]:
@@ -163,8 +184,20 @@ class ToolBox:
             },
         ]
 
+    def all_specs(self) -> list[dict[str, Any]]:
+        """The model's tools, and the connected systems' this answer may read."""
+        specs = self.specs()
+        if self.reader is not None:
+            specs = specs + self.reader.specs()
+        return specs
+
     # ---------------------------------------------------------- dispatch
     def call(self, name: str, args: dict[str, Any]) -> str:
+        if self.reader is not None and self.reader.has(name):
+            # what a connected system says is cited as the system's: never remembered as an
+            # identifier the model returned, so the grounding check does not count it (P6)
+            text = json.dumps(self.reader.call(name, args or {}), ensure_ascii=False, default=str)
+            return text[:MAX_RESULT_CHARS]
         try:
             result = getattr(self, "tool_" + name)(**(args or {}))
         except NotFoundError as exc:
