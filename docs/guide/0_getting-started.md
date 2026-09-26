@@ -41,9 +41,9 @@ into main; Manage shapes what the model can hold.
 
 **Reviewer**
 
-1. Read the reviewer and steward page further down this Guide.
+1. Read **Reviewer and steward** further down this Guide.
 2. Open **Branches** and pick **In review** to see the branches waiting for a decision.
-3. Open a branch, read its changes, then press **Approve** or **Send back** with a comment.
+3. Press **Open** on a branch and read its changes. Press **Approve**, or write a comment and press **Send back**.
 
 **Architect**
 
@@ -54,16 +54,19 @@ into main; Manage shapes what the model can hold.
 **Admin**
 
 1. Check which metamodel version this organisation applies, on **Metamodel** or **Organisations**.
-2. Give teams their roles on **Users and roles**.
+2. Grant workspace groups their roles on **Users and roles**.
 3. Assign reviewers to element types in the **Reviewers** tab of **Metamodel**.
 
 ## Help while you work
 
 - The help button beside every screen's title opens that screen's help in a side
-  panel. The **?** key opens it too, and **Escape** closes it.
-- The first time you open a screen, one line under its title says what it is
-  for. Close it, or turn tips off.
-- The welcome and the tips are remembered in this browser only. This Guide turns
-  the tips on again and shows the welcome again.
-- Every screen's help follows below, under **The screens**. The pages for each
-  role come after it.
+  panel. The **?** key opens it too, unless you are typing in a box. **Escape**
+  closes it.
+- The first screen you open in a browser shows a short welcome under its title.
+- After that, the first time you open a screen, one line under its title says
+  what it is for. **Show me how** opens its help, **Got it** closes the line,
+  and **Turn off tips** stops them all.
+- The welcome and each tip show once, and this browser alone remembers them.
+  **Show the welcome and tips again**, at the top of this Guide, brings them back.
+- Every screen's help follows below, under **The screens**. **What belongs in the
+  repository** and the pages for each role come after it.

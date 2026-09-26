@@ -45,8 +45,8 @@ answer names the system for what it said.
 
 ## Tips
 
-- The assistant only reads a connected system. Nothing a system says is written
-  into the model.
+- List only tools that read, because the assistant is given exactly the tools you list.
+  Nothing a system says is ever written into the model.
 - Never put a secret into **What the page tool is given**. A value that looks like
   one is refused; read the system with the organisation's credential instead.
 - **Disconnect** acts at once, without asking you to confirm.

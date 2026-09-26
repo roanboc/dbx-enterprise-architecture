@@ -22,8 +22,8 @@ comes from.
 - **Recent changes**: who granted or removed which role, and when.
 - A link to the **Reviewers** tab of **Metamodel**, where reviewers are assigned
   to element types.
-- If you are not an admin: your own role, the group that gives it, and whom to
-  ask for another.
+- Everyone who is not an admin sees only their own role, the group that gives it,
+  and whom to ask for another.
 
 ## How
 
@@ -54,5 +54,6 @@ highest role their groups give.
   minutes.
 - You cannot remove or lower your own Admin, nor remove the last admin grant.
   The workspace's all-users group cannot be granted Admin.
-- Creating groups and changing who is in them happens in Databricks. When the
-  groups cannot be searched, you can type an exact name, marked *not checked*.
+- Creating groups and changing who is in them happen in the workspace's own
+  screens, not here. When the groups cannot be searched, you can type an exact
+  name, marked *not checked*.

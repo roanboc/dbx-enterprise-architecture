@@ -18,19 +18,20 @@ button.
   screen's title opens.
 - **What belongs in the repository**: the boundary of the model, how a change is
   settled, and the words the application uses.
-- A card in it lists this organisation's element types, read from its metamodel:
+- A card in it lists this organisation's element types in two parts:
   **At the enterprise level**, and **Below it: linked from the system, not modelled**.
 - A page for each role: **Enterprise architect**, **Solution architect**,
   **Reviewer and steward**, **Reader** and **Metamodel owner**.
-- A button that shows the welcome and the screens' tips again.
+- At the top, links to every part under **Start here**, **The screens** and **By role**,
+  and a **Show the welcome and tips again** button.
 
 ## How
 
 1. Read **Getting started** first if the repository is new to you.
 2. Read **What belongs in the repository** before you add anything to the model.
-3. Go to the page for your role, and follow its steps when you start real work.
+3. Go to the page for your role under **By role**, and follow its steps when you start real work.
 4. Look up a screen under **The screens** when you want its help in full.
-5. Press the button to see the welcome and the tips again, if you turned them off.
+5. Press **Show the welcome and tips again** to see the welcome and each screen's tip once more.
 
 ## The flow
 
@@ -53,5 +54,5 @@ open a screen's help whenever you work on that screen.
   is applied.
 - **Propose** links straight to the boundary on this page, for when you are
   unsure that something belongs in the model.
-- What you closed is remembered in this browser only. Another browser, or cleared
-  site data, shows the welcome again.
+- The welcome and each tip show once, whether or not you close them. Another
+  browser, or cleared site data, shows the welcome again.

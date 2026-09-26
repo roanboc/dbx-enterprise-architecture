@@ -44,7 +44,7 @@ Browse, and open an element from there.
 ## Tips
 
 - The figures follow the organisation and the branch chosen in the header. On a
-  branch, they count what the branch has changed too.
+  branch, they count the model as that branch has it.
 - **elements that change** counts elements whose target state is new, change,
   decommission or merge.
 - Types with nothing in them are left out of both tables. An empty organisation
