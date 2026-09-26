@@ -26,16 +26,23 @@ M41 onward is a second pass over the same commands, looking for what the first
 one did not touch: the options nobody had run, the branch of a command only an error
 reaches, and the roles nobody had been. It keeps the same state discipline, and its own
 header says what it adds.
+
+M75 to M77 are initiative 26's commands: the metamodel handed out as a draw.io shape
+library, the systems the assistant may read, and the tool server another agent connects to.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-from tests.conftest import HIGHER_ED
+from tests.conftest import HIGHER_ED, PACK
 from tests.ui.evidence import Check, Finding
+
+from ea.metamodel import Registry, load_pack
 
 pytestmark = pytest.mark.cli  # no browser: this group runs in `make check` as well as in the round
 
@@ -4077,3 +4084,275 @@ def test_m74_templates(cli, record, tmp_path):
         rc_none == 1 and f"no template '{KEPT_TEMPLATE}' kept" in refused,
         none_ev,
     )
+
+
+# ============================================ drawings and the systems the assistant reads =====
+#
+# Initiative 26. The shape library is a read of the metamodel, so M75 runs anywhere after the
+# versions flow has left the default organisation on the shipped version. M76 connects one system
+# and disconnects it again; the address it is given answers nothing, which is the point: a system
+# is kept without being reached, and `check` is what reaches it. Nothing here needs a workspace or
+# a network beyond the machine it runs on.
+
+SYSTEM = "M wiki"
+DEAD_URL = "http://127.0.0.1:9/mcp"  # the discard port: nothing answers the protocol there
+WIKI = "https://wiki.example.org/"
+PAGE_PATTERN = r"/pages/(?P<page_id>\d+)"
+PAGE_ARGUMENTS = '{"pageId": "{page_id}"}'
+
+
+def _library(text: str) -> list[dict]:
+    """A draw.io custom library read as the list of shapes it offers."""
+    root = ET.fromstring(text.strip())  # noqa: S314 — a file this repository just wrote
+    return json.loads(root.text or "[]") if root.tag == "mxlibrary" else []
+
+
+@pytest.mark.scenario(
+    scenario_id="M75",
+    group="M",
+    title="metamodel palette hands out the metamodel as a draw.io shape library, printed or written to a file",
+    feature="Command line · metamodel palette",
+    expected=(
+        "`metamodel palette` prints an mxlibrary holding one shape per type an element may be, titled "
+        "with the type's name; `--out` writes the same library and says which version it is; `--version` "
+        "reaches a stored version, and one nobody stored is refused naming the versions there are."
+    ),
+)
+def test_m75_metamodel_palette(cli, record, tmp_path):
+    rc, printed, ev = run(cli, "metamodel", "palette", limit=120)
+    must(record, "the library was printed", rc == 0 and printed.lstrip().startswith("<mxlibrary>"), ev)
+    shapes = _library(printed)
+    wanted = {t.name for t in Registry(load_pack(PACK)).concrete_types()}
+    titles = [s.get("title", "") for s in shapes]
+    check(
+        record,
+        "one shape per type an element may be, titled with the type's name",
+        sorted(titles) == sorted(wanted),
+        f"{len(titles)} shapes for {len(wanted)} types; "
+        f"missing {sorted(wanted - set(titles))[:4]}, extra {sorted(set(titles) - wanted)[:4]}",
+    )
+    check(
+        record,
+        "each shape is drawn compressed, the way draw.io keeps one, with a size to drop it at",
+        all(s.get("xml") and s.get("w") and s.get("h") for s in shapes),
+        f"{sum(1 for s in shapes if not s.get('xml'))} without a drawing",
+    )
+
+    out = tmp_path / "m-shapes.xml"
+    rc, said, ev = run(cli, "metamodel", "palette", "--out", str(out), limit=200)
+    must(record, "the library was written to the file", rc == 0 and out.exists(), ev)
+    check(
+        record,
+        "and the command says which version it is and where it went",
+        f"{SHIPPED_NAME} 2026-08-11: shape library written to" in said and str(out) in said,
+        trim(said),
+    )
+    check(
+        record,
+        "the file holds the library the command prints",
+        out.read_text(encoding="utf-8").strip() == printed.strip(),
+        f"{out.stat().st_size} bytes",
+    )
+
+    rc, named, ev = run(cli, "metamodel", "palette", "--version", SHIPPED_VERSION, limit=120)
+    check(
+        record, "a stored version is reached by --version", rc == 0 and named.strip() == printed.strip(), ev
+    )
+    rc_bad, bad, bad_ev = run(
+        cli, "metamodel", "palette", "--version", f"{HIGHER_ED}@m-nope", expect=1, limit=200
+    )
+    check(
+        record,
+        "a version nobody stored is refused, naming the versions there are",
+        rc_bad == 1 and "no metamodel version" in refusal(bad) and SHIPPED_NAME in refusal(bad),
+        bad_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M76",
+    group="M",
+    title="systems add, list, check and remove: a system connected for the assistant to read, reached, and let go",
+    feature="Command line · systems list/add/check/remove",
+    expected=(
+        "`systems list` says no system is connected; `systems add` is refused to an Architect, since "
+        "connecting a system is an admin's decision; the admin connects one read as nobody, and page "
+        "arguments that are not a JSON object or that hold a credential are refused; `systems list` "
+        "shows where it answers, as whom, its tools, the pages it answers for and how a page's id "
+        "becomes the page tool's arguments; `systems check` against an address nothing answers says "
+        "it cannot be read and fails; `systems remove` lets it go by its identifier, and a system "
+        "nobody connected is refused by name."
+    ),
+)
+def test_m76_systems(cli, record, finding):
+    rc, empty, ev = run(cli, "systems", "list", limit=120)
+    must(record, "systems list ran", rc == 0, ev)
+    check(record, "with nothing connected it says so", "no system connected" in empty, ev)
+
+    add = [
+        "systems",
+        "add",
+        SYSTEM,
+        "--url",
+        DEAD_URL,
+        "--tools",
+        "search,read_page",
+        "--pages",
+        WIKI,
+        "--page-tool",
+        "read_page",
+        "--page-pattern",
+        PAGE_PATTERN,
+        "--page-arguments",
+        PAGE_ARGUMENTS,
+        "--auth",
+        "none",
+    ]
+    rc_arch, arch, arch_ev = run(cli, "--as", "architect", *add, expect=1, limit=160)
+    check(
+        record,
+        "an Architect may not connect a system",
+        rc_arch == 1 and "An Architect may not connect a system" in refusal(arch),
+        arch_ev,
+    )
+    rc_list, bad_list, list_ev = run(
+        cli, *add[:-4], "--page-arguments", "[1]", "--auth", "none", expect=1, limit=160
+    )
+    check(
+        record,
+        "page arguments that are not a JSON object are refused",
+        rc_list == 1 and "JSON object" in refusal(bad_list),
+        list_ev,
+    )
+    rc_key, bad_key, key_ev = run(
+        cli, *add[:-4], "--page-arguments", '{"token": "{url}"}', "--auth", "none", expect=1, limit=200
+    )
+    check(
+        record,
+        "and so is an argument that would keep a credential beside the system",
+        rc_key == 1 and "a credential is never kept here" in refusal(bad_key),
+        key_ev,
+    )
+
+    rc, said, ev = run(cli, *add, limit=160)
+    must(record, "the admin connected the system", rc == 0 and f"connected {SYSTEM!r} as " in said, ev)
+    system_id = said.strip().rsplit(" as ", 1)[-1]
+
+    _, listed, list_ev = run(cli, "systems", "list", limit=400)
+    row = next((ln for ln in listed.splitlines() if ln.startswith(system_id)), "")
+    check(
+        record,
+        "the list says where it answers, as whom, and the tools the assistant may call",
+        SYSTEM in row and DEAD_URL in row and "as none" in row and "tools: search, read_page" in row,
+        row.strip() or list_ev,
+    )
+    check(
+        record,
+        "the pages it answers for, and the tool that reads one",
+        f"reads pages under: {WIKI} with read_page" in listed,
+        list_ev,
+    )
+    check(
+        record,
+        "and how a page's id is picked out of its address and handed to that tool",
+        f"page pattern: {PAGE_PATTERN}" in listed and f"page arguments: {PAGE_ARGUMENTS}" in listed,
+        list_ev,
+    )
+
+    rc_check, reached, check_ev = run(cli, "systems", "check", SYSTEM, expect=1, limit=200)
+    check(
+        record,
+        "checking a system nothing answers for says it cannot be read, and fails",
+        rc_check == 1 and f"{SYSTEM} cannot be read" in reached and "Traceback" not in reached,
+        check_ev,
+    )
+    if "ExceptionGroup" in reached:
+        lodge(
+            finding,
+            "M-21",
+            "src/ea/agent/connected.py · ea systems check",
+            "usability",
+            "A connected system that cannot be reached is reported by the name of an exception class, not by what happened.",
+            f"`ea systems check '{SYSTEM}'` against {DEAD_URL}, where nothing listens, answers "
+            f"'{trim(refusal(reached), 120)}'. The protocol client wraps a refused connection in an "
+            "exception group and the reason keeps only the group's class name, so an admin reads "
+            "'ExceptionGroup' where 'the connection was refused' or 'no answer within the time allowed' "
+            "would say what to look at.",
+        )
+
+    rc, gone, ev = run(cli, "systems", "remove", system_id, limit=120)
+    check(
+        record, "the system is let go by its identifier", rc == 0 and f"disconnected {SYSTEM!r}" in gone, ev
+    )
+    _, after, after_ev = run(cli, "systems", "list", limit=120)
+    check(record, "and the list is empty again", "no system connected" in after, after_ev)
+    rc_none, none, none_ev = run(cli, "systems", "remove", SYSTEM, expect=1, limit=160)
+    check(
+        record,
+        "a system nobody connected is refused by name",
+        rc_none == 1 and f"no connected system {SYSTEM!r}" in refusal(none),
+        none_ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M77",
+    group="M",
+    title="systems connections says why the workspace offers none, and mcp serves the read tools to another agent",
+    feature="Command line · systems connections, mcp",
+    expected=(
+        "`systems connections` lists the workspace's connections that serve the protocol, or says in a "
+        "sentence why none is listed and fails — to a Reader, that connecting a system is an admin's; "
+        "`ea --help` lists mcp and systems; `mcp --help` says it serves the model's read tools over the "
+        "Model Context Protocol, on stdio or with --http, and writes nothing."
+    ),
+)
+def test_m77_connections_and_mcp(cli, record):
+    rc, offered, ev = run(cli, "systems", "connections", expect=None, limit=200)
+    lines = [ln for ln in offered.splitlines() if ln.strip()]
+    if rc == 0:
+        # A workspace is configured where this runs: every connection listed is one the proxy answers.
+        check(
+            record,
+            "every connection listed says the address its proxy answers at",
+            all("/api/2.0/mcp/external/" in ln for ln in lines)
+            or "offers no connection that serves the protocol" in offered,
+            ev,
+        )
+    else:
+        check(
+            record,
+            "with no workspace here it says why none is listed, in a sentence",
+            rc == 1 and refusal(offered).startswith("no workspace connection is listed: "),
+            ev,
+        )
+    check(record, "and never with a trace", "Traceback" not in offered, ev)
+    rc_reader, reader, reader_ev = run(
+        cli, "--as", "reader", "systems", "connections", expect=None, limit=160
+    )
+    check(
+        record,
+        "a Reader is told that connecting a system is an admin's, not shown the workspace",
+        rc_reader == 1 and "only an admin connects a system" in refusal(reader),
+        reader_ev,
+    )
+
+    _, top, top_ev = run(cli, "--help", limit=120)
+    flat = squash(top)
+    check(record, "the help lists mcp and systems", " mcp " in flat and " systems " in flat, top_ev)
+    rc, helped, ev = run(cli, "mcp", "--help", limit=200)
+    text = squash(helped)
+    must(record, "mcp --help ran", rc == 0, ev)
+    check(
+        record,
+        "it says it serves the model's read tools over the Model Context Protocol",
+        "read tools" in text and "Model Context Protocol" in text,
+        trim(helped, 200),
+    )
+    check(
+        record,
+        "on stdio as the flags say, or over HTTP as its own app",
+        "--http" in text and "stdio" in text and "--actor" in text,
+        trim(helped, 200),
+    )
+    check(record, "and that it writes nothing", "It writes nothing" in text, trim(helped, 200))

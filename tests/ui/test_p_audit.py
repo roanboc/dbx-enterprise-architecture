@@ -380,6 +380,7 @@ NAV_FOR = {
     "/branches": "nav-branches",
     "/metamodel": "nav-metamodel",
     "/organisations": "nav-organisations",
+    "/systems": "nav-systems",
     "/health": "nav-health",
 }
 NAV_IDS = sorted(set(NAV_FOR.values()))
@@ -921,6 +922,18 @@ def test_metamodel_audit(ui, record, finding):
 )
 def test_organisations_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Organisations", "/organisations", "src/ea/ui/pages/organisations.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P30b",
+    group="P",
+    title="Connected systems against the usability checklist",
+    feature="Screen audit · Connected systems",
+    expected="Connected systems loads with the list of connected systems, the workspace connection "
+    "picker and the form to connect one, and the seven automated checkpoints are applied to it.",
+)
+def test_connected_systems_audit(ui, record, finding):
+    audit_screen(ui, record, finding, "Connected systems", "/systems", "src/ea/ui/pages/systems.py")
 
 
 @pytest.mark.scenario(

@@ -17,6 +17,7 @@ shared round: J06 turns the first edit into the draft `j-draft` without applying
 organisation, so every other group keeps reading the shipped, published version; J10, J15,
 J20 and J21 write to that draft; J21 deletes rows on it and J24 publishes, retires and deletes it; and J25 loads a version
 from a file, applies it, then loads the shipped file back so the round ends where it began.
+J26 comes after it for that reason: the shape library it downloads is the shipped version's.
 Everything else is typed into a grid and discarded by navigating away, which is exactly
 what a person does when they change their mind before saving.
 
@@ -26,15 +27,19 @@ graph and the grids actually hold, not with numbers written into this file.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
+import urllib.parse
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 
 import pytest
 import yaml
 from tests.conftest import HIGHER_ED
 
+from ea.metamodel import Registry, load_pack
 from ea.models import short_pack_id, slugify
 
 pytestmark = pytest.mark.gui
@@ -2474,3 +2479,95 @@ def test_load_a_yaml_file(ui, record):
     )
     _grid_home(ui, "mm-types-grid")
     ui.shot("The metamodel is back to what the repository ships, ready for the groups that follow")
+
+
+# ------------------------------------------------------------------- the shape library
+#
+# Initiative 26: the metamodel handed out as a draw.io library, so a shape an architect drags
+# from it comes back on Propose as an element of exactly its type. What the reader does with such
+# a shape is proved in the unit suite; what only a browser sees is that the button is there,
+# that the file arrives under the metamodel's name, and that what arrived is the library.
+
+
+def _library_shapes(path: Path) -> list[tuple[dict, ET.Element | None]]:
+    """Every entry of a draw.io library, with the one shape its compressed drawing holds."""
+    root = ET.fromstring(path.read_text(encoding="utf-8"))  # noqa: S314 — a file this application wrote
+    if root.tag != "mxlibrary":
+        return []
+    out = []
+    for entry in json.loads(root.text or "[]"):
+        raw = zlib.decompress(base64.b64decode(entry.get("xml", "")), -15).decode("utf-8")
+        shapes = ET.fromstring(urllib.parse.unquote(raw)).findall("./root/object")  # noqa: S314
+        out.append((entry, shapes[0] if len(shapes) == 1 else None))
+    return out
+
+
+@pytest.mark.scenario(
+    scenario_id="J26",
+    group="J",
+    title="The shape library downloads as a draw.io library of the version's types, each shape stamped with its type",
+    feature="Metamodel · Architecture view · shape library",
+    expected=(
+        "Beside the view's two downloads, Shape library (draw.io) returns <metamodel>-shapes.xml: an "
+        "mxlibrary holding one shape per active, concrete element type of the version shown, titled with "
+        "the type's name, each drawing a single shape stamped with its type and standing for no element; "
+        "an inactive type is left out, and the tab says how to open the library and how Propose reads a "
+        "shape dragged from it."
+    ),
+)
+def test_the_shape_library(ui, record):
+    _open(ui)
+    _tab(ui, "Architecture view")
+    ui.wait_mermaid()
+    ui.must("the shape library is offered beside the view's downloads", ui.visible("mm-palette"))
+    ui.check(
+        "the tab says how to open it in draw.io",
+        "File › Open Library" in ui.body(),
+        "no mention of File › Open Library on the tab",
+    )
+    ui.check(
+        "and what becomes of a shape dragged from it",
+        "read back on Propose as an element of exactly its type" in ui.body(),
+    )
+    ui.shot("The architecture view with the shape library beside its two downloads")
+    path = ui.download("mm-palette", ".xml")
+    ui.check("the library is named for the metamodel", path.name == f"{SLUG}-shapes.xml", path.name)
+    shapes = _library_shapes(path)
+    ui.must("the file is a draw.io library of shapes", bool(shapes), path.read_text(encoding="utf-8")[:80])
+    shipped = Registry(load_pack(SHIPPED_FILE))
+    wanted = {t.name for t in shipped.concrete_types()}
+    titles = {entry.get("title", "") for entry, _ in shapes}
+    ui.check(
+        "one shape per type an element may be, titled with the type's name",
+        titles == wanted and len(shapes) == len(wanted),
+        f"{len(shapes)} shapes for {len(wanted)} types; missing {sorted(wanted - titles)[:4]}, "
+        f"extra {sorted(titles - wanted)[:4]}",
+    )
+    ui.check(
+        "an inactive type is left out",
+        "gateway" not in {obj.get("ea_type") for _, obj in shapes if obj is not None},
+    )
+    unstamped = [
+        entry.get("title", "?")
+        for entry, obj in shapes
+        if obj is None
+        or obj.get("ea_origin") != "ea-repository"
+        or obj.get("ea_palette") != "1"
+        or obj.get("ea_type_name") != entry.get("title")
+        or not shipped.resolve_type(obj.get("ea_type") or "")
+    ]
+    ui.check(
+        "every shape is stamped with the type it is, as the drawing reader expects",
+        not unstamped,
+        f"not stamped: {unstamped[:5]}" if unstamped else f"all {len(shapes)} of them",
+    )
+    ui.check(
+        "and none stands for an element, so each comes back as one a person added",
+        all(obj is not None and not obj.get("ea_id") for _, obj in shapes),
+    )
+    drawn = [obj.find("mxCell") for _, obj in shapes if obj is not None and obj.find("mxCell") is not None]
+    ui.check(
+        "each is drawn the way a view export draws that type",
+        len(drawn) == len(shapes) and all((c.get("style") or "") and c.get("vertex") == "1" for c in drawn),
+        f"{len(drawn)} drawable of {len(shapes)}",
+    )
