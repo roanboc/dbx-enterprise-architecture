@@ -585,6 +585,7 @@ def render(ctx: AppContext) -> html.Div:
                     leftSection=icon("tabler:versions", 14),
                     comboboxProps={"withinPortal": True},
                 ),
+                help="metamodel",
             ),
             dcc.Store(id=ids.MM_VERSION, data=reg.pack.ref),
             dcc.Store(id=ids.MM_CONFIRM_STORE, data=None),

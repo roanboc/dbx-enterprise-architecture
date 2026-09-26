@@ -175,6 +175,28 @@ def new_branch_modal(work_packages: list[dict[str, str]]) -> dmc.Modal:
     )
 
 
+def help_drawer() -> dmc.Drawer:
+    """A screen's help, beside the screen rather than over it, opened by the button beside its title.
+
+    Kept mounted, so a diagram in it is drawn while the panel is shut and fitted when it
+    opens; its title is a heading of the panel, outside the page's own outline.
+    """
+    return dmc.Drawer(
+        id=ids.HELP_DRAWER,
+        opened=False,
+        position="right",
+        size="md",
+        keepMounted=True,
+        padding="md",
+        title=dmc.Text("Help", id=ids.HELP_TITLE, fw=650),
+        closeButtonProps={"aria-label": "Close help"},
+        # A light veil rather than a dark one: the screen the help describes stays readable
+        # beside it, and a click on it closes the panel.
+        overlayProps={"backgroundOpacity": 0.12, "blur": 0},
+        children=dmc.Stack(id=ids.HELP_BODY, gap="md", className="ea-help"),
+    )
+
+
 def org_selector(org_options: list[dict[str, str]], current_org: str) -> dmc.Select:
     """The organisation the reader is in: the default one, or another where a metamodel version is tried."""
     return dmc.Select(
@@ -219,8 +241,12 @@ def shell(
             dcc.Store(id=ids.NAV_VERSION, data=0),
             dcc.Store(id=ids.NAVBAR_OPEN, data=False),
             dcc.Download(id=ids.DOWNLOAD),
+            # What a person has closed — the welcome, each screen's tip, tips altogether — kept by
+            # their browser and never by the store (initiative 27).
+            dcc.Store(id=ids.HELP_SEEN, storage_type="local"),
             dmc.NotificationContainer(id=ids.NOTIFY, position="top-right"),
             new_branch_modal(work_packages or []),
+            help_drawer(),
             # The first thing the keyboard reaches, so a reader working without a mouse is
             # not walked through the header and every navigation link on every screen.
             html.A("Skip to the page", href="#page", className="ea-skip-link"),

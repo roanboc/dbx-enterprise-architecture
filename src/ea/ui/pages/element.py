@@ -29,6 +29,8 @@ from ea.ui import ids
 from ea.ui.components import (
     alert,
     element_anchor,
+    help_button,
+    help_slot,
     icon,
     keep_selected_option,
     kv_sections,
@@ -385,10 +387,16 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
                 ],
                 gap=4,
             ),
-            dmc.Anchor(
-                dmc.Button("Impact", variant="light", leftSection=icon("tabler:radar")),
-                href=f"/impact?element={e.element_id}",
-                underline="never",
+            dmc.Group(
+                [
+                    dmc.Anchor(
+                        dmc.Button("Impact", variant="light", leftSection=icon("tabler:radar")),
+                        href=f"/impact?element={e.element_id}",
+                        underline="never",
+                    ),
+                    help_button("element"),
+                ],
+                gap="xs",
             ),
         ],
         justify="space-between",
@@ -657,6 +665,7 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             dcc.Store(id=ids.EL_ID, data=element_id),
             dcc.Store(id=ids.EL_VERSION, data=e.version),
             header,
+            help_slot("element"),
             dmc.Tabs(
                 [
                     dmc.TabsList(

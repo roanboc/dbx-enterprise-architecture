@@ -69,6 +69,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 "Ask the model",
                 "A question becomes a document: a generated architecture view first, then the answer, the elements it names and how it was answered. Every identifier comes from a tool result; every diagram is drawn from the model.",
                 badge,
+                help="ask",
             ),
             dmc.SegmentedControl(
                 id=ids.ASK_MODE,

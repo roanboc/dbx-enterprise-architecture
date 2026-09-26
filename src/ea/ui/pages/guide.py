@@ -1,34 +1,48 @@
-"""Guide: what the repository is for and how to work in it, by role — conceptual and
-procedural, not a manual of the screens (initiative 24).
+"""Guide: getting started, the help of every screen, and how to work in the repository by
+role (initiatives 24 and 27).
 
-The pages come from `docs/guide/`; the element types the organisation's metamodel places on
-each side of the enterprise level are read from the metamodel as the page is drawn."""
+The pages come from `docs/guide/` and each screen's help from `docs/guide/screens/`, the same
+text the side panel beside a screen's title draws; the element types the organisation's
+metamodel places on each side of the enterprise level are read from the metamodel as the
+page is drawn."""
 
 from __future__ import annotations
 
 import dash_mantine_components as dmc
-from dash import dcc, html
+from dash import html
 
-from ea.services.guide import BOUNDARY_MARK, Boundary, GuideService, slug
-from ea.ui.components import empty, page_title
+from ea.services.guide import BOUNDARY_MARK, Boundary, GuideSection, GuideService, ScreenHelp, slug
+from ea.ui import ids, layout
+from ea.ui.components import empty, icon, markdown, page_title
 from ea.ui.context import AppContext
+from ea.ui.screen_help import demote
 from ea.views.mermaid import LAYER_SWATCH, LAYER_TITLES
 
+#: Anchors other screens link to by name, kept as they are.
+KEPT_ANCHORS = {"the-boundary"}
 
-def _markdown(text: str) -> list:
-    """Markdown with an anchor before each second-level heading, so a link can land on it."""
+
+def _markdown(text: str, section: str) -> list:
+    """Markdown with an anchor before each second-level heading, so a link can land on it, and
+    its diagrams drawn. An anchor carries its section's name, so two role pages that both say
+    *How you work* do not give the page two elements with one id."""
     parts: list = []
     chunk: list[str] = []
 
     def flush() -> None:
         if "".join(chunk).strip():
-            parts.append(dcc.Markdown("".join(chunk), className="ea-doc"))
+            parts.append(markdown("".join(chunk), f"guide-{section}-{len(parts)}"))
         chunk.clear()
 
     for line in text.splitlines(keepends=True):
         if line.startswith("## "):
             flush()
-            parts.append(html.Span(id=slug(line[3:]), className="ea-anchor"))
+            anchor = slug(line[3:])
+            parts.append(
+                html.Span(
+                    id=anchor if anchor in KEPT_ANCHORS else f"{section}-{anchor}", className="ea-anchor"
+                )
+            )
         chunk.append(line)
     flush()
     return parts
@@ -75,39 +89,139 @@ def _boundary(b: Boundary, metamodel: str):
     )
 
 
+def _section(s: GuideSection, boundary) -> dmc.Paper:
+    body: list = []
+    for n, part in enumerate(s.markdown.split(BOUNDARY_MARK)):
+        if n:
+            body.append(boundary)
+        body.extend(_markdown(part, s.slug))
+    return dmc.Paper(
+        [html.Span(id=s.slug, className="ea-anchor"), dmc.Title(s.title, order=2, mb="xs"), *body],
+        p="lg",
+        withBorder=True,
+        className="ea-card ea-guide-persona",
+    )
+
+
+def screen_order(screens: dict[str, ScreenHelp]) -> list[tuple[str, list[ScreenHelp]]]:
+    """The screens' help in the navigation's order and groups; the Element page after Browse,
+    which leads to it; a page no navigation entry names, last."""
+    placed: set[str] = set()
+    out: list[tuple[str, list[ScreenHelp]]] = []
+    for section, links in layout.NAV_SECTIONS:
+        group: list[ScreenHelp] = []
+        for _, href, _ in links:
+            key = href.strip("/") or "home"
+            for k in (key, "element") if key == "browse" else (key,):
+                if k in screens and k not in placed:
+                    group.append(screens[k])
+                    placed.add(k)
+        if group:
+            out.append((section, group))
+    rest = [h for k, h in screens.items() if k not in placed]
+    if rest:
+        out.append(("Other screens", rest))
+    return out
+
+
+def _screens(groups: list[tuple[str, list[ScreenHelp]]]) -> dmc.Paper:
+    blocks: list = [
+        html.Span(id="the-screens", className="ea-anchor"),
+        dmc.Title("The screens", order=2, mb="xs"),
+        dmc.Text(
+            "What each screen is for and how it is used: the same help its button opens beside the "
+            "screen's title.",
+            size="sm",
+            c="dimmed",
+        ),
+    ]
+    for section, helps in groups:
+        blocks.append(dmc.Text(section, size="xs", fw=700, c="dimmed", tt="uppercase", mt="md"))
+        for h in helps:
+            blocks.append(
+                html.Div(
+                    [
+                        html.Span(id=f"screen-{h.key}", className="ea-anchor"),
+                        dmc.Title(h.title, order=3, size="h4"),
+                        dmc.Text(h.tip, size="sm", fw=500),
+                        markdown(demote(h.markdown, 2), f"guide-screen-{h.key}"),
+                    ],
+                    className="ea-guide-screen",
+                )
+            )
+    return dmc.Paper(blocks, p="lg", withBorder=True, className="ea-card ea-guide-persona")
+
+
+def _contents(start: list[GuideSection], groups, roles: list[GuideSection]) -> dmc.Paper:
+    def column(title: str, links: list) -> dmc.Stack:
+        return dmc.Stack([dmc.Text(title, size="xs", fw=700, c="dimmed", tt="uppercase"), *links], gap=2)
+
+    screens = [dmc.Anchor(h.title, href=f"#screen-{h.key}", size="sm") for _, helps in groups for h in helps]
+    return dmc.Paper(
+        dmc.Stack(
+            [
+                html.Div(
+                    [
+                        column(
+                            "Start here", [dmc.Anchor(s.title, href=f"#{s.slug}", size="sm") for s in start]
+                        ),
+                        column("The screens", screens),
+                        column("By role", [dmc.Anchor(s.title, href=f"#{s.slug}", size="sm") for s in roles]),
+                    ],
+                    className="ea-guide-contents",
+                ),
+                dmc.Group(
+                    [
+                        dmc.Button(
+                            "Show the welcome and tips again",
+                            id={"type": ids.HELP_ACTION, "action": "reset"},
+                            size="xs",
+                            variant="light",
+                            leftSection=icon("tabler:bulb", 14),
+                        ),
+                        dmc.Text(
+                            "Each screen's help is also one click away: the button beside its title, or the ? key.",
+                            size="xs",
+                            c="dimmed",
+                        ),
+                    ],
+                    gap="sm",
+                ),
+            ],
+            gap="md",
+        ),
+        p="md",
+        withBorder=True,
+        className="ea-card",
+        mb="md",
+    )
+
+
 def render(ctx: AppContext) -> html.Div:
     guide = GuideService(ctx.registry)
     sections = guide.sections()
     if not sections:
-        return html.Div([page_title("Guide"), empty("The guide's pages are not installed with this copy.")])
-    boundary = _boundary(guide.boundary(), ctx.registry.pack.name)
-    blocks = []
-    for s in sections:
-        body: list = []
-        for n, part in enumerate(s.markdown.split(BOUNDARY_MARK)):
-            if n:
-                body.append(boundary)
-            body.extend(_markdown(part))
-        blocks.append(
-            dmc.Paper(
-                [html.Span(id=s.slug, className="ea-anchor"), dmc.Title(s.title, order=2, mb="xs"), *body],
-                p="lg",
-                withBorder=True,
-                className="ea-card ea-guide-persona",
-            )
+        return html.Div(
+            [page_title("Guide", help="guide"), empty("The guide's pages are not installed with this copy.")]
         )
+    boundary = _boundary(guide.boundary(), ctx.registry.pack.name)
+    start = [s for s in sections if s.slug == "getting-started"]
+    roles = [s for s in sections if s.slug != "getting-started"]
+    groups = screen_order(guide.screens())
+    blocks = [_section(s, boundary) for s in start]
+    if groups:
+        blocks.append(_screens(groups))
+    blocks += [_section(s, boundary) for s in roles]
     return html.Div(
         [
             page_title(
                 "Guide",
-                "What the repository is for and how to work in it, for each role that uses it. "
-                "It says what to do and why, not which button to press.",
+                "Getting started, what each screen is for and how it is used, and how each role works "
+                "in the repository.",
+                help="guide",
             ),
-            dmc.Group(
-                [dmc.Anchor(s.title, href=f"#{s.slug}", size="sm") for s in sections],
-                gap="md",
-                mb="md",
-            ),
+            _contents(start, groups, roles),
             dmc.Stack(blocks, gap="md"),
-        ]
+        ],
+        className="ea-guide",
     )

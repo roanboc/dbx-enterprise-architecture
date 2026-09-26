@@ -438,6 +438,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     ],
                     gap="xs",
                 ),
+                help="browse",
             ),
             alert(
                 # The role first: it is why the buttons are off wherever the reader stands.

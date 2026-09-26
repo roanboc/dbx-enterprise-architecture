@@ -796,6 +796,7 @@ def render(ctx: AppContext) -> html.Div:
                 "it cannot settle — why the change is made and which business it changes first. You "
                 "answer, review every row, and apply the result to a branch.",
                 badge,
+                help="propose",
             ),
             _drafts_panel(ctx),
             dmc.SimpleGrid(

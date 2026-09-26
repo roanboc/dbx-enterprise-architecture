@@ -262,6 +262,7 @@ def render(ctx: AppContext) -> Any:
                 "Connected systems",
                 "The enterprise's systems the assistant may read over the Model Context Protocol — as the person "
                 "asking, cited as the system's, and never written into the model.",
+                help="systems",
             ),
             html.Div(id=ids.SYS_FEEDBACK),
             html.Div(system_list(ctx), id=ids.SYS_LIST),

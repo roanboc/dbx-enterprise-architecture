@@ -261,6 +261,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     href="/branches",
                     underline="never",
                 ),
+                help="target",
             ),
             dmc.Alert(
                 dmc.Group(

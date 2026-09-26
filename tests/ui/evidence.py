@@ -17,6 +17,7 @@ from pathlib import Path
 GROUPS: dict[str, str] = {
     "S": "Critical path",
     "A": "Shell and navigation",
+    "V": "Help and first visits",
     "B": "Browse",
     "C": "Element",
     "D": "Impact",

@@ -36,6 +36,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "data" / "sample"
 PACK = ROOT / "packs" / "higher_education" / "metamodel.yaml"
 VIEWPORT = {"width": 1600, "height": 1000}
+# What a browser that has closed the welcome and turned tips off holds (`ids.HELP_SEEN`).
+RETURNING_READER = (
+    "try { if (!window.localStorage.getItem('help-seen')) { window.localStorage.setItem('help-seen', "
+    "JSON.stringify({v: 1, welcome: true, tips: false, screens: []})); } } catch (e) {}"
+)
 NARROW = {"width": 480, "height": 900}
 
 _scenarios: list[Scenario] = []
@@ -238,6 +243,11 @@ def ui(browser, server: str, run_dir: Path, app_env: dict[str, str]) -> Iterator
         reduced_motion="reduce",  # an animation mid-flight is the commonest cause of a flaky shot
         permissions=["clipboard-read", "clipboard-write"],
     )
+    # Every group but V meets the application as somebody who has used it before: the welcome
+    # and a screen's first-visit tip (initiative 27) would otherwise stand under the title of
+    # whichever screen a scenario reached first, and move every measurement below it. Group V
+    # opens a browser of its own to see them.
+    context.add_init_script(RETURNING_READER)
     page = context.new_page()
     page.set_default_timeout(20_000)
     helper = Ui(page=page, base_url=server, run_dir=run_dir)

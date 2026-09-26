@@ -61,6 +61,7 @@ def render(ctx: AppContext) -> html.Div:
                 ctx.organisation().name,
                 f"{reg.pack.name}, version {reg.pack.version} ({reg.pack.status}). "
                 "Everything below is derived from that metamodel and the content loaded into this organisation.",
+                help="home",
             ),
             dmc.SimpleGrid(
                 [

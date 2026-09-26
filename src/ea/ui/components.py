@@ -414,9 +414,39 @@ def error_alert(exc: Exception) -> dmc.Alert:
     return alert(str(exc), "red")
 
 
+def help_button(screen: str) -> dmc.Tooltip:
+    """The screen's help, beside its title: a side panel that opens only when asked (initiative 27).
+
+    The `?` key presses it too (`assets/ea-help.js` finds it by its class), so the shortcut
+    works on every screen without a callback of its own.
+    """
+    return dmc.Tooltip(
+        dmc.ActionIcon(
+            icon("tabler:help-circle", 18),
+            id={"type": ids.HELP_OPEN, "screen": screen, "place": "title"},
+            variant="light",
+            size="lg",
+            className="ea-help-button",
+            **{"aria-label": "Help for this screen", "aria-keyshortcuts": "?"},
+        ),
+        label="Help for this screen (?)",
+    )
+
+
+def help_slot(screen: str) -> html.Div:
+    """Where the welcome, or a screen's tip on its first visit, stands; empty otherwise.
+
+    The page key rides beside it, so the callback that decides what to show fires when the
+    page is drawn and knows which screen it is for.
+    """
+    return html.Div([dcc.Store(id=ids.HELP_SCREEN, data=screen), html.Div(id=ids.HELP_HINT)])
+
+
 def page_title(
-    title: str, subtitle: str | None = None, right: Any = None, subtitle_id: str = ""
-) -> dmc.Group:
+    title: str, subtitle: str | None = None, right: Any = None, subtitle_id: str = "", help: str = ""
+) -> dmc.Group | html.Div:
+    """The page's one heading, its subtitle and its controls; with `help`, the screen's help
+    button beside the controls and the place for a first visit's tip below them."""
     left = dmc.Stack(
         [
             # The one h1 on the page: a document that starts at h2 gives assistive
@@ -428,9 +458,12 @@ def page_title(
         ],
         gap=2,
     )
-    return dmc.Group(
+    if help:
+        right = dmc.Group([right, help_button(help)], gap="xs") if right is not None else help_button(help)
+    group = dmc.Group(
         [left, right] if right is not None else [left], justify="space-between", align="flex-start", mb="md"
     )
+    return html.Div([group, help_slot(help)]) if help else group
 
 
 def empty(text: str) -> html.Div:

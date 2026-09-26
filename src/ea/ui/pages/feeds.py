@@ -604,6 +604,7 @@ def render(ctx: AppContext) -> html.Div:
                 "Feeds",
                 "A source leaves rows in the staging schema of this store's own database and a feed "
                 "loads them through the same validation, report and branch rules an uploaded file gets.",
+                help="feeds",
             ),
             # Saving a schedule here does not make anything happen, and a page that showed one
             # without saying so would imply that it does.

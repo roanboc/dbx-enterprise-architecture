@@ -39,6 +39,7 @@ identifiers it came from.
 | **Search, bulk edit, health** — search word by word across names, identifiers, descriptions and attributes, ranked, with the matching passage shown; tick many rows and set their status, states, work package, lifecycle or an attribute in one audited pass; a Health page with freshness per source system (last load, rows stale for 30, 90 and 180 days, never-updated rows, weekly change activity) and completeness per type (descriptions, links, relationships, required attributes, decided targets), every figure a link to the rows behind it | Browse and Health pages, `ea find`, `ea set`, `ea health` |
 | **DuckDB or Lakebase, the same code** — the store is written once on SQL; a DuckDB file locally, a schema in a Lakebase database (the platform's Postgres) on Databricks, the same tests on both; a deployment bundle creates the instance and the app, and the role of the signed-in user comes from their workspace groups | `EA_BACKEND`, `databricks.yml`, `make deploy` |
 | **Roles and review before merge** — five roles enforced (Reader, Reviewer, Architect, Admin, Agent), derived from workspace groups on the platform and picked from a debug persona switcher locally (Admin by default); an architect requests a review, the reviewers assigned to each element type the branch touches approve or send it back, and only an approved branch merges (an admin may merge without a review, and the log says so) | Header persona switcher, Branches page (review panel), Metamodel page (Reviewers tab), `--as` and `ea branch review/approve/send-back`, `ea reviewers` |
+| **Help where the work is done** — a welcome on a person's first visit (what the repository is for, the navigation's groups, where their role starts), shown once; a help button beside every screen's title, or the `?` key, opening that screen's help in a side panel — why it exists, what it shows, how it is used, its flow drawn, and what the reader's own role may do there; a one-line tip on each screen's first visit, which one click turns off; what a person closed is kept by their browser, never by the store, so an experienced user sees one help button per screen and nothing else | Every screen's title, Guide page, [`docs/guide/`](docs/guide/README.md) |
 
 The first pack is an anonymised **higher-education** metamodel (59 element types, 27 active; 54
 relationship types with provenance, `ANY` targets and stewardship qualifiers;
@@ -131,8 +132,10 @@ proposal template's tables and asks its questions from the rules, and only an
 answer in your own words needs the model. `EA_AGENT_PROVIDER` forces
 `databricks`, `anthropic` or `stub`.
 
-The **Guide** page says what belongs in the repository and how each role works
-in it; its pages are in [`docs/guide/`](docs/guide/README.md).
+The **Guide** page opens with Getting started, gathers the help of every screen —
+the same text its help button opens beside the screen's title — and then says what
+belongs in the repository and how each role works in it; its pages are in
+[`docs/guide/`](docs/guide/README.md), one per screen in `docs/guide/screens/`.
 
 ## Working on a branch
 

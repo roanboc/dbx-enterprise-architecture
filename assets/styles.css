@@ -375,3 +375,21 @@ body { background: #e9ecef; }
 .ea-guide-persona { border-top: 3px solid #4c6ef5; }
 /* a link lands on a heading below the sticky header, not under it */
 .ea-anchor { display: block; position: relative; top: -72px; visibility: hidden; }
+
+/* Help and first visits (initiative 27): the welcome and a screen's tip sit under its title and
+   never over it; the side panel's diagrams are sized to the panel. */
+.ea-welcome { border-left: 3px solid var(--mantine-color-indigo-6); }
+.ea-welcome-groups { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; }
+.ea-welcome-group { flex: 1 1 14rem; min-width: 0; }
+.ea-tip {
+  background: var(--mantine-color-indigo-0);
+  border: 1px solid var(--mantine-color-indigo-2);
+  border-radius: var(--mantine-radius-md);
+  margin-bottom: var(--mantine-spacing-md);
+  padding: 0.4rem 0.75rem;
+}
+.ea-tip-text { min-width: 0; }
+.ea-help .ea-mermaid, .ea-guide-screen .ea-mermaid, .ea-guide-persona .ea-mermaid { height: 280px; }
+.ea-guide-screen { border-top: 1px solid var(--mantine-color-gray-3); margin-top: 0.75rem; padding-top: 0.5rem; }
+.ea-guide-contents { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; }
+.ea-guide-contents > * { min-width: 10rem; }

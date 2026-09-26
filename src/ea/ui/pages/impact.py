@@ -61,6 +61,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
             page_title(
                 "Impact",
                 "What depends on an element (upstream, following relationships into it) and what it depends on (downstream), to a chosen depth.",
+                help="impact",
             ),
             dmc.Group(
                 [

@@ -335,6 +335,7 @@ def render(ctx: AppContext) -> html.Div:
                 dmc.Button(
                     "Recompute", id=ids.HEALTH_REFRESH, variant="light", leftSection=icon("tabler:refresh")
                 ),
+                help="health",
             ),
             html.Div(body(ctx), id=ids.HEALTH_BODY),
         ]

@@ -286,6 +286,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 "metamodel. The default one is what the application opens; another is where a version is "
                 "tried on a copy of the content before it is applied to the default. Switch with the "
                 "selector in the header or a row's button.",
+                help="organisations",
             ),
             html.Div(id=ids.ORGS_FEEDBACK),
             dmc.Paper(html.Div(organisations_table(ctx), id=ids.ORGS_LIST), p="md", withBorder=True, mb="md"),

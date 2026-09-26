@@ -802,6 +802,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                     variant="light",
                     disabled=not ctx.can("create_branch"),
                 ),
+                help="branches",
             ),
             dmc.Group(
                 [

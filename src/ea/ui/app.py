@@ -19,7 +19,7 @@ from ea.config import ROOT
 from ea.models import ConflictError, Forbidden, NotFoundError
 from ea.services.identity import forwarded_identity, set_token
 from ea.services.roles import set_role
-from ea.ui import graph, ids, layout
+from ea.ui import graph, ids, layout, screen_help
 from ea.ui.components import alert, register_markdown
 from ea.ui.context import PERSONAS, get_context
 from ea.ui.pages import (
@@ -416,6 +416,7 @@ def create_app() -> dash.Dash:
 
     graph.register(app)
     register_markdown(app)
+    screen_help.register(app)  # a screen's help, the welcome and the tips (initiative 27)
     for module in (
         browse,
         element,

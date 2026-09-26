@@ -15,6 +15,18 @@ MD_INSERT = "md-insert"
 MD_MODE = "md-mode"
 MD_WRAP = "md-wrap"
 
+# Help and first visits (initiative 27)
+HELP_OPEN = (
+    "help-open"  # pattern-matching: {"type": HELP_OPEN, "screen": <page key>, "place": title|tip|welcome}
+)
+HELP_DRAWER = "help-drawer"
+HELP_TITLE = "help-title"
+HELP_BODY = "help-body"
+HELP_SEEN = "help-seen"  # the browser's own record of what a person has closed; never the store
+HELP_SCREEN = "help-screen"  # the page key the title's help is for
+HELP_HINT = "help-hint"  # where the welcome or a first-visit tip stands
+HELP_ACTION = "help-action"  # pattern-matching: {"type": HELP_ACTION, "action": close|tips-off|reset}
+
 # browse
 BROWSE_TYPE = "browse-type"
 BROWSE_TEXT = "browse-text"

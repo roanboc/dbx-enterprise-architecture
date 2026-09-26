@@ -64,6 +64,7 @@ def render(ctx: AppContext) -> html.Div:
             page_title(
                 "Import",
                 "Drop CSV files that follow the contract in connectors/README.md (elements, relationships, links), validate them against the metamodel, then load. Re-importing updates rather than duplicates.",
+                help="import",
             ),
             alert(
                 f"You are on branch {ctx.branch()}: what you load lands on the branch and reaches main when it is merged."
