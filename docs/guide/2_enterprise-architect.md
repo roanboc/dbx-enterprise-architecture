@@ -22,6 +22,10 @@ You own the shape of the model: what the enterprise is, and how it changes.
    traces up.
 4. **Review with the impact in view:** what the change reaches beyond itself,
    and what it leaves pointing at nothing.
+5. **Sketch in draw.io when a picture says it faster.** Draw on an exported
+   view or from the metamodel's shape library and hand the file in on Propose;
+   it is read like any proposal (see *Drawing a change* on the solution
+   architect's page).
 
 ## What the repository answers for you
 

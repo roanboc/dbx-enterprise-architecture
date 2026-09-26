@@ -160,6 +160,9 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("meta_element_type", "level", "VARCHAR"),
     ("proposal", "conversation_json", "VARCHAR"),
     ("proposal", "updated_at", "TIMESTAMP"),
+    # initiative 26: a page read by an id its address carries, not by the address itself
+    ("connected_system", "page_pattern", "VARCHAR"),
+    ("connected_system", "page_arguments", "VARCHAR"),
 ] + [(table, "org_id", "VARCHAR") for table in ORG_TABLES]
 
 STATE_COLUMNS_DDL = """,
@@ -516,6 +519,8 @@ DDL: dict[str, str] = {
             tools VARCHAR,
             page_tool VARCHAR,
             page_argument VARCHAR,
+            page_pattern VARCHAR,
+            page_arguments VARCHAR,
             auth VARCHAR,
             credential_env VARCHAR,
             roles VARCHAR,

@@ -29,3 +29,24 @@ does use it, keep it and say what.
 3. **Read what it touches** before you apply: what depends on what you change or
    retire, and who must review it.
 4. **Apply to a branch, and ask for review.**
+
+## Drawing a change
+
+You can hand in a drawing instead of a document: a draw.io file read against the
+model as it is now.
+
+1. **Start from what the application gives you.** Export a view of the part you
+   change, or open the metamodel's shape library (from the Metamodel page) in
+   draw.io: one shape per type an element may be. Copy shapes freely.
+2. **Say what each new shape is.** A shape from the library, or copied from an
+   export, keeps its type. Any other shape takes the type written at the front of
+   its label, as `«Type Name» Name`, which also overrides the type a copied shape
+   carries; without one, its shape decides where only one type is drawn that
+   way. A line drawn between two elements is a new relationship.
+3. **Answer what the drawing cannot say.** A shape nothing types is asked about,
+   with the likely types first. So are a label edited on an exported shape (a
+   rename, or only the drawing's label), a shape or line taken out (out of the
+   model, or only out of the picture) and a text box (a note, unless you say it
+   is an element). Moving or resizing a shape changes nothing.
+4. **Hand the file in on Propose.** Its rows join the conversation as any
+   document's do, and nothing is applied until you tick it.

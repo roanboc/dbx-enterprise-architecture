@@ -131,16 +131,22 @@ def loaded(backend, registry):
     return backend
 
 
+def _no_workspace():
+    raise RuntimeError("a unit test has no workspace")
+
+
 @pytest.fixture
-def app_context(loaded):
+def app_context(loaded, monkeypatch):
     """The application context a page callback is handed, over the seeded store.
 
     A page's own logic — what the address says, what a count means, which rows a drill-down
     keeps — is a pure function of a filter and a store, so it is provable here rather than
-    only in the browser round.
+    only in the browser round. It reaches no workspace, whatever the machine is signed in to:
+    a test that needs one hands its own to `ctx.connected.workspace`.
     """
     from ea.ui.context import AppContext
 
+    monkeypatch.setattr("ea.services.connected._workspace_client", _no_workspace)
     return AppContext(settings=Settings.from_env(), backend=loaded)
 
 

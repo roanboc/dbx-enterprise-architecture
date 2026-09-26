@@ -899,8 +899,9 @@ class SourceFeed:
 
 
 #: How a person is known to a connected system: their own platform identity, a credential the
-#: platform holds for the organisation, or nothing at all (a server open inside the network).
-CONNECTED_AUTH = ("reader", "credential", "none")
+#: platform holds for the organisation, the application's own platform identity, or nothing at
+#: all (a server open inside the network).
+CONNECTED_AUTH = ("reader", "credential", "app", "none")
 
 
 @dataclass
@@ -912,9 +913,14 @@ class ConnectedSystem:
     the protocol's streamable HTTP, and only the `tools` listed may be called — each one a read.
     `speaks_for` names the element types it masters; `link_prefixes` the addresses of the pages
     it answers for, which a deep dive reads through `page_tool` with the address in
-    `page_argument`. `auth` says how a person is known to it: `reader` passes the reader's own
+    `page_argument`. A system that reads a page by something other than its address — an id
+    and a site, as a wiki does — says so with `page_pattern`, a regular expression whose named
+    groups pick the pieces out of the address, and `page_arguments`, the tool's arguments with
+    `{url}` and `{<group>}` standing for them; the service also takes the arguments as the JSON
+    text a form holds. `auth` says how a person is known to it: `reader` passes the reader's own
     platform identity on, `credential` a token the platform holds in the environment variable
-    `credential_env` — used only for the `roles` listed — and `none` nothing.
+    `credential_env`, `app` the application's own platform identity — both used only for the
+    `roles` listed — and `none` nothing.
     """
 
     system_id: str = ""
@@ -926,6 +932,8 @@ class ConnectedSystem:
     tools: list[str] = field(default_factory=list)
     page_tool: str = ""
     page_argument: str = "url"
+    page_pattern: str = ""
+    page_arguments: dict[str, Any] = field(default_factory=dict)
     auth: str = "reader"
     credential_env: str = ""
     roles: list[str] = field(default_factory=list)

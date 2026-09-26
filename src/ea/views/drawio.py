@@ -12,17 +12,27 @@ organisation and branch, and when; every shape, lane, icon and line carries the 
 application drew. A shape a person adds is the one without the stamp. A shape keeps the name
 it was exported with (`ea_name`) beside the label a person may edit, and an edge names the
 relationship it draws (`ea_rel_id`).
+
+The metamodel is also handed out as a shape library (`palette_library`): one shape per type an
+element may be, drawn as an export draws it and stamped with its type but no element — and
+without draw.io's tag, since what is dragged from it is the person's — so a shape an architect
+drags from it is read back as a new element of exactly that type.
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import textwrap
+import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
+import zlib
 from datetime import UTC, datetime
 
 from ea.backend.branching import current_branch
 from ea.backend.organisations import current_org
+from ea.metamodel.registry import Registry
 from ea.services.target import NOT_REAL, TARGET_STYLE
 from ea.views.model import LAYER_TITLES, View, ViewNode, layer_rank
 
@@ -396,3 +406,80 @@ def _to_drawio_positioned(
         )
     _edges(root, view, export_id, marked)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")
+
+
+# ------------------------------------------------------------------ the shape library
+def palette_library(registry: Registry) -> str:
+    """The metamodel as a draw.io custom library: one shape per type an element may be.
+
+    draw.io opens it with *File › Open Library* and keeps it in its sidebar. Each shape is the
+    one a view export draws for an element of the type — the stencil and fill the notation
+    gives it — labelled with the type's name and stamped with the type and nothing else, so a
+    shape dragged from it is read back as an element a person added, of exactly that type,
+    even where its stencil is drawn for several (`ea.agent.drawing`). A type that is inactive
+    or abstract is left out: no element may be one. In the metamodel's reading order: layer,
+    then the order the pack gives, then name.
+    """
+    types = sorted(
+        registry.concrete_types(),
+        key=lambda t: (layer_rank(registry.notation(t.id).get("layer", "other")), t.sort_order, t.name),
+    )
+    entries = []
+    for t in types:
+        notation = registry.notation(t.id)
+        node = ViewNode(
+            id=t.id,
+            name=t.name,
+            type_id=t.id,
+            type_name=t.name,
+            layer=notation.get("layer", "other"),
+            glyph=notation.get("glyph", ""),
+            stereotype=notation.get("stereotype", ""),
+            shape=notation.get("shape", "rect"),
+            archimate=notation.get("archimate", ""),
+        )
+        w, h = node_size(node)
+        entries.append(
+            {
+                "xml": _compressed(_palette_model(node, w, h)),
+                "w": w,
+                "h": h,
+                "title": t.name,
+                "aspect": "fixed",
+            }
+        )
+    library = ET.Element("mxlibrary")
+    library.text = json.dumps(entries)
+    return ET.tostring(library, encoding="unicode")
+
+
+def _palette_model(n: ViewNode, w: int, h: int) -> str:
+    """One library shape as the graph model draw.io drops on a page: the reader's contract for it.
+
+    It carries no draw.io tag: a shape dragged from the library is the person's, and hiding what
+    the application drew must not hide it. The reader knows it by `ea_palette` and `ea_type`.
+    """
+    model = ET.Element("mxGraphModel")
+    root = ET.SubElement(model, "root")
+    _cell(root, "0")
+    _cell(root, "1", parent="0")
+    obj = ET.SubElement(
+        root,
+        "object",
+        label=n.type_name,
+        ea_origin=ORIGIN,
+        ea_palette="1",
+        ea_type=n.type_id,
+        ea_type_name=n.type_name,
+        id="2",
+    )
+    cell = ET.SubElement(obj, "mxCell", style=node_style(n), vertex="1", parent="1")
+    ET.SubElement(cell, "mxGeometry", x="0", y="0", width=str(w), height=str(h), **{"as": "geometry"})
+    return ET.tostring(model, encoding="unicode")
+
+
+def _compressed(xml: str) -> str:
+    """draw.io's own compression: percent-encoded as a browser's `encodeURIComponent`, raw deflate, base64."""
+    deflate = zlib.compressobj(9, zlib.DEFLATED, -15)
+    raw = deflate.compress(urllib.parse.quote(xml, safe="-_.!~*'()").encode("ascii")) + deflate.flush()
+    return base64.b64encode(raw).decode("ascii")

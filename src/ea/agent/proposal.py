@@ -62,11 +62,15 @@ MAX_LINK_BYTES = 400_000
 FUZZY_CUTOFF = 0.88
 #: How much of each source is kept with the proposal, so a reviewer reads the page it came from.
 MAX_SOURCE_CHARS = 200_000
+#: How a relationship row names an element row that has no name yet — a shape in a drawing
+#: nobody has named — by its row number: `#3`. Rows keep their numbers, so the line survives.
+ROW_REF = "#"
 
 __all__ = [
     "AnswerError",
     "ELEMENT_HEADERS",
     "RELATIONSHIP_HEADERS",
+    "ROW_REF",
     "ProposalResult",
     "ProposalService",
     "ProposedElement",
@@ -115,8 +119,9 @@ class ProposedElement:
 
     @property
     def ref(self) -> str:
-        """How relationships refer to this element: its id when linked, `new:<name>` otherwise."""
-        return self.element_id or f"new:{_norm(self.name)}"
+        """How relationships refer to this element: its id when linked, `new:<name>` otherwise,
+        and `new:#<row>` while it has no name, so two unnamed rows are never taken for one."""
+        return self.element_id or f"new:{_norm(self.name) or ROW_REF + str(self.row)}"
 
 
 @dataclass
@@ -445,6 +450,7 @@ class ProposalService:
         refs = {}
         for el in result.elements:
             refs[_norm(el.name)] = el
+            refs[f"{ROW_REF}{el.row}"] = el
             if el.element_id:
                 refs[el.element_id.lower()] = el
         for rel in result.relationships:
@@ -558,8 +564,11 @@ class ProposalService:
         )
 
     def change_input(self, result: ProposalResult) -> ChangeInput:
-        """The ticked rows of a proposal as a change set to assess."""
-        els = [el for el in result.elements if el.include]
+        """The ticked rows of a proposal as a change set to assess.
+
+        A drawing's text box not yet said to be an element is not part of the change: until the
+        architect answers, it may be a note, and assessing it would ask what a note serves."""
+        els = [el for el in result.elements if el.include and el.drawn != "note"]
         rels = [r for r in result.relationships if r.include]
         return ChangeInput(
             changed={
@@ -691,6 +700,10 @@ class ProposalService:
             el.issues.append("target state is missing")
         if el.attrs and el.type_id:
             el.issues.extend(self._attr_issues(el.type_id, el.attrs))
+        if el.drawn == "note":
+            # a text box is asked about once: whether it is a note or an element. What an
+            # element would owe (a type, a description) is asked only once it is said to be one
+            el.issues = ["a text box in the drawing: say whether it is a note or an element"]
 
     def _attr_issues(self, type_id: str, attrs: dict[str, str]) -> list[str]:
         """What the attribute values a page gives say against the type: one it does not declare,
@@ -1235,6 +1248,9 @@ def _merge(into: ProposalResult, part: ProposalResult) -> None:
     for el in part.elements:
         el.row += offset
         into.elements.append(el)
+    for rel in part.relationships:
+        # a line to a shape nobody named names its row, which has moved down by as many
+        rel.source, rel.target = _row_ref_moved(rel.source, offset), _row_ref_moved(rel.target, offset)
     offset = max((rel.row for rel in into.relationships), default=0)
     for rel in part.relationships:
         rel.row += offset
@@ -1244,6 +1260,11 @@ def _merge(into: ProposalResult, part: ProposalResult) -> None:
             into.drawing.setdefault(key, []).extend(value)
         elif value and not into.drawing.get(key):
             into.drawing[key] = value
+
+
+def _row_ref_moved(text: str, offset: int) -> str:
+    m = re.fullmatch(re.escape(ROW_REF) + r"(\d+)", text or "")
+    return f"{ROW_REF}{int(m.group(1)) + offset}" if m else text
 
 
 def _count(n: int, noun: str) -> str:

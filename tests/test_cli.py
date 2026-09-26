@@ -443,6 +443,57 @@ def test_an_admin_connects_a_system_from_the_command_line(ea_env):
     assert removed.exit_code == 0 and "no system connected" in runner.invoke(app, ["systems", "list"]).output
 
 
+def test_systems_add_takes_a_workspace_connection_and_a_page_pattern(ea_env, monkeypatch):
+    """A connection registered in the workspace gives the address; the page pattern and its
+    arguments say how a link becomes the page tool's call."""
+    from types import SimpleNamespace
+
+    import ea.cli
+
+    conns = [
+        SimpleNamespace(
+            name="wiki", connection_type="HTTP", options={"is_mcp_connection": "true"}, comment=""
+        )
+    ]
+    workspace = SimpleNamespace(
+        config=SimpleNamespace(host="https://w.example.org"),
+        connections=SimpleNamespace(list=lambda **_: iter(conns)),
+    )
+    monkeypatch.setattr(ea.cli, "WORKSPACE", lambda: workspace)
+    listed = runner.invoke(app, ["systems", "connections"])
+    assert listed.exit_code == 0 and "wiki  https://w.example.org/api/2.0/mcp/external/wiki" in listed.output
+    missing = runner.invoke(app, ["systems", "add", "Wiki", "--connection", "nope", "--tools", "x"])
+    assert missing.exit_code == 1 and "no connection 'nope'" in missing.output
+    added = runner.invoke(
+        app,
+        ["systems", "add", "Wiki", "--connection", "wiki", "--tools", "getConfluencePage", "--auth", "app",
+         "--roles", "architect", "--pages", "https://example.atlassian.net/wiki/", "--page-tool", "getConfluencePage",
+         "--page-pattern", r"/pages/(?P<page_id>\d+)", "--page-arguments", '{"pageId": "{page_id}"}'],
+    )  # fmt: skip
+    assert added.exit_code == 0, added.output
+    shown = runner.invoke(app, ["systems", "list"]).output
+    assert "https://w.example.org/api/2.0/mcp/external/wiki  as app" in shown
+    assert "/pages/(?P<page_id>" in shown and '"pageId": "{page_id}"' in shown
+    bad = runner.invoke(app, ["systems", "add", "W2", "--url", "https://x.example.org/mcp", "--tools", "t",
+                              "--page-tool", "t", "--page-arguments", "[1]"])  # fmt: skip
+    assert bad.exit_code != 0 and "JSON object" in str(bad.exception or bad.output)
+    # the application's identity serves only the roles named, so naming none is refused
+    no_roles = runner.invoke(app, ["systems", "add", "W3", "--url", "https://w.example.org/mcp", "--tools", "t",
+                                   "--auth", "app"])  # fmt: skip
+    assert no_roles.exit_code != 0 and "name the roles" in str(no_roles.exception or no_roles.output)
+
+
+def test_systems_connections_says_why_none_are_listed(ea_env, monkeypatch):
+    import ea.cli
+
+    def no_sdk():
+        raise ImportError("databricks")
+
+    monkeypatch.setattr(ea.cli, "WORKSPACE", no_sdk)
+    out = runner.invoke(app, ["systems", "connections"])
+    assert out.exit_code == 1 and "SDK" in out.output
+
+
 def test_mcp_serves_the_read_tools_over_stdio(ea_env):
     help_text = runner.invoke(app, ["mcp", "--help"]).output
     assert "Model Context Protocol" in help_text and "--http" in help_text

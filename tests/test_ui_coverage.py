@@ -36,6 +36,7 @@ DOWNLOAD_TRIGGERS = {
     "mm-export": "the metamodel as a YAML pack",
     "mm-view-md": "the metamodel's architecture view as Markdown",
     "mm-view-drawio": "the metamodel's architecture view as draw.io",
+    "mm-palette": "the metamodel as a draw.io shape library",
     "im-template": "the import template archive",
     "im-export": "the organisation's content, written back out as the contract",
     "pr-template": "a proposal template, the one picked",

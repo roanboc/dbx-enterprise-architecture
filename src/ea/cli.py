@@ -1060,6 +1060,37 @@ def metamodel_check(
     raise typer.Exit(code=0 if report.ok else 1)
 
 
+@metamodel_app.command("palette")
+def metamodel_palette(
+    out: Path = typer.Option(None, "--out", "-o", help="the file to write (default: print it)"),
+    version: str = typer.Option(
+        None, "--version", "-v", help="a stored version, as a name or identifier with @version"
+    ),
+):
+    """The metamodel as a draw.io shape library, to open in draw.io with File › Open Library.
+
+    Every shape dragged from it is read back on Propose as an element of exactly its type.
+    """
+    from ea.metamodel import Registry
+    from ea.views.drawio import palette_library
+
+    backend, registry, svc, _ = _metamodels()
+    if version:
+        try:
+            registry = Registry(svc.get(version))
+        except Exception:
+            held = ", ".join(f"{v.label} ({v.short_id})" for v in backend.list_pack_versions()) or "none"
+            _refuse(f"no metamodel version {version!r} in this database; it holds: {held}")
+    library = palette_library(registry)
+    if out is None:
+        typer.echo(library)
+        return
+    out.write_text(library, encoding="utf-8")
+    typer.echo(
+        f"{registry.pack.name or registry.pack.id} {registry.pack.version}: shape library written to {out}"
+    )
+
+
 # ------------------------------------------------------------------ organisations
 org_app = typer.Typer(
     help="The organisations the store holds: which is the default, which metamodel version each applies.",
@@ -1627,11 +1658,16 @@ systems_app = typer.Typer(
 app.add_typer(systems_app, name="systems")
 
 
+#: Makes the workspace client `ea systems connections` lists from; None is the Databricks SDK's
+#: own. Tests hand a fake one here rather than through the environment.
+WORKSPACE = None
+
+
 def _systems():
     from ea.services.connected import ConnectedSystemService
 
     _, backend, registry, *_ = _ctx()
-    return ConnectedSystemService(backend, registry)
+    return ConnectedSystemService(backend, registry, workspace=WORKSPACE)
 
 
 def _csv(text: str) -> list[str]:
@@ -1649,14 +1685,35 @@ def systems_list():
             typer.echo(f"    speaks for: {', '.join(s.speaks_for)}")
         if s.link_prefixes:
             typer.echo(f"    reads pages under: {', '.join(s.link_prefixes)} with {s.page_tool}")
+        if s.page_pattern:
+            typer.echo(f"    page pattern: {s.page_pattern}")
+        if s.page_arguments:
+            typer.echo(f"    page arguments: {json.dumps(s.page_arguments)}")
     if not held:
         typer.echo("no system connected in this organisation")
+
+
+@systems_app.command("connections")
+def systems_connections():
+    """The workspace's connections that can serve the protocol, and the address each answers at."""
+    offered, reason = _systems().workspace_connections()
+    if reason:
+        _refuse(f"no workspace connection is listed: {reason}")
+    for c in offered:
+        typer.echo(f"{c['name']}  {c['url']}" + (f"  — {c['comment']}" if c["comment"] else ""))
+    if not offered:
+        typer.echo("the workspace offers no connection that serves the protocol")
 
 
 @systems_app.command("add")
 def systems_add(
     name: str = typer.Argument(..., help="what the system is called"),
-    url: str = typer.Option(..., "--url", help="where it answers the protocol's streamable HTTP"),
+    url: str = typer.Option("", "--url", help="where it answers the protocol's streamable HTTP"),
+    connection: str = typer.Option(
+        "",
+        "--connection",
+        help="a workspace connection whose address it answers at (`ea systems connections`)",
+    ),
     tools: str = typer.Option(
         ..., "--tools", help="the tools the assistant may call, comma-separated; each a read"
     ),
@@ -1668,14 +1725,28 @@ def systems_add(
     page_argument: str = typer.Option(
         "url", "--page-argument", help="the argument the page tool takes the address in"
     ),
+    page_pattern: str = typer.Option(
+        "",
+        "--page-pattern",
+        help="a regular expression whose named groups pick a page's id out of its address",
+    ),
+    page_arguments: str = typer.Option(
+        "",
+        "--page-arguments",
+        help='the page tool\'s arguments as JSON, with {url} and {<group>}: {"pageId": "{page_id}"}',
+    ),
     auth: str = typer.Option(
-        "reader", "--auth", help="reader (the person's own identity), credential or none"
+        "reader",
+        "--auth",
+        help="reader (the person's own identity), credential, app (the application's) or none",
     ),
     credential_env: str = typer.Option(
         "", "--credential-env", help="the environment variable holding its credential"
     ),
     roles: str = typer.Option(
-        "", "--roles", help="with a credential: the roles it is read for, comma-separated"
+        "",
+        "--roles",
+        help="with a credential or as the application (needed for either): the roles it is read for, comma-separated",
     ),
     description: str = typer.Option("", "--description"),
     system_id: str = typer.Option("", "--id", help="replace the system with this id"),
@@ -1684,7 +1755,19 @@ def systems_add(
     """Connect a system for the assistant to read (an admin's decision; initiative 26)."""
     from ea.models import ConnectedSystem
 
-    kept = _systems().save(
+    svc = _systems()
+    if connection:
+        offered, reason = svc.workspace_connections()
+        picked = next((c for c in offered if c["name"] == connection), None)
+        if picked is None:
+            _refuse(
+                f"no connection {connection!r} in the workspace"
+                + (f": {reason}" if reason else "; `ea systems connections` lists them")
+            )
+        url = url or picked["url"]
+    if not url:
+        _refuse("say where it answers: --url, or --connection for one of the workspace's")
+    kept = svc.save(
         ConnectedSystem(
             system_id=system_id,
             name=name,
@@ -1695,6 +1778,8 @@ def systems_add(
             link_prefixes=_csv(pages),
             page_tool=page_tool,
             page_argument=page_argument,
+            page_pattern=page_pattern,
+            page_arguments=page_arguments,  # the service reads the JSON and says what is wrong with it
             auth=auth,
             credential_env=credential_env,
             roles=_csv(roles),
