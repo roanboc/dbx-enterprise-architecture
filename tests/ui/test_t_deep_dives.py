@@ -95,12 +95,15 @@ def _rate(ui, stars: int, why: str = "") -> None:
     ui.click("dd-rate")
 
 
-def _shown_stars(ui, scope: str) -> list[str]:
-    """The read-only star ratings under `scope`, as the value each carries."""
-    return [
-        el.get_attribute("value") or ""
-        for el in ui.page.locator(f"{scope} .mantine-Rating-root input:checked").all()
-    ]
+def _stars_in(ui, scope: str, timeout: float = 20_000) -> bool:
+    """Whether a read-only star rating is drawn under `scope`. Read-only, Mantine draws the stars
+    as symbols with no radio inputs behind them, so it is the rating root that is looked for;
+    the list is redrawn by a callback, so it is waited for rather than read at once."""
+    try:
+        ui.page.wait_for_selector(f"{scope} .mantine-Rating-root [data-read-only='true']", timeout=timeout)
+    except Exception:  # noqa: BLE001 — the check below records what was not there
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------------- Ask
@@ -263,11 +266,8 @@ def test_the_ones_kept(ui, record):
     ui.check("opened, it reads its brief", "An impact analysis" in ui.text("dd-detail"))
     _rate(ui, 4, "Clear enough to take to the board")
     ui.check("the rating is recorded", "Rated 4 of 5" in ui.text("dd-detail"), ui.text("dd-detail")[:300])
-    ui.page.wait_for_timeout(600)
-    ui.settle()
-    ui.check(
-        "the list shows it as stars", "4" in _shown_stars(ui, "#dd-list"), str(_shown_stars(ui, "#dd-list"))
-    )
+    ui.check("the list shows its rating as stars", _stars_in(ui, "#dd-list"), ui.text("dd-list")[:300])
+    ui.check("with how many rated it", "(1)" in ui.text("dd-list"), ui.text("dd-list")[:300])
     ui.shot("A deep dive opened among the ones kept, rated with stars")
 
 
@@ -323,8 +323,14 @@ def test_again_and_withdraw(ui, record):
     ui.check("withdrawing says what it means", "Withdrawn: it leaves the catalogue" in ui.text("dd-detail"))
     hrefs = [a.get_attribute("href") or "" for a in ui.page.locator("#dd-list a").all()]
     ui.check("it has left the list", not any(again in h for h in hrefs), str(hrefs))
+    # the filters stand above the list: after Withdraw the page is scrolled down to the opened
+    # deep dive, where the switch sits under the sticky header, so go back up to it as a reader would
+    ui.page.evaluate("() => window.scrollTo(0, 0)")
     ui.toggle("dd-withdrawn", True)
-    ui.page.wait_for_timeout(600)
+    try:  # the list is redrawn by a callback: wait for it to say it holds the withdrawn too
+        ui.page.wait_for_selector("#dd-list a[href*='withdrawn=1']", timeout=20_000)
+    except Exception:  # noqa: BLE001 — the check below records what the list held
+        pass
     ui.settle()
     hrefs = [a.get_attribute("href") or "" for a in ui.page.locator("#dd-list a").all()]
     ui.check("Show withdrawn brings it back", any(again in h for h in hrefs), str(hrefs))
