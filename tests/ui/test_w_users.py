@@ -25,7 +25,7 @@ pytestmark = pytest.mark.gui
 PAGE = "/users"
 HEADING = "Users and roles"
 GROUP = "solution-architects"  # a sample group: the architect persona is in it
-NOTE = "V they draft the solutions"
+NOTE = "They draft the solutions (W02)"
 SAMPLE_NOTE = "Locally these are sample groups"
 # The role is a group of radios whose `usr-role` id stays with Dash, so they are found by their role.
 CONTROLS = ["usr-group", "usr-note", "usr-grant", "usr-check-email", "usr-check"]
