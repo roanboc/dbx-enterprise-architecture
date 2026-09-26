@@ -59,12 +59,15 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     # organisation's configuration, like its feeds. Reading one is asking; nothing writes to it.
     "connect_systems": ("admin",),
     "assign_reviewers": ("admin",),
+    # Which workspace groups hold which role, and reading it — grants, their history, another
+    # person's role — is an admin's alone (decision 0028). A person always reads their own.
+    "grant_roles": ("admin",),
 }
 DESCRIPTIONS = {
     "reader": "Browse, search, analyse, ask, keep and rate deep dives, and download. Changes nothing in the model.",
     "reviewer": "A reader who approves or sends back branches for the element types assigned to them.",
     "architect": "A reader who drafts on branches, imports, proposes, requests reviews and merges approved branches.",
-    "admin": "Everything, including the metamodel and its versions, the organisations, main, reviewer assignments and merging without a review.",
+    "admin": "Everything, including the metamodel and its versions, the organisations, main, reviewer assignments, merging without a review, and which workspace groups hold which role.",
     "agent": "The assistant: reads through tools and drafts what an architect will tick.",
 }
 

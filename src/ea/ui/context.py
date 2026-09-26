@@ -26,7 +26,7 @@ from ea.backend.branching import MAIN, current_branch
 from ea.backend.organisations import current_org
 from ea.config import Settings
 from ea.metamodel import Registry, load_pack
-from ea.models import Organisation, User
+from ea.models import GroupRef, Organisation, User
 from ea.services import (
     BranchService,
     ChangeImpactService,
@@ -41,10 +41,11 @@ from ea.services import (
     TargetStateService,
     TemplateService,
 )
+from ea.services.access import AccessService
 from ea.services.branches import refusal_for_writing
 from ea.services.connected import ConnectedSystemService
-from ea.services.identity import WorkspaceGroups, current_token, forwarded_identity
-from ea.services.roles import LABELS, allowed, current_role, parse_role_groups, role_from_groups
+from ea.services.identity import Directory, WorkspaceGroups, current_token, directory_for, forwarded_identity
+from ea.services.roles import LABELS, allowed, current_role
 
 log = logging.getLogger(__name__)
 _lock = threading.Lock()
@@ -117,6 +118,10 @@ class AppContext:
     identity: WorkspaceGroups = field(default_factory=WorkspaceGroups)
     metamodels: MetamodelService = field(init=False)
     orgs: OrganisationService = field(init=False)
+    #: The workspace's groups an admin picks from (the sample groups locally), and who holds
+    #: which role — the deployment's grants and the store's (initiative 28).
+    directory: Directory = field(init=False)
+    access: AccessService = field(init=False)
     _bundles: dict[str, Bundle] = field(default_factory=dict, init=False)
     _bundle_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _agent_provider: Any = field(default=None, init=False)
@@ -126,6 +131,8 @@ class AppContext:
     def __post_init__(self) -> None:
         self.metamodels = MetamodelService(self.backend)
         self.orgs = OrganisationService(self.backend, self.metamodels)
+        self.directory = directory_for(self.settings)
+        self.access = AccessService(self.backend, self.settings, self.directory, web=True)
 
     # ------------------------------------------------------------ bundle
     def _bundle(self) -> Bundle:
@@ -384,14 +391,45 @@ class AppContext:
         The platform forwards no groups, so they are looked up in the workspace (`identity`),
         with the user's own token when the app is granted one. A groups header is believed only
         where `EA_TRUST_GROUPS_HEADER` says a proxy of ours sets it, and nobody signed in is a Reader.
+        The role is the highest the deployment's grants or the store's give (`access`, decision 0028).
         """
-        email, groups, token = forwarded_identity(headers, self.settings.trust_groups_header)
+        email, refs = self._forwarded_groups(headers)
         if not email:
             return User(username="anonymous", display_name="Anonymous", role="reader")
-        if groups is None:
-            groups = self.identity.groups(email, token)
-        role = role_from_groups(groups, parse_role_groups(self.settings.role_groups))
-        return User(username=email, display_name=email.split("@")[0], groups=groups, role=role)
+        role, _ = self.access.resolve(refs)
+        return User(
+            username=email,
+            display_name=email.split("@")[0],
+            groups=sorted({g.name for g in refs}),
+            role=role,
+        )
+
+    def _forwarded_groups(self, headers: Any) -> tuple[str, list[GroupRef]]:
+        """Who the platform forwarded, and their groups with the workspace's identifier for each."""
+        email, groups, token = forwarded_identity(headers, self.settings.trust_groups_header)
+        if not email:
+            return "", []
+        if groups is not None:  # a proxy of ours names them: names alone
+            return email, [GroupRef(name=g) for g in groups]
+        return email, self.identity.refs(email, token)
+
+    def group_refs(self) -> list[GroupRef]:
+        """The signed-in person's groups, each with its identifier where it is known: on the
+        platform the workspace's, locally the debug persona's in the sample groups — what their
+        role is checked against when they change a grant, and what their own role is read from."""
+        if self.settings.auth == "databricks":
+            try:
+                from flask import has_request_context, request
+
+                if has_request_context():
+                    return self._forwarded_groups(request.headers)[1]
+            except Exception:  # noqa: BLE001
+                log.exception("could not read the forwarded identity")
+            return []
+        try:
+            return self.directory.person_groups(self.current_user().username) or []
+        except Exception:  # noqa: BLE001 — the sample directory never fails; a directory that does has no groups
+            return []
 
     def persona(self) -> str:
         """The debug persona kept in the session; Admin by default."""

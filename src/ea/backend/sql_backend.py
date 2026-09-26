@@ -33,8 +33,9 @@ import pandas as pd
 
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, current_branch, validate_branch_id
-from ea.backend.organisations import DEFAULT_ORG, current_org, validate_org_id
+from ea.backend.organisations import DEFAULT_ORG, NO_ORG, current_org, validate_org_id
 from ea.backend.sql import (
+    APP_TABLES,
     AUDIT_TABLES,
     DDL,
     ELEMENT_COLUMNS,
@@ -83,6 +84,7 @@ from ea.models import (
     ProposalTemplate,
     Relationship,
     Review,
+    RoleGrant,
     SourceFeed,
     is_pack_id,
     pack_id_from_legacy,
@@ -3392,6 +3394,10 @@ class SqlBackend(DatabaseBackend):
             else f"{t} AS (SELECT * FROM {t} WHERE org_id = {org})"
             for t in ORG_TABLES
         ]
+        # Who holds which role is read by admins on their own screen, never through a reader's
+        # SQL (decision 0028): the table answers as empty here, and its log rows are filed under
+        # no organisation, so the change log above does not carry them either.
+        ctes += [f"{t} AS (SELECT * FROM {t} WHERE 1 = 0)" for t in APP_TABLES]
         current = self.get_organisation(current_org())
         if current is not None and current.pack_id:
             pid = validate_identifier(current.pack_id, "pack id")
@@ -3621,6 +3627,116 @@ class SqlBackend(DatabaseBackend):
             self._execute("DELETE FROM connected_system WHERE org_id = ? AND system_id = ?", [org, system_id])
             if before is not None:
                 self._log("connected_system", system_id, "delete", actor, self._public(before), None, None)
+
+    # --------------------------------------------------------- role grants
+    _GRANT_COLUMNS = ("group_id", "group_name", "checked", "role", "note", "granted_by", "granted_at")
+
+    def _lock_table(self, table: str) -> None:
+        """Hold a table against every other writer until the open transaction ends. The store's
+        lock already holds it against this process; an engine that other processes share adds
+        its own."""
+
+    @staticmethod
+    def _row_to_grant(r: tuple) -> RoleGrant:
+        return RoleGrant(
+            group_id=r[0],
+            group_name=r[1] or r[0],
+            checked=r[2] is not False,
+            role=r[3] or "",
+            note=r[4] or "",
+            granted_by=r[5] or "",
+            granted_at=r[6],
+        )
+
+    @staticmethod
+    def _grant_public(g: RoleGrant) -> dict[str, Any]:
+        """What the change log keeps of a grant: enough to say what it was once it is gone."""
+        return {
+            "group": g.group_name,
+            "group_id": g.group_id,
+            "role": g.role,
+            "note": g.note,
+            "checked": g.checked,
+        }
+
+    def list_role_grants(self, lock: bool = False) -> list[RoleGrant]:
+        with self._lock:
+            if lock and self._tx_depth:
+                self._lock_table("role_grant")
+            rows = self._fetch_all(
+                f"SELECT {', '.join(self._GRANT_COLUMNS)} FROM role_grant "
+                "ORDER BY LOWER(COALESCE(group_name, group_id)), group_id"
+            )
+        return [self._row_to_grant(r) for r in rows]
+
+    def _role_grant(self, group_id: str) -> RoleGrant | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._GRANT_COLUMNS)} FROM role_grant WHERE group_id = ?", [group_id]
+        )
+        return self._row_to_grant(rows[0]) if rows else None
+
+    def set_role_grant(self, grant: RoleGrant, actor: str) -> RoleGrant:
+        grant.group_name = grant.group_name or grant.group_id
+        grant.granted_by, grant.granted_at = actor, _now()
+        with self.transaction():
+            before = self._role_grant(grant.group_id)
+            g = grant
+            self._put_rows(
+                "role_grant",
+                ["group_id"],
+                [
+                    [
+                        g.group_id,
+                        g.group_name,
+                        bool(g.checked),
+                        g.role,
+                        g.note or None,
+                        g.granted_by,
+                        g.granted_at,
+                    ]
+                ],
+            )
+            self._log(
+                "role_grant",
+                grant.group_id,
+                "grant" if before is None else "change",
+                actor,
+                self._grant_public(before) if before else None,
+                self._grant_public(grant),
+                None,
+                MAIN,
+                NO_ORG,
+            )
+        return grant
+
+    def delete_role_grant(self, group_id: str, actor: str) -> RoleGrant | None:
+        with self.transaction():
+            before = self._role_grant(group_id)
+            if before is None:
+                return None
+            self._execute("DELETE FROM role_grant WHERE group_id = ?", [group_id])
+            self._log(
+                "role_grant", group_id, "revoke", actor, self._grant_public(before), None, None, MAIN, NO_ORG
+            )
+        return before
+
+    def role_grant_history(self, limit: int) -> list[dict[str, Any]]:
+        cols = [
+            "change_id",
+            "entity_kind",
+            "entity_id",
+            "op",
+            "actor",
+            "changed_at",
+            "before_json",
+            "after_json",
+        ]
+        rows = self._fetch_all(
+            f"SELECT {', '.join(cols)} FROM change_log WHERE org_id = ? AND entity_kind = 'role_grant' "
+            "ORDER BY changed_at DESC" + self._page(limit),
+            [NO_ORG],
+        )
+        return [dict(zip(cols, r, strict=True)) for r in rows]
 
     # ------------------------------------------------------ import history
     _RUN_COLUMNS = (

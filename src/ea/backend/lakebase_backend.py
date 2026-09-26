@@ -102,6 +102,8 @@ def connect_to_instance(settings: Any, workspace: Callable[[], Any] | None = Non
 
 
 class LakebaseBackend(SqlBackend):
+    engine = "lakebase"
+
     def __init__(self, connect: Callable[[], psycopg.Connection[Any]], schema: str = "ea"):
         """`connect` opens a psycopg connection in autocommit mode; the session is prepared the same
         way whichever Postgres it reaches (the schemas, the search path, the time zone).
@@ -249,6 +251,11 @@ class LakebaseBackend(SqlBackend):
                 self._conn.close()
             except psycopg.Error:  # closing a closed connection is not an error worth raising
                 pass
+
+    def _lock_table(self, table: str) -> None:
+        """Other processes share this store, so its own lock holds a table against them too: two
+        admins in two app processes cannot each remove the other's last admin grant."""
+        self._execute(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE")
 
     # ---------------------------------------------------------------- sql
     def query(

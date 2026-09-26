@@ -1824,6 +1824,154 @@ def systems_check(
     typer.echo(f"{held.name}: {len(specs)} tool(s) given to the assistant")
 
 
+roles_app = typer.Typer(
+    help="Who holds which role: the deployment's grants, and the roles an admin grants to workspace groups.",
+    no_args_is_help=True,
+)
+app.add_typer(roles_app, name="roles")
+
+#: The directory `ea roles` finds groups and people in; None is the one the settings give (the
+#: workspace's where the platform signs people in, the sample groups locally). Tests hand one here.
+DIRECTORY = None
+
+
+def _access():
+    from ea.services.access import AccessService
+    from ea.services.identity import directory_for
+
+    settings, backend, *_ = _ctx()
+    return settings, AccessService(backend, settings, DIRECTORY or directory_for(settings))
+
+
+@roles_app.command("list")
+def roles_list():
+    """Every grant: the deployment's own first (read-only), then those kept here, with who granted each and why."""
+    from ea.importer.feeds import in_zone
+    from ea.services.roles import LABELS
+
+    settings, svc = _access()
+    rows, problem = svc.grants()
+    for r in rows:
+        role = LABELS.get(r.role, r.role)
+        if r.source == "deployment":
+            typer.echo(f"{role:10s} {r.group}  (set by the deployment)")
+            continue
+        marks = [
+            m
+            for m, on in (
+                ("not checked: matched by its name", not r.checked),
+                ("no longer in the workspace", r.missing),
+                (f"now called {r.now_called}", bool(r.now_called)),
+                ("not a role a grant gives: ignored", r.ignored),
+            )
+            if on
+        ]
+        typer.echo(
+            f"{role:10s} {r.group}  [{r.group_id}]  granted by {r.granted_by or '—'} "
+            f"on {in_zone(r.granted_at, settings.timezone)}" + (f"  ({'; '.join(marks)})" if marks else "")
+        )
+        if r.note:
+            typer.echo(f"           why: {r.note}")
+    if not rows:
+        typer.echo("no group holds a role: every person is a Reader")
+    if problem:
+        typer.echo(f"whether the groups still exist is not known: {problem}")
+
+
+@roles_app.command("grant")
+def roles_grant(
+    group: str = typer.Option(..., "--group", help="the workspace group's name, as the workspace shows it"),
+    group_id: str = typer.Option(
+        "", "--id", help="the workspace's identifier for the group, where you have it"
+    ),
+    role: str = typer.Option(..., "--role", help="reviewer, architect or admin"),
+    note: str = typer.Option("", "--note", help="a line of why, for the next admin"),
+    actor: str = typer.Option("admin"),
+):
+    """Grant a role to a workspace group, or replace the role it has (an admin's decision; initiative 28).
+
+    The group is found in the workspace by its exact name, and kept by the workspace's identifier
+    for it. Where the workspace's groups cannot be searched, the exact name is granted, marked not
+    checked, and matched by that name until the group is granted again from the workspace."""
+    from ea.services.roles import LABELS
+
+    require("grant_roles", what="grant a role")
+    _, svc = _access()
+    name, checked = group.strip(), True
+    if not group_id:
+        found, problem = svc.search(name)
+        exact = [g for g in found if g.name.casefold() == name.casefold()]
+        if problem:
+            group_id, checked = name, False
+        elif len(exact) == 1:
+            group_id, name = exact[0].id, exact[0].name
+        elif exact:
+            _refuse(f"{len(exact)} groups are called {name!r} in {svc.directory.label}; name one with --id")
+        else:
+            _refuse(
+                f"no group named {name!r} in {svc.directory.label}; "
+                "--id grants one by the workspace's identifier for it"
+            )
+    kept = svc.grant(group_id, name, role, note, checked, actor)
+    typer.echo(
+        f"{LABELS.get(kept.role, kept.role)} granted to {kept.group_name}"
+        + (
+            ""
+            if checked
+            else " (not checked: matched by its name until the workspace's groups can be searched)"
+        )
+    )
+
+
+@roles_app.command("revoke")
+def roles_revoke(
+    group: str = typer.Argument(..., help="the group's name or identifier, as `ea roles list` shows it"),
+    actor: str = typer.Option("admin"),
+):
+    """Remove a group's grant: its people fall back to what their other groups give."""
+    from ea.services.roles import LABELS
+
+    require("grant_roles", what="remove a role grant")
+    _, svc = _access()
+    held = svc.find(group)
+    if held is None:
+        deployed = [g for r, g in svc.deployment_grants() if g.casefold() == group.strip().casefold()]
+        if deployed:
+            _refuse(
+                f"the role of {deployed[0]} is set by the deployment (EA_ROLE_GROUPS) and is changed there"
+            )
+        _refuse(f"no role is granted to a group {group!r}; `ea roles list` says which are")
+    svc.revoke(held.group_id, actor)
+    typer.echo(f"removed the {LABELS.get(held.role, held.role)} grant of {held.group_name}")
+
+
+@roles_app.command("check")
+def roles_check(email: str = typer.Argument(..., help="the e-mail the person signs in with")):
+    """The role a person gets and which of their groups gives it."""
+    from ea.services.access import in_words
+
+    _, svc = _access()
+    said = svc.check_person(email)
+    if not said.found:
+        _refuse(said.problem)
+    typer.echo(f"{said.email}: {in_words(said.role, said.reasons)}")
+    typer.echo(f"  groups: {', '.join(g.name for g in said.groups) or 'none'}")
+
+
+@roles_app.command("history")
+def roles_history(limit: int = typer.Option(20, help="how many of the latest changes to show")):
+    """Who granted or removed which role, and when — the latest first."""
+    from ea.importer.feeds import in_zone
+    from ea.services.access import change_in_words
+
+    settings, svc = _access()
+    changes = svc.history(min(max(1, limit), capacity.READ_CHUNK))
+    for c in changes:
+        typer.echo(f"{in_zone(c.when, settings.timezone)}  {change_in_words(c)}")
+    if not changes:
+        typer.echo("no role has been granted or removed here yet")
+
+
 @app.command("mcp")
 def mcp(
     http: bool = typer.Option(

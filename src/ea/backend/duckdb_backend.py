@@ -21,6 +21,8 @@ __all__ = ["DuckDBBackend", "new_id"]
 
 
 class DuckDBBackend(SqlBackend):
+    engine = "duckdb"
+
     def __init__(self, path: str | Path = ":memory:", schema_prefix: str = "ea"):
         super().__init__(schema_prefix)
         self.path = str(path)

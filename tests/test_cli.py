@@ -497,3 +497,69 @@ def test_systems_connections_says_why_none_are_listed(ea_env, monkeypatch):
 def test_mcp_serves_the_read_tools_over_stdio(ea_env):
     help_text = runner.invoke(app, ["mcp", "--help"]).output
     assert "Model Context Protocol" in help_text and "--http" in help_text
+
+
+def _said(result) -> str:
+    return str(result.exception or "") + result.output
+
+
+def test_an_admin_grants_a_role_to_a_group_from_the_command_line(ea_env, monkeypatch):
+    """Initiative 28: `ea roles` lists, grants, removes, checks and tells the history — groups only.
+    Locally the groups are the sample directory's, checked as the platform would check them."""
+    monkeypatch.setenv("EA_AUTH", "mock")
+    monkeypatch.setenv("EA_ROLE_GROUPS", "reviewer=ea-reviewers")
+    grant = [
+        "roles",
+        "grant",
+        "--group",
+        "solution-architects",
+        "--role",
+        "architect",
+        "--note",
+        "they design",
+    ]
+    refused = runner.invoke(app, ["--as", "architect", *grant])
+    assert refused.exit_code != 0 and "An Architect may not grant a role" in _said(refused)
+    assert "may not see who holds" in _said(runner.invoke(app, ["--as", "reader", "roles", "list"]))
+    granted = runner.invoke(app, grant)
+    assert granted.exit_code == 0 and "Architect granted to solution-architects" in granted.output
+    listed = runner.invoke(app, ["roles", "list"]).output
+    assert "set by the deployment" in listed and "they design" in listed and "granted by admin" in listed
+    assert listed.index("ea-reviewers") < listed.index("solution-architects"), "the deployment's first"
+    checked = runner.invoke(app, ["roles", "check", "architect@example.edu"])
+    assert "Architect — from the group solution-architects (granted by admin)" in checked.output
+    nobody = runner.invoke(app, ["roles", "check", "nobody@example.edu"])
+    assert nobody.exit_code == 1 and "nobody@example.edu" in nobody.output
+    unknown = runner.invoke(app, ["roles", "grant", "--group", "no-such-group", "--role", "reviewer"])
+    assert unknown.exit_code == 1 and "no group named 'no-such-group'" in unknown.output
+    not_a_grant = runner.invoke(app, ["roles", "grant", "--group", "data-team", "--role", "reader"])
+    assert not_a_grant.exit_code != 0 and "not a role a grant gives" in _said(not_a_grant)
+    everybody = runner.invoke(app, ["roles", "grant", "--group", "users", "--role", "admin"])
+    assert everybody.exit_code != 0 and "every person in the workspace" in _said(everybody)
+    deployed = runner.invoke(app, ["roles", "revoke", "ea-reviewers"])
+    assert deployed.exit_code == 1 and "set by the deployment" in deployed.output
+    removed = runner.invoke(app, ["roles", "revoke", "solution-architects"])
+    assert removed.exit_code == 0 and "removed the Architect grant of solution-architects" in removed.output
+    history = runner.invoke(app, ["roles", "history"]).output.splitlines()
+    assert "removed the Architect grant of solution-architects" in history[0]
+    assert "granted Architect to solution-architects" in history[1]
+
+
+def test_where_the_groups_cannot_be_searched_an_exact_name_is_granted_not_checked(ea_env, monkeypatch):
+    import ea.cli
+    from ea.services.identity import DirectoryUnavailable, SampleDirectory
+
+    class Down(SampleDirectory):
+        def search_groups(self, text):
+            raise DirectoryUnavailable("the workspace did not answer (Timeout)")
+
+    monkeypatch.setenv("EA_AUTH", "mock")
+    monkeypatch.setattr(ea.cli, "DIRECTORY", Down())
+    typed = runner.invoke(app, ["roles", "grant", "--group", "Data Office", "--role", "reviewer"])
+    assert typed.exit_code == 0 and "not checked" in typed.output
+    by_id = runner.invoke(
+        app, ["roles", "grant", "--group", "Architects", "--id", "123", "--role", "architect"]
+    )
+    assert by_id.exit_code == 0 and "Architect granted to Architects" in by_id.output
+    listed = runner.invoke(app, ["roles", "list"]).output
+    assert "Data Office" in listed and "not checked" in listed and "[123]" in listed

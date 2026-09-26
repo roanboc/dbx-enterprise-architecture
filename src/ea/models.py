@@ -813,6 +813,8 @@ class Review:
 
 
 ROLES = ("reader", "reviewer", "architect", "admin", "agent")
+#: The roles a grant gives (decision 0028): Reader is everybody's and Agent the assistant's.
+GRANTABLE_ROLES = ("reviewer", "architect", "admin")
 
 
 @dataclass
@@ -821,6 +823,36 @@ class User:
     display_name: str = ""
     groups: list[str] = field(default_factory=list)
     role: str = "reader"
+
+
+@dataclass(frozen=True, order=True)
+class GroupRef:
+    """A workspace group as a person's membership or the directory names it: its display name,
+    and the workspace's identifier for it where the answer carried one (empty when only the name
+    is known — a groups header, or a lookup that returned names)."""
+
+    name: str
+    id: str = ""
+
+
+@dataclass
+class RoleGrant:
+    """A role the application gives to a workspace group (DOBJ3.13, decision 0028).
+
+    The application's, not an organisation's: it holds in every organisation. One per group,
+    kept by the workspace's identifier for it (`group_id`) with the name it had when granted,
+    so a renamed group keeps its role and a new group given an old name does not inherit it.
+    Where the directory could not be searched the exact name typed is the identifier and
+    `checked` is false: it is matched by that name until the group is picked from the directory.
+    """
+
+    group_id: str
+    group_name: str = ""
+    role: str = ""
+    note: str = ""
+    checked: bool = True
+    granted_by: str = ""
+    granted_at: datetime | None = None
 
 
 class Forbidden(Exception):

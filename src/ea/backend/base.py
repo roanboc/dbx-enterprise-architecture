@@ -26,6 +26,7 @@ from ea.models import (
     ProposalTemplate,
     Relationship,
     Review,
+    RoleGrant,
     SourceFeed,
 )
 
@@ -36,6 +37,10 @@ class DatabaseBackend(ABC):
     Writes take an `actor` for the audit trail. Updates carry the version the
     caller read; a mismatch raises ConflictError and never overwrites.
     """
+
+    #: Which engine this is — `duckdb` or `lakebase`. The platform's store is the Lakebase one,
+    #: which a local debug persona never writes role grants into (decision 0028).
+    engine: str = ""
 
     # ------------------------------------------------------------ lifecycle
     @abstractmethod
@@ -363,6 +368,29 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def delete_connected_system(self, system_id: str, actor: str) -> None: ...
+
+    # ------------------------------------------------------------ role grants
+    # The roles an admin gives to workspace groups (DOBJ3.13, decision 0028): the application's,
+    # in no organisation, never read by a reader's own SQL. Every change is logged under
+    # `NO_ORG`, so no organisation's history counts it.
+    @abstractmethod
+    def list_role_grants(self, lock: bool = False) -> list[RoleGrant]:
+        """Every grant, by the group's name. Read whole on purpose: a role is the highest that
+        any grant gives, and there is one row per workspace group an admin has given a role —
+        tens, never the model's size. With `lock`, inside a transaction, no other writer changes
+        the grants until it ends: what a change that must not lock the application out needs."""
+
+    @abstractmethod
+    def set_role_grant(self, grant: RoleGrant, actor: str) -> RoleGrant:
+        """Grant a role to a group, or replace the role it had; `actor` is who granted it, now."""
+
+    @abstractmethod
+    def delete_role_grant(self, group_id: str, actor: str) -> RoleGrant | None:
+        """Remove a group's grant; what it was, or None when the group held none."""
+
+    @abstractmethod
+    def role_grant_history(self, limit: int) -> list[dict[str, Any]]:
+        """The latest changes to the grants, newest first, a page at a time."""
 
     # ------------------------------------------------------- import history
     @abstractmethod

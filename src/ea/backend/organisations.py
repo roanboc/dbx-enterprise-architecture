@@ -18,6 +18,10 @@ from contextlib import contextmanager
 
 DEFAULT_ORG = "default"
 ORG_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+#: What a change-log row that belongs to no organisation is filed under — a role grant's
+#: (decision 0028). `validate_org_id` refuses it, so no organisation can ever be given it, and no
+#: organisation's history, activity or deletion reads it.
+NO_ORG = "*"
 
 _current: contextvars.ContextVar[str] = contextvars.ContextVar("ea_org", default=DEFAULT_ORG)
 

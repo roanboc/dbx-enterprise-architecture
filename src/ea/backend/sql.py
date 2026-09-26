@@ -52,6 +52,10 @@ KNOWLEDGE_TABLES = ["deep_dive", "deep_dive_element", "deep_dive_rating"]
 ORG_TABLES = (
     CONTENT_TABLES + BRANCH_TABLES + FEED_TABLES + CONNECTED_TABLES + TEMPLATE_TABLES + KNOWLEDGE_TABLES
 )
+# The tables that are the application's rather than an organisation's and that a reader's own SQL
+# never reads: the roles an admin grants to workspace groups (initiative 28, decision 0028). No
+# `org_id`, because a role holds in every organisation, as the `organisation` table itself does.
+APP_TABLES = ["role_grant"]
 # What an organisation's deletion leaves behind. The change log is kept because it is the one
 # append-only record of what was done to the store. A run is *not* kept with it: an org_id may
 # be taken again by a later organisation, and a run carries the actor names, file names, issue
@@ -77,6 +81,8 @@ SCHEMA_GROUPS: dict[str, list[str]] = {
         "proposal_template",
         "source_feed",
         "connected_system",
+        # who holds which role: the one table here no organisation owns, read by admins alone
+        "role_grant",
     ],
     # A run is what happened, beside the change log's what changed. Both are read by more
     # people than may write content, which is what the group is for.
@@ -531,6 +537,20 @@ DDL: dict[str, str] = {
             updated_by VARCHAR,
             org_id VARCHAR
         )""",
+    # A role given to a workspace group, in every organisation (DOBJ3.13, decision 0028). One row
+    # per group, rewritten when its role changes and deleted when the grant is removed; the
+    # change log keeps what it was. `group_id` is the workspace's identifier for the group, or
+    # the exact name typed where the directory could not be searched, `checked` false until then.
+    "role_grant": """
+        CREATE TABLE IF NOT EXISTS role_grant (
+            group_id VARCHAR NOT NULL,
+            group_name VARCHAR,
+            checked BOOLEAN,
+            role VARCHAR NOT NULL,
+            note VARCHAR,
+            granted_by VARCHAR,
+            granted_at TIMESTAMP
+        )""",
     "source_feed": """
         CREATE TABLE IF NOT EXISTS source_feed (
             feed_id VARCHAR NOT NULL,
@@ -723,6 +743,7 @@ INDEXES: list[tuple[str, str, bool, str]] = [
     ("element_link_element", "element_link", False, "(org_id, element_id)"),
     ("source_feed_key", "source_feed", True, "(org_id, feed_id)"),
     ("connected_system_key", "connected_system", True, "(org_id, system_id)"),
+    ("role_grant_key", "role_grant", True, "(group_id)"),
     ("change_log_key", "change_log", True, "(org_id, change_id)"),
     ("change_log_entity", "change_log", False, "(org_id, entity_id)"),
     ("branch_key", "branch", True, "(org_id, branch_id)"),
