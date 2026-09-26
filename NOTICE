@@ -24,7 +24,7 @@ as the first worked configuration; the institution is not named.
 Bundled third-party assets
 --------------------------
 `assets/icons/*.svg` are Tabler Icons (https://tabler.io/icons), copyright
-2020-2024 Paweł Kuna, MIT License. They are bundled so the application makes
+2020-2026 Paweł Kuna, MIT License. They are bundled so the application makes
 no request to a third-party icon service at run time.
 
 `assets/vendor/mermaid.min.js` is Mermaid (https://mermaid.js.org), copyright

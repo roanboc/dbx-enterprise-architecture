@@ -11,6 +11,8 @@ import pandas as pd
 from ea.models import (
     Branch,
     ChangeSet,
+    DeepDive,
+    DeepDiveRating,
     Element,
     ElementFilter,
     ImportRun,
@@ -284,6 +286,54 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def delete_proposal_template(self, template_id: str, actor: str) -> None: ...
+
+    # ------------------------------------------------------------ deep dives
+    # The analyses kept on the content, what they cite and how people rated them (decision 0024).
+    @abstractmethod
+    def save_deep_dive(self, d: DeepDive) -> DeepDive:
+        """Keep a new deep dive, with the elements it cites, in the current organisation and
+        the branch the reader stands on. A deep dive is kept once and never edited."""
+
+    @abstractmethod
+    def get_deep_dive(self, deep_dive_id: str) -> DeepDive | None:
+        """One deep dive, withdrawn or not, with its elements and its rating."""
+
+    @abstractmethod
+    def list_deep_dives(
+        self,
+        kind: str | None = None,
+        domain_id: str | None = None,
+        type_id: str | None = None,
+        work_package: str | None = None,
+        element_id: str | None = None,
+        text: str | None = None,
+        min_rating: float | None = None,
+        include_withdrawn: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[DeepDive], int]:
+        """One page of the catalogue, best rated first then newest, and how many match in all.
+        The deep dives listed carry their rating but not their content."""
+
+    @abstractmethod
+    def deep_dives_for_elements(self, element_ids: list[str], limit: int = 20) -> list[DeepDive]:
+        """The kept deep dives citing any of these elements, best rated first, without their content."""
+
+    @abstractmethod
+    def set_deep_dive_status(self, deep_dive_id: str, status: str, actor: str) -> None:
+        """Withdraw a deep dive, or keep it again; its row always stays."""
+
+    @abstractmethod
+    def rate_deep_dive(self, rating: DeepDiveRating) -> None:
+        """One rating per person and deep dive, one to five stars; a second one replaces the first."""
+
+    @abstractmethod
+    def clear_deep_dive_rating(self, deep_dive_id: str, rated_by: str) -> bool:
+        """Take back one person's rating of a deep dive; False when they had given none."""
+
+    @abstractmethod
+    def deep_dive_ratings(self, deep_dive_id: str) -> list[DeepDiveRating]:
+        """Every rating a deep dive was given, the latest first."""
 
     # ---------------------------------------------------------------- feeds
     @abstractmethod

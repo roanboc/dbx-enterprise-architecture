@@ -34,6 +34,7 @@ def test_the_schemas_are_named_from_the_prefix():
         "ea_branch",
         "ea_governance",
         "ea_audit",
+        "ea_knowledge",
         "ea_staging",
     ]
     assert qualified("element", "ea") == "ea_content.element"

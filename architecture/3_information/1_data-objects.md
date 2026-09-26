@@ -116,6 +116,7 @@ a relationship type and an attribute each have one.
 | `DOBJ3.10` | **Change impact** — what a change set touches beyond itself: for every element it changes, decommissions or merges, the elements that depend on it within two steps and are not themselves in the change; every relationship it leaves pointing at an element being decommissioned; every new element it connects to nothing that exists; and the reviewers the types it touches need. It informs and never stops an Apply | `ChangeImpact` in `src/ea/models.py`; `ChangeImpactService` in `src/ea/services/impact.py` | not persisted for a branch, computed on demand; kept inside the proposal it was assessed for | as the content it names |
 | `DOBJ3.7` | **Import run** — one execution of an import: what started it (an upload, a command, a feed), who by, the organisation and branch it wrote to, the mapping it used, the files or staging tables it read, the counts of what it created, updated, left unchanged and retired, a bounded sample of its issues and the complete count of them by code, and whether it finished or stopped and why. It does **not** hold the before-image of any row it changed, so it is an account of a run rather than the means to reverse one (`GAP19`) | `ImportRun` in `src/ea/models.py`; `recorded()` in `src/ea/importer/runs.py`; `ASVC12` | table `import_run`; deleted with its organisation, unlike the change log — an `org_id` may be taken again, and a run carries the actor names, file names, issue messages and whole mapping of the organisation that is gone | internal |
 | `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`; `src/ea/importer/feeds.py` | table `source_feed` | internal |
+| `DOBJ3.11` | **Deep dive** — an analysis a reader settled with the assistant, and what came of it. **The brief:** what it is about, the kind of analysis, how far it reaches and what it is for. **Its catalogue entry:** the domains and element types of its subject, the kind of analysis, the work package it concerns, the organisation and the branch it read, the metamodel version it was read in, who asked and when. **What it found:** the **maturity** of every element it rests on — read from what the element carries: its status, its current state, its description and links, whether it traces up and has the relationships its type declares, how recently its source refreshed it — the views, from the context down to the detail — the high level drawn to be presented, the detail in the metamodel's notation — the **work packages in flight** that change what it read; and the **findings**, each with its severity, the elements it cites and why it matters, among them where an element and what documents it disagree; a summary led by them; and the **references** it drew on — the earlier deep dives on the same elements, with the ratings people gave them. **What people made of it:** one rating per person, one to five stars, with a line of why, which that person may change or clear. Kept per organisation, linked from every element it cites, and handed out as a pack — a styled PDF and a draw.io file per view — generated from what is kept (decision [0024](../decisions/0024-deep-dives-are-kept.md)) | `DeepDive`, `DeepDiveElement` and `DeepDiveRating` in `src/ea/models.py`; `DeepDiveService` in `src/ea/services/deep_dives.py`; the analysis in `src/ea/agent/deep_dive.py` ([initiative 25](../scope/25_deep-dives-settled-in-conversation.md)) | tables `deep_dive`, `deep_dive_element`, `deep_dive_rating` | as the content it cites |
 
 ## Exchange, audit and intake
 
@@ -131,6 +132,7 @@ flowchart LR
   feed["▦ Source feed [DOBJ3.8]"]:::application
   tpl["▦ Proposal template [DOBJ3.9]"]:::application
   imp["▦ Change impact [DOBJ3.10]"]:::application
+  deep["▦ Deep dive [DOBJ3.11]"]:::application
   el["▦ Element [DOBJ2.1]"]:::application
   br["▦ Branch [DOBJ2.5]"]:::application
   cs["▦ Change set [DOBJ2.6]"]:::application
@@ -141,6 +143,9 @@ flowchart LR
   csv -->|reported in| rep
   log -->|records changes of| el
   ans -->|embeds| view
+  deep -->|embeds| view
+  deep -->|cites| el
+  deep -->|read on| br
   prop -->|written to| br
   prop -->|read with| tpl
   prop -->|keeps| imp
@@ -160,7 +165,7 @@ uses four types both engines read as written; JSON is stored as text. Locally
 the schema lives in one DuckDB file (`data/ea.duckdb`). On Databricks the same
 tables live in a Lakebase database — one schema per group of tables, named from
 `EA_SCHEMA` (`ea_metamodel`, `ea_content`, `ea_branch`, `ea_governance`,
-`ea_audit`, and `ea_staging`, which the store creates and never fills) — the
+`ea_audit`, `ea_knowledge`, and `ea_staging`, which the store creates and never fills) — the
 platform's Postgres, reached over the Postgres protocol with the app's own
 identity — in an instance the deployment bundle creates (decision 0013). The
 lakehouse reads that database through Unity Catalog once it is registered
@@ -198,6 +203,10 @@ spending the memory (assessment `ASM6`, decision 0019).
 - Nothing is deleted: an element is retired (`status = retired`), a relationship
   removal is logged, and the change log is append-only. The change log is kept
   for 2 years on the platform once it runs on Databricks.
+- **Deep dives are kept, and nothing deletes one.** Its author or an admin may
+  withdraw a deep dive, which takes it out of the catalogue and out of what later
+  deep dives consider, and keeps its row; a rating is one per person and may be
+  changed, or cleared by the person who gave it. A deep dive is internal, as the content it cites.
 - **Import runs are kept and nothing prunes them.** A run is a few kilobytes and
   a nightly feed writes one a day, so the table grows slowly — but it does grow,
   and no retention is enforced today. Deciding the period is the same decision
@@ -236,6 +245,11 @@ spending the memory (assessment `ASM6`, decision 0019).
 | `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ2.5` | ▤ «Data Object» Branch | written to | the reviewed rows become the branch's rows; the proposal record stays with the branch |
 | `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ3.9` | ▤ «Data Object» Proposal template | read with | |
 | `DOBJ3.6` | ▤ «Data Object» Proposal | `DOBJ3.10` | ▤ «Data Object» Change impact | keeps | the impact assessed for that revision |
+| `DOBJ3.11` | ▤ «Data Object» Deep dive | `DOBJ2.1` | ▤ «Data Object» Element | cites | as its subject, in a view or in a finding; the element page lists the deep dives that cite it |
+| `DOBJ3.11` | ▤ «Data Object» Deep dive | `DOBJ2.4` | ▤ «Data Object» Architecture view | embeds | one per aspect of the analysis, kept as it was drawn |
+| `DOBJ3.11` | ▤ «Data Object» Deep dive | `DOBJ2.5` | ▤ «Data Object» Branch | read on | `main` or the branch the reader stood on |
+| `DOBJ3.11` | ▤ «Data Object» Deep dive | `DOBJ1.4` | ▤ «Data Object» Domain | catalogued by | the domains of its subject's element types |
+| `DOBJ3.11` | ▤ «Data Object» Deep dive | `DOBJ1.1` | ▤ «Data Object» Element type | catalogued by | the types of its subject |
 | `DOBJ3.10` | ▤ «Data Object» Change impact | `DOBJ2.6` | ▤ «Data Object» Change set | assessed from | a proposal's rows before Apply, or a branch's change set |
 | `DOBJ3.9` | ▤ «Data Object» Proposal template | `DOBJ1.6` | ▤ «Data Object» Metamodel version | typed in | its headings and columns name that version's types, fields and attributes |
 | `DOBJ2.7` | ▤ «Data Object» Review | `DOBJ2.5` | ▤ «Data Object» Branch | decides | approve or send back; a branch merges only when approved, unless an admin merges |

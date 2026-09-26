@@ -56,12 +56,18 @@ from ea.backend.sql import (
 )
 from ea.metamodel.loader import pack_from_dict, pack_to_dict
 from ea.models import (
+    DEEP_DIVE_KINDS,
+    DEEP_DIVE_ROLES,
+    DEEP_DIVE_STATUSES,
     OPEN_STATUSES,
     PACK_STATUSES,
     Branch,
     ChangeItem,
     ChangeSet,
     ConflictError,
+    DeepDive,
+    DeepDiveElement,
+    DeepDiveRating,
     Element,
     ElementFilter,
     ImportRun,
@@ -3014,6 +3020,248 @@ class SqlBackend(DatabaseBackend):
                 [self._org(), template_id],
             )
             self._log("template", template_id, "delete", actor, {"name": held.name}, None, None, MAIN)
+
+    # ------------------------------------------------------------ deep dives
+    #: A deep dive nobody has rated sorts as the middle of the scale: above one the readers
+    #: judged poor, below one they judged good (decision 0024).
+    _UNRATED = 3
+
+    _DEEP_DIVE_HEAD = (
+        "d.deep_dive_id, d.title, d.kind, d.brief_json, d.domain_ids, d.type_ids, d.work_package, "
+        "d.branch_id, d.pack_id, d.pack_version, d.status, d.created_by, d.created_at, "
+        "r.average, r.n"
+    )
+
+    def _ratings_joined(self) -> str:
+        """The deep dives of the organisation with their rating beside them — none for an unrated one."""
+        return (
+            "deep_dive AS d LEFT JOIN (SELECT deep_dive_id, AVG(stars) AS average, COUNT(*) AS n "
+            "FROM deep_dive_rating WHERE org_id = ? GROUP BY deep_dive_id) AS r "
+            "ON r.deep_dive_id = d.deep_dive_id"
+        )
+
+    @staticmethod
+    def _row_to_deep_dive(r: tuple, content: str | None = None) -> DeepDive:
+        return DeepDive(
+            deep_dive_id=r[0],
+            title=r[1] or "",
+            kind=r[2] or "",
+            brief=json.loads(r[3] or "{}"),
+            domain_ids=json.loads(r[4] or "[]"),
+            type_ids=json.loads(r[5] or "[]"),
+            work_package=r[6] or "",
+            branch_id=r[7] or "",
+            pack_id=r[8] or "",
+            pack_version=r[9] or "",
+            status=r[10] or "kept",
+            created_by=r[11] or "",
+            created_at=r[12],
+            rating_average=round(float(r[13]), 2) if r[13] is not None else None,
+            rating_count=int(r[14] or 0),
+            content=json.loads(content) if content else {},
+        )
+
+    def save_deep_dive(self, d: DeepDive) -> DeepDive:
+        if d.kind not in DEEP_DIVE_KINDS:
+            raise ValueError(f"a deep dive is one of {', '.join(DEEP_DIVE_KINDS)}, not {d.kind!r}")
+        org, branch = self._org(), current_branch()
+        d.deep_dive_id = d.deep_dive_id or new_id("dd")
+        d.created_at = d.created_at or _now()
+        d.status = "kept"
+        d.branch_id = "" if branch == MAIN else branch
+        if not d.pack_id:
+            held = self.get_organisation(org)
+            d.pack_id, d.pack_version = (held.pack_id, held.pack_version) if held else ("", "")
+        # One row per element, in the strongest part it plays: what the deep dive is about
+        # before what a finding names, before what a view merely draws.
+        rank = {role: i for i, role in enumerate(DEEP_DIVE_ROLES)}
+        cited: dict[str, DeepDiveElement] = {}
+        for e in d.elements:
+            held_e = cited.get(e.element_id)
+            if held_e is None or rank.get(e.role, 9) < rank.get(held_e.role, 9):
+                cited[e.element_id] = e
+        d.elements = list(cited.values())
+        with self.transaction():
+            self._insert_rows(
+                "deep_dive",
+                [
+                    [
+                        d.deep_dive_id,
+                        d.title,
+                        d.kind,
+                        json.dumps(d.brief, ensure_ascii=False, default=str),
+                        json.dumps(d.content, ensure_ascii=False, default=str),
+                        json.dumps(d.domain_ids, ensure_ascii=False),
+                        json.dumps(d.type_ids, ensure_ascii=False),
+                        d.work_package or None,
+                        d.branch_id or None,
+                        d.pack_id or None,
+                        d.pack_version or None,
+                        d.status,
+                        d.created_by or None,
+                        d.created_at,
+                        org,
+                    ]
+                ],
+            )
+            if d.elements:
+                self._insert_rows(
+                    "deep_dive_element",
+                    [[d.deep_dive_id, e.element_id, e.role, int(e.maturity), org] for e in d.elements],
+                )
+            self._log(
+                "deep_dive",
+                d.deep_dive_id,
+                "insert",
+                d.created_by,
+                None,
+                {"title": d.title, "kind": d.kind},
+                None,
+            )
+        return d
+
+    def get_deep_dive(self, deep_dive_id: str) -> DeepDive | None:
+        org = self._org()
+        rows = self._fetch_all(
+            f"SELECT {self._DEEP_DIVE_HEAD}, d.content_json FROM {self._ratings_joined()} "
+            "WHERE d.org_id = ? AND d.deep_dive_id = ?",
+            [org, org, deep_dive_id],
+        )
+        if not rows:
+            return None
+        d = self._row_to_deep_dive(rows[0][:15], rows[0][15])
+        d.elements = [
+            DeepDiveElement(r[0], r[1] or "drawn", int(r[2] or 1))
+            for r in self._fetch_all(
+                "SELECT element_id, role, maturity FROM deep_dive_element "
+                "WHERE org_id = ? AND deep_dive_id = ? ORDER BY element_id",
+                [org, deep_dive_id],
+            )
+        ]
+        return d
+
+    def list_deep_dives(
+        self,
+        kind: str | None = None,
+        domain_id: str | None = None,
+        type_id: str | None = None,
+        work_package: str | None = None,
+        element_id: str | None = None,
+        text: str | None = None,
+        min_rating: float | None = None,
+        include_withdrawn: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[DeepDive], int]:
+        org = self._org()
+        where, params = ["d.org_id = ?"], [org, org]
+        if not include_withdrawn:
+            where.append("d.status = 'kept'")
+        if kind:
+            where.append("d.kind = ?")
+            params.append(kind)
+        # The catalogue's lists are JSON arrays of identifiers, so an entry is found quoted.
+        for column, value in (("d.domain_ids", domain_id), ("d.type_ids", type_id)):
+            if value:
+                where.append(f"{column} LIKE ? ESCAPE '\\'")
+                params.append(self._like(json.dumps(value)))
+        if work_package:
+            where.append("d.work_package = ?")
+            params.append(work_package)
+        if element_id:
+            where.append(
+                "EXISTS (SELECT 1 FROM deep_dive_element AS e WHERE e.org_id = d.org_id "
+                "AND e.deep_dive_id = d.deep_dive_id AND e.element_id = ?)"
+            )
+            params.append(element_id)
+        if text and text.strip():
+            where.append("(LOWER(d.title) LIKE ? ESCAPE '\\' OR LOWER(d.brief_json) LIKE ? ESCAPE '\\')")
+            params += [self._like(text.strip().lower())] * 2
+        if min_rating:
+            where.append("r.average >= ?")
+            params.append(float(min_rating))
+        body = f"FROM {self._ratings_joined()} WHERE {' AND '.join(where)}"
+        total = int(self._fetch_all(f"SELECT COUNT(*) {body}", params)[0][0])
+        rows = self._fetch_all(
+            f"SELECT {self._DEEP_DIVE_HEAD} {body} "
+            f"ORDER BY COALESCE(r.average, {self._UNRATED}) DESC, d.created_at DESC"
+            + self._page(limit, offset),
+            params,
+        )
+        return [self._row_to_deep_dive(r) for r in rows], total
+
+    def deep_dives_for_elements(self, element_ids: list[str], limit: int = 20) -> list[DeepDive]:
+        ids = sorted({i for i in element_ids if i})[:500]
+        if not ids:
+            return []
+        org = self._org()
+        rows = self._fetch_all(
+            f"SELECT {self._DEEP_DIVE_HEAD} FROM {self._ratings_joined()} "
+            "WHERE d.org_id = ? AND d.status = 'kept' AND EXISTS (SELECT 1 FROM deep_dive_element AS e "
+            f"WHERE e.org_id = d.org_id AND e.deep_dive_id = d.deep_dive_id AND e.element_id IN ({self._marks(ids)})) "
+            f"ORDER BY COALESCE(r.average, {self._UNRATED}) DESC, d.created_at DESC" + self._page(limit),
+            [org, org, *ids],
+        )
+        return [self._row_to_deep_dive(r) for r in rows]
+
+    def set_deep_dive_status(self, deep_dive_id: str, status: str, actor: str) -> None:
+        if status not in DEEP_DIVE_STATUSES:
+            raise ValueError(f"a deep dive is {' or '.join(DEEP_DIVE_STATUSES)}, not {status!r}")
+        held = self.get_deep_dive(deep_dive_id)
+        if held is None:
+            raise NotFoundError(deep_dive_id, "deep dive")
+        with self.transaction():
+            self._execute(
+                "UPDATE deep_dive SET status = ? WHERE org_id = ? AND deep_dive_id = ?",
+                [status, self._org(), deep_dive_id],
+            )
+            self._log(
+                "deep_dive", deep_dive_id, status, actor, {"status": held.status}, {"status": status}, None
+            )
+
+    def rate_deep_dive(self, rating: DeepDiveRating) -> None:
+        stars = int(rating.stars)
+        if not 1 <= stars <= 5:
+            raise ValueError(f"a rating is one to five stars, not {rating.stars!r}")
+        if not rating.rated_by:
+            raise ValueError("a rating names who gave it")
+        if self.get_deep_dive(rating.deep_dive_id) is None:
+            raise NotFoundError(rating.deep_dive_id, "deep dive")
+        org = self._org()
+        with self.transaction():
+            self._put_rows(
+                "deep_dive_rating",
+                ["org_id", "deep_dive_id", "rated_by"],
+                [[rating.deep_dive_id, rating.rated_by, stars, rating.comment or None, _now(), org]],
+            )
+
+    def clear_deep_dive_rating(self, deep_dive_id: str, rated_by: str) -> bool:
+        """A rating is its person's judgement, so they may take it back; the deep dive stays."""
+        org = self._org()
+        where = "WHERE org_id = ? AND deep_dive_id = ? AND rated_by = ?"
+        held = self._fetch_all(f"SELECT stars FROM deep_dive_rating {where}", [org, deep_dive_id, rated_by])
+        if not held:
+            return False
+        with self.transaction():
+            self._execute(f"DELETE FROM deep_dive_rating {where}", [org, deep_dive_id, rated_by])
+            self._log(
+                "deep_dive",
+                deep_dive_id,
+                "unrate",
+                rated_by,
+                {"rated_by": rated_by, "stars": int(held[0][0])},
+                None,
+                None,
+            )
+        return True
+
+    def deep_dive_ratings(self, deep_dive_id: str) -> list[DeepDiveRating]:
+        rows = self._fetch_all(
+            "SELECT deep_dive_id, rated_by, stars, comment, rated_at FROM deep_dive_rating "
+            "WHERE org_id = ? AND deep_dive_id = ? ORDER BY rated_at DESC",
+            [self._org(), deep_dive_id],
+        )
+        return [DeepDiveRating(r[0], r[1], int(r[2]), r[3] or "", r[4]) for r in rows]
 
     # ---------------------------------------------------------------- sql
     #: The content tables a branch overlays, with the branch table holding the overlay rows and

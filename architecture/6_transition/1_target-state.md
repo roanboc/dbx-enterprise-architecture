@@ -13,7 +13,8 @@ opened and closed by
 [initiative 21](../scope/21_metamodel-identity-renaming-and-starters.md); `GAP23`
 opened and closed by [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md); `GAP24`
 and `GAP26` opened and closed by [initiative 24](../scope/24_proposals-refined-in-conversation.md), and
-`GAP25` opened by it and closed with `PLAT2`'s run on a workspace. The
+`GAP25` opened by it and closed with `PLAT2`'s run on a workspace; `GAP27` and `GAP28` opened by
+[initiative 25](../scope/25_deep-dives-settled-in-conversation.md), which closed the first. The
 gaps beyond `PLAT1` are intent, not work.
 
 ## How to read this document
@@ -85,6 +86,8 @@ flowchart LR
   g24["⊘ The assistant cannot ask [GAP24]"]:::implementation
   g25["⊘ The assistant's model is reached outside the platform [GAP25]"]:::implementation
   g26["⊘ Nothing says, or keeps to, what belongs at the enterprise level [GAP26]"]:::implementation
+  g27["⊘ An analysis is answered in one pass, and nothing learnt is kept [GAP27]"]:::implementation
+  g28["⊘ The documentation an element links to is not read [GAP28]"]:::implementation
   p4["≡ Governed change [PLAT4]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
@@ -103,6 +106,8 @@ flowchart LR
   g24 -.-> p4
   g25 -.-> p2
   g26 -.-> p4
+  g27 -.-> p1
+  g28 -.-> p3
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -135,6 +140,8 @@ flowchart LR
 | `GAP24` | **The assistant cannot ask** — a proposal is a hand-in: the reader reads the page once and answers with rows and a list of what is missing. What it cannot settle — which existing element a name means, which type a row is, which relationship joins two elements, what becomes of what depends on something retired — it can only push back on or guess at, and the architect corrects the rows by hand or rewrites the page; nothing is kept between sittings, and the reviewer cannot see how a row was settled | `PLAT1` and `PLAT4` | [Initiative 24](../scope/24_proposals-refined-in-conversation.md) (built 2026-09-24): the assistant asks about what it cannot settle — the context first — a few questions at a time with the choices the model allows, on the Propose page and with `ea propose --interactive`; redrafts from the answers; keeps the draft and the conversation between sittings; the conversation stays with the proposal for the reviewer |
 | `GAP25` | **The assistant's model is reached outside the platform** — the only hosted reader calls a model provider directly with a key stored as an app secret, so on Databricks the assistant needs outbound access and a credential the platform does not govern | `PLAT1` and `PLAT2` | In flight — [initiative 24](../scope/24_proposals-refined-in-conversation.md) (built 2026-09-24): the assistant reads through a Databricks Model Serving endpoint as the app's own identity, for Ask and Propose alike (decision 0023), and the bundle grants the app the endpoint; locally the same endpoint is reached with the architect's Databricks credentials, and the direct provider and the model-free reader remain. Proven against a stand-in endpoint; **the run on a workspace waits with `PLAT2`** |
 | `GAP26` | **Nothing says, or keeps to, what belongs at the enterprise level** — principle `P9` says an element earns its place by its relationships, upward to the business it serves and outward beyond its own system, but nothing in the product tests it: a proposal can bring a system's internal parts in as elements, a technical element can arrive with no business reason, and nowhere in the application tells an enterprise or a solution architect where the line is | `PLAT1` and `PLAT4` | [Initiative 24](../scope/24_proposals-refined-in-conversation.md) (built 2026-09-24): the assistant asks about both tests and offers to link a system's inside from the system; each element type says whether it sits at the enterprise level; a Guide page states the boundary for each persona. Left open: finding what already crosses the line in the content held today |
+| `GAP27` | **An analysis is answered in one pass, and nothing learnt is kept** — Ask answers one question at a time with one view, and the answer document is not stored. An architect who needs an analysis asks several questions, assembles the result and draws its diagrams again by hand; nothing says how far the elements it rests on can be trusted; and the next architect who needs the same analysis starts from a blank page | `PLAT1` | Closed by [initiative 25](../scope/25_deep-dives-settled-in-conversation.md) (built 2026-09-25): a deep dive settled with the reader in conversation, weighing the maturity of what it rests on and where an element and what documents it disagree; handed out as a styled PDF with its draw.io diagrams; catalogued, kept, linked from every element it cites, rated by the people who read it, and weighed by the next deep dive on the same elements |
+| `GAP28` | **The documentation an element links to is not read** — an element carries links to the pages that describe it — a wiki's design pages, a solution's own documentation — and neither the assistant nor a deep dive reads them, so what they add to the model is missed, and where they disagree with it nobody is told | `PLAT1` and `PLAT3` | A deep dive that reads the pages its key elements link to, reached as the reader on the platform — as a source is under `GAP20` — cites them among its references, and reports where they disagree with the model. Not started |
 
 ## Gaps closed so far, and by what
 
@@ -156,6 +163,10 @@ flowchart LR
   g17["⊘ A metamodel change cannot be tried without changing what everybody reads [GAP17]"]:::implementation
   g21["⊘ A search cannot be narrowed, shared or carried past its first page [GAP21]"]:::implementation
   g22["⊘ A metamodel is known by a name that cannot change [GAP22]"]:::implementation
+  g23["⊘ A proposal is read in one shape, once, and nobody sees what it touches [GAP23]"]:::implementation
+  g24["⊘ The assistant cannot ask [GAP24]"]:::implementation
+  g26["⊘ Nothing says, or keeps to, what belongs at the enterprise level [GAP26]"]:::implementation
+  g27["⊘ An analysis is answered in one pass, and nothing learnt is kept [GAP27]"]:::implementation
   g9 -->|closed, initiative 2| p1
   g11 -->|closed, initiative 3| p1
   g12 -->|closed, initiative 4| p4
@@ -169,6 +180,10 @@ flowchart LR
   g17 -->|closed in code, initiative 15| p1
   g21 -->|closed, initiative 20| p1
   g22 -->|closed, initiative 21| p1
+  g23 -->|closed, initiative 22| p4
+  g24 -->|closed, initiative 24| p4
+  g26 -->|closed, initiative 24| p4
+  g27 -->|closed, initiative 25| p1
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```

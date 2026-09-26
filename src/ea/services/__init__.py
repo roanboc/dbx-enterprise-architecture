@@ -1,4 +1,5 @@
 from ea.services.branches import BranchService
+from ea.services.deep_dives import DeepDiveService
 from ea.services.graph import GraphService
 from ea.services.health import HealthService
 from ea.services.impact import ChangeImpactService, ChangeInput
@@ -15,6 +16,7 @@ __all__ = [
     "BranchService",
     "ChangeImpactService",
     "ChangeInput",
+    "DeepDiveService",
     "GraphService",
     "HealthService",
     "MetamodelService",

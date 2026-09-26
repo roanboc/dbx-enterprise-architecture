@@ -371,6 +371,7 @@ NAV_FOR = {
     "/": "nav-home",
     "/browse": "nav-browse",
     "/ask": "nav-ask",
+    "/ask?mode=deep&tab=kept": "nav-ask",
     "/impact": "nav-impact",
     "/target": "nav-target",
     "/propose": "nav-propose",
@@ -834,6 +835,20 @@ def test_target_audit(ui, record, finding):
 )
 def test_ask_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Ask", "/ask", "src/ea/ui/pages/ask.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P31",
+    group="P",
+    title="The deep dives kept, on Ask, against the usability checklist",
+    feature="Screen audit · Deep dives kept",
+    expected="Ask's deep mode opens on the Kept tab with its filters, the catalogue and the panel a "
+    "deep dive opens in, and the seven automated checkpoints are applied to it.",
+)
+def test_deep_dives_audit(ui, record, finding):
+    audit_screen(
+        ui, record, finding, "Deep dives kept", "/ask?mode=deep&tab=kept", "src/ea/ui/pages/deep_dives.py"
+    )
 
 
 @pytest.mark.scenario(

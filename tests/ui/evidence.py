@@ -22,6 +22,7 @@ GROUPS: dict[str, str] = {
     "D": "Impact",
     "E": "Target state",
     "F": "Ask",
+    "T": "Deep dives",
     "G": "Propose",
     "H": "Import",
     "I": "Branches",

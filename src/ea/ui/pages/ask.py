@@ -1,9 +1,14 @@
-"""Ask: a question to the agent, answered as a document that leads with a generated architecture view."""
+"""Ask: a question to the agent, answered as a document that leads with a generated architecture view.
+
+Two modes: a quick answer, as it has always been, and a deep dive (initiative 25), whose brief
+is settled in conversation before a deep dive is written and kept (`ask_deep`).
+"""
 
 from __future__ import annotations
 
 import json
 import re
+from urllib.parse import parse_qs
 
 import dash
 import dash_mantine_components as dmc
@@ -25,6 +30,7 @@ from ea.ui.components import (
     view_toolbar,
 )
 from ea.ui.context import AppContext, get_context
+from ea.ui.pages import ask_deep
 from ea.views.drawio import to_drawio
 from ea.views.mermaid import to_mermaid
 from ea.views.model import view_from_dict, view_to_dict
@@ -37,7 +43,18 @@ EXAMPLES = [
 ]
 
 
-def render(ctx: AppContext) -> html.Div:
+def mode_of(search: str | None) -> str:
+    """`deep` when the address asks for the deep mode (`?mode=deep`), else `quick`."""
+    wanted = (parse_qs((search or "").lstrip("?")).get("mode") or [""])[0]
+    return "deep" if wanted == "deep" else "quick"
+
+
+def _shown(visible: bool) -> dict[str, str]:
+    return {} if visible else {"display": "none"}
+
+
+def render(ctx: AppContext, search: str | None = None) -> html.Div:
+    mode = mode_of(search)
     provider = ctx.agent.provider
     badge = dmc.Badge(
         f"provider: {provider.name}"
@@ -53,60 +70,80 @@ def render(ctx: AppContext) -> html.Div:
                 "A question becomes a document: a generated architecture view first, then the answer, the elements it names and how it was answered. Every identifier comes from a tool result; every diagram is drawn from the model.",
                 badge,
             ),
-            dmc.Paper(
-                dmc.Stack(
-                    [
-                        dmc.Textarea(
-                            id=ids.ASK_INPUT,
-                            **{"aria-label": "Your question"},
-                            placeholder="Ask about elements, ownership, dependencies, impact…",
-                            autosize=True,
-                            minRows=2,
-                            value=EXAMPLES[0],
-                            size="md",
-                        ),
-                        dmc.Group(
+            dmc.SegmentedControl(
+                id=ids.ASK_MODE,
+                data=[
+                    {"value": "quick", "label": "Quick answer"},
+                    {"value": "deep", "label": "Deep dive"},
+                ],
+                value=mode,
+                mb="md",
+                **{"aria-label": "How to answer"},
+            ),
+            html.Div(ask_deep.render(ctx, search), id=ids.ASK_DEEP, style=_shown(mode == "deep")),
+            html.Div(
+                [
+                    dmc.Paper(
+                        dmc.Stack(
                             [
-                                dmc.Button("Ask", id=ids.ASK_BUTTON, leftSection=icon("tabler:send")),
-                                dmc.Text("", id=ids.ASK_HINT, size="xs", c="dimmed"),
-                                dmc.Button(
-                                    "Reset conversation", id=ids.ASK_RESET, variant="subtle", color="gray"
+                                dmc.Textarea(
+                                    id=ids.ASK_INPUT,
+                                    **{"aria-label": "Your question"},
+                                    placeholder="Ask about elements, ownership, dependencies, impact…",
+                                    autosize=True,
+                                    minRows=2,
+                                    value=EXAMPLES[0],
+                                    size="md",
+                                ),
+                                dmc.Group(
+                                    [
+                                        dmc.Button("Ask", id=ids.ASK_BUTTON, leftSection=icon("tabler:send")),
+                                        dmc.Text("", id=ids.ASK_HINT, size="xs", c="dimmed"),
+                                        dmc.Button(
+                                            "Reset conversation",
+                                            id=ids.ASK_RESET,
+                                            variant="subtle",
+                                            color="gray",
+                                        ),
+                                    ],
+                                    gap="sm",
+                                ),
+                                dmc.Group(
+                                    [dmc.Text("Try:", size="xs", c="dimmed")]
+                                    + [
+                                        # The badge is the chip a reader sees; the wrapper is what
+                                        # reports the click, because a badge reports none. It
+                                        # generates no box, so the row is unchanged.
+                                        html.Div(
+                                            dmc.Badge(
+                                                q,
+                                                variant="outline",
+                                                color="gray",
+                                                size="sm",
+                                                className="ea-chip",
+                                            ),
+                                            id={"type": "ask-example", "i": i},
+                                            n_clicks=0,
+                                            className="ea-chip-wrap",
+                                        )
+                                        for i, q in enumerate(EXAMPLES)
+                                    ],
+                                    gap="xs",
                                 ),
                             ],
                             gap="sm",
                         ),
-                        dmc.Group(
-                            [dmc.Text("Try:", size="xs", c="dimmed")]
-                            + [
-                                # The badge is the chip a reader sees; the wrapper is what
-                                # reports the click, because a badge reports none. It
-                                # generates no box, so the row is unchanged.
-                                html.Div(
-                                    dmc.Badge(
-                                        q,
-                                        variant="outline",
-                                        color="gray",
-                                        size="sm",
-                                        className="ea-chip",
-                                    ),
-                                    id={"type": "ask-example", "i": i},
-                                    n_clicks=0,
-                                    className="ea-chip-wrap",
-                                )
-                                for i, q in enumerate(EXAMPLES)
-                            ],
-                            gap="xs",
-                        ),
-                    ],
-                    gap="sm",
-                ),
-                p="md",
-                withBorder=True,
-                mb="md",
-                className="ea-card",
+                        p="md",
+                        withBorder=True,
+                        mb="md",
+                        className="ea-card",
+                    ),
+                    html.Div(id=ids.ASK_ANSWER),
+                    html.Div(id=ids.ASK_TRACE),
+                ],
+                id=ids.ASK_QUICK,
+                style=_shown(mode == "quick"),
             ),
-            html.Div(id=ids.ASK_ANSWER),
-            html.Div(id=ids.ASK_TRACE),
             dcc.Store(id=ids.ASK_HISTORY, data=[]),
             dcc.Store(id=ids.ASK_DOC_STORE, data=None),
         ]
@@ -239,6 +276,15 @@ def document_card(ctx: AppContext, doc: AnswerDocument) -> dmc.Paper:
 
 
 def register(app: dash.Dash) -> None:
+    @app.callback(
+        Output(ids.ASK_QUICK, "style"),
+        Output(ids.ASK_DEEP, "style"),
+        Input(ids.ASK_MODE, "value"),
+        prevent_initial_call=True,
+    )
+    def switch_mode(mode):
+        return _shown(mode != "deep"), _shown(mode == "deep")
+
     @app.callback(
         Output(ids.ASK_ANSWER, "children"),
         Output(ids.ASK_TRACE, "children"),
