@@ -89,7 +89,7 @@ flowchart LR
 | `BPROC4` | **Analyse a work package** — current state against target state | A work package needs a picture | Pick the work package; read the counts, the matrix and the marked view; edit states on the elements | The organisation sees what the initiative creates, changes and retires |
 | `BPROC5` | **Maintain the metamodel** — the framework as data | The framework owner changes a type, a relationship, an attribute, a notation or a reviewer | Edit in the app; save; export the pack; reload from file | A new pack version, the app reflecting it |
 | `BPROC6` | **Watch the model's health** — freshness and completeness | A weekly look, or before a review | Read the freshness per source and the completeness per type; bulk-edit what is stale or empty; search descriptions for what is wrong | Stale and incomplete content found and fixed |
-| `BPROC7` | **Grant access** — who may do what in the repository, decided by an admin where the work is done (initiative 28, Understanding granted) | A team needs to draft, review or administer; a group no longer needs its role; a person asks why they cannot do something | On Users and roles the admin types part of a group's name and picks it from the workspace's groups, then picks the role — Reviewer, Architect or Admin — and a line of why, and grants it. They read every grant, the deployment's own beside those kept in the application, and remove one that no longer holds. They check a person, reading the role that person gets and the group it comes from. Who is in a group is changed in the workspace, never here | The role held within a minute; the grant recorded with who gave it, when and why; every change in the change log |
+| `BPROC7` | **Grant access** — who may do what in the repository, decided by an admin where the work is done (initiative 28) | A team needs to draft, review or administer; a group no longer needs its role; a person asks why they cannot do something | On Users and roles the admin types part of a group's name and picks it from the workspace's groups, then picks the role — Reviewer, Architect or Admin — and a line of why, and grants it. They read every grant, the deployment's own beside those kept in the application, and remove one that no longer holds. They check a person, reading the role that person gets and the group it comes from. Who is in a group is changed in the workspace, never here | The role held within a minute; the grant recorded with who gave it, when and why; every change in the change log |
 
 ## Processes and the application services that serve them
 
@@ -100,6 +100,7 @@ flowchart LR
   p3("⚙ Answer an architecture question [BPROC3]"):::business
   p4("⚙ Analyse a work package [BPROC4]"):::business
   p6("⚙ Watch the model's health [BPROC6]"):::business
+  p7("⚙ Grant access [BPROC7]"):::business
   ingest(["⬮ CSV ingestion and extraction [ASVC3]"]):::application
   branches(["⬮ Branches and merge [ASVC7]"]):::application
   propose(["⬮ Propose [ASVC9]"]):::application
@@ -107,6 +108,7 @@ flowchart LR
   views(["⬮ Architecture views [ASVC6]"]):::application
   target(["⬮ Target state [ASVC8]"]):::application
   health(["⬮ Model health [ASVC10]"]):::application
+  users(["⬮ Users and roles [ASVC17]"]):::application
   p1 --> ingest
   p2 --> branches
   p2 --> propose
@@ -114,6 +116,7 @@ flowchart LR
   p3 --> views
   p4 --> target
   p6 --> health
+  p7 --> users
 
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
@@ -128,7 +131,7 @@ flowchart LR
 | `BSVC1` | ⚙ «Business Service» Architecture knowledge | `BPROC4` | ⚙ «Business Process» Analyse a work package | realized by | |
 | `BSVC2` | ⚙ «Business Service» Governed change | `BPROC2` | ⚙ «Business Process» Change the model | realized by | |
 | `BSVC2` | ⚙ «Business Service» Governed change | `BPROC6` | ⚙ «Business Process» Watch the model's health | realized by | |
-| `BSVC2` | ⚙ «Business Service» Governed change | `BPROC7` | ⚙ «Business Process» Grant access | realized by | Pending — initiative 28 |
+| `BSVC2` | ⚙ «Business Service» Governed change | `BPROC7` | ⚙ «Business Process» Grant access | realized by | |
 | `BSVC3` | ⚙ «Business Service» Metamodel stewardship | `BPROC5` | ⚙ «Business Process» Maintain the metamodel | realized by | |
 | `BPROC2.1` | ⚙ «Business Process» Draft on a branch | `BPROC2.3` | ⚙ «Business Process» Request a review | triggers | |
 | `BPROC2.2` | ⚙ «Business Process» Hand in a proposal | `BPROC2.1` | ⚙ «Business Process» Draft on a branch | triggers | a proposal lands on a branch |
@@ -142,6 +145,7 @@ flowchart LR
 | `BPROC3` | ⚙ «Business Process» Answer an architecture question | `ASVC5` | ⚙ «Application Service» Grounded question answering | served by | |
 | `BPROC3` | ⚙ «Business Process» Answer an architecture question | `ASVC6` | ⚙ «Application Service» Architecture views | served by | |
 | `BPROC4` | ⚙ «Business Process» Analyse a work package | `ASVC8` | ⚙ «Application Service» Target state | served by | |
+| `BPROC7` | ⚙ «Business Process» Grant access | `ASVC17` | ⚙ «Application Service» Users and roles | served by | |
 | `BPROC5` | ⚙ «Business Process» Maintain the metamodel | `ASVC1` | ⚙ «Application Service» Metamodel management | served by | |
 | `BPROC6` | ⚙ «Business Process» Watch the model's health | `ASVC10` | ⚙ «Application Service» Model health | served by | |
 | `BPROC6` | ⚙ «Business Process» Watch the model's health | `ASVC2` | ⚙ «Application Service» Element browsing and editing | served by | search and bulk edit |

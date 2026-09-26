@@ -158,8 +158,13 @@ them; **Architect** drafts on branches, imports, proposes, requests reviews and
 merges approved branches; **Admin** does everything, including the metamodel,
 `main` and merging without a review; **Agent** is what the assistant may do
 through its tools (read). On the platform the role comes from the forwarded
-identity and its workspace groups through `EA_ROLE_GROUPS`
-(`admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers`); locally,
+identity and its workspace groups: the deployment's own grants in
+`EA_ROLE_GROUPS` (`admin=ea-admins;architect=ea-architects;reviewer=ea-reviewers`),
+shown read-only, and the grants an admin makes on the **Users and roles** page under
+Manage or with `ea roles` — a workspace group picked as its name is typed and given
+Reviewer, Architect or Admin, a person checked to see which group gives their role.
+Groups only, never named people; the highest role wins, an admin cannot take away
+their own Admin, and a change is felt within a minute (decision 0028); locally,
 with mock authentication, the header carries a **debug persona switcher** with
 Admin, Architect, Reviewer and Reader, so every user path can be walked
 without a workspace (the Agent role belongs to the assistant's tools, not to
@@ -290,7 +295,7 @@ uv run ea org apply default higher_education@trial
 | `EA_ORG` | `default` | The organisation the CLI reads and writes (same as `--org`) |
 | `EA_SECRET_KEY` | (random per start) | Signs the session cookie that remembers a reader's branch and debug persona; set it so sessions survive a restart |
 | `EA_ROLE` | `admin` | The role the CLI runs as (same as `--as`) |
-| `EA_ROLE_GROUPS` | (empty: everyone a reader) | On the platform, which workspace group grants which role: `admin=g1,g2;architect=g3;reviewer=g4` |
+| `EA_ROLE_GROUPS` | (empty: everyone a reader) | On the platform, the deployment's own grants — which workspace group grants which role: `admin=g1,g2;architect=g3;reviewer=g4`; shown read-only on Users and roles, where an admin grants the rest |
 | `EA_TRUST_GROUPS_HEADER` | (off) | Believe an `X-Forwarded-Groups` header instead of reading the workspace; only behind a proxy of your own that sets it, never on Databricks Apps |
 
 ## Running on Databricks
@@ -341,8 +346,8 @@ Postgres through the standard `PG*` variables or `EA_POSTGRES_DSN`.
 On the platform the signed-in user arrives as forwarded headers; their
 workspace groups are read once and kept for five minutes (with the user's own
 token when the app is granted the `iam.current-user:read` scope, otherwise as
-the app's service principal), and `EA_ROLE_GROUPS` turns the groups into a
-role. A groups header in the request is never believed unless
+the app's service principal), and `EA_ROLE_GROUPS` with the grants kept on the
+Users and roles page turns the groups into a role. A groups header in the request is never believed unless
 `EA_TRUST_GROUPS_HEADER=1` says a proxy of your own sets it: behind Databricks
 Apps a client could send one and pick its own role. Running the same tests
 against a Lakebase instance is what reaches plateau `PLAT2` on the roadmap

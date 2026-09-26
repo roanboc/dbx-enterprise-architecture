@@ -4,14 +4,15 @@ _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
 **Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26,
-Understanding granted the same day.
+Understanding granted and built the same day; the search of a real workspace waits
+with `PLAT2`'s run.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 26,
 with [initiative 27](./27_getting-started-and-help-on-every-screen.md) drafted beside it.
 **Target plateau:** `PLAT4` Governed change, its roles; the directory on a
 workspace waits with `PLAT2`.
-**Gaps:** `GAP31` **Who may do what is set only by the deployment**, opened by
-this initiative.
+**Gaps:** `GAP31` **Who may do what is set only by the deployment**, opened and
+closed by this initiative.
 
 The Requester asked for *"an easy user management form for the admin, where we
 manage Databricks groups or users and app roles"*, and then settled *"let's keep
@@ -62,6 +63,10 @@ it comes from, and whom to ask for another.
 | **The command line?** | Yes — `ea roles` lists, grants, removes, checks and shows the history | Every Manage screen has its command, and it is an admin's way in without a browser |
 | **Reviewers per element type?** | They stay on the Metamodel page's Reviewers tab | The Users and roles screen links to it. Who reviews which type is decided per organisation, not per application |
 | **Help for the new screen?** | It has its help like every other screen | [Initiative 27](./27_getting-started-and-help-on-every-screen.md) covers every screen in the navigation, this one included |
+| **Are the deployment's group names matched with their case?** | Adopted, while building — without it | A group named `EA-Admins` in the workspace and `ea-admins` in the deployment is one group; before, the deployment's names had to match exactly |
+| **What if two processes each remove the other's last admin grant?** | Adopted, while building — the check and the write hold a lock the store's other processes honour | On Lakebase the table is locked for the change, so the second removal sees the first |
+| **What does the screen say of a group renamed in the workspace?** | Adopted, while building — *now called …* beside the grant | The grant still holds, by the group's identifier; the label is the name it had when it was granted |
+| **What if the platform signs people in but the workspace cannot be read?** | Adopted, while building — the page says the workspace's groups cannot be searched, and offers the exact name typed | Sample groups stand in only where the application does not use the platform's sign-in, so a real deployment is never shown groups it does not have |
 
 ## What changes in the model
 
@@ -84,9 +89,9 @@ it comes from, and whom to ask for another.
 | 1_strategy | **Aligned — no change.** Serves `G5` **Reusable by any enterprise**, because an adopting organisation (`STK5`) runs its own access without changing its deployment, and plateau `PLAT4`, where who may draft, approve and merge is a recorded decision. Stays inside `P3`: the Agent role cannot be granted, and no path of the assistant grants anything. |
 | 2_business | [1_actors-and-roles.md](../2_business/1_actors-and-roles.md): `ROLE1`, `BOBJ2`. [2_processes-and-services.md](../2_business/2_processes-and-services.md): `BPROC7` **Grant access**, added; `BSVC2` delivered by it too. |
 | 3_information | [1_data-objects.md](../3_information/1_data-objects.md): `DOBJ3.13` **Role grant**, added, with its classification. [2_conceptual-data-model.md](../3_information/2_conceptual-data-model.md): ROLE_GRANT, in no organisation. [3_logical-data-model.md](../3_information/3_logical-data-model.md): the table `role_grant` in `ea_governance`, with no `org_id`. |
-| 4_application | To align at the build: a new application service **Users and roles**, realized by `ACMP12` Roles and review and `ACMP6` Web application, and `ea roles` in `ACMP7` Command line. |
-| 5_technology | **No new node, service or permission.** To keep true at the build in [1_runtime.md](../5_technology/1_runtime.md): `TSVC5` Workspace identity is also searched for a group, as the application's identity; `ART6` describes `role_groups` as the deployment's own grants. |
-| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP31` opened under `PLAT4`. [2_sequence.md](../6_transition/2_sequence.md): step 1q, in flight. Recorded as [decision 0028](../decisions/0028-roles-granted-to-groups-in-the-application.md), proposed. |
+| 4_application | [1_application-services.md](../4_application/1_application-services.md): `ASVC17` **Users and roles**, added, realized by `ACMP12` Roles and review and `ACMP6` Web application. [2_application-components.md](../4_application/2_application-components.md): `ACMP12` keeps the grants and searches the workspace's groups; `ACMP6` draws the page; `ACMP7` runs `ea roles`. |
+| 5_technology | **No new node, service or permission.** [1_runtime.md](../5_technology/1_runtime.md): `TSVC5` Workspace identity is also searched for a group, as the application's identity; `ART6` describes `role_groups` as the deployment's own grants, and so does `databricks.yml`. |
+| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP31` opened and closed under `PLAT4`, the search of a real workspace with `PLAT2`. [2_sequence.md](../6_transition/2_sequence.md): step 1q, built. Recorded as [decision 0028](../decisions/0028-roles-granted-to-groups-in-the-application.md). |
 
 ## Approvals
 
@@ -98,12 +103,12 @@ it comes from, and whom to ask for another.
 
 | WP | Delivers |
 | -- | -------- |
-| 1 — The grants in the store | The table `role_grant` on both engines, kept out of a reader's own SQL; its changes in the change log, under no organisation |
-| 2 — The role a request is given | The highest of the deployment's grants and the store's grants for the person's groups; kept a minute; an admin's own Admin and the last admin grant protected |
-| 3 — The workspace's groups | Groups found by name as the application's identity, quick to give up when the workspace is slow; a person's groups read for the check; sample groups locally |
-| 4 — The Users and roles page | The grants, the form, the check, the recent changes; a person's own role for everyone else |
-| 5 — The command line | `ea roles list`, `grant`, `revoke`, `check` and `history` |
-| 6 — Tests | Unit tests first for every rule above; the command-line scenarios; the browser round's Manage group |
+| 1 — The grants in the store (built) | The table `role_grant` in `src/ea/backend/sql.py`, read and written in `src/ea/backend/sql_backend.py` on both engines, answering as empty to a reader's own SQL; its changes in the change log under the organisation `*`, which no organisation can be |
+| 2 — The role a request is given (built) | `AccessService` in `src/ea/services/access.py`, and `RoleGrant` and `GroupRef` in `src/ea/models.py`; `user_from_headers()` in `src/ea/ui/context.py` asks it, and so does the tool server through it; the action `grant_roles` in `src/ea/services/roles.py` |
+| 3 — The workspace's groups (built) | `WorkspaceDirectory` and the sample directory in `src/ea/services/identity.py`; each forwarded group now carries its identifier |
+| 4 — The Users and roles page (built) | `src/ea/ui/pages/users.py`, under Manage between Connected systems and Health, with its help (`docs/guide/screens/users.md`) |
+| 5 — The command line (built) | `ea roles list`, `grant`, `revoke`, `check` and `history` in `src/ea/cli.py` |
+| 6 — Tests (built) | `tests/test_access.py`, `tests/test_users_page.py`, and additions to `tests/test_identity.py` and `tests/test_cli.py`; command-line scenarios M78 and M79; the browser round's group W (`tests/ui/test_w_users.py`) and the page's screen audit |
 
 ## In scope / out of scope
 

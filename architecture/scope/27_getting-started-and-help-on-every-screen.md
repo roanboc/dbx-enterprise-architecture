@@ -4,11 +4,11 @@ _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
 **Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26,
-Understanding granted the same day.
+Understanding granted and built the same day.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 26.
 **Target plateau:** `PLAT1` The repository running locally, extended.
-**Gaps:** `GAP30` **A newcomer has nothing on the screen to learn from**, opened
+**Gaps:** `GAP30` **A newcomer has nothing on the screen to learn from**, opened and closed
 by this initiative.
 
 The Requester asked for a user guide in the application: *"an intro and help per
@@ -73,6 +73,9 @@ else once the welcome and a screen's tip have been closed.
 | **Where is the help written?** | In the repository, as Markdown, one file per screen, generic, beside the guide | One text serves the side panel and the Guide page. It names no organisation and no framework's types; what differs per organisation is read from its metamodel when the help is drawn, as the Guide already does |
 | **A new service, or the Guide widened?** | Adopted — the Guide (`ASVC13`) widened, its name kept | The navigation already says Guide, and help on a screen is the Guide met where the work is done |
 | **The command line?** | No change | `ea --help` and each command's own help already describe it |
+| **Where does the side panel stand?** | Adopted, while building — over the screen with a light veil, not a dark one | It keeps the keyboard inside it until it is closed, as a panel that opens on request should, and the screen it describes stays readable beside it |
+| **When is a tip spent?** | Adopted, while building — when it is shown, not when it is closed | Once is the promise: a tip left standing does not come back on the next visit |
+| **The Guide's anchors?** | Adopted, while building — each heading's anchor carries its section's name, and `the-boundary` keeps its own | Two role pages both say *How you work*; the page gave two elements one id, which a link reached at random |
 
 ## What changes in the model
 
@@ -91,9 +94,9 @@ else once the welcome and a screen's tip have been closed.
 | 1_strategy | **Aligned — no change.** Serves `G1` **Query the architecture sustainably**, because people get answers without help only if they can work the screens alone, and `G5` **Reusable by any enterprise**, because an adopting organisation (`STK5`) learns the product from the product. `PLAT6`, the current EA tool retired, waits on architects moving over. Stays inside `P5` (the help is generic; types are read from the metamodel) and `P8` (read as the call above says). |
 | 2_business | **No change.** No role gains or loses a right, and no process gains a step; a newcomer is any existing role on a first visit. |
 | 3_information | **No change.** The help is documentation that ships with the application, and what a person closed stays in their browser, never in the store. |
-| 4_application | [1_application-services.md](../4_application/1_application-services.md): `ASVC13` **Guide**, widened. To align at the build: `ACMP6` in [2_application-components.md](../4_application/2_application-components.md), for the help button, the side panel, the welcome and the tips. |
-| 5_technology | **No new node, service or artifact.** To keep true at the build in [1_runtime.md](../5_technology/1_runtime.md): `NODE1.3` Browser also remembers what a reader closed; `TSVC3` also draws the help's diagrams. |
-| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP30` opened under `PLAT1`. [2_sequence.md](../6_transition/2_sequence.md): step 1p, in flight. |
+| 4_application | [1_application-services.md](../4_application/1_application-services.md): `ASVC13` **Guide**, widened. [2_application-components.md](../4_application/2_application-components.md): `ACMP6` draws the help button, the side panel, the welcome, the tips and the Guide's screens. |
+| 5_technology | **No new node, service or artifact.** [1_runtime.md](../5_technology/1_runtime.md): `NODE1.3` Browser also keeps what a reader closed; `TSVC3` also draws the help's diagrams and runs its `?` key; `ART5` carries the key's script. |
+| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP30` opened and closed under `PLAT1`. [2_sequence.md](../6_transition/2_sequence.md): step 1p, built. |
 
 ## Approvals
 
@@ -105,11 +108,11 @@ else once the welcome and a screen's tip have been closed.
 
 | WP | Delivers |
 | -- | -------- |
-| 1 — The help's content | `docs/guide/0_getting-started.md`, and one page per screen in `docs/guide/screens/`: its tip, why, what, how, a diagram and the related screens |
-| 2 — The side panel | The help button beside every screen's title, the side panel with the reader's role, the `?` key |
-| 3 — The welcome and the tips | Shown once each, remembered in the browser's local storage; tips turned off and on again |
-| 4 — The Guide page | Getting started, the screens and the roles, with their diagrams drawn and every anchor on the page unique |
-| 5 — Tests | Unit tests: every screen in the navigation has its help, in its parts; every screen has one help button; the welcome and a tip show once. The browser round: a group for help and first visits, and the other groups started with tips off |
+| 1 — The help's content (built) | `docs/guide/0_getting-started.md`, and one page per screen in `docs/guide/screens/` — sixteen, the Users and roles screen of [initiative 28](./28_users-and-roles.md) among them: its tip, why, what, how, a diagram and the related screens; each written from the code and checked against it by a second reader |
+| 2 — The side panel (built) | `help_button()` and `help_slot()` beside `page_title()` in `src/ea/ui/components.py`; the side panel in `src/ea/ui/layout.py`; its body, the role line read from `allowed()` and the callbacks in `src/ea/ui/screen_help.py`; the pages read by `GuideService.screen()` in `src/ea/services/guide.py`; the `?` key in `assets/ea-help.js` |
+| 3 — The welcome and the tips (built) | `first_visit()` and `after_action()` in `src/ea/ui/screen_help.py`, the record in a local `dcc.Store` (`help-seen`) in the shell |
+| 4 — The Guide page (built) | `src/ea/ui/pages/guide.py`: contents under Start here, The screens and By role, with Show the welcome and tips again; Getting started, the screens in the navigation's order and the roles, their diagrams drawn, and each heading's anchor prefixed with its section's, `the-boundary` kept |
+| 5 — Tests (built) | `tests/test_help.py` and `tests/test_guide.py`; the browser round's group V (`tests/ui/test_v_help.py`), every other group started as a returning reader (`RETURNING_READER` in `tests/ui/conftest.py`) |
 
 ## In scope / out of scope
 
