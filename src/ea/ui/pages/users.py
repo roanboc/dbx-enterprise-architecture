@@ -394,6 +394,7 @@ def render(ctx: AppContext) -> Any:
         "Users and roles",
         "Which Databricks workspace groups hold which role here. A person's role is the highest any of "
         "their groups gives; a person in none is a Reader.",
+        help="users",
     )
     if not ctx.can("grant_roles"):
         return dmc.Stack(

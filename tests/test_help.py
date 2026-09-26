@@ -116,6 +116,7 @@ def test_a_key_that_is_not_a_page_name_reads_nothing(registry):
         ("organisations", "organisations", (None,)),
         ("systems", "systems", ()),
         ("health", "health", ()),
+        ("users", "users", ()),
     ],
 )
 def test_every_screen_carries_one_help_button_beside_its_title(app_context, module, key, args):
