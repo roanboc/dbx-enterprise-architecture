@@ -32,7 +32,7 @@ Requester asked for it to be kept, catalogued, rated and linked from the element
 A deep dive is kept in the store, per organisation, as the analysis it was when it was read —
 its brief, catalogue entry, the maturity of the elements it rests on, its views, findings and
 references — and every element it cites lists it. Each person rates it once, one to five stars,
-and may change their rating; later deep dives on the same elements weigh it by that rating. A
+and may change or clear their rating; later deep dives on the same elements weigh it by that rating. A
 quick answer stays unkept.
 
 ## Consequences

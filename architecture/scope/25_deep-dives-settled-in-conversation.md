@@ -25,6 +25,13 @@ what can change enterprise architecture work: an analysis built on the model and
 analyses before it, instead of architects drawing diagrams from scratch. Reading the pages
 an element links to — a wiki's design pages — is the next step, and is left for later.
 
+Shown the deep dive built, on 2026-09-26, the Requester asked for three more things: the
+rating drawn as **stars**, given and **cleared** from the deep dive itself, one rating per
+person; the **work packages in flight** that touch the elements a deep dive reads named in it
+— a work package is not a dependant, but a reader needs to know what is already changing the
+area; and no separate entry in the navigation — the deep dives kept are a tab of Ask's deep
+mode, beside the new one.
+
 ## What changes
 
 **Ask gains a deep dive beside the quick answer.** The quick answer stays as it is. A reader
@@ -89,6 +96,7 @@ with or without a model:
 | An element below the business layer traces up to nothing (principle `P9`) | The trace Propose's questions already test |
 | A relationship the element's type declares has no instance | The completeness the impact already reports |
 | An element and its documentation disagree | The table above |
+| Work packages in flight change elements it read | The target state by work package, and the relationships a work package holds |
 | The analysis rests on elements of low maturity, or on content its source has not refreshed for long | The maturity above, and the freshness Health reports |
 
 With a hosted model, the model reads the reader's words, asks in its own words where the
@@ -108,7 +116,7 @@ own notation, ArchiMate in shape and colour.
 
 | Level | What it shows | Drawn as |
 | ----- | ------------- | -------- |
-| **1 — Context** | The subject in its enterprise: the goals, capabilities and business it serves, and who is concerned | **Presentation**: a context map around the subject, icons and colour by layer |
+| **1 — Context** | The subject in its enterprise: the goals, capabilities and business it serves, who is concerned, and the work in flight that changes it | **Presentation**: a context map around the subject, icons and colour by layer |
 | **2 — Overview** | The landscape the analysis covers, layer by layer, with where the findings and the low maturity sit | **Presentation**: layer bands with icons, a heat map of the area coloured by maturity or by finding, and charts of the maturity and the findings |
 | **3 — Architecture** | One chapter per aspect of the analysis — what it serves, what depends on it, the trace, the transition | **Architecture**: the metamodel's notation, as the application draws a view |
 | **4 — Detail** | The key elements up close — each one's neighbourhood, its maturity, and where it and its documentation disagree | **Architecture**, as above |
@@ -123,7 +131,7 @@ from its layer where the notation says nothing, so no framework's names enter th
 | The PDF, in order | What it holds |
 | ----------------- | ------------- |
 | **Cover** | The title, the brief in one sentence, the organisation, the branch and the metamodel version it read, who asked and when |
-| **What you need to know** | The findings that matter most for what the analysis is for, how far they can be trusted, and the figures behind them |
+| **What you need to know** | The findings that matter most for what the analysis is for, how far they can be trusted, the figures behind them, and the work in flight |
 | **Context**, then **Overview** | Levels 1 and 2, each diagram with a short reading of it |
 | **Architecture**, then **Detail** | Levels 3 and 4, each diagram with the table of what it draws and each element's maturity |
 | **Findings** | Each with its severity, what was found, the elements it rests on and why it matters, placed at the level it concerns |
@@ -138,10 +146,11 @@ folder as the PDF does on paper.
 [0024](../decisions/0024-deep-dives-are-kept.md)). It is kept the moment it is written, in the
 organisation's own store, under a catalogue entry: the domains and element types of its
 subject, the kind of analysis, the work package it concerns, the branch and version it read,
-who asked and when. A **Deep dives** page lists the catalogue, narrowed by any of those and by
-rating, and opens one; every element it cites lists it on the element's own page. Whoever
-reads it may rate it — one to five stars, with a line of why — and the catalogue shows the
-average and how many rated it. The next deep dive on the same elements weighs the earlier
+who asked and when. The **Kept deep dives** tab of Ask's deep mode lists the catalogue,
+narrowed by any of those and by rating, and opens one; there is no page or navigation entry of
+its own. Every element it cites lists it on the element's own page. Whoever reads it may rate
+it — one to five stars, with a line of why, one rating per person, which they may change or
+clear — and the catalogue shows the average as stars and how many rated it. The next deep dive on the same elements weighs the earlier
 ones by their rating: it names them among its references, best rated first, and a hosted model
 reads their findings — which it checks against the model as it is now rather than repeating.
 A deep dive can be **run again**: a new one from the same brief, which considers the one it
@@ -152,7 +161,7 @@ came from.
 | Question | Call | What follows from it |
 | -------- | ---- | -------------------- |
 | **One rating, or three?** | One, one to five stars, with a line of why | The Requester's *"a single star rating"*: confidence, quality and usefulness judged together. Three separate ratings, if the Requester reads it otherwise |
-| **Who may rate?** | Anyone who may read; one rating per person, which they may change | A rating is a person's judgement; the assistant never rates (principle `P3`) |
+| **Who may rate?** | Anyone who may read; one rating per person, which they may change or clear | A rating is a person's judgement; the assistant never rates (principle `P3`) |
 | **Who may run one?** | Every role that may ask; it is kept as soon as it is written | It writes nothing to the model. A finding that calls for a change is handed in on Propose by an architect |
 | **Can a deep dive be removed?** | Its author or an admin withdraws it; its row is kept | As nothing in the store is deleted; a withdrawn deep dive leaves the catalogue and is not weighed again |
 | **Is maturity set by a person, or read from the element?** | Read from what the element carries | A field somebody must fill is one more field nobody fills; what the element already says is evidence. A maturity a steward sets, if the Requester wants one, would be one more thing it reads |
@@ -170,6 +179,8 @@ came from.
 | **When is an approved element current?** | Adopted — refreshed from its source or by a person within 180 days, the longest staleness Health reports | One measure of *recent* across the application |
 | **When does a description name another element?** | Adopted — its identifier, its key, or a name of two words or more, whole; a name inside a longer name the text uses is the longer name's | A single-word name (*Course*) would be named by nearly every description |
 | **How far is principle `P9` tested?** | Adopted — over what the analysis read first, then at most forty walks through the store, as Propose's questions walk; past that the answer is *not known*, which is neither a finding nor held against the element's maturity | So an analysis stays within what a request may read |
+| **Which work package is in flight?** | Adopted — one proposed, planned, in implementation or live, and not retired, related to an element the deep dive read or named in that element's target; the one a transition is about is its subject, not its work in flight | The model's own states say what is under way; a finished package changes nothing now |
+| **Is a rating cleared or kept?** | Adopted — its person clears it, and the change log records that they did | A rating is a person's judgement, so it is theirs to take back; the deep dive it was given to stays |
 | **What shape is the PDF?** | Adopted — A4 upright, the standard fonts, a diagram scaled to the page and never enlarged; its draw.io file carries it at full size | Printed and read on a screen alike; the draw.io file is where a diagram is worked on |
 
 ## What changes in the model
@@ -211,10 +222,10 @@ came from.
 | 1 — The brief | The deep dive's questions and choices by rules, an answer applied to the brief, the brief as one sentence, the earlier deep dives listed; with a hosted model, the reader's own words read and questions asked in the model's |
 | 2 — The analyses | The five kinds of analysis over the store, each within the assessed capacity, and the views each draws |
 | 3 — Maturity and inconsistencies | The maturity of every element an analysis rests on, and the inconsistencies between an element and its documentation |
-| 4 — The findings | The seven rules above, each with its severity and the elements it cites; the summary led by them, with how far they can be trusted |
+| 4 — The findings | The eight rules above, each with its severity and the elements it cites; the summary led by them, with how far they can be trusted |
 | 5 — The pack | The styled PDF, top-down from context to detail; the presentation style for the high level — context maps, layer bands, heat maps, charts — and the metamodel's notation for the detail; a draw.io file per diagram, drawn from one layout, numbered by level, in one ZIP |
 | 6 — The catalogue | The three tables on both engines; a deep dive kept when written, catalogued, linked from its elements; ratings; withdrawing; running again; earlier deep dives weighed by their rating |
-| 7 — The pages | The choice between a quick answer and a deep dive on Ask, with the conversation beside the brief; the Deep dives page; the deep dives on the element page |
+| 7 — The pages | The choice between a quick answer and a deep dive on Ask, with the conversation beside the brief, and the deep dives kept as a tab beside it — ratings as stars, given and cleared there; the deep dives on the element page |
 
 ## In scope / out of scope
 
