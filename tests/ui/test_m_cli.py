@@ -29,6 +29,10 @@ header says what it adds.
 
 M75 to M77 are initiative 26's commands: the metamodel handed out as a draw.io shape
 library, the systems the assistant may read, and the tool server another agent connects to.
+
+M78 and M79 are initiative 28's `ea roles`: a workspace group given a role and taken back, and
+what an admin may not do with one. Locally the groups are the sample directory's, and every
+grant M78 makes it also removes, so no scenario after it reads a role it did not expect.
 """
 
 from __future__ import annotations
@@ -4356,3 +4360,140 @@ def test_m77_connections_and_mcp(cli, record):
         trim(helped, 200),
     )
     check(record, "and that it writes nothing", "It writes nothing" in text, trim(helped, 200))
+
+
+# ============================================================ who holds which role (initiative 28)
+ROLES_ENV = {"EA_AUTH": "mock", "EA_ROLE_GROUPS": "reviewer=ea-reviewers"}
+GRANTED_GROUP = "solution-architects"  # one of the sample directory's groups, the architect persona's
+GRANT_NOTE = "M they draft the solutions"
+
+
+@pytest.mark.scenario(
+    scenario_id="M78",
+    group="M",
+    title="roles grant, list, check, revoke and history: a workspace group given a role and taken back",
+    feature="Command line · roles list/grant/check/revoke/history",
+    expected=(
+        "`roles grant` is refused to an Architect, since granting a role is an admin's; the admin grants "
+        "Architect to a group found by its exact name, with a line of why; `roles list` shows the "
+        "deployment's grants first, marked as set by it, then the grant with its identifier, who granted "
+        "it and why; `roles check` says the architect persona is an Architect from that group; `roles "
+        "revoke` removes it by name, and `roles history` tells both changes, the latest first."
+    ),
+)
+def test_m78_roles(cli, record):
+    grant = ["roles", "grant", "--group", GRANTED_GROUP, "--role", "architect", "--note", GRANT_NOTE]
+    rc, out, ev = run(cli, "--as", "architect", *grant, expect=1, limit=160, **ROLES_ENV)
+    check(
+        record,
+        "an Architect may not grant a role",
+        rc == 1 and "An Architect may not grant a role" in refusal(out),
+        ev,
+    )
+    rc, out, ev = run(cli, *grant, limit=160, **ROLES_ENV)
+    must(record, "the admin granted the role", rc == 0 and f"Architect granted to {GRANTED_GROUP}" in out, ev)
+
+    rc, listed, ev = run(cli, "roles", "list", limit=400, **ROLES_ENV)
+    lines = [ln for ln in listed.splitlines() if ln.strip()]
+    must(record, "roles list ran", rc == 0 and bool(lines), ev)
+    check(
+        record,
+        "the deployment's grants come first, marked as set by it",
+        "ea-reviewers" in lines[0] and "set by the deployment" in lines[0],
+        lines[0],
+    )
+    granted = next((ln for ln in lines if GRANTED_GROUP in ln), "")
+    check(
+        record,
+        "the grant shows its identifier and who granted it, and why beneath it",
+        "[sample-solution-architects]" in granted and "granted by admin" in granted and GRANT_NOTE in listed,
+        trim(listed, 300),
+    )
+
+    rc, said, ev = run(cli, "roles", "check", "architect@example.edu", limit=200, **ROLES_ENV)
+    check(
+        record,
+        "checking a person says the role they get and which group gives it",
+        rc == 0 and f"Architect — from the group {GRANTED_GROUP} (granted by admin)" in said,
+        ev,
+    )
+
+    rc, gone, ev = run(cli, "roles", "revoke", GRANTED_GROUP, limit=160, **ROLES_ENV)
+    check(
+        record,
+        "the grant is removed by the group's name",
+        rc == 0 and f"removed the Architect grant of {GRANTED_GROUP}" in gone,
+        ev,
+    )
+    rc, told, ev = run(cli, "roles", "history", limit=400, **ROLES_ENV)
+    changes = [ln for ln in told.splitlines() if ln.strip()]
+    check(
+        record,
+        "the history tells both changes, the latest first",
+        rc == 0
+        and len(changes) >= 2
+        and f"removed the Architect grant of {GRANTED_GROUP}" in changes[0]
+        and f"granted Architect to {GRANTED_GROUP}" in changes[1],
+        ev,
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="M79",
+    group="M",
+    title="roles refuses what would make everyone an admin or reach past one",
+    feature="Command line · roles grant/revoke/list/check",
+    expected=(
+        "Granting Admin to the workspace's all-users group is refused, and so is a role no grant gives; "
+        "a group the deployment names cannot be removed here; a group the directory does not hold is "
+        "refused by name; a Reader may not list the grants or check a person; nobody is checked who does "
+        "not sign in; and nothing any of these tried is left in the grants."
+    ),
+)
+def test_m79_roles_refusals(cli, record):
+    rc, out, ev = run(cli, "roles", "grant", "--group", "users", "--role", "admin", expect=1, **ROLES_ENV)
+    check(
+        record,
+        "Admin is never granted to every person",
+        rc == 1 and "every person in the workspace" in out,
+        ev,
+    )
+    rc, out, ev = run(
+        cli, "roles", "grant", "--group", "data-team", "--role", "reader", expect=1, **ROLES_ENV
+    )
+    check(record, "Reader is not a role a grant gives", rc == 1 and "not a role a grant gives" in out, ev)
+    rc, out, ev = run(cli, "roles", "revoke", "ea-reviewers", expect=1, limit=200, **ROLES_ENV)
+    check(
+        record,
+        "the deployment's grant is changed with the deployment, not here",
+        rc == 1 and "set by the deployment (EA_ROLE_GROUPS)" in refusal(out),
+        ev,
+    )
+    rc, out, ev = run(
+        cli, "roles", "grant", "--group", "m-no-such-group", "--role", "reviewer", expect=1, **ROLES_ENV
+    )
+    check(
+        record,
+        "a group the directory does not hold is refused by name",
+        rc == 1 and "no group named 'm-no-such-group'" in refusal(out),
+        ev,
+    )
+    rc, out, ev = run(cli, "--as", "reader", "roles", "list", expect=1, **ROLES_ENV)
+    check(
+        record,
+        "a Reader may not list the grants",
+        rc == 1 and "A Reader may not see who holds which role" in out,
+        ev,
+    )
+    rc, out, ev = run(cli, "--as", "reader", "roles", "check", "admin@example.edu", expect=1, **ROLES_ENV)
+    check(record, "nor check another person", rc == 1 and "may not check another person's role" in out, ev)
+    rc, out, ev = run(cli, "roles", "check", "m-nobody@example.edu", expect=1, **ROLES_ENV)
+    check(
+        record,
+        "nobody is checked who does not sign in",
+        rc == 1 and "m-nobody@example.edu" in refusal(out),
+        ev,
+    )
+    rc, listed, ev = run(cli, "roles", "list", limit=300, **ROLES_ENV)
+    kept = [ln for ln in listed.splitlines() if ln.strip() and "set by the deployment" not in ln]
+    check(record, "and nothing tried is left in the grants", rc == 0 and not kept, ev)

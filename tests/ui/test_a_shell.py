@@ -55,6 +55,7 @@ NAV = [
     ("Metamodel", "/metamodel", "nav-metamodel", "Metamodel"),
     ("Organisations", "/organisations", "nav-organisations", "Organisations"),
     ("Connected systems", "/systems", "nav-systems", "Connected systems"),
+    ("Users and roles", "/users", "nav-users", "Users and roles"),
     ("Health", "/health", "nav-health", "Health"),
 ]
 

@@ -7,8 +7,8 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**493 scenarios in twenty-two groups**, and around fifty minutes end to end. The
-command-line group (M, 77 scenarios) needs no browser and also runs in `make check`.
+**500 scenarios in twenty-three groups**, and around fifty minutes end to end. The
+command-line group (M, 79 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
 make gui-install   # once: the browser driver and its browser
@@ -83,13 +83,14 @@ where the round is the only thing that can see it.
 | J | Metamodel | One version at a time: the lists and what deleting a row takes with it, the type graph, the architecture view, notation, versions and their lifecycle, reviewers, export and load, the shape library | 26 |
 | Q | Organisations | The partition a version is tried in: creating a sandbox, switching, isolation, checking and applying a version, the default, deleting | 7 |
 | U | Connected systems | The systems the assistant may read: connecting one and disconnecting it, what is refused, what a Reader sees | 4 |
+| W | Users and roles | Which workspace groups hold which role: a group picked and granted, a person checked, a grant removed, what an admin may not grant, what a Reader sees of their own role | 4 |
 | R | Feeds | Sources configured, scheduled and run, and the history of every import | 15 |
 | K | Health | Freshness, completeness, and the links behind every figure | 18 |
 | L | Roles and permissions | Four personas against every gated control | 32 |
-| M | Command line | Every command, and the flags that change who and where | 77 |
+| M | Command line | Every command, and the flags that change who and where | 79 |
 | N | Downloads | Every file the application can produce | 28 |
 | O | Negative paths | What is supposed to fail, failing well | 18 |
-| P | Screen audit | Every screen against the usability checklist | 33 |
+| P | Screen audit | Every screen against the usability checklist | 34 |
 
 ## The usability checklist
 

@@ -381,6 +381,7 @@ NAV_FOR = {
     "/metamodel": "nav-metamodel",
     "/organisations": "nav-organisations",
     "/systems": "nav-systems",
+    "/users": "nav-users",
     "/health": "nav-health",
 }
 NAV_IDS = sorted(set(NAV_FOR.values()))
@@ -934,6 +935,18 @@ def test_organisations_audit(ui, record, finding):
 )
 def test_connected_systems_audit(ui, record, finding):
     audit_screen(ui, record, finding, "Connected systems", "/systems", "src/ea/ui/pages/systems.py")
+
+
+@pytest.mark.scenario(
+    scenario_id="P30c",
+    group="P",
+    title="Users and roles against the usability checklist",
+    feature="Screen audit · Users and roles",
+    expected="Users and roles loads with the form to grant a role, every grant, the check and the recent "
+    "changes, and the seven automated checkpoints are applied to it.",
+)
+def test_users_and_roles_audit(ui, record, finding):
+    audit_screen(ui, record, finding, "Users and roles", "/users", "src/ea/ui/pages/users.py")
 
 
 @pytest.mark.scenario(
