@@ -47,6 +47,7 @@ NAV_SECTIONS = [
             ("Metamodel", "/metamodel", "tabler:hierarchy-2"),
             ("Organisations", "/organisations", "tabler:building"),
             ("Connected systems", "/systems", "tabler:link-plus"),
+            ("Users and roles", "/users", "tabler:users"),
             ("Health", "/health", "tabler:heart-rate-monitor"),
         ],
     ),

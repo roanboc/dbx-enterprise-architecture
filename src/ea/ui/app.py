@@ -40,6 +40,7 @@ from ea.ui.pages import (
     propose,
     systems,
     target,
+    users,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -54,6 +55,7 @@ PAGES = {
     "organisations",
     "feeds",
     "systems",
+    "users",
     "impact",
     "import",
     "ask",
@@ -235,6 +237,8 @@ def create_app() -> dash.Dash:
                 body = feeds.render(ctx)
             elif page == "systems":
                 body = systems.render(ctx)
+            elif page == "users":
+                body = users.render(ctx)
             elif page == "ask":
                 body = ask.render(ctx, search)
             elif page == "branches":
@@ -433,6 +437,7 @@ def create_app() -> dash.Dash:
         propose,
         health,
         systems,
+        users,
     ):
         module.register(app)
     return app

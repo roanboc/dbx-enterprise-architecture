@@ -467,3 +467,18 @@ SYS_CONNECTION = "sys-connection"  # a Unity Catalog MCP connection of the works
 SYS_CONNECTIONS_NOTE = "sys-connections-note"
 SYS_PAGE_PATTERN = "sys-page-pattern"
 SYS_PAGE_ARGUMENTS = "sys-page-arguments"
+
+# Users and roles (initiative 28): which workspace groups hold which role, decided by an admin
+USR_FEEDBACK = "usr-feedback"
+USR_GROUP = "usr-group"  # the group picked from the workspace's directory as its name is typed
+USR_SEARCH_NOTE = "usr-search-note"  # why the directory cannot be searched, when it cannot
+USR_ROLE = "usr-role"
+USR_NOTE = "usr-note"
+USR_GRANT = "usr-grant"
+USR_GRANTS = "usr-grants"
+USR_REMOVE = "usr-remove"  # pattern-matching: {"type": USR_REMOVE, "id": <group_id>}
+USR_CHECK_EMAIL = "usr-check-email"
+USR_CHECK = "usr-check"
+USR_CHECK_RESULT = "usr-check-result"
+USR_HISTORY = "usr-history"
+USR_MINE = "usr-mine"  # a person's own role, and where it comes from
