@@ -18,11 +18,11 @@ alternative?".
 | [0005](./0005-generated-views.md) | Generated views, not a diagram editor | Accepted 2026-09-05 | `ACMP8`, `ASVC6`, `P8` |
 | [0006](./0006-branches-as-overlays.md) | Branches as overlays on the same schema, merged once with base versions | Accepted 2026-09-06 (built) | `ACMP2`, `ACMP3`, `DOBJ2.5`, `DOBJ2.6` |
 | [0007](./0007-current-and-target-state.md) | Current and target state as core fields, analysed by work package | Accepted 2026-09-06 (built) | `DOBJ2.1`, `DOBJ2.2`, `ASVC8` |
-| [0008](./0008-roles-from-groups.md) | Roles derived from workspace groups, a debug persona locally, one permission function | Accepted 2026-09-06 | `ACMP12`, `ROLE1`–`ROLE5` |
+| [0008](./0008-roles-from-groups.md) | Roles derived from workspace groups, a debug persona locally, one permission function | Accepted 2026-09-06; refined by 0028, once adopted | `ACMP12`, `ROLE1`–`ROLE5` |
 | [0009](./0009-review-before-merge.md) | Review before merge, approved per element type by assigned reviewers | Accepted 2026-09-06 | `ACMP12`, `DOBJ2.7`, `BPROC2.4` |
 | [0010](./0010-application-test-round.md) | A browser-driven test round on demand, unit tests on every change, and an accessibility floor | Adopted 2026-09-09, for the Requester to confirm | `ACMP6`, `ACMP7` |
 | [0011](./0011-one-sql-store-two-engines.md) | The store is written once on SQL, and an engine adds only its dialect | Adopted 2026-09-09, for the Requester to confirm; the engine it names replaced by 0013 | `ACMP2`, `ACMP2.1`, `ACMP2.2`, `TSVC4` |
-| [0012](./0012-workspace-groups-looked-up.md) | The forwarded user's groups are read from the workspace, once, and kept for a few minutes | Adopted 2026-09-09, for the Requester to confirm | `ACMP12`, `TSVC5` |
+| [0012](./0012-workspace-groups-looked-up.md) | The forwarded user's groups are read from the workspace, once, and kept for a few minutes | Adopted 2026-09-09, for the Requester to confirm; refined by 0028, once adopted | `ACMP12`, `TSVC5` |
 | [0013](./0013-lakebase-not-the-lakehouse.md) | Lakebase, not the lakehouse, is the store on Databricks | Accepted 2026-09-11 (the Requester's instruction) | `ACMP2.3`, `TSVC6`, `NODE2`, `ART6`, `PLAT2`, `GAP16` |
 | [0014](./0014-organisations-as-a-partition.md) | An organisation is a partition of the one store, not a second store | Adopted 2026-09-19, for the Requester to confirm | `DOBJ2.8`, `ASVC11`, `ACMP2`, `ACMP13` |
 | [0015](./0015-metamodel-versions.md) | The metamodel is kept in versions, and a published version is frozen | Adopted 2026-09-19, for the Requester to confirm | `DOBJ1.6`, `ASVC1`, `ACMP1`, `ACMP13` |
@@ -38,3 +38,4 @@ alternative?".
 | [0025](./0025-a-pdf-drawn-in-python.md) | A deep dive's PDF is drawn in Python, with ReportLab | Adopted 2026-09-25, the agent's call (initiative 25) | `ACMP8`, `ART4` |
 | [0026](./0026-a-drawing-comes-back-as-a-proposal.md) | A drawing comes back as a proposal, never as the store | Adopted 2026-09-26, at the Requester's word (initiative 26); supersedes one consequence of 0005 | `BPROC2.2`, `DOBJ3.6`, `ACMP8`, `ACMP10`, `P8`, `GAP29` |
 | [0027](./0027-the-protocol-served-by-an-app-of-its-own.md) | The Model Context Protocol, served by an app of its own and read with its own library | Adopted 2026-09-26, the agent's call (initiative 26) | `ACMP16`, `ACMP17`, `TSVC8`, `NODE2`, `ART4`, `ART6`, `GAP7`, `GAP28` |
+| [0028](./0028-roles-granted-to-groups-in-the-application.md) | An admin grants roles to workspace groups in the application; the deployment's grants stay, read-only | Proposed 2026-09-26 (initiative 28), for the Requester at its Understanding | `ROLE1`, `BOBJ2`, `BPROC7`, `DOBJ3.13`, `ACMP12`, `TSVC5`, `GAP31` |

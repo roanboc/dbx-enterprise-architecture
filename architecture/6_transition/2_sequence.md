@@ -37,13 +37,14 @@ flowchart LR
   s1n["1n — deep dives settled in conversation"]:::implementation
   s1o["1o — drawings returned and the model connected"]:::implementation
   s1p["1p — help on every screen"]:::implementation
+  s1q["1q — users and roles"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s3b["3b — sources reached over a protocol"]:::implementation
   s4["4 — governed change on the platform"]:::implementation
   s5["5 — semantic front doors"]:::implementation
   s6["6 — the current EA tool retired"]:::implementation
-  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i --> s1j --> s1k --> s1l --> s1m --> s1n --> s1o --> s1p
+  s1 --> s1b --> s1c --> s1d --> s1e --> s1f --> s1g --> s1h --> s1i --> s1j --> s1k --> s1l --> s1m --> s1n --> s1o --> s1p --> s1q
   s1g --> s2
   s1g --> s3
   s3 --> s3b
@@ -71,6 +72,7 @@ flowchart LR
   s1n["1n — deep dives settled in conversation"]:::implementation
   s1o["1o — drawings returned and the model connected"]:::implementation
   s1p["1p — help on every screen"]:::implementation
+  s1q["1q — users and roles"]:::implementation
   s2["2 — Databricks"]:::implementation
   s3["3 — provenance and feeds"]:::implementation
   s5["5 — semantic front doors"]:::implementation
@@ -94,6 +96,7 @@ flowchart LR
   s1o -->|extends its intake, on DuckDB| p4
   s1o -.->|serves the model; on the platform with step 2| p5
   s1p -.->|extends, in flight| p1
+  s1q -.->|extends its roles, in flight| p4
   s2 -.->|reaches, in flight| p2
   s3 -.->|reaches, in flight| p3
   s5 -.->|reaches| p5
@@ -119,6 +122,7 @@ flowchart LR
 | 1n — deep dives settled in conversation ([initiative 25](../scope/25_deep-dives-settled-in-conversation.md), built 2026-09-25; its run on a workspace waits with step 2) | `GAP27` | `PLAT1`, extended | Step 1m | A reader asks what happens if the curriculum management system is replaced; the assistant settles the brief with them — impact, two steps, to decide whether to replace it — and lists the one earlier deep dive on it, rated four; the deep dive is written, kept and downloaded as a PDF that opens on the system in its enterprise and zooms in to its neighbourhood, with the same diagrams as draw.io files; the reader rates it, and the element's page lists it |
 | 1o — drawings returned and the model connected ([initiative 26](../scope/26_drawings-returned-and-the-model-connected.md), built 2026-09-26; the platform half waits with step 2) | `GAP29`, `GAP7`, `GAP28` for systems reached over the Model Context Protocol | `PLAT1`, extended; `PLAT4`, its intake; `PLAT5`, its tool server | Step 1n; the draw.io stamp (built 2026-09-26); for a connected system, one that answers the protocol and a way for the reader's identity to reach it | An architect hands back an impact view they drew on in draw.io: the application knows which shapes were its own, asks whether the renamed one is a rename and whether the shape taken out leaves the model or only the picture, types the two new shapes from their stencils and applies what was ticked to a branch. The same architect asks about the system from their own agent in their editor, connected to the tool server, and gets the same identifiers the Ask page gives. A deep dive on it reads the design page the system links to on the connected wiki and says where the page and the model disagree |
 | 1p — help on every screen ([initiative 27](../scope/27_getting-started-and-help-on-every-screen.md), pending Understanding) | `GAP30` | `PLAT1`, extended | Step 1o, the screens the help describes | A newcomer opens the application for the first time and reads a short welcome: what the repository is for, the navigation's groups, where their role starts. They close it and do not see it again in that browser. On Propose they press the help beside the title and read why the screen exists, what it shows and how a page becomes a branch, with the flow drawn and what their role may do there. An architect who has used the application for months sees one small help button per screen and nothing else |
+| 1q — users and roles ([initiative 28](../scope/28_users-and-roles.md), pending Understanding; the search of a real workspace waits with step 2) | `GAP31` | `PLAT4`, its roles, on DuckDB | Step 1g's roles; for the search, a workspace whose groups the application's identity may read, which is step 2's | An admin opens Users and roles, types *arch*, picks the solution architects' workspace group and grants it Architect with a line of why. Checking a newcomer, they read *Reader — none of their groups holds a role*. They try to remove the grant their own Admin rests on and are told why not. Within a minute an architect of that group creates a branch |
 | 2 — Databricks (initiatives 13 and 14, built 2026-09-09 and 2026-09-11; the workspace run pending) | `GAP1`, `GAP2`, `GAP16` | `PLAT2` | A workspace with Apps enabled and Lakebase available; a service principal | The same app on Databricks Apps, the same data in a Lakebase database, the same tests green |
 | 3 — provenance and feeds (initiative 18, built 2026-09-21; in flight) | `GAP4`, and `GAP19` opened | `PLAT3` | The per-type source-of-record table agreed with the enterprise architecture team (open question 5); read access to the extracts of the CMDB, the HR system, the project portfolio tool, the information asset register and the data platform's metadata catalogue (the last through its existing platform pipelines); and, outside the application, whatever fires a schedule | A source leaves rows in the store's own staging schema and a configured feed loads them through the same validation, report, branch and role rules a file gets — on demand today, on its schedule once something outside fires it; every run is kept and readable afterwards. **Still to come:** a CMDB change appearing without anyone pressing anything, which needs the source-of-record table and a trigger; and a source reached over a protocol rather than through a table somebody else fills (`GAP20`) |
 | 3b — sources reached over a protocol | `GAP20` | `PLAT3` | Step 3 (the pipeline a connected source is put through is the one step 3 built) and `PLAT2` (the platform is what reaches the source on a user's behalf); the source-of-record table, so a connected source knows which types it masters | A source is added by filling in where it lives and what it masters — no pipeline written for it — and its rows arrive validated, attributed to it, and on the branch its configuration names |

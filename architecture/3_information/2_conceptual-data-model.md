@@ -9,7 +9,7 @@ exists; this document says how it is shaped, and
 [3_logical-data-model.md](./3_logical-data-model.md) says how it is stored.
 
 **Status: `◐` draft** — read from the code as it runs today (`src/ea/models.py`,
-`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022. It defines
+`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022, with 0028 as proposed. It defines
 no element of its own: every entity below names the data object it belongs to,
 and that catalogue owns the name.
 
@@ -77,6 +77,7 @@ is what lets a version be tried in one organisation without touching another
 | **BRANCH_CHANGE** | one element, relationship or link as one branch has it, with the operation and the version it was taken from | part of [`DOBJ2.5`] Branch | the overlay tables (decision 0006) |
 | **REVIEW** | one reviewer's decision on one branch, for the types they cover | [`DOBJ2.7`] Review | `Review` in `src/ea/models.py`, `ReviewService` |
 | **REVIEWER_ASSIGNMENT** | a person who may approve changes to one element type | part of [`DOBJ2.7`] Review | `ReviewService` |
+| **ROLE_GRANT** | one role given to one workspace group, in every organisation | [`DOBJ3.13`] Role grant | **Pending — [initiative 28](../scope/28_users-and-roles.md)**: `RoleGrant` in `src/ea/models.py`, `AccessService` |
 | **PROPOSAL** | what an architect handed in, what the agent derived from it, and where it went; one pass of a design onto a branch, revising the pass before it; a draft until it is applied, with the conversation that refined it | [`DOBJ3.6`] Proposal | `Proposal` in `src/ea/models.py`, `ProposalService` |
 | **PROPOSAL_TEMPLATE** | one document shape an organisation proposes in, typed in one metamodel | [`DOBJ3.9`] Proposal template | `ProposalTemplate` in `src/ea/models.py`, `TemplateService` |
 | **CHANGE_LOG_ENTRY** | one change to one thing: who, when, before and after | [`DOBJ3.4`] Change log | `history()` in `src/ea/backend/base.py` |
@@ -156,6 +157,7 @@ erDiagram
   REVIEW }o..o{ ELEMENT_TYPE : "covers"
   ORGANISATION ||--o{ CHANGE_LOG_ENTRY : "holds"
   CHANGE_LOG_ENTRY }o..o| ELEMENT : "records a change to"
+  CHANGE_LOG_ENTRY }o..o| ROLE_GRANT : "records a change to"
 ```
 
 | From | Relationship | To | How many | Rule |
@@ -169,7 +171,7 @@ erDiagram
 | PROPOSAL | is read with | PROPOSAL_TEMPLATE | many to none or one | none when the page was read as free text; a template deleted later leaves the proposal standing, naming it |
 | ORGANISATION | keeps | PROPOSAL_TEMPLATE | one to many | an organisation's templates are its own; the starters the repository ships become one of them when picked |
 | PROPOSAL_TEMPLATE | is typed in | METAMODEL_VERSION | many to exactly one | by the pack's identifier; a template naming a type the applied version lacks says so when it is checked, and is not refused |
-| CHANGE_LOG_ENTRY | records a change to | ELEMENT, RELATIONSHIP, METAMODEL_VERSION, ORGANISATION, BRANCH | many to one | by kind and identifier rather than by a reference, because the log outlives what it records |
+| CHANGE_LOG_ENTRY | records a change to | ELEMENT, RELATIONSHIP, METAMODEL_VERSION, ORGANISATION, BRANCH, ROLE_GRANT | many to one | by kind and identifier rather than by a reference, because the log outlives what it records; a role grant's changes are filed under no organisation |
 
 ## Knowledge kept — deep dives
 
@@ -198,7 +200,9 @@ erDiagram
 
 - **Two scopes, always.** Every content entity is in exactly one organisation;
   every metamodel entity is in exactly one version. Nothing reads across either
-  boundary, and a reader's own SQL is answered inside both.
+  boundary, and a reader's own SQL is answered inside both. A role grant stands
+  in neither: it is the application's, as the list of organisations is, and a
+  role holds in every organisation.
 - **A branch is a third scope, and it is temporary.** A read is answered from the
   organisation's rows unless the branch has its own, and a merge folds the
   branch's rows in and closes it.
@@ -211,7 +215,8 @@ erDiagram
   framework.
 - **Nothing is deleted.** An element is retired, a relationship removal is
   logged, and the change log is append-only. Deleting an organisation is the one
-  exception, and it takes everything in it.
+  exception, and it takes everything in it. A role grant is configuration, and is
+  deleted when it is removed; the change log keeps what it was.
 
 ## What this model leaves out
 

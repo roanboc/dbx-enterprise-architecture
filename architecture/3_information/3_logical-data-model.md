@@ -75,7 +75,7 @@ given per group.
 | `ea_metamodel` | the six `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
 | `ea_content` | the organisations and their elements, relationships and links | everyone |
 | `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
-| `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from — and the systems the assistant may read | reviewers and admins |
+| `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from — and the systems the assistant may read; and the roles an admin grants to workspace groups (initiative 28, pending Understanding), the one table here no organisation owns | reviewers and admins; the role grants by admins alone |
 | `ea_audit` | the change log and the history of every import | anyone who may read the content; never updated, only appended |
 | `ea_knowledge` | the deep dives kept on the content, the elements each cites and the ratings people gave them | anyone who may read the content; written by whoever may ask, and rated by anyone who may read |
 | `ea_staging` | **nothing the store makes.** The one schema it creates and never fills: a source leaves rows here in the contract's own shape and a feed reads them (decision 0020) | the store reads it; whatever writes it is outside the application |
@@ -112,11 +112,14 @@ erDiagram
   organisation ||--o{ deep_dive : "keeps"
   deep_dive ||--o{ deep_dive_element : "cites"
   deep_dive ||--o{ deep_dive_rating : "is rated in"
+  change_log }o..o| role_grant : "records changes of"
 ```
 
-Twenty-four tables. The six `meta_` tables are shared by every organisation and keyed
-by pack and version, and so is the `organisation` table itself; the seventeen
+Twenty-five tables. The six `meta_` tables are shared by every organisation and keyed
+by pack and version, and so is the `organisation` table itself; the eighteen
 others carry `org_id` and belong to exactly one organisation (decision 0014).
+`role_grant` (initiative 28, pending Understanding) is the application's, as `organisation` is,
+and makes twenty-six.
 A run names the feed it was of and keeps that feed's name beside the identifier,
 so the history survives the feed being deleted — the line above is what a run
 *was* run as, not a key it is read through.
@@ -128,7 +131,9 @@ so the history survives the feed being deleted — the line above is what a run
 | `meta_element_type` | the element types of that version | `pack_id`, `pack_version`, `type_id` | `pack_id`, `pack_version` |
 | `meta_relationship_type` | the relationship types of that version | `pack_id`, `pack_version`, `rel_type_id` | `pack_id`, `pack_version` |
 | `meta_attribute` | the attributes of that version, of an element type or of a relationship type | `pack_id`, `pack_version`, `type_id`, `rel_type_id`, `name` | `pack_id`, `pack_version` |
+| `meta_attribute_group` | the sections an attribute is read under, in that version | `pack_id`, `pack_version`, `group_id` | `pack_id`, `pack_version` |
 | `organisation` | the enterprises this store holds | `org_id` | shared |
+| `role_grant` | a role given to a workspace group, in every organisation (initiative 28, pending Understanding) | `group_id` | shared |
 | `element` | the elements of one organisation's main | `org_id`, `element_id` | `org_id` |
 | `relationship` | its relationships | `org_id`, `relationship_id` | `org_id` |
 | `element_link` | the links hanging off its elements | `org_id`, `link_id` | `org_id` |
@@ -343,6 +348,10 @@ erDiagram
     varchar pack_id "the metamodel it is typed in"
     varchar document "the Markdown, front matter and all"
   }
+  role_grant {
+    varchar group_id PK "the workspace's identifier for the group"
+    varchar role "reviewer, architect or admin"
+  }
   change_log {
     varchar org_id PK
     varchar change_id PK
@@ -364,7 +373,8 @@ erDiagram
 | `reviewer_assignment` | `added_by`, `added_at` | `type_id` → `meta_element_type` | the whole set for a type is rewritten when it is saved |
 | `proposal` | `title`, `status` (`draft` or `applied`), `created_by`, `created_at`, `updated_at` | `branch_id` → `branch`; `template_id` → `proposal_template`; `revises` → `proposal` | kept with the branch; the JSON columns are the record of what was asked and what came back, the impact assessed at Apply inside `result_json`, the conversation that refined a draft in `conversation_json`. A draft for a branch not yet created carries an empty `branch_id`. A template or an earlier revision is referred to, never required: a proposal outlives both |
 | `proposal_template` | `description`, `created_by`, `created_at`, `updated_at` | `pack_id` → `meta_pack` | The document is stored whole, because the reading is in its front matter and the architect downloads exactly what was uploaded |
-| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import`, `template` and `deep_dive`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
+| `role_grant` | `group_name`, `checked`, `note`, `granted_by`, `granted_at` | — | (initiative 28, pending Understanding): one row per group, rewritten when its role changes and deleted when the grant is removed; `group_id` is the workspace's identifier, or the exact name where the directory could not be searched, with `checked` false until a later search finds it; never read by a reader's own SQL |
+| `change_log` | `op`, `actor`, `changed_at`, `version` | `branch_id` → `branch`, where the change was made on one | `entity_kind` is one of `element`, `relationship`, `metamodel`, `organisation`, `branch`, `reviewers`, `import`, `template`, `deep_dive` and, filed under no organisation, `role_grant`, with `entity_id` rather than a column per table: the log outlives what it records, and a retired element's history stays |
 
 ## Deep dives
 
@@ -484,6 +494,7 @@ of a hub that every element depends on.
 | PROPOSAL | `proposal` | [`DOBJ3.6`] Proposal |
 | PROPOSAL_TEMPLATE | `proposal_template` | [`DOBJ3.9`] Proposal template |
 | CHANGE_LOG_ENTRY | `change_log` | [`DOBJ3.4`] Change log |
+| ROLE_GRANT | `role_grant` | [`DOBJ3.13`] Role grant |
 | DEEP_DIVE | `deep_dive`, `deep_dive_element` | [`DOBJ3.11`] Deep dive |
 | DEEP_DIVE_RATING | `deep_dive_rating` | part of [`DOBJ3.11`] Deep dive |
 

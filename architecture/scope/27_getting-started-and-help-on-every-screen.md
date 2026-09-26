@@ -43,7 +43,7 @@ title opens that screen's help in a side panel:
 | **More** | The related screens, and the screen's section of the Guide |
 
 The panel opens only when the button is pressed, or with the `?` key, and
-Escape closes it. The screens are the fourteen in the navigation and the
+Escape closes it. The screens are every screen in the navigation and the
 Element page, which Browse leads to.
 
 **3 — A tip on a screen's first visit.** The first time a person opens a
@@ -67,7 +67,7 @@ else once the welcome and a screen's tip have been closed.
 | **Where is a closed welcome or tip remembered?** | Adopted — in the person's browser, never in the store | Nothing about a person is stored, and nothing is added to the information layer. A second browser, or cleared site data, shows the welcome once more. Remembering it per person needs a store per reader, which initiative 20 left open for saved searches, and the information architect's word |
 | **Does the help ever open by itself?** | No | Only the welcome and a screen's one-line tip appear unasked, once each. Neither is a dialog, and neither takes the keyboard's focus |
 | **A guided tour that steps through a screen's controls?** | No | A tour interrupts the person who is working, breaks when a screen changes, and repeats what the help says. The help beside the title and the first-visit tip do its job without the interruption |
-| **Which screens?** | Adopted — the fourteen in the navigation and the Element page | The Element page is where an element is read and edited, and every search leads to it |
+| **Which screens?** | Adopted — every screen in the navigation and the Element page | The Element page is where an element is read and edited, and every search leads to it |
 | **Does the help know the reader's role?** | Yes | The side panel says what the reader's role may do on the screen, read from `allowed()` in `services/roles.py`, the rule that enforces it; a role that may not act is told who can |
 | **Principle `P8` and the help's diagrams?** | Adopted — `P8` governs diagrams of the enterprise's model; a help diagram draws how the product is used | A help diagram names no element and is never read as the model. It is written with the help and drawn in the browser by the renderer the application already bundles, so nothing is fetched from the internet |
 | **Where is the help written?** | In the repository, as Markdown, one file per screen, generic, beside the guide | One text serves the side panel and the Guide page. It names no organisation and no framework's types; what differs per organisation is read from its metamodel when the help is drawn, as the Guide already does |
@@ -118,7 +118,7 @@ packages 1 to 5 is built until that word is given.
 | In scope | Out of scope |
 | -------- | ------------ |
 | The welcome and the tips remembered per browser | Remembered per person, across browsers |
-| Help for the fourteen screens of the navigation and the Element page | Help for each dialog and each field — a field already shows the help text its metamodel gives it |
+| Help for every screen of the navigation and the Element page | Help for each dialog and each field — a field already shows the help text its metamodel gives it |
 | Help written once, in English, shipped with the application | An organisation's own additions to the help, and translations |
 | Help beside the title and a tip on a first visit | A guided tour through a screen's controls |
 | | Measuring which help is read |

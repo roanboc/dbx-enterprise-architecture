@@ -53,7 +53,7 @@ flowchart LR
 | -- | ------ | ----- | ----- |
 | `DOBJ1` | **Metamodel** — what may exist, in versions: element types, relationship types, attributes, attribute groups, domains, provenance tags | The framework owner (for the first pack, the enterprise architecture team; the pack is their metamodel as data) | One pack per framework, in as many versions as that framework has had, each under an identifier that outlives every name given to it (decision 0021); two ship as starters — the Higher Education EA Metamodel and the ArchiMate Core, a second framework carried by the same engine — and either one begins an organisation of its own |
 | `DOBJ2` | **Architecture graph** — what does exist: elements, relationships, links, and the organisations they are partitioned into | The content owners (everything is sourced from the current EA tool until the source-of-record table is agreed) | About 4,600 elements in the first slice loaded and 47 in the sample; the store is assessed to hold and answer a hundred thousand elements and six hundred thousand relationships, which is headroom rather than a forecast (assessment `ASM6`, decisions 0016 to 0018) |
-| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals and the templates they are written in, the impact of a change, the history of every import and the feeds content arrives on |
+| `DOBJ3` | **Exchange and audit** — how content arrives and how every change is remembered | The repository itself | CSV exchange files, column mappings, import reports, the change log, answer documents, proposals and the templates they are written in, the impact of a change, the history of every import and the feeds content arrives on, the systems the assistant may read, and the roles an admin grants to workspace groups |
 
 ## Objects
 
@@ -118,6 +118,7 @@ a relationship type and an attribute each have one.
 | `DOBJ3.8` | **Source feed** — a configured source: the staging tables that are its, the mapping it reads them with (stored inline, so a source's columns cannot change underneath it), the branch it writes to or `main`, whether it empties what it loaded, its schedule and the zone that schedule is written in, and how its last run went | `SourceFeed` in `src/ea/models.py`; `src/ea/importer/feeds.py` | table `source_feed` | internal |
 | `DOBJ3.11` | **Deep dive** — an analysis a reader settled with the assistant, and what came of it. **The brief:** what it is about, the kind of analysis, how far it reaches and what it is for. **Its catalogue entry:** the domains and element types of its subject, the kind of analysis, the work package it concerns, the organisation and the branch it read, the metamodel version it was read in, who asked and when. **What it found:** the **maturity** of every element it rests on — read from what the element carries: its status, its current state, its description and links, whether it traces up and has the relationships its type declares, how recently its source refreshed it — the views, from the context down to the detail — the high level drawn to be presented, the detail in the metamodel's notation — the **work packages in flight** that change what it read; and the **findings**, each with its severity, the elements it cites and why it matters, among them where an element and what documents it disagree; a summary led by them; and the **references** it drew on — the earlier deep dives on the same elements, with the ratings people gave them. **What people made of it:** one rating per person, one to five stars, with a line of why, which that person may change or clear. Kept per organisation, linked from every element it cites, and handed out as a pack — a styled PDF and a draw.io file per view — generated from what is kept (decision [0024](../decisions/0024-deep-dives-are-kept.md)) **From initiative 26**, its references also name what a connected system said — the system, its own reference to the page or record, and when it was read — kept apart from the elements it cites, and never taken for one | `DeepDive`, `DeepDiveElement` and `DeepDiveRating` in `src/ea/models.py`; `DeepDiveService` in `src/ea/services/deep_dives.py`; the analysis in `src/ea/agent/deep_dive.py` ([initiative 25](../scope/25_deep-dives-settled-in-conversation.md)) | tables `deep_dive`, `deep_dive_element`, `deep_dive_rating` | as the content it cites |
 | `DOBJ3.12` | **Connected system** — a system of the enterprise the assistant may read over the Model Context Protocol, as the person it answers: its name, where it is reached, what it speaks for — the element types it masters, and the link addresses it answers for — the tools on it the assistant may call, all of them read-only, the tool that reads a page and how a page's address becomes that tool's arguments (a pattern whose named groups pick pieces out of the address, and the arguments they fill in), how a person is known to it (their own identity where the platform passes it on, else a credential the platform holds or the application's own platform identity, never the store), which roles may have the credential or the application's identity read it for them, and who connected it and when. Configuration, not content: what the system says is read when it is needed, cited as the system's, and never written into the model (initiative 26) | `ConnectedSystem` in `src/ea/models.py`; `ConnectedSystemService` in `src/ea/services/connected.py` | table `connected_system` | internal; the credential is never in the store |
+| `DOBJ3.13` | **Role grant** — a role the application gives to a workspace group, beyond what the deployment's role configuration gives (initiative 28, pending Understanding; decision 0028): the role — Reviewer, Architect or Admin; the group, by the workspace's own identifier for it and the name it had when it was granted; a line of why; who granted it and when. One per group, and a new role replaces the old. **The application's, not an organisation's**: a role holds in every organisation the store holds. A person's role is the highest that the deployment's configuration or a grant to one of their groups gives; a grant never lowers a role, and a person no grant reaches is a Reader. The deployment's `EA_ROLE_GROUPS` is not a row: it is read from the environment and shown beside the grants | **Pending — initiative 28**: `RoleGrant` in `src/ea/models.py`; `AccessService` in `src/ea/services/access.py` | table `role_grant`, with no `org_id` | internal; read by admins and by the role a request is given, never by a reader's own SQL |
 
 ## Exchange, audit and intake
 
@@ -135,6 +136,7 @@ flowchart LR
   imp["▦ Change impact [DOBJ3.10]"]:::application
   deep["▦ Deep dive [DOBJ3.11]"]:::application
   conn["▦ Connected system [DOBJ3.12]"]:::application
+  grant["▦ Role grant [DOBJ3.13]"]:::application
   el["▦ Element [DOBJ2.1]"]:::application
   br["▦ Branch [DOBJ2.5]"]:::application
   cs["▦ Change set [DOBJ2.6]"]:::application
@@ -158,6 +160,7 @@ flowchart LR
   feed -->|run as| run
   deep -->|cites what it said| conn
   conn -->|speaks for| el
+  log -->|records changes of| grant
 
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
 ```
@@ -207,6 +210,10 @@ spending the memory (assessment `ASM6`, decision 0019).
 - Nothing is deleted: an element is retired (`status = retired`), a relationship
   removal is logged, and the change log is append-only. The change log is kept
   for 2 years on the platform once it runs on Databricks.
+- **A role grant is configuration, not content** (initiative 28, pending Understanding). A removed
+  grant is deleted, as a reviewer assignment is, and the change log keeps what it
+  was and who removed it. The grants name workspace groups, never people, and
+  only admins read them.
 - **Deep dives are kept, and nothing deletes one.** Its author or an admin may
   withdraw a deep dive, which takes it out of the catalogue and out of what later
   deep dives consider, and keeps its row; a rating is one per person and may be
@@ -237,6 +244,7 @@ spending the memory (assessment `ASM6`, decision 0019).
 | `DOBJ3.2` | ▤ «Data Object» Column mapping | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | normalises | |
 | `DOBJ3.1` | ▤ «Data Object» CSV exchange files | `DOBJ3.3` | ▤ «Data Object» Import report | reported in | counts read, loaded and skipped, and every issue |
 | `DOBJ3.4` | ▤ «Data Object» Change log | `DOBJ2.1` | ▤ «Data Object» Element | records changes of | and of relationships and the pack |
+| `DOBJ3.4` | ▤ «Data Object» Change log | `DOBJ3.13` | ▤ «Data Object» Role grant | records changes of | Pending — initiative 28: every grant, change and removal, filed under no organisation so that no organisation's history counts it; the one place a removed grant is remembered |
 | `DOBJ3.7` | ▤ «Data Object» Import run | `DOBJ3.3` | ▤ «Data Object» Import report | accounts for | the report is what a run said while somebody watched; the run is what it was afterwards |
 | `DOBJ3.8` | ▤ «Data Object» Source feed | `DOBJ3.7` | ▤ «Data Object» Import run | run as | one run per execution; the run outlives the feed, keeping its name |
 | `DOBJ3.8` | ▤ «Data Object» Source feed | `DOBJ3.2` | ▤ «Data Object» Column mapping | read through | stored inline with the feed, not as a path |

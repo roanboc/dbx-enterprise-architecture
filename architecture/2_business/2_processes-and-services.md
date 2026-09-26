@@ -35,11 +35,13 @@ flowchart TB
   p4("⚙ Analyse a work package [BPROC4]"):::business
   p5("⚙ Maintain the metamodel [BPROC5]"):::business
   p6("⚙ Watch the model's health [BPROC6]"):::business
+  p7("⚙ Grant access [BPROC7]"):::business
   know -->|realized by| p1
   know -->|realized by| p3
   know -->|realized by| p4
   gov -->|realized by| p2
   gov -->|realized by| p6
+  gov -->|realized by| p7
   meta -->|realized by| p5
 
   classDef business fill:#fffbb5,stroke:#b8a200,color:#333
@@ -48,7 +50,7 @@ flowchart TB
 | ID | Service | Offered to | Delivered by |
 | -- | ------- | ---------- | ------------ |
 | `BSVC1` | **Architecture knowledge** — the enterprise's architecture as a queryable, cited, drawn body of knowledge: what exists, who owns it, what depends on what, what a work package changes — and the deep dives kept on it, rated by the people who read them, so an analysis builds on the last one rather than starting from a blank page | Solution architects, stewards, the data and analytics unit, and any agent | Loading (`BPROC1`), answering (`BPROC3`), analysing (`BPROC4`) |
-| `BSVC2` | **Governed change** — a change to the model is drafted apart from the truth, reviewed by the people who own the types it touches, and lands with a record of who decided what | Architects and stewards | Changing the model (`BPROC2`) and watching its health (`BPROC6`) |
+| `BSVC2` | **Governed change** — a change to the model is drafted apart from the truth, reviewed by the people who own the types it touches, and lands with a record of who decided what, decided by the people an admin has given the right to | Architects and stewards, and the admins who decide who they are | Changing the model (`BPROC2`), watching its health (`BPROC6`) and granting access (`BPROC7`) |
 | `BSVC3` | **Metamodel stewardship** — the enterprise's own framework kept as configuration: types, relationships, attributes, notation, reviewers per type | The enterprise architecture team | Maintaining the metamodel (`BPROC5`) |
 
 ## Business processes
@@ -87,6 +89,7 @@ flowchart LR
 | `BPROC4` | **Analyse a work package** — current state against target state | A work package needs a picture | Pick the work package; read the counts, the matrix and the marked view; edit states on the elements | The organisation sees what the initiative creates, changes and retires |
 | `BPROC5` | **Maintain the metamodel** — the framework as data | The framework owner changes a type, a relationship, an attribute, a notation or a reviewer | Edit in the app; save; export the pack; reload from file | A new pack version, the app reflecting it |
 | `BPROC6` | **Watch the model's health** — freshness and completeness | A weekly look, or before a review | Read the freshness per source and the completeness per type; bulk-edit what is stale or empty; search descriptions for what is wrong | Stale and incomplete content found and fixed |
+| `BPROC7` | **Grant access** — who may do what in the repository, decided by an admin where the work is done (initiative 28, pending Understanding) | A team needs to draft, review or administer; a group no longer needs its role; a person asks why they cannot do something | On Users and roles the admin types part of a group's name and picks it from the workspace's groups, then picks the role — Reviewer, Architect or Admin — and a line of why, and grants it. They read every grant, the deployment's own beside those kept in the application, and remove one that no longer holds. They check a person, reading the role that person gets and the group it comes from. Who is in a group is changed in the workspace, never here | The role held within a minute; the grant recorded with who gave it, when and why; every change in the change log |
 
 ## Processes and the application services that serve them
 
@@ -125,6 +128,7 @@ flowchart LR
 | `BSVC1` | ⚙ «Business Service» Architecture knowledge | `BPROC4` | ⚙ «Business Process» Analyse a work package | realized by | |
 | `BSVC2` | ⚙ «Business Service» Governed change | `BPROC2` | ⚙ «Business Process» Change the model | realized by | |
 | `BSVC2` | ⚙ «Business Service» Governed change | `BPROC6` | ⚙ «Business Process» Watch the model's health | realized by | |
+| `BSVC2` | ⚙ «Business Service» Governed change | `BPROC7` | ⚙ «Business Process» Grant access | realized by | Pending — initiative 28 |
 | `BSVC3` | ⚙ «Business Service» Metamodel stewardship | `BPROC5` | ⚙ «Business Process» Maintain the metamodel | realized by | |
 | `BPROC2.1` | ⚙ «Business Process» Draft on a branch | `BPROC2.3` | ⚙ «Business Process» Request a review | triggers | |
 | `BPROC2.2` | ⚙ «Business Process» Hand in a proposal | `BPROC2.1` | ⚙ «Business Process» Draft on a branch | triggers | a proposal lands on a branch |
