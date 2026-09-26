@@ -132,3 +132,18 @@ def test_a_deep_dive_is_the_organisation_s_own(loaded, pack):
     with use_org("trial"):
         assert loaded.get_deep_dive(theirs.deep_dive_id) is None
     assert loaded.get_deep_dive(kept.deep_dive_id) is not None
+
+
+def test_a_person_clears_their_own_rating_and_nobody_else_s(loaded):
+    d = loaded.save_deep_dive(_dive("Rated"))
+    loaded.rate_deep_dive(DeepDiveRating(d.deep_dive_id, "ada", 2, "thin"))
+    loaded.rate_deep_dive(DeepDiveRating(d.deep_dive_id, "bob", 4, ""))
+    assert loaded.clear_deep_dive_rating(d.deep_dive_id, "ada") is True
+    got = loaded.get_deep_dive(d.deep_dive_id)
+    assert (got.rating_count, got.rating_average) == (1, 4.0)
+    assert [r.rated_by for r in loaded.deep_dive_ratings(d.deep_dive_id)] == ["bob"]
+    # clearing a rating that is not there changes nothing, and says so
+    assert loaded.clear_deep_dive_rating(d.deep_dive_id, "ada") is False
+    # ada may rate again: one rating per person, whenever she gives it
+    loaded.rate_deep_dive(DeepDiveRating(d.deep_dive_id, "ada", 5, "better on a second read"))
+    assert loaded.get_deep_dive(d.deep_dive_id).rating_count == 2

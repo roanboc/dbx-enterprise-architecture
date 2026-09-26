@@ -1,16 +1,18 @@
 """Ask's deep mode (initiative 25, BPROC3): a brief settled in conversation, then a deep dive, kept.
 
-The reader says what they need to know; the assistant settles the brief with them — what it is
+The reader says what they need to know; the assistant settles a brief with them — what it is
 about, which kind of analysis, how far it reaches, which layers, what it is for — each question
 with the choices the model allows, as Propose asks about a draft. The brief reads as one
 sentence before anything is written, beside the earlier deep dives on the same elements. When
-the reader writes it, the deep dive is kept in the catalogue under their name and its pack — a
-PDF and its diagrams as draw.io files — is theirs to download.
+the reader writes it, the deep dive is kept in the catalogue under their name and opened there,
+on the Kept tab beside this one, where its pack — a PDF and its diagrams as draw.io files — is
+downloaded, and where it is rated, run again or withdrawn (`deep_dives`).
 """
 
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qs
 
 import dash
 import dash_mantine_components as dmc
@@ -19,15 +21,10 @@ from dash import ALL, Input, Output, State, dcc, html, no_update
 from ea.agent.deep_dive import KINDS, Brief, DeepDiveAnalyst
 from ea.models import DeepDive, Forbidden, NotFoundError
 from ea.ui import ids
-from ea.ui.components import alert, icon, layer_chips, mermaid_block
+from ea.ui.components import alert, icon
 from ea.ui.context import AppContext, get_context
-from ea.ui.pages.deep_dives import pack
-from ea.views.deep_dive_layout import figures
-from ea.views.mermaid import to_mermaid
-from ea.views.model import view_from_dict
+from ea.ui.pages import deep_dives
 
-SEVERITY_COLOUR = {"high": "red", "medium": "orange", "low": "blue"}
-CONFIDENCE_COLOUR = {"high": "green", "medium": "yellow", "low": "red"}
 EXAMPLE = "What happens if the curriculum management system is replaced?"
 
 
@@ -85,6 +82,19 @@ def write_state(ctx: AppContext, brief: dict[str, Any] | None) -> tuple[bool, st
     return False, ""
 
 
+def opened_at(deep_dive_id: str) -> str:
+    """The address a deep dive opens at once it is written: the Kept tab, on it."""
+    return deep_dives.search_of({}, deep_dive_id)
+
+
+def tab_of(search: str | None) -> str:
+    """`kept` when the address opens the catalogue (a deep dive, or a narrowing), else `new`."""
+    q = parse_qs((search or "").lstrip("?"))
+    if (q.get("tab") or [""])[0] == "kept" or q.get("open"):
+        return "kept"
+    return "new"
+
+
 def write(ctx: AppContext, brief: dict[str, Any]) -> DeepDive:
     """The deep dive the brief asks for, analysed and kept under the reader's name."""
     d = analyst(ctx).analyse(Brief.from_dict(brief))
@@ -92,9 +102,9 @@ def write(ctx: AppContext, brief: dict[str, Any]) -> DeepDive:
 
 
 # ------------------------------------------------------------------ the page
-def render(ctx: AppContext) -> html.Div:
-    """The deep mode's panel on the Ask page."""
-    return html.Div(
+def render(ctx: AppContext, search: str | None = None) -> html.Div:
+    """The deep mode's panel on the Ask page: a new deep dive, and the ones kept."""
+    new = html.Div(
         [
             dmc.Paper(
                 dmc.Stack(
@@ -103,9 +113,9 @@ def render(ctx: AppContext) -> html.Div:
                             "A deep dive settles with you what you need to know, then reads the model from "
                             "the top down: the context and an overview drawn to be presented, the "
                             "architecture and the detail in the metamodel's notation, the maturity of what "
-                            "it rests on, where the model and its documentation disagree, and the findings. "
-                            "It is written as a PDF with its diagrams as draw.io files, kept in the "
-                            "catalogue for others to rate and build on.",
+                            "it rests on, where the model and its documentation disagree, the work in flight, "
+                            "and the findings. It is written as a PDF with its diagrams as draw.io files, "
+                            "kept for others to rate and build on.",
                             size="sm",
                             c="dimmed",
                         ),
@@ -118,14 +128,11 @@ def render(ctx: AppContext) -> html.Div:
                             size="md",
                         ),
                         dmc.Group(
-                            [
-                                dmc.Button(
-                                    "Start the brief",
-                                    id=ids.ASK_DD_START,
-                                    leftSection=icon("tabler:list-check"),
-                                ),
-                                dmc.Anchor("The catalogue of deep dives", href="/deep-dives", size="sm"),
-                            ],
+                            dmc.Button(
+                                "Start the brief",
+                                id=ids.ASK_DD_START,
+                                leftSection=icon("tabler:list-check"),
+                            ),
                             gap="md",
                         ),
                     ],
@@ -139,8 +146,21 @@ def render(ctx: AppContext) -> html.Div:
             html.Div(id=ids.ASK_DD_BRIEF),
             html.Div(id=ids.ASK_DD_RESULT),
             dcc.Store(id=ids.ASK_DD_STORE, data=None),
-            dcc.Store(id=ids.ASK_DD_KEPT, data=None),
         ]
+    )
+    return dmc.Tabs(
+        [
+            dmc.TabsList(
+                [
+                    dmc.TabsTab("New deep dive", value="new", leftSection=icon("tabler:list-check")),
+                    dmc.TabsTab("Kept deep dives", value="kept", leftSection=icon("tabler:report-analytics")),
+                ]
+            ),
+            dmc.TabsPanel(new, value="new", pt="md"),
+            dmc.TabsPanel(deep_dives.catalogue(ctx, search), value="kept", pt="md"),
+        ],
+        id=ids.ASK_DD_TABS,
+        value=tab_of(search),
     )
 
 
@@ -212,10 +232,6 @@ def _question_card(q: Any, b: Brief):
     )
 
 
-def _rating(d: DeepDive) -> str:
-    return f"{d.rating_average} of 5, {d.rating_count} rating(s)" if d.rating_count else "not rated yet"
-
-
 def brief_panel(ctx: AppContext, brief: dict[str, Any]) -> dmc.Paper:
     """The brief as one sentence, its questions, and the earlier deep dives on the same elements."""
     a = analyst(ctx)
@@ -244,13 +260,14 @@ def brief_panel(ctx: AppContext, brief: dict[str, Any]) -> dmc.Paper:
                         *[
                             dmc.Group(
                                 [
-                                    dmc.Anchor(d.title, href=f"/deep-dives?open={d.deep_dive_id}", size="sm"),
+                                    dmc.Anchor(d.title, href=deep_dives.href_of(d.deep_dive_id), size="sm"),
                                     dmc.Text(
-                                        f"{KINDS.get(d.kind, {}).get('label', d.kind)} · {_rating(d)} · "
+                                        f"{KINDS.get(d.kind, {}).get('label', d.kind)} · "
                                         f"{str(d.created_at or '')[:10]}",
                                         size="xs",
                                         c="dimmed",
                                     ),
+                                    deep_dives.stars(d.rating_average, d.rating_count, "xs"),
                                 ],
                                 gap="sm",
                             )
@@ -280,108 +297,6 @@ def brief_panel(ctx: AppContext, brief: dict[str, Any]) -> dmc.Paper:
         withBorder=True,
         mb="md",
         className="ea-card",
-    )
-
-
-def result_card(ctx: AppContext, d: DeepDive) -> dmc.Paper:
-    """What was written: the brief, how far it can be trusted, what matters most, and the pack."""
-    c = d.content
-    conf = c.get("confidence") or {}
-    by_id = {f["id"]: f for f in c.get("findings") or []}
-    headline = [by_id[h["id"]] for h in c.get("headline") or [] if h["id"] in by_id]
-    first_view = next((f for f in figures(c) if f["kind"] == "view"), None)
-    ungrounded = (c.get("trace") or {}).get("ungrounded") or []
-    view = view_from_dict(first_view["view"]) if first_view else None
-    return dmc.Paper(
-        dmc.Stack(
-            [
-                dmc.Group(
-                    [
-                        dmc.Stack(
-                            [
-                                dmc.Title(d.title, order=2, size="h3"),
-                                dmc.Text(
-                                    f"Kept in the catalogue {str(d.created_at or '')[:16]} by {d.created_by}",
-                                    size="xs",
-                                    c="dimmed",
-                                ),
-                            ],
-                            gap=2,
-                        ),
-                        dmc.Group(
-                            [
-                                dmc.Button(
-                                    "Download the pack",
-                                    id=ids.ASK_DD_PACK,
-                                    leftSection=icon("tabler:file-zip"),
-                                    variant="light",
-                                ),
-                                dmc.Anchor(
-                                    "Open in the catalogue",
-                                    href=f"/deep-dives?open={d.deep_dive_id}",
-                                    size="sm",
-                                ),
-                            ],
-                            gap="sm",
-                        ),
-                    ],
-                    justify="space-between",
-                    align="flex-start",
-                ),
-                dmc.Text(c.get("brief_sentence", ""), size="sm"),
-                dmc.Group(
-                    [
-                        dmc.Badge(
-                            f"confidence: {conf.get('level', '')}",
-                            color=CONFIDENCE_COLOUR.get(conf.get("level"), "gray"),
-                            variant="light",
-                        ),
-                        dmc.Text(conf.get("text", ""), size="xs", c="dimmed"),
-                    ],
-                    gap="sm",
-                    wrap="nowrap",
-                ),
-                dmc.Text(c.get("summary", ""), size="sm"),
-                alert(
-                    "These identifiers appear in the summary but the analysis did not read them; treat them "
-                    "as unverified: " + ", ".join(ungrounded),
-                    "yellow",
-                )
-                if ungrounded
-                else None,
-                dmc.Text("What you need to know", fw=600, size="sm"),
-                dmc.Stack(
-                    [
-                        dmc.Group(
-                            [
-                                dmc.Badge(
-                                    f["severity"], color=SEVERITY_COLOUR.get(f["severity"], "gray"), size="sm"
-                                ),
-                                dmc.Text(f["title"], size="sm"),
-                            ],
-                            gap="sm",
-                            wrap="nowrap",
-                        )
-                        for f in headline
-                    ],
-                    gap=4,
-                )
-                if headline
-                else dmc.Text("The rules found nothing to report in what was read.", size="sm", c="dimmed"),
-                dmc.Text(
-                    f"The pack holds the PDF and {len(figures(c))} diagram(s) as draw.io files, from the "
-                    "context down to the detail.",
-                    size="xs",
-                    c="dimmed",
-                ),
-                mermaid_block("dd-first-view", to_mermaid(view), legend=layer_chips(view)) if view else None,
-            ],
-            gap="sm",
-        ),
-        p="lg",
-        withBorder=True,
-        mb="md",
-        className="ea-card ea-document",
     )
 
 
@@ -428,13 +343,14 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.ASK_DD_RESULT, "children"),
-        Output(ids.ASK_DD_KEPT, "data"),
+        Output(ids.URL, "search", allow_duplicate=True),
         Input(ids.ASK_DD_WRITE, "n_clicks"),
         State(ids.ASK_DD_STORE, "data"),
         prevent_initial_call=True,
         running=[(Output(ids.ASK_DD_WRITE, "loading"), True, False)],
     )
     def write_it(n, brief):
+        """Written and kept, the deep dive opens on the Kept tab, where its pack is downloaded."""
         if not n or not brief:
             return no_update, no_update
         ctx = get_context()
@@ -447,16 +363,4 @@ def register(app: dash.Dash) -> None:
             return alert(str(exc), "red"), no_update
         except (ValueError, NotFoundError) as exc:
             return alert(str(exc), "yellow"), no_update
-        return result_card(ctx, d), d.deep_dive_id
-
-    @app.callback(
-        Output(ids.DOWNLOAD, "data", allow_duplicate=True),
-        Input(ids.ASK_DD_PACK, "n_clicks"),
-        State(ids.ASK_DD_KEPT, "data"),
-        prevent_initial_call=True,
-    )
-    def download_pack(n, deep_dive_id):
-        if not n or not deep_dive_id:
-            return no_update
-        name, data = pack(get_context(), deep_dive_id)
-        return dcc.send_bytes(data, name)
+        return no_update, opened_at(d.deep_dive_id)

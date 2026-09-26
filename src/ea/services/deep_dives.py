@@ -62,6 +62,11 @@ class DeepDiveService:
         require("rate_deep_dive", what="rate a deep dive")
         self.backend.rate_deep_dive(DeepDiveRating(deep_dive_id, actor, int(stars), (comment or "").strip()))
 
+    def clear_rating(self, deep_dive_id: str, actor: str) -> bool:
+        """Take back the actor's own rating — nobody clears another person's."""
+        require("rate_deep_dive", what="clear a rating of a deep dive")
+        return self.backend.clear_deep_dive_rating(deep_dive_id, actor)
+
     def withdraw(self, deep_dive_id: str, actor: str) -> None:
         require("withdraw_deep_dive", what="withdraw a deep dive")
         held = self.get(deep_dive_id)

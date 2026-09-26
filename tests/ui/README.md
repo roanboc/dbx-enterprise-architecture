@@ -7,7 +7,7 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**477 scenarios in twenty groups**, and around fifty minutes end to end. The
+**478 scenarios in twenty groups**, and around fifty minutes end to end. The
 command-line group (M, 74 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
@@ -75,7 +75,7 @@ where the round is the only thing that can see it.
 | D | Impact | Closure both ways, completeness, the graph and the view | 19 |
 | E | Target state | Work packages, the current-by-target matrix, the marked view | 16 |
 | F | Ask | The answer document, its views, the trace, grounding | 20 |
-| T | Deep dives | The deep mode on Ask, the brief settled and written, the pack, the catalogue, rating, running again and withdrawing, the element's list | 7 |
+| T | Deep dives | The deep mode on Ask, the brief settled and written, the pack, the deep dives kept, rating and clearing a rating, running again and withdrawing, the element's list | 8 |
 | G | Propose | Sources, analysis, pushback, the editable merge log, applying | 23 |
 | H | Import | Validation, loading, the issue report, the template | 23 |
 | I | Branches | Overlay, merge log, conflicts, review and the freeze | 26 |

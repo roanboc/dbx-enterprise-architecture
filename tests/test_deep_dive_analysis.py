@@ -295,6 +295,45 @@ def test_the_purpose_puts_the_findings_it_is_about_first(analyst):
     assert about.content["headline"][0]["rule"] == "documentation"
 
 
+# ------------------------------------------------------------ work in flight
+def test_the_active_work_packages_touching_what_it_read_are_named(analyst):
+    d = analyst.analyse(_brief(["PAC-CMS"], "impact"))
+    wps = {w["element_id"]: w for w in d.content["work_packages"]}
+    assert "WP-CMS-UPGRADE" in wps
+    upgrade = wps["WP-CMS-UPGRADE"]
+    assert "PAC-CMS" in upgrade["elements"] and upgrade["current_state"] == "planned"
+    assert set(upgrade["via"]) == {"relationship", "target"}
+    found = _findings(d, "work_package")
+    assert found and found[0]["elements"][0] == "WP-CMS-UPGRADE" and "PAC-CMS" in found[0]["elements"]
+    assert found[0]["severity"] == "medium"  # it changes the subject itself
+    context = _figures(d, 1)[0]
+    assert any(g["key"] == "work" and g["ids"] == ["WP-CMS-UPGRADE"] for g in context["groups"])
+    assert all("WP-CMS-UPGRADE" not in g["ids"] for g in context["groups"] if g["key"] != "work")
+
+
+def test_a_work_package_named_only_in_an_element_s_target_is_found(loaded, analyst):
+    e = loaded.get_element("PAC-LMS")
+    e.target_state, e.target_work_package = "change", "WP-CMS-UPGRADE"
+    loaded.update_element(e, "test")
+    d = analyst.analyse(_brief(["PAC-LMS"], "impact"))
+    upgrade = next(w for w in d.content["work_packages"] if w["element_id"] == "WP-CMS-UPGRADE")
+    assert upgrade["elements"] == ["PAC-LMS"] and upgrade["via"] == ["target"]
+    assert "WP-CMS-UPGRADE" in d.content["elements"]
+
+
+def test_a_work_package_that_is_over_is_not_in_flight(loaded, analyst):
+    wp = loaded.get_element("WP-CMS-UPGRADE")
+    wp.current_state = "retired"
+    loaded.update_element(wp, "test")
+    d = analyst.analyse(_brief(["PAC-CMS"], "impact"))
+    assert d.content["work_packages"] == [] and not _findings(d, "work_package")
+
+
+def test_a_transition_does_not_name_its_own_work_package_as_work_in_flight(analyst):
+    d = analyst.analyse(_brief([], "transition", work_package="WP-CMS-UPGRADE"))
+    assert all(w["element_id"] != "WP-CMS-UPGRADE" for w in d.content["work_packages"])
+
+
 # ------------------------------------------------------------ top-down levels
 def test_a_deep_dive_reads_from_the_top_down_in_two_styles(analyst):
     d = analyst.analyse(_brief(["PAC-CMS"], "impact"))
@@ -385,7 +424,8 @@ def test_the_analysis_is_a_deep_dive_ready_to_keep(loaded, registry, analyst):
     assert d.deep_dive_id == "" and d.kind == "impact" and d.title.startswith("Impact: Curriculum Management")
     assert d.brief["subject"] == ["PAC-CMS"] and d.brief["purpose"] == "replace it"
     roles = {e.element_id: e.role for e in d.elements}
-    assert roles["PAC-CMS"] == "subject" and roles["CAP-CURR-DEV"] == "drawn"
+    assert roles["PAC-CMS"] == "subject" and roles["POS-CURR-MGR"] == "drawn"
+    assert roles["CAP-CURR-DEV"] == "finding"  # the upgrade in flight changes it
     assert d.content["summary"] and d.content["brief_sentence"].startswith("An impact analysis")
     # the brief stands above the summary wherever it is shown, so the summary does not repeat it
     assert d.content["brief_sentence"] not in d.content["summary"]

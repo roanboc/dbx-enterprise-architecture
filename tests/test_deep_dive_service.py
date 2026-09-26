@@ -78,3 +78,13 @@ def test_the_earlier_deep_dives_on_the_same_elements_come_best_rated_first(dives
     assert earlier == ["High", "Low"]
     assert other.deep_dive_id not in [d.deep_dive_id for d in dives.earlier(["PAC-CMS"])]
     assert [d.title for d in dives.on_element("CAP-CURR-DEV")] == ["Elsewhere"]
+
+
+def test_a_reader_clears_their_rating_and_the_assistant_may_not(dives):
+    with use_role("reader"):
+        kept = dives.keep(_dive(["PAC-CMS"]), "ada")
+        dives.rate(kept.deep_dive_id, "bob", 3, "")
+        assert dives.clear_rating(kept.deep_dive_id, "bob") is True
+    assert dives.get(kept.deep_dive_id).rating_count == 0
+    with use_role("agent"), pytest.raises(Forbidden):
+        dives.clear_rating(kept.deep_dive_id, "assistant")

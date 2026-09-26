@@ -1,18 +1,21 @@
-"""Group T — Deep dives: a brief settled on Ask, a deep dive written and kept, the catalogue.
+"""Group T — Deep dives: a brief settled on Ask, a deep dive written and kept, the ones kept.
 
 Initiative 25 adds a second way to ask. The reader chooses a deep dive beside the quick answer,
 says what they need to know, and the assistant settles a brief with them — what it is about,
 which kind of analysis, how far it reaches, which layers, what it is for — each question with
-its choices, the brief read back as one sentence. Written, the deep dive is kept in the
-catalogue under the reader's name and hands out a pack: a PDF and a draw.io file per diagram.
+its choices, the brief read back as one sentence. Written, the deep dive is kept under the
+reader's name and opened on the Kept tab beside the brief, where it hands out a pack — a PDF and
+a draw.io file per diagram — and is rated, run again or withdrawn. There is no page of its own:
+everything lives in Ask's deep mode, and the navigation offers Ask alone.
 
 What the group proves is the part only a browser sees. The questions are controls wired to a
 store; an answer has to reach the sentence; Write has to stay off until the brief can be
 written, and say why; the pack has to arrive as a ZIP whose PDF is a PDF and whose draw.io
-files parse, numbered from the context down to the detail. The catalogue has to narrow, open,
-take a rating, run a deep dive again, withdraw one, and hand the pack out again; and the
-element's own page has to list the deep dives that cite it. The rules underneath — the brief,
-the analyses, the maturity, the findings, the layout — are proven in `tests/test_deep_dive_*.py`.
+files parse, numbered from the context down to the detail. The deep dives kept have to narrow,
+open, show their rating as stars, take one rating per person and let that person clear it, run
+a deep dive again and withdraw one; and the element's own page has to list the deep dives that
+cite it. The rules underneath — the brief, the analyses, the maturity, the work in flight, the
+findings, the layout — are proven in `tests/test_deep_dive_*.py`.
 
 It writes deep dives, which nothing else in the round reads, into the seeded organisation.
 Nothing is asserted about a total: another run of the group may have kept deep dives before it.
@@ -61,21 +64,43 @@ def _choose(ui, qid: str, label: str) -> None:
 
 
 def _written(ui, question: str = QUESTION) -> str:
-    """Start, write and return the title of the deep dive kept."""
+    """Start, write and return the title of the deep dive kept, opened on the Kept tab."""
     _start(ui, question)
     ui.click("ask-dd-write")
-    ui.page.wait_for_selector("#ask-dd-pack", timeout=90_000)
+    ui.page.wait_for_selector("#dd-pack", timeout=90_000)
     ui.settle()
-    return ui.page.locator("#ask-dd-result h2").first.inner_text().strip()
+    return ui.page.locator("#dd-detail h2").first.inner_text().strip()
 
 
-def _open_catalogue_on(ui, title: str) -> None:
-    ui.goto("/deep-dives")
+def _kept(ui, search: str = "") -> None:
+    ui.goto(f"/ask?mode=deep&tab=kept{search}")
+    ui.must("the Kept tab opened from the address", ui.visible("dd-list"))
+
+
+def _open_kept(ui, title: str) -> None:
+    _kept(ui)
     link = ui.page.locator("#dd-list a", has_text=title).first
-    ui.must("the catalogue lists the deep dive", link.count() > 0, ui.text("dd-list")[:300])
+    ui.must("the deep dives kept list it", link.count() > 0, ui.text("dd-list")[:300])
     link.click()
     ui.page.wait_for_selector("#dd-rate", timeout=20_000)
     ui.settle()
+
+
+def _rate(ui, stars: int, why: str = "") -> None:
+    ui.page.locator(f"#dd-detail .mantine-Rating-input[value='{stars}']").first.locator(
+        "xpath=following-sibling::label"
+    ).click()
+    if why:
+        ui.fill("dd-why", why)
+    ui.click("dd-rate")
+
+
+def _shown_stars(ui, scope: str) -> list[str]:
+    """The read-only star ratings under `scope`, as the value each carries."""
+    return [
+        el.get_attribute("value") or ""
+        for el in ui.page.locator(f"{scope} .mantine-Rating-root input:checked").all()
+    ]
 
 
 # ---------------------------------------------------------------------------------- Ask
@@ -84,11 +109,12 @@ def _open_catalogue_on(ui, title: str) -> None:
 @pytest.mark.scenario(
     scenario_id="T01",
     group="T",
-    title="A deep dive is a choice beside the quick answer",
+    title="A deep dive is a choice beside the quick answer, and the ones kept are a tab of it",
     feature="Deep dives · the mode",
     expected=(
-        "Ask opens on the quick answer with a switch to Deep dive; switching shows the deep "
-        "panel and hides the question box; /ask?mode=deep opens on the deep panel."
+        "Ask opens on the quick answer with a switch to Deep dive; switching shows the New deep "
+        "dive and Kept deep dives tabs and hides the question box; /ask?mode=deep&tab=kept opens "
+        "on the deep dives kept; the navigation offers Ask and no separate Deep dives link."
     ),
 )
 def test_the_mode_switch(ui, record):
@@ -98,9 +124,16 @@ def test_the_mode_switch(ui, record):
     ui.segmented("ask-mode", "Deep dive")
     ui.check("switching shows the deep panel", ui.visible("ask-dd-input"))
     ui.check("and hides the quick question box", not ui.visible("ask-input"))
-    ui.goto("/ask?mode=deep")
-    ui.check("the address opens the deep mode", ui.visible("ask-dd-input") and not ui.visible("ask-input"))
-    ui.shot("Ask, deep mode")
+    tabs = ui.text("ask-dd-tabs")
+    ui.check(
+        "the deep mode offers a new deep dive and the ones kept",
+        "New deep dive" in tabs and "Kept deep dives" in tabs,
+    )
+    links = [a.inner_text().strip() for a in ui.page.locator(".mantine-AppShell-navbar a").all()]
+    ui.check("the navigation has no separate Deep dives link", "Deep dives" not in links, str(links))
+    _kept(ui)
+    ui.check("the address opens the deep dives kept", ui.visible("dd-list") and not ui.visible("ask-input"))
+    ui.shot("Ask, deep mode, the deep dives kept")
 
 
 @pytest.mark.scenario(
@@ -165,22 +198,24 @@ def test_write_waits_for_the_kind(ui, record):
 @pytest.mark.scenario(
     scenario_id="T04",
     group="T",
-    title="The deep dive is written, kept, and its pack downloads as a PDF with its draw.io diagrams",
+    title="The deep dive is written, kept, opened where it is kept, and its pack downloads",
     feature="Deep dives · the pack",
     expected=(
-        "Write keeps the deep dive and shows its summary, confidence and first findings; "
-        "Download the pack (ask-dd-pack) hands out one ZIP holding deep-dive.pdf and draw.io "
-        "files numbered 01 on, level 1 first, each parsing with an identifier on every shape."
+        "Write keeps the deep dive and opens it on the Kept tab with its summary, the work in "
+        "flight and its findings; Download the pack (dd-pack) hands out one ZIP holding "
+        "deep-dive.pdf and draw.io files numbered 01 on, level 1 first, each parsing with an "
+        "identifier on every element shape."
     ),
 )
 def test_written_and_downloaded(ui, record):
     title = _written(ui)
     ui.check("it is titled for its kind and subject", title.startswith(f"Impact: {SUBJECT_NAME}"), title)
-    result = ui.text("ask-dd-result")
-    ui.check("it says it was kept", "Kept in the catalogue" in result)
-    ui.check("it says how far it can be trusted", "confidence:" in result.lower())
-    ui.shot("The deep dive, written")
-    path = ui.download("ask-dd-pack", ".zip")
+    ui.check("it opened on the Kept tab", "tab=kept" in ui.page.url and "open=" in ui.page.url, ui.page.url)
+    detail = ui.text("dd-detail")
+    ui.check("it says how far it can be trusted", "confidence:" in detail.lower())
+    ui.check("it names the work in flight", "Work in flight" in detail and "WP-CMS-UPGRADE" in detail)
+    ui.shot("The deep dive, written and opened where it is kept")
+    path = ui.download("dd-pack", ".zip")
     names = zipfile.ZipFile(path).namelist()
     pdfs = [n for n in names if n.endswith("/deep-dive.pdf")]
     ui.must("the pack holds the PDF", len(pdfs) == 1, str(names[:5]))
@@ -202,44 +237,66 @@ def test_written_and_downloaded(ui, record):
         )
 
 
-# ---------------------------------------------------------------------------- catalogue
+# ----------------------------------------------------------------------- the ones kept
 
 
 @pytest.mark.scenario(
     scenario_id="T05",
     group="T",
-    title="The catalogue narrows, opens a deep dive, takes a rating and hands the pack out again",
-    feature="Deep dives · the catalogue",
+    title="The deep dives kept narrow, open one, and show its rating as stars",
+    feature="Deep dives · kept",
     expected=(
-        "The Deep dives page lists the deep dive; narrowing by kind to Landscape leaves it out; "
-        "opened, four stars with a line of why are recorded as the reader's; Download the pack "
-        "(dd-pack) hands out the same ZIP."
+        "The Kept tab lists the deep dive; narrowing by kind to Landscape leaves it out; narrowing "
+        "to what cites PAC-CMS keeps it; opened, four stars given to it show as four stars in the "
+        "list and beside its title."
     ),
 )
-def test_the_catalogue(ui, record):
+def test_the_ones_kept(ui, record):
     title = _written(ui)
-    ui.goto("/deep-dives")
-    ui.must("the catalogue lists it", title in ui.text("dd-list"))
+    _kept(ui)
+    ui.must("the Kept tab lists it", title in ui.text("dd-list"))
     ui.select("dd-kind", "Landscape", exact=True)
     ui.check("narrowed to landscapes, the impact is left out", title not in ui.text("dd-list"))
-    ui.goto(f"/deep-dives?element={SUBJECT}")
+    _kept(ui, f"&element={SUBJECT}")
     ui.check("narrowed to what cites PAC-CMS, it is there", title in ui.text("dd-list"))
-    _open_catalogue_on(ui, title)
+    _open_kept(ui, title)
     ui.check("opened, it reads its brief", "An impact analysis" in ui.text("dd-detail"))
-    ui.page.locator(".mantine-Rating-input[value='4']").first.locator(
-        "xpath=following-sibling::label"
-    ).click()
-    ui.fill("dd-why", "Clear enough to take to the board")
-    ui.click("dd-rate")
-    detail = ui.text("dd-detail")
-    ui.check("the rating is recorded", "Rated 4 of 5" in detail, detail[-300:])
-    ui.check("and listed with its why", "Clear enough to take to the board" in detail)
-    ui.shot("A deep dive opened in the catalogue, rated")
-    path = ui.download("dd-pack", ".zip")
+    _rate(ui, 4, "Clear enough to take to the board")
+    ui.check("the rating is recorded", "Rated 4 of 5" in ui.text("dd-detail"), ui.text("dd-detail")[:300])
+    ui.page.wait_for_timeout(600)
+    ui.settle()
     ui.check(
-        "the pack downloads again",
-        any(n.endswith("/deep-dive.pdf") for n in zipfile.ZipFile(path).namelist()),
+        "the list shows it as stars", "4" in _shown_stars(ui, "#dd-list"), str(_shown_stars(ui, "#dd-list"))
     )
+    ui.shot("A deep dive opened among the ones kept, rated with stars")
+
+
+@pytest.mark.scenario(
+    scenario_id="T08",
+    group="T",
+    title="One rating per person: rating again replaces it, and clearing it takes it back",
+    feature="Deep dives · rating",
+    expected=(
+        "Two stars then five from the same reader leave one rating of five; Clear my rating "
+        "takes it back, the deep dive reads 'not rated yet', and it can be rated again."
+    ),
+)
+def test_one_rating_per_person(ui, record):
+    title = _written(ui)
+    _open_kept(ui, title)
+    _rate(ui, 2)
+    _rate(ui, 5, "Better on a second read")
+    detail = ui.text("dd-detail")
+    ui.check(
+        "one rating, the later one", "(1)" in detail and "Better on a second read" in detail, detail[-300:]
+    )
+    ui.check("Clear my rating is offered once there is one", ui.visible("dd-unrate"))
+    ui.click("dd-unrate")
+    detail = ui.text("dd-detail")
+    ui.check("clearing it says so", "Your rating is cleared" in detail, detail[:300])
+    ui.check("and it is not rated any more", "not rated yet" in detail)
+    ui.check("Clear my rating is gone with it", not ui.visible("dd-unrate"))
+    ui.check("it can be rated again", not ui.disabled("dd-rate"))
 
 
 @pytest.mark.scenario(
@@ -250,12 +307,11 @@ def test_the_catalogue(ui, record):
     expected=(
         "Run again opens a new deep dive; withdrawing it takes it out of the list and Show "
         "withdrawn brings it back marked; a Reader opening the Admin's deep dive is offered no "
-        "Withdraw."
+        "Withdraw, and may rate it."
     ),
 )
 def test_again_and_withdraw(ui, record):
     title = _written(ui)
-    _open_catalogue_on(ui, title)
     first = ui.page.url
     ui.click("dd-again")
     ui.page.wait_for_function(f"location.href !== {first!r}", timeout=90_000)
@@ -277,16 +333,15 @@ def test_again_and_withdraw(ui, record):
     ui.page.wait_for_selector("#dd-rate", timeout=20_000)
     ui.check("a Reader is offered no Withdraw on another's deep dive", not ui.visible("dd-withdraw"))
     ui.check("but may rate it", not ui.disabled("dd-rate"))
+    ui.check("the title is the one first written", title in ui.text("dd-detail"))
 
 
 @pytest.mark.scenario(
     scenario_id="T07",
     group="T",
-    title="An element's page lists the deep dives that cite it, and opens one",
+    title="An element's page lists the deep dives that cite it, and opens one where it is kept",
     feature="Deep dives · the element page",
-    expected=(
-        "PAC-CMS's page carries a Deep dives card naming the deep dive; its link opens it in the catalogue."
-    ),
+    expected="PAC-CMS's page carries a Deep dives card naming the deep dive; its link opens it on Ask's Kept tab.",
 )
 def test_the_element_page(ui, record):
     title = _written(ui)
@@ -297,4 +352,4 @@ def test_the_element_page(ui, record):
     ui.shot("The Deep dives card on the element page", full_page=False)
     card.locator("a", has_text=title).first.click()
     ui.page.wait_for_selector("#dd-rate", timeout=20_000)
-    ui.check("its link opens the deep dive in the catalogue", "/deep-dives?open=" in ui.page.url, ui.page.url)
+    ui.check("its link opens the deep dive on the Kept tab", "tab=kept" in ui.page.url, ui.page.url)

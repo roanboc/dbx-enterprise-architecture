@@ -3235,6 +3235,26 @@ class SqlBackend(DatabaseBackend):
                 [[rating.deep_dive_id, rating.rated_by, stars, rating.comment or None, _now(), org]],
             )
 
+    def clear_deep_dive_rating(self, deep_dive_id: str, rated_by: str) -> bool:
+        """A rating is its person's judgement, so they may take it back; the deep dive stays."""
+        org = self._org()
+        where = "WHERE org_id = ? AND deep_dive_id = ? AND rated_by = ?"
+        held = self._fetch_all(f"SELECT stars FROM deep_dive_rating {where}", [org, deep_dive_id, rated_by])
+        if not held:
+            return False
+        with self.transaction():
+            self._execute(f"DELETE FROM deep_dive_rating {where}", [org, deep_dive_id, rated_by])
+            self._log(
+                "deep_dive",
+                deep_dive_id,
+                "unrate",
+                rated_by,
+                {"rated_by": rated_by, "stars": int(held[0][0])},
+                None,
+                None,
+            )
+        return True
+
     def deep_dive_ratings(self, deep_dive_id: str) -> list[DeepDiveRating]:
         rows = self._fetch_all(
             "SELECT deep_dive_id, rated_by, stars, comment, rated_at FROM deep_dive_rating "

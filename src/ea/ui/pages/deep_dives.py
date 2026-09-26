@@ -1,11 +1,13 @@
-"""Deep dives (initiative 25, ASVC14): the catalogue of the analyses kept from the model.
+"""The deep dives kept (initiative 25, ASVC14): the catalogue, on Ask's deep mode.
 
 A deep dive is listed by what it is catalogued under — its kind, the domains and element types
-of its subject, the work package it concerns — and by how the people who read it rated it. The
-page opens one; whoever may read may rate it, one to five stars with a line of why; its author or
-an admin may withdraw it, which keeps its row; anyone may run it again, which keeps a new one that
-names the one it came from; and its pack downloads as one ZIP. Every element it cites lists it on
-its own page.
+of its subject, the work package it concerns — and by how the people who read it rated it, drawn
+as stars. The catalogue opens one; whoever may read may rate it, one to five stars with a line of
+why, one rating per person, and may clear their own; its author or an admin may withdraw it,
+which keeps its row; anyone may run it again, which keeps a new one that names the one it came
+from; and its pack downloads as one ZIP. It is a tab of Ask's deep mode rather than a page of its
+own, so its address is Ask's: `/ask?mode=deep&tab=kept&open=<id>`. Every element a deep dive
+cites lists it on its own page.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from dash import Input, Output, State, dcc, html, no_update
 from ea.agent.deep_dive import KINDS
 from ea.models import DeepDive, Forbidden, NotFoundError
 from ea.ui import ids
-from ea.ui.components import alert, element_href, icon, page_title, simple_table
+from ea.ui.components import alert, element_href, icon, simple_table
 from ea.ui.context import AppContext, get_context
 from ea.views.deep_dive_layout import pack_filename
 from ea.views.deep_dive_pack import build_pack
@@ -34,6 +36,9 @@ RATING_OPTIONS = [
     {"value": "4", "label": "4 stars or more"},
     {"value": "5", "label": "5 stars"},
 ]
+#: Where the catalogue lives: a tab of Ask's deep mode.
+KEPT = "/ask"
+KEPT_TAB = {"mode": "deep", "tab": "kept"}
 
 
 # ------------------------------------------------------------------ the logic
@@ -62,8 +67,9 @@ def narrow_from_search(search: str | None) -> dict[str, Any]:
 
 
 def search_of(narrow: dict[str, Any], open_id: str = "") -> str:
-    """The address that narrows the catalogue so and opens `open_id` — the inverse of the above."""
+    """The address on Ask that narrows the catalogue so and opens `open_id`."""
     params = {
+        **KEPT_TAB,
         "text": narrow.get("text") or "",
         "kind": narrow.get("kind") or "",
         "domain": narrow.get("domain_id") or "",
@@ -74,8 +80,12 @@ def search_of(narrow: dict[str, Any], open_id: str = "") -> str:
         "withdrawn": "1" if narrow.get("include_withdrawn") else "",
         "open": open_id,
     }
-    kept = {k: v for k, v in params.items() if v}
-    return ("?" + urlencode(kept)) if kept else ""
+    return "?" + urlencode({k: v for k, v in params.items() if v})
+
+
+def href_of(deep_dive_id: str) -> str:
+    """Where a deep dive is opened from anywhere in the application."""
+    return f"{KEPT}{search_of({}, deep_dive_id)}"
 
 
 def catalogue_rows(ctx: AppContext, narrow: dict[str, Any]) -> tuple[list[DeepDive], int]:
@@ -110,9 +120,19 @@ def rate(ctx: AppContext, deep_dive_id: str, stars: Any, why: str = "") -> tuple
         return False, "Pick one to five stars first."
     try:
         ctx.deep_dives.rate(deep_dive_id, ctx.actor, stars, why)
-    except (Forbidden, ValueError) as exc:
+    except (Forbidden, ValueError, NotFoundError) as exc:
         return False, str(exc)
-    return True, f"Rated {stars} of 5. Your rating replaces any you gave before."
+    return True, f"Rated {stars} of 5. One rating per person: yours replaces any you gave before."
+
+
+def clear_rating(ctx: AppContext, deep_dive_id: str) -> tuple[bool, str]:
+    try:
+        cleared = ctx.deep_dives.clear_rating(deep_dive_id, ctx.actor)
+    except Forbidden as exc:
+        return False, str(exc)
+    if not cleared:
+        return False, "You have given no rating to clear."
+    return True, "Your rating is cleared; you may rate it again at any time."
 
 
 def withdraw(ctx: AppContext, deep_dive_id: str) -> tuple[bool, str]:
@@ -143,9 +163,19 @@ def pack(ctx: AppContext, deep_dive_id: str) -> tuple[str, bytes]:
     return pack_filename(d), data
 
 
-# ------------------------------------------------------------------ the page
-def _rating(d: DeepDive) -> str:
-    return f"{d.rating_average} of 5 ({d.rating_count})" if d.rating_count else "not rated yet"
+# ------------------------------------------------------------------ the parts
+def stars(value: float | None, count: int = 0, size: str = "sm"):
+    """A rating as stars, read-only, with how many rated it; 'not rated yet' when nobody has."""
+    if not count:
+        return dmc.Text("not rated yet", size="xs", c="dimmed")
+    return dmc.Group(
+        [
+            dmc.Rating(value=float(value or 0), fractions=2, readOnly=True, size=size, count=5),
+            dmc.Text(f"({count})", size="xs", c="dimmed"),
+        ],
+        gap=4,
+        wrap="nowrap",
+    )
 
 
 def _kind(kind: str) -> str:
@@ -160,26 +190,129 @@ def _subject(d: DeepDive) -> str:
 
 def catalogue_table(ctx: AppContext, dives: list[DeepDive], narrow: dict[str, Any] | None = None):
     if not dives:
-        return dmc.Text("No deep dive matches. Start one on the Ask page.", c="dimmed", size="sm")
+        return dmc.Text("No deep dive matches. Start one on the New deep dive tab.", c="dimmed", size="sm")
     narrow = narrow or {}
     rows = []
     for d in dives:
         rows.append(
             [
-                dmc.Anchor(d.title, href=f"/deep-dives{search_of(narrow, d.deep_dive_id)}", size="sm"),
+                dmc.Anchor(d.title, href=f"{KEPT}{search_of(narrow, d.deep_dive_id)}", size="sm"),
                 _kind(d.kind),
                 _subject(d),
                 d.created_by,
                 str(d.created_at or "")[:10],
-                _rating(d),
+                stars(d.rating_average, d.rating_count, "xs"),
                 dmc.Badge("withdrawn", color="gray", size="xs") if d.status == "withdrawn" else "",
             ]
         )
     return simple_table(["Deep dive", "Kind", "About", "By", "When", "Rating", ""], rows)
 
 
+def _work(c: dict[str, Any]):
+    work = c.get("work_packages") or []
+    if not work:
+        return None
+    return dmc.Stack(
+        [
+            dmc.Text("Work in flight", fw=600, size="sm"),
+            dmc.Text("Work packages planned or under way that change what it read.", size="xs", c="dimmed"),
+            *[
+                dmc.Group(
+                    [
+                        dmc.Anchor(
+                            f"{w['name']} [{w['element_id']}]", href=element_href(w["element_id"]), size="sm"
+                        ),
+                        dmc.Badge(
+                            w["current_state"].replace("_", " "), color="grape", variant="light", size="xs"
+                        ),
+                        dmc.Text(f"changes {len(w['elements'])} element(s) it read", size="xs", c="dimmed"),
+                    ],
+                    gap="xs",
+                )
+                for w in work
+            ],
+        ],
+        gap=4,
+    )
+
+
+def _rating_panel(ctx: AppContext, d: DeepDive, ratings: list) -> Any:
+    mine = next((r for r in ratings if r.rated_by == ctx.actor), None)
+    may = ctx.can("rate_deep_dive") and d.status == "kept"
+    return dmc.Stack(
+        [
+            dmc.Group(
+                [dmc.Text("Your rating", fw=600, size="sm"), stars(d.rating_average, d.rating_count)],
+                justify="space-between",
+            ),
+            dmc.Text(
+                "One to five stars for how far you would trust it and how useful it was — one rating per "
+                "person; the next deep dive on these elements weighs it by its rating.",
+                size="xs",
+                c="dimmed",
+            ),
+            dmc.Group(
+                [
+                    dmc.Rating(
+                        id=ids.DD_STARS, value=mine.stars if mine else 0, count=5, size="lg", readOnly=not may
+                    ),
+                    dmc.TextInput(
+                        id=ids.DD_WHY,
+                        placeholder="A line of why",
+                        value=mine.comment if mine else "",
+                        w=300,
+                        disabled=not may,
+                        **{"aria-label": "Why you rate it so"},
+                    ),
+                ],
+                gap="sm",
+            ),
+            dmc.Group(
+                [
+                    dmc.Button(
+                        "Change my rating" if mine else "Rate it",
+                        id=ids.DD_RATE,
+                        size="compact-sm",
+                        leftSection=icon("tabler:star", 14),
+                        disabled=not may,
+                    ),
+                    # always rendered, so the rating callback always fires: a callback whose
+                    # input is missing from the page never runs; hidden while there is none
+                    dmc.Button(
+                        "Clear my rating",
+                        id=ids.DD_UNRATE,
+                        size="compact-sm",
+                        variant="subtle",
+                        color="gray",
+                        leftSection=icon("tabler:trash", 14),
+                        style={} if mine else {"display": "none"},
+                    ),
+                ],
+                gap="sm",
+            ),
+            dmc.Stack(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Rating(value=r.stars, readOnly=True, size="xs", count=5),
+                            dmc.Text(r.rated_by + (f" — {r.comment}" if r.comment else ""), size="xs"),
+                        ],
+                        gap="xs",
+                        wrap="nowrap",
+                    )
+                    for r in ratings
+                ],
+                gap=2,
+            )
+            if ratings
+            else None,
+        ],
+        gap=6,
+    )
+
+
 def detail_panel(ctx: AppContext, d: DeepDive | None, feedback: Any = None):
-    """One deep dive opened: what it found, how it was rated, and what may be done with it."""
+    """One deep dive opened: what it found, the work in flight, how it was rated, and what may be done with it."""
     if d is None:
         return dmc.Paper(
             dmc.Text("Open a deep dive from the list to read it here.", c="dimmed", size="sm"),
@@ -190,11 +323,11 @@ def detail_panel(ctx: AppContext, d: DeepDive | None, feedback: Any = None):
     conf = c.get("confidence") or {}
     findings = c.get("findings") or []
     ratings = ctx.deep_dives.ratings(d.deep_dive_id)
-    mine = next((r for r in ratings if r.rated_by == ctx.actor), None)
     subject = [e.element_id for e in d.elements if e.role == "subject"]
     return dmc.Paper(
         dmc.Stack(
             [
+                html.Div(feedback, id=ids.DD_FEEDBACK),
                 dmc.Group(
                     [
                         dmc.Title(d.title, order=2, size="h3"),
@@ -210,10 +343,7 @@ def detail_panel(ctx: AppContext, d: DeepDive | None, feedback: Any = None):
                     c="dimmed",
                 ),
                 dmc.Text(c.get("brief_sentence", ""), size="sm"),
-                dmc.Group(
-                    [dmc.Anchor(i, href=element_href(i), size="xs") for i in subject],
-                    gap="xs",
-                )
+                dmc.Group([dmc.Anchor(i, href=element_href(i), size="xs") for i in subject], gap="xs")
                 if subject
                 else None,
                 dmc.Group(
@@ -223,11 +353,39 @@ def detail_panel(ctx: AppContext, d: DeepDive | None, feedback: Any = None):
                             color=CONFIDENCE_COLOUR.get(conf.get("level"), "gray"),
                             variant="light",
                         ),
-                        dmc.Badge(f"rating: {_rating(d)}", color="indigo", variant="light"),
+                        stars(d.rating_average, d.rating_count),
                     ],
-                    gap="xs",
+                    gap="sm",
+                ),
+                dmc.Group(
+                    [
+                        dmc.Button(
+                            "Download the pack",
+                            id=ids.DD_PACK,
+                            leftSection=icon("tabler:file-zip"),
+                            variant="light",
+                        ),
+                        dmc.Button(
+                            "Run again",
+                            id=ids.DD_AGAIN,
+                            leftSection=icon("tabler:refresh"),
+                            variant="light",
+                            disabled=not ctx.can("keep_deep_dive"),
+                        ),
+                        dmc.Button(
+                            "Withdraw",
+                            id=ids.DD_WITHDRAW,
+                            leftSection=icon("tabler:archive"),
+                            variant="subtle",
+                            color="red",
+                        )
+                        if can_withdraw(ctx, d)
+                        else None,
+                    ],
+                    gap="sm",
                 ),
                 dmc.Text(c.get("summary", ""), size="sm"),
+                _work(c),
                 dmc.Text(f"Findings ({len(findings)})", fw=600, size="sm"),
                 dmc.Stack(
                     [
@@ -262,74 +420,7 @@ def detail_panel(ctx: AppContext, d: DeepDive | None, feedback: Any = None):
                     c="dimmed",
                 ),
                 dmc.Divider(),
-                dmc.Text("Rate it", fw=600, size="sm"),
-                dmc.Text(
-                    "One to five stars for how far you would trust it and how useful it was; the next deep "
-                    "dive on these elements weighs it by its rating.",
-                    size="xs",
-                    c="dimmed",
-                ),
-                dmc.Group(
-                    [
-                        dmc.Rating(id=ids.DD_STARS, value=mine.stars if mine else 0, count=5),
-                        dmc.TextInput(
-                            id=ids.DD_WHY,
-                            placeholder="A line of why",
-                            value=mine.comment if mine else "",
-                            w=320,
-                            **{"aria-label": "Why you rate it so"},
-                        ),
-                        dmc.Button(
-                            "Rate",
-                            id=ids.DD_RATE,
-                            size="compact-sm",
-                            disabled=not ctx.can("rate_deep_dive") or d.status != "kept",
-                        ),
-                    ],
-                    gap="sm",
-                ),
-                dmc.Stack(
-                    [
-                        dmc.Text(
-                            f"{'★' * r.stars}{'☆' * (5 - r.stars)}  {r.rated_by}"
-                            + (f" — {r.comment}" if r.comment else ""),
-                            size="xs",
-                        )
-                        for r in ratings
-                    ],
-                    gap=2,
-                )
-                if ratings
-                else None,
-                dmc.Divider(),
-                dmc.Group(
-                    [
-                        dmc.Button(
-                            "Download the pack",
-                            id=ids.DD_PACK,
-                            leftSection=icon("tabler:file-zip"),
-                            variant="light",
-                        ),
-                        dmc.Button(
-                            "Run again",
-                            id=ids.DD_AGAIN,
-                            leftSection=icon("tabler:refresh"),
-                            variant="light",
-                            disabled=not ctx.can("keep_deep_dive"),
-                        ),
-                        dmc.Button(
-                            "Withdraw",
-                            id=ids.DD_WITHDRAW,
-                            leftSection=icon("tabler:archive"),
-                            variant="subtle",
-                            color="red",
-                        )
-                        if can_withdraw(ctx, d)
-                        else None,
-                    ],
-                    gap="sm",
-                ),
-                html.Div(feedback, id=ids.DD_FEEDBACK),
+                _rating_panel(ctx, d, ratings),
             ],
             gap="sm",
         ),
@@ -347,11 +438,15 @@ def deep_dives_card(ctx: AppContext, element_id: str) -> dmc.Paper:
             [
                 dmc.Stack(
                     [
-                        dmc.Anchor(d.title, href=f"/deep-dives?open={d.deep_dive_id}", size="sm"),
-                        dmc.Text(
-                            f"{_kind(d.kind)} · {_rating(d)} · {str(d.created_at or '')[:10]}",
-                            size="xs",
-                            c="dimmed",
+                        dmc.Anchor(d.title, href=href_of(d.deep_dive_id), size="sm"),
+                        dmc.Group(
+                            [
+                                dmc.Text(
+                                    f"{_kind(d.kind)} · {str(d.created_at or '')[:10]}", size="xs", c="dimmed"
+                                ),
+                                stars(d.rating_average, d.rating_count, "xs"),
+                            ],
+                            gap="sm",
                         ),
                     ],
                     gap=0,
@@ -380,7 +475,8 @@ def deep_dives_card(ctx: AppContext, element_id: str) -> dmc.Paper:
     )
 
 
-def render(ctx: AppContext, search: str | None = None) -> html.Div:
+def catalogue(ctx: AppContext, search: str | None = None) -> html.Div:
+    """The deep dives kept, as the Kept tab of Ask's deep mode shows them."""
     narrow = narrow_from_search(search)
     dives, total = catalogue_rows(ctx, narrow)
     opened = ctx.deep_dives.get(narrow["open"]) if narrow["open"] else None
@@ -388,17 +484,6 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
     types = [{"value": t.id, "label": t.name} for t in ctx.registry.concrete_types()]
     return html.Div(
         [
-            page_title(
-                "Deep dives",
-                "Analyses kept from the model: catalogued by what they cover, rated by the people who read "
-                "them, and weighed by the next deep dive on the same elements.",
-                dmc.Anchor(
-                    dmc.Button(
-                        "Start a deep dive", leftSection=icon("tabler:report-analytics"), variant="light"
-                    ),
-                    href="/ask?mode=deep",
-                ),
-            ),
             alert(f"No deep dive {narrow['open']} is kept here.", "yellow")
             if narrow["open"] and opened is None
             else None,
@@ -480,10 +565,10 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                             dmc.Text(_count(len(dives), total), size="xs", c="dimmed", mb=4, id=ids.DD_COUNT),
                             html.Div(catalogue_table(ctx, dives, narrow), id=ids.DD_LIST),
                         ],
-                        span={"base": 12, "lg": 7},
+                        span={"base": 12, "lg": 6},
                     ),
                     dmc.GridCol(
-                        html.Div(detail_panel(ctx, opened), id=ids.DD_DETAIL), span={"base": 12, "lg": 5}
+                        html.Div(detail_panel(ctx, opened), id=ids.DD_DETAIL), span={"base": 12, "lg": 6}
                     ),
                 ],
                 gutter="md",
@@ -535,24 +620,31 @@ def register(app: dash.Dash) -> None:
 
     @app.callback(
         Output(ids.DD_DETAIL, "children"),
+        Output(ids.DD_REFRESH, "data"),
         Input(ids.DD_RATE, "n_clicks"),
+        Input(ids.DD_UNRATE, "n_clicks"),
         State(ids.DD_STARS, "value"),
         State(ids.DD_WHY, "value"),
         State(ids.DD_OPEN_STORE, "data"),
+        State(ids.DD_REFRESH, "data"),
         prevent_initial_call=True,
     )
-    def rate_it(n, stars, why, deep_dive_id):
-        if not n or not deep_dive_id:
-            return no_update
+    def rate_it(n_rate, n_clear, value, why, deep_dive_id, refresh):
+        if not deep_dive_id or not (n_rate or n_clear):
+            return no_update, no_update
         ctx = get_context()
-        ok, message = rate(ctx, deep_dive_id, stars, why or "")
-        return detail_panel(
+        if dash.ctx.triggered_id == ids.DD_UNRATE:
+            ok, message = clear_rating(ctx, deep_dive_id)
+        else:
+            ok, message = rate(ctx, deep_dive_id, value, why or "")
+        panel = detail_panel(
             ctx, ctx.deep_dives.get(deep_dive_id), alert(message, "green" if ok else "yellow")
         )
+        return panel, (refresh or 0) + 1
 
     @app.callback(
         Output(ids.DD_DETAIL, "children", allow_duplicate=True),
-        Output(ids.DD_REFRESH, "data"),
+        Output(ids.DD_REFRESH, "data", allow_duplicate=True),
         Input(ids.DD_WITHDRAW, "n_clicks"),
         State(ids.DD_OPEN_STORE, "data"),
         State(ids.DD_REFRESH, "data"),
@@ -582,7 +674,7 @@ def register(app: dash.Dash) -> None:
             d = run_again(ctx, deep_dive_id)
         except (Forbidden, NotFoundError, ValueError) as exc:
             return no_update, alert(str(exc), "red")
-        return f"?open={d.deep_dive_id}", no_update
+        return search_of({}, d.deep_dive_id), no_update
 
     @app.callback(
         Output(ids.DOWNLOAD, "data", allow_duplicate=True),

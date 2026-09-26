@@ -46,7 +46,6 @@ NAV = [
     ("Guide", "/guide", "nav-guide", "Guide"),
     ("Browse", "/browse", "nav-browse", "Browse"),
     ("Ask", "/ask", "nav-ask", "Ask the model"),
-    ("Deep dives", "/deep-dives", "nav-deep-dives", "Deep dives"),
     ("Impact", "/impact", "nav-impact", "Impact"),
     ("Target state", "/target", "nav-target", "Target state"),
     ("Branches", "/branches", "nav-branches", "Branches"),

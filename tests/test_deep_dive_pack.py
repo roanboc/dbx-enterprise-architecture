@@ -139,6 +139,20 @@ def test_the_context_puts_the_subject_at_the_centre(dives):
     }
 
 
+def test_the_context_shows_the_work_in_flight_beside_the_subject(dives):
+    d = dives["impact"]
+    lay = layout_figure(figures(d.content)[0], d.content["elements"])
+    panel = lay.shape("_panel_work")
+    assert panel is not None and panel.text == "Work in flight"
+    inside = [
+        s.element_id
+        for s in lay.elements()
+        if panel.x <= s.x and s.x + s.w <= panel.x + panel.w and panel.y <= s.y <= panel.y + panel.h
+    ]
+    assert inside == ["WP-CMS-UPGRADE"]
+    assert any(line.src == "_panel_work" and line.dst == "_panel_centre" for line in lay.lines)
+
+
 # --------------------------------------------------------------------- draw.io
 def test_a_draw_io_file_per_figure_numbered_top_down(dives):
     d = dives["impact"]
@@ -214,6 +228,23 @@ def test_the_pdf_reads_top_down_from_the_cover_to_how_it_was_answered(dives):
     assert raw.count(b"/Type /Page\n") + raw.count(b"/Type /Page ") >= 8
     for name, _ in diagram_files(d):  # every figure names the draw.io file that opens it
         assert name.encode() in raw
+
+
+def test_what_you_need_to_know_names_the_work_in_flight(dives):
+    raw = deep_dive_pdf(dives["impact"], compress=False)
+    assert b"(Work in flight)" in raw and b"WP-CMS-UPGRADE" in raw
+
+
+def test_a_rating_is_drawn_as_stars():
+    from ea.views.deep_dive_pdf import stars
+
+    drawing = stars(3.5, count=2)
+    shapes = drawing.contents[0].contents
+    filled = [
+        x for x in shapes if getattr(x, "fillColor", None) is not None and x.fillColor.hexval() == "0xf5b301"
+    ]
+    assert len([x for x in shapes if type(x).__name__ == "Polygon"]) >= 5
+    assert 3 < len(filled) <= 4  # three whole stars and half of the fourth
 
 
 def test_the_cover_says_what_was_read_and_for_whom(dives):

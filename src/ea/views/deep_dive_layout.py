@@ -38,9 +38,23 @@ PRESENT = {
 }
 MATURITY_FILL = {1: "#c92a2a", 2: "#e8590c", 3: "#f2c94c", 4: "#94c973", 5: "#2f9e44"}
 SEVERITY_FILL = {"high": "#c92a2a", "medium": "#f08c00", "low": "#1c7ed6"}
-GROUP_COLOUR = {"serves": "#d9822b", "business": "#e6b422", "who": "#0ca678", "around": "#2d8fd5"}
+GROUP_COLOUR = {
+    "serves": "#d9822b",
+    "business": "#e6b422",
+    "who": "#0ca678",
+    "around": "#2d8fd5",
+    "work": "#e05d44",
+}
 #: What joins the subject to each group on the context map.
-GROUP_VERB = {"serves": "serves", "business": "supports", "who": "concerns", "around": "beside"}
+GROUP_VERB = {
+    "serves": "serves",
+    "business": "supports",
+    "who": "concerns",
+    "around": "beside",
+    "work": "changes",
+}
+#: The groups whose line runs to the subject rather than from it.
+TOWARDS = ("who", "work")
 
 
 @dataclass
@@ -267,12 +281,24 @@ def context_map(fig: dict[str, Any], rows: dict[str, dict[str, Any]]) -> Layout:
         for n, c in enumerate(centre)
     ]
     y = middle_top + max([*heights, centre_h]) + 60
-    # what sits beside it, across the bottom
-    if groups.get("around"):
-        cols = 3
-        h = head + _grid_height(len(groups["around"]), cols) + pad
-        panels["around"] = panel("around", titles["around"], 20, y, width - 40, h)
-        lay.shapes += _grid(groups["around"], rows, _centred(width, cols), y + head, cols)
+    # what sits beside it, and the work in flight that changes it, across the bottom
+    bottom = [k for k in ("around", "work") if groups.get(k)]
+    if bottom:
+        if len(bottom) == 2:
+            work_w = CHIP_W + 2 * pad
+            spans = {"around": (20.0, width - 60 - work_w), "work": (width - 20 - work_w, work_w)}
+        else:
+            spans = {bottom[0]: (20.0, width - 40)}
+        cols = {
+            k: max(1, min(3, int((w - 2 * pad + CHIP_GAP) // (CHIP_W + CHIP_GAP))))
+            for k, (_, w) in spans.items()
+        }
+        h = max(head + _grid_height(len(groups[k]), cols[k]) + pad for k in bottom)
+        for k in bottom:
+            x, w = spans[k]
+            panels[k] = panel(k, titles[k], x, y, w, h)
+            grid_w = cols[k] * CHIP_W + (cols[k] - 1) * CHIP_GAP
+            lay.shapes += _grid(groups[k], rows, x + (w - grid_w) / 2, y + head, cols[k])
         y += h + 20
     if not panels:
         lay.shapes.append(
@@ -290,7 +316,7 @@ def context_map(fig: dict[str, Any], rows: dict[str, dict[str, Any]]) -> Layout:
         )
         y += 50
     for key, p in panels.items():
-        src, dst = ("_panel_centre", p.sid) if key != "who" else (p.sid, "_panel_centre")
+        src, dst = (p.sid, "_panel_centre") if key in TOWARDS else ("_panel_centre", p.sid)
         lay.lines.append(
             Line(
                 f"_to_{key}",
@@ -299,7 +325,7 @@ def context_map(fig: dict[str, Any], rows: dict[str, dict[str, Any]]) -> Layout:
                 GROUP_VERB.get(key, ""),
                 GROUP_COLOUR.get(key, MUTED),
                 2.5,
-                key == "around",
+                key in ("around", "work"),
             )
         )
     lay.height = y

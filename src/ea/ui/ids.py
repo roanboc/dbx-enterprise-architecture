@@ -250,6 +250,7 @@ ASK_DOC_STORE = "ask-doc-store"
 ASK_MODE = "ask-mode"  # a quick answer, or a deep dive
 ASK_QUICK = "ask-quick"
 ASK_DEEP = "ask-deep"
+ASK_DD_TABS = "ask-dd-tabs"  # a new deep dive, and the ones kept
 ASK_DD_INPUT = "ask-dd-input"
 ASK_DD_START = "ask-dd-start"
 ASK_DD_BRIEF = "ask-dd-brief"
@@ -261,10 +262,8 @@ ASK_DD_Q_SEND = "ask-dd-q-send"  # pattern type
 ASK_DD_WRITE = "ask-dd-write"
 ASK_DD_WRITE_HINT = "ask-dd-write-hint"
 ASK_DD_RESULT = "ask-dd-result"
-ASK_DD_KEPT = "ask-dd-kept"
-ASK_DD_PACK = "ask-dd-pack"
 
-# deep dives
+# deep dives kept — the Kept tab of Ask's deep mode
 DD_TEXT = "dd-text"
 DD_KIND = "dd-kind"
 DD_DOMAIN = "dd-domain"
@@ -281,6 +280,7 @@ DD_REFRESH = "dd-refresh"
 DD_STARS = "dd-stars"
 DD_WHY = "dd-why"
 DD_RATE = "dd-rate"
+DD_UNRATE = "dd-unrate"
 DD_PACK = "dd-pack"
 DD_AGAIN = "dd-again"
 DD_WITHDRAW = "dd-withdraw"

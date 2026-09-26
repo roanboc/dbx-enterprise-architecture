@@ -119,6 +119,10 @@ MAX_KEY = 3
 MAX_CONTEXT = 8
 #: The business, strategy and motivation elements "What it serves" draws, nearest first.
 MAX_SERVES = 10
+#: The work packages read to find the ones in flight around an analysis.
+MAX_WORK = 200
+#: What a work package still in flight may be now; one retired, or that never was, is over.
+IN_FLIGHT = ("proposed", "planned", "in_implementation", "live")
 #: How recently an approved element must have been refreshed to be current.
 RECENT_DAYS = STALE_DAYS[-1]
 #: How many elements must depend on one directly for it to be a single point of dependency.
@@ -127,10 +131,11 @@ SINGLE_POINT_HIGH = 8
 #: The findings a reader is shown first, on the page that opens the deep dive.
 HEADLINE = 3
 SEVERITIES = ("high", "medium", "low")
-#: The seven rules, in the order they are stated (and a tie is broken in).
+#: The eight rules, in the order they are stated (and a tie is broken in).
 RULES = (
     "single_point",
     "retiring",
+    "work_package",
     "outside_package",
     "untraced",
     "empty_relationship",
@@ -560,19 +565,20 @@ class DeepDiveAnalyst:
         steps: list[dict[str, str]] = []
         area = self._area(brief, steps)
         els, rels = self._read(area, steps)
+        work = self._work(area, els, rels, steps)
         links = {i: self.backend.get_links(i) for i in area.scope}
         adjacency = self._adjacency(rels)
         traced, walks = self._traced(els, adjacency)
         maturity = {i: self._maturity(els[i], adjacency, links.get(i, []), traced.get(i)) for i in els}
         inconsistencies = self._inconsistencies(area, els, rels, links)
-        findings = self._findings(brief, area, els, rels, adjacency, maturity, traced, inconsistencies)
+        findings = self._findings(brief, area, els, rels, adjacency, maturity, traced, inconsistencies, work)
         key = self._key(area, findings, adjacency)
         detail = self._detail(key, els, maturity, adjacency, traced, steps)
         steps.append(
             {"tool": "trace up", "detail": f"{walks} walk(s) through the store to test principle P9"}
         )
         rows = self._rows(area, els, maturity, findings)
-        levels = self._levels(brief, area, els, rels, rows, findings, detail)
+        levels = self._levels(brief, area, els, rels, rows, findings, detail, work)
         levels_scope = [maturity[i][0] for i in area.scope if i in maturity]
         conf = confidence(levels_scope)
         headline = self._headline(findings, brief.purpose)
@@ -588,6 +594,7 @@ class DeepDiveAnalyst:
             "levels": levels,
             "findings": findings,
             "inconsistencies": inconsistencies,
+            "work_packages": work,
             "references": self._references(brief, area, key),
             "key_ids": key,
             "read": {
@@ -756,6 +763,70 @@ class DeepDiveAnalyst:
             {"tool": "read", "detail": f"{len(els)} element(s) and {len(rels)} relationship(s) among them"}
         )
         return els, rels
+
+    def _work(
+        self, area: _Area, els: dict[str, Element], rels: list[Relationship], steps: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """The work packages in flight that touch what was read: related to an element, or named
+        in its target. A work package plans a change, so it is not a dependant (the single point
+        of dependency leaves it out) — but a reader deciding about an area needs to know what is
+        already changing it. What they add is read into `els`, and their relationships into `rels`.
+        """
+        wp_type = self._wp_type()
+        if not wp_type:
+            return []
+        scope = [i for i in area.scope if i in els]
+        in_scope = set(scope)
+        touches: dict[str, dict[str, set[str]]] = {}
+
+        def touch(wp: str, element_id: str, how: str) -> None:
+            t = touches.setdefault(wp, {"elements": set(), "via": set()})
+            t["elements"].add(element_id)
+            t["via"].add(how)
+
+        for i in scope:
+            if els[i].target_work_package:
+                touch(els[i].target_work_package, i, "target")
+        candidates = {
+            e.element_id: e
+            for e in self.backend.find_elements(ElementFilter(type_ids=[wp_type]), limit=MAX_WORK)
+        }
+        named = [w for w in touches if w not in candidates]
+        candidates.update({e.element_id: e for e in self.backend.elements_by_ids(named)})
+        known = {r.relationship_id for r in rels}
+        for r in self.backend.edges_among([*scope, *candidates]):
+            for wp, other in ((r.src_id, r.dst_id), (r.dst_id, r.src_id)):
+                if wp in candidates and other in in_scope and other != wp:
+                    touch(wp, other, "relationship")
+                    if r.relationship_id not in known:
+                        known.add(r.relationship_id)
+                        rels.append(r)
+        out = []
+        for wp, t in touches.items():
+            e = candidates.get(wp)
+            if e is None or e.type_id != wp_type or wp == area.work_package:
+                continue
+            if e.status == "retired" or e.current_state not in IN_FLIGHT:
+                continue
+            els.setdefault(wp, e)
+            out.append(
+                {
+                    "element_id": wp,
+                    "name": e.name,
+                    "current_state": e.current_state,
+                    "target_state": e.target_state,
+                    "elements": [i for i in scope if i in t["elements"]],
+                    "via": sorted(t["via"]),
+                }
+            )
+        out.sort(key=lambda w: (-len(w["elements"]), w["element_id"]))
+        steps.append(
+            {
+                "tool": "work packages",
+                "detail": f"{len(out)} in flight touch what was read, of {len(candidates)} read",
+            }
+        )
+        return out
 
     @staticmethod
     def _adjacency(rels: list[Relationship]) -> dict[str, dict[str, set[str]]]:
@@ -965,6 +1036,7 @@ class DeepDiveAnalyst:
         maturity: dict[str, tuple[int, str]],
         traced: dict[str, bool | None],
         inconsistencies: list[dict[str, Any]],
+        work: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
         scope = [i for i in area.scope if i in els]
@@ -1047,6 +1119,25 @@ class DeepDiveAnalyst:
                     "When it goes, what still relates to it is left depending on nothing.",
                     3,
                 )
+        # 2b. work packages in flight change what it read
+        if work:
+            touched = [i for w in work for i in w["elements"]]
+            state = {w["element_id"]: w["current_state"].replace("_", " ") for w in work}
+            add(
+                "work_package",
+                "medium" if set(touched) & subject else "low",
+                f"{len(work)} work package(s) in flight change what it read",
+                "; ".join(
+                    f"{name(w['element_id'])}, {state[w['element_id']]}, changes "
+                    f"{_join([name(i) for i in w['elements'][:6]])}{' and more' if len(w['elements']) > 6 else ''}"
+                    for w in work[:5]
+                )
+                + ("; and more." if len(work) > 5 else "."),
+                [*(w["element_id"] for w in work), *dict.fromkeys(touched)],
+                "What is already being changed may not be what the model shows by the time a decision "
+                "lands; read the work package's plan beside this.",
+                1,
+            )
         # 3. a change reaches elements outside its work package
         if area.work_package and area.outside:
             via = sorted(set(area.outside.values()))
@@ -1310,6 +1401,7 @@ class DeepDiveAnalyst:
         rows: dict[str, dict[str, Any]],
         findings: list[dict[str, Any]],
         detail: dict[str, dict[str, Any]],
+        work: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         scope = [i for i in area.scope if i in rows]
         centre = list(area.subject) or ([area.work_package] if area.work_package else [])
@@ -1342,12 +1434,17 @@ class DeepDiveAnalyst:
         ]
         business = [i for i in near if rows[i]["layer"] == "business" and i not in people][:MAX_CONTEXT]
         linked = {n for c in centre for n in self._neighbours_of(c, rels)}
-        beside = [i for i in near if i in linked and rows[i]["layer"] not in UPPER_LAYERS][:MAX_CONTEXT]
+        in_flight = [w["element_id"] for w in work or [] if w["element_id"] in rows][:MAX_CONTEXT]
+        packages = {i for i in rows if rows[i]["type_id"] == self._wp_type()}
+        beside = [
+            i for i in near if i in linked and rows[i]["layer"] not in UPPER_LAYERS and i not in packages
+        ][:MAX_CONTEXT]
         for key, label, ids in (
             ("serves", "What it serves", serves),
             ("business", "The business it supports", business),
             ("who", "Who is concerned", people),
             ("around", "Beside it", beside),
+            ("work", "Work in flight", in_flight),
         ):
             if ids:
                 groups.append({"key": key, "title": label, "ids": ids})

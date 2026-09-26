@@ -54,7 +54,6 @@ PAGES = {
     "impact",
     "import",
     "ask",
-    "deep-dives",
     "branches",
     "target",
     "propose",
@@ -231,8 +230,6 @@ def create_app() -> dash.Dash:
                 body = feeds.render(ctx)
             elif page == "ask":
                 body = ask.render(ctx, search)
-            elif page == "deep-dives":
-                body = deep_dives.render(ctx, search)
             elif page == "branches":
                 body = branches.render(ctx, search)
             elif page == "target":

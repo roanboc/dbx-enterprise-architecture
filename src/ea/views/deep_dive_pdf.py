@@ -501,6 +501,54 @@ def _maturity_cell(level: int) -> str:
     return f"{level} — {MATURITY_LEVELS.get(level, '')}"
 
 
+STAR_FILL, STAR_EMPTY = "#f5b301", "#dde2e8"
+
+
+def _star(cx: float, cy: float, r: float) -> list[float]:
+    points: list[float] = []
+    for n in range(10):
+        radius = r if n % 2 == 0 else r * 0.45
+        angle = math.pi / 2 + n * math.pi / 5
+        points += [cx + radius * math.cos(angle), cy + radius * math.sin(angle)]
+    return points
+
+
+def stars(value: float | None, count: int = 0, size: float = 9.0) -> Drawing:
+    """A rating as five stars, filled to the half, with how many rated it beside them."""
+    value = max(0.0, min(5.0, round((value or 0) * 2) / 2))
+    label = f"({count})" if count else ""
+    step = size * 1.2
+    d = Drawing(5 * step + (stringWidth(label, "Helvetica", size * 0.9) + 3 if label else 0), size + 2)
+    g = Group()
+    for n in range(5):
+        cx, cy, r = n * step + size / 2, size / 2 + 1, size / 2
+        whole = n + 1 <= value
+        g.add(
+            Polygon(
+                _star(cx, cy, r),
+                fillColor=colors.HexColor(STAR_FILL if whole else STAR_EMPTY),
+                strokeColor=None,
+            )
+        )
+        if not whole and n + 0.5 <= value:  # half a star: its left side, over the empty one
+            half = _star(cx, cy, r)
+            half = [min(v, cx) if i % 2 == 0 else v for i, v in enumerate(half)]
+            g.add(Polygon(half, fillColor=colors.HexColor(STAR_FILL), strokeColor=None))
+    if label:
+        g.add(
+            String(
+                5 * step + 2,
+                1.5,
+                label,
+                fontName="Helvetica",
+                fontSize=size * 0.9,
+                fillColor=colors.HexColor(MUTED),
+            )
+        )
+    d.add(g)
+    return d
+
+
 def _finding_card(f: dict[str, Any], rows: dict[str, dict[str, Any]], width: float) -> Table:
     level = {1: "Context", 2: "Overview", 3: "Architecture", 4: "Detail"}.get(f.get("level"), "")
     rests = ", ".join(_name(rows, i) for i in f["elements"][:12]) + (
@@ -640,6 +688,30 @@ def deep_dive_pdf(
             story += [_finding_card(f, rows, width), Spacer(1, 6)]
     else:
         story.append(Paragraph("The rules found nothing to report in what was read.", BODY))
+    work = c.get("work_packages") or []
+    if work:
+        story.append(Paragraph("Work in flight", H2))
+        story.append(
+            Paragraph(
+                "Work packages planned or under way that change elements this deep dive read: what the "
+                "model shows may not be what is there when a decision lands.",
+                SMALL,
+            )
+        )
+        story.append(
+            _table(
+                [[Paragraph(f"<b>{h}</b>", CELL) for h in ("Work package", "State", "What it changes")]]
+                + [
+                    [
+                        Paragraph(_p(f"{w['name']} [{w['element_id']}]"), CELL),
+                        Paragraph(_p(w["current_state"].replace("_", " ")), CELL),
+                        Paragraph(_p(", ".join(_name(rows, i) for i in w["elements"])), CELL),
+                    ]
+                    for w in work
+                ],
+                [width * 0.34, width * 0.14, width * 0.52],
+            )
+        )
     if read.get("truncated"):
         story.append(
             Paragraph(
@@ -748,14 +820,9 @@ def deep_dive_pdf(
                         ),
                         Paragraph(_p(KIND_LABEL.get(x.get("kind", ""), x.get("kind", ""))), CELL),
                         Paragraph(_p(f"{x.get('created_by', '')}, {x.get('created_at', '')}"), CELL),
-                        Paragraph(
-                            _p(
-                                f"{x['rating_average']} of 5 ({x['rating_count']})"
-                                if x.get("rating_count")
-                                else "Not rated yet"
-                            ),
-                            CELL,
-                        ),
+                        stars(x["rating_average"], x["rating_count"])
+                        if x.get("rating_count")
+                        else Paragraph("Not rated yet", CELL),
                     ]
                     for x in dives
                 ],

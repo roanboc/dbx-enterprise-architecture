@@ -80,7 +80,7 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 mb="md",
                 **{"aria-label": "How to answer"},
             ),
-            html.Div(ask_deep.render(ctx), id=ids.ASK_DEEP, style=_shown(mode == "deep")),
+            html.Div(ask_deep.render(ctx, search), id=ids.ASK_DEEP, style=_shown(mode == "deep")),
             html.Div(
                 [
                     dmc.Paper(

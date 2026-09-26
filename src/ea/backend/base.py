@@ -328,6 +328,10 @@ class DatabaseBackend(ABC):
         """One rating per person and deep dive, one to five stars; a second one replaces the first."""
 
     @abstractmethod
+    def clear_deep_dive_rating(self, deep_dive_id: str, rated_by: str) -> bool:
+        """Take back one person's rating of a deep dive; False when they had given none."""
+
+    @abstractmethod
     def deep_dive_ratings(self, deep_dive_id: str) -> list[DeepDiveRating]:
         """Every rating a deep dive was given, the latest first."""
 
