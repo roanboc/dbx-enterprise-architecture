@@ -840,10 +840,12 @@ class RoleGrant:
     """A role the application gives to a workspace group (DOBJ3.13, decision 0028).
 
     The application's, not an organisation's: it holds in every organisation. One per group,
-    kept by the workspace's identifier for it (`group_id`) with the name it had when granted,
-    so a renamed group keeps its role and a new group given an old name does not inherit it.
-    Where the directory could not be searched the exact name typed is the identifier and
-    `checked` is false: it is matched by that name until the group is picked from the directory.
+    kept by the workspace's identifier for it (`group_id`) with the name the directory gave it
+    when granted, so a renamed group keeps its role and a new group given an old name does not
+    inherit it — wherever a person's groups come with their identifiers; a groups header of a
+    proxy of ours carries names alone, and there the grant is met by that name. Where the
+    directory could not be searched the exact name typed is the identifier and `checked` is
+    false: it is matched by that name, in any case, until the group is picked from the directory.
     """
 
     group_id: str

@@ -553,13 +553,99 @@ def test_where_the_groups_cannot_be_searched_an_exact_name_is_granted_not_checke
         def search_groups(self, text):
             raise DirectoryUnavailable("the workspace did not answer (Timeout)")
 
+        def groups_by_id(self, ids):
+            raise DirectoryUnavailable("the workspace did not answer (Timeout)")
+
     monkeypatch.setenv("EA_AUTH", "mock")
     monkeypatch.setattr(ea.cli, "DIRECTORY", Down())
     typed = runner.invoke(app, ["roles", "grant", "--group", "Data Office", "--role", "reviewer"])
     assert typed.exit_code == 0 and "not checked" in typed.output
+    # an identifier is kept only once the directory says whose it is, and it cannot say now
     by_id = runner.invoke(
         app, ["roles", "grant", "--group", "Architects", "--id", "123", "--role", "architect"]
     )
-    assert by_id.exit_code == 0 and "Architect granted to Architects" in by_id.output
+    assert by_id.exit_code != 0 and "cannot be checked" in _said(by_id)
     listed = runner.invoke(app, ["roles", "list"]).output
-    assert "Data Office" in listed and "not checked" in listed and "[123]" in listed
+    assert "Data Office" in listed and "not checked" in listed and "[123]" not in listed
+
+
+def test_a_group_granted_by_its_identifier_is_the_one_the_directory_names(ea_env, monkeypatch):
+    """`--id` is checked against the directory: the name kept is the directory's, and the
+    all-users group is never Admin under another name."""
+    monkeypatch.setenv("EA_AUTH", "mock")
+    everyone = runner.invoke(
+        app, ["roles", "grant", "--group", "everyone-here", "--id", "sample-users", "--role", "admin"]
+    )
+    assert everyone.exit_code != 0 and "every person in the workspace" in _said(everyone)
+    renamed = runner.invoke(
+        app,
+        [
+            "roles",
+            "grant",
+            "--group",
+            "designers",
+            "--id",
+            "sample-solution-architects",
+            "--role",
+            "architect",
+        ],
+    )
+    assert renamed.exit_code == 0, _said(renamed)
+    assert "Architect granted to solution-architects" in renamed.output
+    assert "not designers" in renamed.output, "the name typed that is not the group's is pointed out"
+    unknown = runner.invoke(
+        app, ["roles", "grant", "--group", "ghosts", "--id", "no-such-id", "--role", "reviewer"]
+    )
+    assert unknown.exit_code != 0 and "no group in the sample groups has the identifier" in _said(unknown)
+    listed = runner.invoke(app, ["roles", "list"]).output
+    assert "solution-architects  [sample-solution-architects]" in listed
+    assert "everyone-here" not in listed and "designers" not in listed and "ghosts" not in listed
+
+
+def test_revoke_takes_the_grant_a_name_means_or_asks_for_its_identifier(ea_env, monkeypatch):
+    """Two groups may share a name up to its case, or exactly: `revoke` takes an exact identifier
+    first, then the name in its exact case, and where that still means more than one grant it
+    removes none and lists them with their identifiers, as `grant` does."""
+    import ea.cli
+    from ea.models import GroupRef
+    from ea.services.identity import SampleDirectory
+
+    monkeypatch.setenv("EA_AUTH", "mock")
+    monkeypatch.setattr(
+        ea.cli,
+        "DIRECTORY",
+        SampleDirectory(
+            [
+                GroupRef("ea-admins", "ws-1"),
+                GroupRef("platform", "acc-9"),
+                GroupRef("Platform", "ws-7"),
+                GroupRef("Platform", "ws-8"),
+            ]
+        ),
+    )
+    for group, gid, role in (
+        ("ea-admins", "ws-1", "admin"),
+        ("platform", "acc-9", "admin"),
+        ("Platform", "ws-7", "architect"),
+    ):
+        made = runner.invoke(app, ["roles", "grant", "--group", group, "--id", gid, "--role", role])
+        assert made.exit_code == 0, _said(made)
+    exact = runner.invoke(app, ["roles", "revoke", "Platform"])
+    assert exact.exit_code == 0 and "removed the Architect grant of Platform" in exact.output
+    listed = runner.invoke(app, ["roles", "list"]).output
+    assert "[acc-9]" in listed and "[ws-7]" not in listed, (
+        "the name in its exact case, not the first in any case"
+    )
+
+    for gid in ("ws-7", "ws-8"):
+        runner.invoke(app, ["roles", "grant", "--group", "Platform", "--id", gid, "--role", "reviewer"])
+    for text in ("Platform", "PLATFORM"):
+        both = runner.invoke(app, ["roles", "revoke", text])
+        said = _said(both)
+        assert both.exit_code == 1 and "name one by its identifier" in said, said
+        assert "[ws-7]" in said and "[ws-8]" in said
+    assert "[acc-9]" in _said(runner.invoke(app, ["roles", "revoke", "PLATFORM"])), "any case: all three"
+    by_id = runner.invoke(app, ["roles", "revoke", "ws-8"])
+    assert by_id.exit_code == 0 and "removed the Reviewer grant of Platform" in by_id.output
+    listed = runner.invoke(app, ["roles", "list"]).output
+    assert "[acc-9]" in listed and "[ws-7]" in listed and "[ws-8]" not in listed and "[ws-1]" in listed

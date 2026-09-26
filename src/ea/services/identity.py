@@ -12,7 +12,8 @@ A group is carried with the workspace's identifier for it as well as its name
 (initiative 28): a role an admin grants is kept by the identifier, so a renamed
 group keeps it and a new group given an old name does not inherit it. The
 directory an admin picks a group from is read as the application's own identity,
-quick to give up when the workspace is slow; locally it is a few sample groups.
+quick to give up when the workspace is slow; on a local DuckDB store off the
+platform it is a few sample groups (`directory_for`).
 """
 
 from __future__ import annotations
@@ -367,6 +368,10 @@ Directory = WorkspaceDirectory | SampleDirectory
 
 
 def directory_for(settings: Any) -> Directory:
-    """The workspace's directory where the platform signs people in; the sample groups locally,
-    where the debug persona is the role (decision 0008) and there is no workspace to ask."""
-    return WorkspaceDirectory() if settings.auth == "databricks" else SampleDirectory()
+    """The workspace's directory wherever the platform is involved: where it signs people in, and
+    wherever the store is the platform's (Lakebase), since a grant kept there has to name one of
+    the workspace's groups — `ea roles` run from a laptop against that store leaves EA_AUTH at
+    its default. The sample groups only for a local DuckDB store off the platform, where the debug
+    persona is the role (decision 0008) and there is no workspace to ask."""
+    on_the_platform = settings.auth == "databricks" or settings.backend == "lakebase"
+    return WorkspaceDirectory() if on_the_platform else SampleDirectory()

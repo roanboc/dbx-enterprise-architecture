@@ -1890,9 +1890,10 @@ def roles_grant(
 ):
     """Grant a role to a workspace group, or replace the role it has (an admin's decision; initiative 28).
 
-    The group is found in the workspace by its exact name, and kept by the workspace's identifier
-    for it. Where the workspace's groups cannot be searched, the exact name is granted, marked not
-    checked, and matched by that name until the group is granted again from the workspace."""
+    The group is found in the workspace by its exact name, or by --id, and kept by the workspace's
+    identifier for it under the name the workspace gives it. Where the workspace's groups cannot be
+    searched, the exact name is granted, marked not checked, and matched by that name until the
+    group is granted again from the workspace."""
     from ea.services.roles import LABELS
 
     require("grant_roles", what="grant a role")
@@ -1913,8 +1914,16 @@ def roles_grant(
                 "--id grants one by the workspace's identifier for it"
             )
     kept = svc.grant(group_id, name, role, note, checked, actor)
+    # an identifier is the group's whatever name was typed beside it: say whose it is
+    elsewhere = checked and kept.group_name.casefold() != name.casefold()
     typer.echo(
         f"{LABELS.get(kept.role, kept.role)} granted to {kept.group_name}"
+        + (
+            f" (the group with the identifier {kept.group_id} is called {kept.group_name} "
+            f"in {svc.directory.label}, not {name})"
+            if elsewhere
+            else ""
+        )
         + (
             ""
             if checked
@@ -1928,21 +1937,29 @@ def roles_revoke(
     group: str = typer.Argument(..., help="the group's name or identifier, as `ea roles list` shows it"),
     actor: str = typer.Option("admin"),
 ):
-    """Remove a group's grant: its people fall back to what their other groups give."""
+    """Remove a group's grant: its people fall back to what their other groups give.
+
+    The group is its exact identifier, else its name in its exact case, else its name or
+    identifier in any case; where that still means more than one grant, none is removed and each
+    is listed with its identifier."""
     from ea.services.roles import LABELS
 
     require("grant_roles", what="remove a role grant")
     _, svc = _access()
-    held = svc.find(group)
-    if held is None:
+    held = svc.matching(group)
+    if not held:
         deployed = [g for r, g in svc.deployment_grants() if g.casefold() == group.strip().casefold()]
         if deployed:
             _refuse(
                 f"the role of {deployed[0]} is set by the deployment (EA_ROLE_GROUPS) and is changed there"
             )
         _refuse(f"no role is granted to a group {group!r}; `ea roles list` says which are")
-    svc.revoke(held.group_id, actor)
-    typer.echo(f"removed the {LABELS.get(held.role, held.role)} grant of {held.group_name}")
+    if len(held) > 1:
+        listed = ", ".join(f"{g.group_name} [{g.group_id}] ({LABELS.get(g.role, g.role)})" for g in held)
+        _refuse(f"{len(held)} grants match {group!r}: {listed}; name one by its identifier")
+    gone = held[0]
+    svc.revoke(gone.group_id, actor)
+    typer.echo(f"removed the {LABELS.get(gone.role, gone.role)} grant of {gone.group_name}")
 
 
 @roles_app.command("check")

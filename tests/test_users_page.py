@@ -4,6 +4,8 @@ service again, so a Reader who calls one directly is refused, and is shown nothi
 
 from __future__ import annotations
 
+import json
+
 import dash
 import flask
 
@@ -183,6 +185,32 @@ def test_where_the_directory_cannot_be_searched_the_exact_name_is_offered_not_ch
     assert "cannot be searched" in note and "exact name" in note
     assert [o["label"] for o in options] == ["Data Office — not checked"]
     assert parse_option(options[0]["value"]) == ("Data Office", "Data Office", False)
+
+
+def test_the_picker_s_value_is_asked_of_the_directory_again_never_believed(app_context):
+    """The value a picked option carries comes back from the browser, where it can be changed: the
+    group is the one the directory holds under that identifier, whatever name came with it."""
+    forged = json.dumps(["sample-users", "everyone-here", True])
+    renamed = json.dumps(["sample-solution-architects", "someone else's label", True])
+    unknown = json.dumps(["sample-nobody", "ghosts", True])
+    with use_role("admin"):
+        ok, said = do_grant(app_context, forged, "admin", "")
+        assert not ok
+        if app_context.backend.engine == "lakebase":  # a local persona writes nothing there
+            assert "debug persona" in _texts(said)
+            return
+        assert "every person in the workspace" in _texts(said)
+        ok, said = do_grant(app_context, renamed, "architect", "")
+        assert ok and "Architect granted to solution-architects" in _texts(said)
+        ok, said = do_grant(app_context, unknown, "reviewer", "")
+        assert not ok and "sample-nobody" in _texts(said)
+        typed = option_value(GroupRef(name="Data Office"), checked=False)
+        ok, said = do_grant(app_context, typed, "reviewer", "")
+        assert ok and "Reviewer granted to Data Office" in _texts(said) and "not checked" in _texts(said)
+    assert {(g.group_id, g.group_name, g.checked) for g in app_context.backend.list_role_grants()} == {
+        ("sample-solution-architects", "solution-architects", True),
+        ("Data Office", "Data Office", False),
+    }
 
 
 def test_the_page_s_callbacks_are_registered_with_their_controls():

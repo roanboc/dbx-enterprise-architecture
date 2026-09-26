@@ -10,6 +10,8 @@ memberships, and says so beneath itself. Whatever the round grants it also remov
 scenario after this group reads a grant it did not make. On the Postgres engine
 (`EA_ROUND_ENGINE=postgres`) a debug persona may not write grants into what stands for the
 platform's store: the page says so and turns Grant and Remove off, and W02 reads that instead.
+Nor are the sample groups offered there — the platform's store is only ever granted the
+workspace's groups — so W01 reads that the picker says nothing of sample groups.
 
 The rules themselves — the highest role wins, an admin's own Admin and the last admin grant are
 kept, the all-users group is never Admin — are proved in `tests/test_access.py`; this group
@@ -95,11 +97,18 @@ def test_the_page_as_an_admin(ui, record):
         "approves or sends back branches" in body and "drafts on branches" in body and "Everything" in body,
         body[:300],
     )
-    ui.check(
-        "the picker says that locally it offers sample groups",
-        SAMPLE_NOTE in ui.text("usr-search-note"),
-        ui.text("usr-search-note") or "(nothing beneath the picker)",
-    )
+    if ui.disabled("usr-grant"):  # the Postgres round: the platform's store is never offered sample groups
+        ui.check(
+            "on the platform's store the picker offers no sample groups",
+            SAMPLE_NOTE not in ui.text("usr-search-note"),
+            ui.text("usr-search-note") or "(nothing beneath the picker)",
+        )
+    else:
+        ui.check(
+            "the picker says that locally it offers sample groups",
+            SAMPLE_NOTE in ui.text("usr-search-note"),
+            ui.text("usr-search-note") or "(nothing beneath the picker)",
+        )
     link = ui.page.locator("#page a[href='/metamodel']")
     ui.check("who reviews which type is linked on the Metamodel page", link.count() > 0, body[-300:])
     ui.check("the recent changes are shown", ui.visible("usr-history"))

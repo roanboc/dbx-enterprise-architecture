@@ -255,3 +255,17 @@ def test_the_role_on_the_platform_comes_from_the_store_s_grants_too(backend):
     assert (user.role, user.groups) == ("architect", ["ea-reviewers", "solution-architects"])
     ctx.identity = WorkspaceGroups(lambda u, t: [GroupRef("solution-architects", "g-new")])
     assert ctx.user_from_headers({"X-Forwarded-Email": "sam@example.edu"}).role == "reader"
+
+
+def test_behind_a_trusted_proxy_a_group_picked_from_the_directory_reaches_its_people(backend):
+    """The proxy's groups header carries names alone: a grant picked from the directory, kept by
+    its identifier, is matched there by the name it was granted under."""
+    ctx = AppContext(Settings(auth="databricks", trust_groups_header=True), backend)
+    backend.set_role_grant(RoleGrant("g-arch-id", "solution-architects", "architect"), "ada")
+    ctx.identity = WorkspaceGroups(lambda u, t: [])  # never asked: the header names the groups
+    user = ctx.user_from_headers(
+        {"X-Forwarded-Email": "arjun@example.edu", "X-Forwarded-Groups": "data-team, Solution-Architects"}
+    )
+    assert user.role == "architect"
+    other = ctx.user_from_headers({"X-Forwarded-Email": "sam@example.edu", "X-Forwarded-Groups": "data-team"})
+    assert other.role == "reader"

@@ -415,8 +415,9 @@ class AppContext:
 
     def group_refs(self) -> list[GroupRef]:
         """The signed-in person's groups, each with its identifier where it is known: on the
-        platform the workspace's, locally the debug persona's in the sample groups — what their
-        role is checked against when they change a grant, and what their own role is read from."""
+        platform the workspace's, locally the debug persona's in the directory (the sample groups,
+        on a local store) — what their role is checked against when they change a grant, and what
+        their own role is read from."""
         if self.settings.auth == "databricks":
             try:
                 from flask import has_request_context, request

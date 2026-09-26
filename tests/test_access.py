@@ -2,10 +2,10 @@
 
 A person's role is the highest that the deployment's grants (`EA_ROLE_GROUPS`, matched by a
 group's name) or a grant kept in the store (matched by the workspace's identifier for the
-group) gives them; a person no grant reaches is a Reader. An admin grants and removes, and
-cannot lock the application out by accident: not their own Admin, not the last admin grant,
-and never Admin to every person in the workspace. Every change is in the change log, filed
-under no organisation.
+group, or by its name where a group comes without one) gives them; a person no grant reaches
+is a Reader. An admin grants and removes, and cannot lock the application out by accident: not
+their own Admin, not the last admin grant, and never Admin to every person in the workspace,
+under whatever name. Every change is in the change log, filed under no organisation.
 """
 
 from __future__ import annotations
@@ -20,12 +20,32 @@ from ea.config import Settings
 from ea.models import Forbidden, GroupRef, NotFoundError, RoleGrant
 from ea.services import HealthService, OrganisationService
 from ea.services.access import AccessService, in_words
-from ea.services.identity import DirectoryUnavailable, SampleDirectory
+from ea.services.identity import (
+    SAMPLE_GROUPS,
+    DirectoryUnavailable,
+    SampleDirectory,
+    WorkspaceDirectory,
+    directory_for,
+)
 from ea.services.roles import allowed, use_role
 
 ARCHITECTS = GroupRef(name="solution-architects", id="g-arch")
 ADMINS = GroupRef(name="ea-admins", id="g-admins")
 PLATFORM = GroupRef(name="platform-team", id="g-plat")
+EVERYONE = GroupRef(name="users", id="g-users")  # the workspace's group of every person in it
+ACCOUNT = GroupRef(name="Account Users", id="g-account-users")
+DATA = GroupRef(name="Data Team", id="g-data")
+
+
+class Workspace(SampleDirectory):
+    """The workspace's directory as a test holds it: a few groups, each with its identifier, and
+    not the sample one — so a grant reaches the store on either engine, as from the platform."""
+
+    sample = False
+    label = "the workspace"
+
+
+GROUPS = (ARCHITECTS, ADMINS, PLATFORM, EVERYONE, ACCOUNT, DATA)
 
 
 class Clock:
@@ -37,7 +57,7 @@ class Clock:
 
 
 def service(backend, role_groups: str = "", **kw) -> AccessService:
-    directory = kw.pop("directory", None) or SampleDirectory()
+    directory = kw.pop("directory", None) or Workspace(GROUPS)
     settings = kw.pop("settings", None) or Settings(role_groups=role_groups)
     return AccessService(backend, settings, directory, **kw)
 
@@ -73,7 +93,22 @@ def test_a_stored_grant_follows_its_group_by_identifier_never_by_name(backend):
     grant(svc, ARCHITECTS, "architect")
     assert svc.resolve([GroupRef("renamed-architects", "g-arch")])[0] == "architect"
     assert svc.resolve([GroupRef("solution-architects", "g-other")])[0] == "reader"
-    assert svc.resolve([GroupRef("solution-architects")])[0] == "reader", "no identifier, no match"
+
+
+def test_a_group_known_by_its_name_alone_meets_a_checked_grant_by_that_name(backend):
+    """Behind a proxy of ours (`EA_TRUST_GROUPS_HEADER`) a person's groups arrive as names alone:
+    a grant picked from the directory is matched by the name it was granted under, in any case,
+    or no grant picked from the directory would reach anyone there."""
+    svc = service(backend)
+    grant(svc, ARCHITECTS, "architect")
+    role, reasons = svc.resolve([GroupRef("Solution-Architects")])
+    assert role == "architect"
+    assert reasons[0].how() == "granted by ada, matched by its name"
+    assert svc.resolve(["solution-architects"])[0] == "architect", "a plain name is a name alone"
+    assert svc.resolve([GroupRef("solution-architects", "g-other")])[0] == "reader", (
+        "a group whose identifier is known is matched by it, never by its name"
+    )
+    assert svc.resolve([GroupRef("data-architects")])[0] == "reader"
 
 
 def test_a_grant_not_checked_is_matched_by_its_exact_name_until_it_is_picked(backend):
@@ -87,6 +122,32 @@ def test_a_grant_not_checked_is_matched_by_its_exact_name_until_it_is_picked(bac
     grant(svc, GroupRef("Data Team", "g-data"), "architect")
     held = backend.list_role_grants()
     assert [(g.group_id, g.checked, g.role) for g in held] == [("g-data", True, "architect")]
+
+
+def test_a_name_typed_again_in_another_case_replaces_the_grant_it_names(backend):
+    """A typed grant is matched by its name in any case, so it is one grant in any case: typing
+    `contractors` after `Contractors` changes that grant, never adds a second beside it."""
+    svc = service(backend)
+    with use_role("admin"):
+        svc.grant("Contractors", "Contractors", "architect", "", False, "ada")
+        kept = svc.grant("contractors", "contractors", "reviewer", "lowered", False, "bea")
+    assert kept.role == "reviewer"
+    held = backend.list_role_grants()
+    assert [(g.group_id, g.role, g.checked) for g in held] == [("contractors", "reviewer", False)]
+    assert svc.resolve([GroupRef("Contractors", "g-c")])[0] == "reviewer", "the lower role is the one held"
+    # the grant replaced counts for the lockout rules like any other
+    with use_role("admin"):
+        svc.grant("Admins", "Admins", "admin", "", False, "ada")
+        with pytest.raises(Forbidden, match="last admin grant"):
+            svc.grant("admins", "admins", "reviewer", "", False, "cli")
+        grant(svc, PLATFORM, "admin")
+        with pytest.raises(Forbidden, match="their own Admin"):
+            svc.grant("ADMINS", "ADMINS", "reviewer", "", False, "ada", acting=[GroupRef("admins", "g-a")])
+    assert {(g.group_id, g.role) for g in backend.list_role_grants()} == {
+        ("contractors", "reviewer"),
+        ("Admins", "admin"),
+        (PLATFORM.id, "admin"),
+    }
 
 
 def test_a_stored_role_outside_the_three_gives_nothing(backend):
@@ -165,13 +226,63 @@ def test_only_the_three_roles_are_granted(backend):
 
 def test_the_workspace_s_all_users_group_is_never_made_admin(backend):
     svc = service(backend)
-    for name in ("users", "Account Users"):
+    for ref in (EVERYONE, ACCOUNT):
         with pytest.raises(Forbidden, match="every person in the workspace"):
-            grant(svc, GroupRef(name, f"g-{name}"), "admin")
+            grant(svc, ref, "admin")
         with pytest.raises(Forbidden, match="every person in the workspace"):
-            grant(svc, GroupRef(name, name), "admin", checked=False)
-    grant(svc, GroupRef("users", "g-users"), "reviewer")  # another role is the admin's to give
+            grant(svc, GroupRef(ref.name, ref.name), "admin", checked=False)
+    grant(svc, EVERYONE, "reviewer")  # another role is the admin's to give
     assert [g.role for g in backend.list_role_grants()] == ["reviewer"]
+
+
+def test_a_group_picked_by_its_identifier_is_the_directory_s_whatever_name_it_is_given(backend):
+    """The identifier is what a checked grant keeps, so it is what is checked: the name beside it
+    is the directory's, never the caller's — the all-users group is not Admin under another name."""
+    svc = service(backend)
+    for ref in (EVERYONE, ACCOUNT):
+        with pytest.raises(Forbidden, match="every person in the workspace"):
+            grant(svc, GroupRef("everyone-here", ref.id), "admin")
+    kept = grant(svc, GroupRef("whatever was typed", ARCHITECTS.id), "architect")
+    assert kept.group_name == ARCHITECTS.name, "the directory's name is kept, not the caller's"
+    with pytest.raises(NotFoundError, match="no group in the workspace has the identifier 'g-nobody'"):
+        grant(svc, GroupRef("nobody", "g-nobody"), "reviewer")
+
+    class Down(Workspace):
+        def groups_by_id(self, ids):
+            raise DirectoryUnavailable("the workspace did not answer (Timeout)")
+
+    down = service(backend, directory=Down(GROUPS))
+    with pytest.raises(ValueError, match="cannot be searched.*cannot be checked"):
+        grant(down, PLATFORM, "reviewer")
+    typed = grant(down, GroupRef("Platform Team", "Platform Team"), "reviewer", checked=False)
+    assert (typed.group_id, typed.group_name, typed.checked) == ("Platform Team", "Platform Team", False)
+    with use_role("admin"):
+        loose = down.grant("Ops", "a label for another group", "reviewer", "", False, "ada")
+    assert loose.group_name == "Ops", "a typed grant's name is the text it is matched by"
+    assert {(g.group_id, g.group_name) for g in backend.list_role_grants()} == {
+        (ARCHITECTS.id, ARCHITECTS.name),
+        ("Platform Team", "Platform Team"),
+        ("Ops", "Ops"),
+    }
+
+
+def test_an_admin_grant_never_lifts_anyone_through_the_all_users_group(backend):
+    """Whatever wrote it, a stored Admin grant reaching a person through their all-users group
+    gives them nothing: every person in the workspace is in it."""
+    backend.set_role_grant(RoleGrant(EVERYONE.id, "everyone-here", "admin"), "someone")
+    backend.set_role_grant(RoleGrant("Account Users", "Account Users", "admin", checked=False), "someone")
+    backend.set_role_grant(RoleGrant(DATA.id, DATA.name, "reviewer"), "ada")
+    svc = service(backend)
+    assert svc.resolve([EVERYONE, ACCOUNT]) == ("reader", [])
+    assert svc.resolve([GroupRef("users"), GroupRef("account users")]) == ("reader", [])
+    assert svc.resolve([EVERYONE, DATA])[0] == "reviewer"
+    backend.set_role_grant(RoleGrant(EVERYONE.id, "everyone-here", "reviewer"), "someone")
+    svc.forget()
+    assert svc.resolve([EVERYONE])[0] == "reviewer", "another role reaches them as granted"
+    # an Admin grant that lifts nobody is not what keeps an admin: the last one that does stays
+    backend.set_role_grant(RoleGrant(ADMINS.id, ADMINS.name, "admin"), "ada")
+    with use_role("admin"), pytest.raises(Forbidden, match="last admin grant"):
+        svc.revoke(ADMINS.id, "cli")
 
 
 def test_an_admin_cannot_remove_or_lower_the_grant_their_own_admin_rests_on(backend):
@@ -251,6 +362,30 @@ def test_only_an_admin_reads_or_changes_the_grants(backend):
                     attempt()
             assert svc.my_role([ARCHITECTS])[0] == "architect", "a person always reads their own"
     assert [g.role for g in backend.list_role_grants()] == ["architect"]
+
+
+def test_the_sample_groups_never_reach_the_platform_s_store(backend, monkeypatch):
+    """The sample groups stand in only for a local DuckDB store off the platform: the command line
+    pointed at the platform's store searches the workspace, and a service handed the sample
+    groups there writes nothing — a `sample-…` identifier matches no workspace group."""
+    assert isinstance(directory_for(Settings(auth="mock", backend="duckdb")), SampleDirectory)
+    assert isinstance(directory_for(Settings(auth="mock", backend="lakebase")), WorkspaceDirectory)
+    assert isinstance(directory_for(Settings(auth="databricks", backend="duckdb")), WorkspaceDirectory)
+    sample = service(backend, directory=SampleDirectory())
+    sample_admins = GroupRef("ea-admins", "sample-ea-admins")
+    if backend.engine == "duckdb":
+        grant(sample, sample_admins, "reviewer")
+        with use_role("admin"):
+            sample.revoke(sample_admins.id, "cli")
+    monkeypatch.setattr(backend, "engine", "lakebase")  # the platform's store, whichever engine runs this
+    with pytest.raises(Forbidden, match="sample groups"):
+        grant(sample, sample_admins, "admin")
+    with pytest.raises(Forbidden, match="sample groups"):
+        grant(sample, GroupRef("ea-admins", "ea-admins"), "admin", checked=False)
+    backend.set_role_grant(RoleGrant(ADMINS.id, ADMINS.name, "admin"), "ada")
+    with use_role("admin"), pytest.raises(Forbidden, match="sample groups"):
+        sample.revoke(ADMINS.id, "cli")
+    assert [(g.group_id, g.role) for g in backend.list_role_grants()] == [(ADMINS.id, "admin")]
 
 
 def test_a_local_persona_never_writes_grants_into_the_platform_s_store(backend):
@@ -361,7 +496,7 @@ def test_an_older_store_gains_the_grants_table_on_its_next_start(backend):
 
 # ---------------------------------------------------------------------------- the directory's part
 def test_a_person_is_checked_against_the_grants_as_the_platform_would_apply_them(backend):
-    svc = service(backend, "reviewer=ea-reviewers")
+    svc = service(backend, "reviewer=ea-reviewers", directory=Workspace(SAMPLE_GROUPS))
     grant(svc, GroupRef("solution-architects", "sample-solution-architects"), "architect")
     with use_role("admin"):
         arjun = svc.check_person("architect@example.edu")
@@ -379,7 +514,7 @@ def test_a_person_is_checked_against_the_grants_as_the_platform_would_apply_them
 
 
 def test_the_directory_is_searched_for_an_admin_and_says_when_it_cannot_be(backend):
-    svc = service(backend)
+    svc = service(backend, directory=SampleDirectory())
     with use_role("admin"):
         found, problem = svc.search("arch")
         assert [g.name for g in found] == ["ea-architects", "solution-architects"] and problem == ""
@@ -401,10 +536,11 @@ def test_the_directory_is_searched_for_an_admin_and_says_when_it_cannot_be(backe
 
 
 def test_the_grants_list_puts_the_deployment_first_and_marks_what_needs_a_look(backend):
-    svc = service(backend, "admin=ea-admins;reviewer=ea-reviewers")
+    svc = service(backend, "admin=ea-admins;reviewer=ea-reviewers", directory=Workspace(SAMPLE_GROUPS))
     grant(svc, GroupRef("solution-architects", "sample-solution-architects"), "architect", note="design")
-    grant(svc, GroupRef("gone-team", "sample-gone"), "reviewer")
-    grant(svc, GroupRef("renamed", "sample-data-team"), "reviewer")
+    # granted while the workspace still held the group, and under the name it had then
+    backend.set_role_grant(RoleGrant("sample-gone", "gone-team", "reviewer"), "ada")
+    backend.set_role_grant(RoleGrant("sample-data-team", "renamed", "reviewer"), "ada")
     with use_role("admin"):
         svc.grant("Typed Team", "Typed Team", "reviewer", "", False, "ada")
         rows, problem = svc.grants()

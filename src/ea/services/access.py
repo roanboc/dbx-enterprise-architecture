@@ -6,13 +6,15 @@ group gives which role (decision 0028):
 * **the deployment's grants** — `EA_ROLE_GROUPS`, matched by a group's name, read-only here and
   never changed by the application, so an admin group named there is always the way back in;
 * **the grants an admin keeps in the store** — one per workspace group, application-wide, kept by
-  the workspace's identifier for the group; one granted by a typed name, where the directory
-  could not be searched, is matched by that exact name until the group is picked from it.
+  the workspace's identifier for the group and named as the directory names it; one granted by a
+  typed name, where the directory could not be searched, is matched by that exact name, in any
+  case, until the group is picked from it.
 
 A person's role is the highest either gives; a person no grant reaches is a Reader. The store's
 grants are kept a minute per process and forgotten at once by the process that changes one. An
 admin cannot lock the application out: not their own Admin, not the last admin grant where the
-deployment names no admin group, and never Admin to every person in the workspace.
+deployment names no admin group, and never Admin to every person in the workspace — refused when
+it is granted, and ignored when a role is resolved, whatever wrote it.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ class Reason:
     group: str
     source: str  # "deployment" — EA_ROLE_GROUPS; "grant" — kept in the store
     granted_by: str = ""
-    checked: bool = True
+    checked: bool = True  # matched by the workspace's identifier; false where by a name
 
     def how(self) -> str:
         if self.source == "deployment":
@@ -105,19 +107,43 @@ class GrantChange:
     note: str = ""
 
 
+def is_all_users(name: str | None) -> bool:
+    """Whether a group's name is one of the workspace's groups of every person in it."""
+    return (name or "").casefold() in ALL_USERS_GROUPS
+
+
+def _reached_through(grant: RoleGrant, refs: Sequence[GroupRef]) -> tuple[list[GroupRef], bool]:
+    """The person's groups a stored grant reaches them through, and whether by the identifier.
+
+    A checked grant is kept by the workspace's identifier, so a group whose identifier is known
+    meets it by that alone: a renamed group keeps its role, and a new group given the old name
+    does not inherit it. A group known by its name alone — the groups header of a proxy of ours
+    carries no identifiers — meets it by the name it was granted under, in any case, or no grant
+    picked from the directory would reach anyone there. A typed grant is matched by its name.
+    """
+    if grant.checked:
+        by_id = [r for r in refs if r.id and r.id == grant.group_id]
+        if by_id:
+            return by_id, True
+        called = (grant.group_name or "").casefold()
+        return [r for r in refs if called and not r.id and r.name.casefold() == called], False
+    typed = grant.group_id.casefold()
+    return [r for r in refs if r.name and r.name.casefold() == typed], False
+
+
 def role_for(
     groups: Iterable[GroupRef | str], deployment: dict[str, set[str]], grants: Iterable[RoleGrant]
 ) -> tuple[str, list[Reason]]:
     """The highest role these groups give, and every reason, the highest first.
 
     The deployment's grants match a group by name, in any case. A grant kept in the store matches
-    by the workspace's identifier, or — where it was typed without being checked — by the exact
-    name, in any case. Only Reviewer, Architect and Admin are given; anything else counts for
-    nothing, so a role stored by hand never lifts anyone.
+    by the workspace's identifier, or by a name where that is all there is (`_reached_through`).
+    Only Reviewer, Architect and Admin are given; anything else counts for nothing, so a role
+    stored by hand never lifts anyone. Nor does an Admin grant reaching a person through the
+    workspace's all-users group, whatever wrote it: every person in the workspace is in it.
     """
     refs = [as_group_ref(g) for g in groups]
     names = {r.name.casefold() for r in refs if r.name}
-    ids = {r.id for r in refs if r.id}
     reasons: list[Reason] = []
     for role, wanted in deployment.items():
         if role not in GRANTABLE_ROLES:
@@ -126,9 +152,12 @@ def role_for(
     for g in grants:
         if g.role not in GRANTABLE_ROLES:
             continue
-        match = g.group_id in ids if g.checked else g.group_id.casefold() in names
-        if match:
-            reasons.append(Reason(g.role, g.group_name or g.group_id, "grant", g.granted_by, g.checked))
+        through, by_id = _reached_through(g, refs)
+        if g.role == "admin":
+            everyone = is_all_users(g.group_name or g.group_id)
+            through = [] if everyone else [r for r in through if not is_all_users(r.name)]
+        if through:
+            reasons.append(Reason(g.role, g.group_name or g.group_id, "grant", g.granted_by, by_id))
     reasons.sort(key=lambda r: (-RANK[r.role], r.source != "deployment", r.group.casefold()))
     return (reasons[0].role if reasons else "reader"), reasons
 
@@ -283,14 +312,36 @@ class AccessService:
             )
         return out
 
-    def find(self, name_or_id: str) -> RoleGrant | None:
-        """The store's grant to a group named or identified so, in any case."""
+    def matching(self, name_or_id: str) -> list[RoleGrant]:
+        """The store's grants a group's name or identifier means, the surest reading first: the
+        grant with exactly that identifier; else those with exactly that name; else those whose
+        identifier or name it is in any case. Two groups may share a name, up to its case or
+        exactly, so more than one is for the caller to settle by an identifier."""
         require("grant_roles", what="see who holds which role")
-        key = (name_or_id or "").strip().casefold()
+        text = " ".join((name_or_id or "").split())
+        key = text.casefold()
         held = self.backend.list_role_grants()
-        return next((g for g in held if g.group_id.casefold() == key), None) or next(
-            (g for g in held if g.group_name.casefold() == key), None
-        )
+        for reading in (
+            lambda g: g.group_id == text,
+            lambda g: g.group_name == text,
+            lambda g: key in (g.group_id.casefold(), g.group_name.casefold()),
+        ):
+            found = [g for g in held if reading(g)]
+            if found:
+                return found
+        return []
+
+    def find(self, name_or_id: str) -> RoleGrant | None:
+        """The one grant a group's name or identifier means, or None; refused where it means
+        several, naming each by its identifier."""
+        found = self.matching(name_or_id)
+        if len(found) > 1:
+            raise ValueError(
+                f"{len(found)} grants match {name_or_id!r}: "
+                + ", ".join(f"{g.group_name or g.group_id} [{g.group_id}]" for g in found)
+                + "; name one by its identifier"
+            )
+        return found[0] if found else None
 
     def search(self, text: str) -> tuple[list[GroupRef], str]:
         """The workspace's groups whose name holds the text, or why they cannot be searched."""
@@ -330,6 +381,37 @@ class AccessService:
         if refusal := self.local_persona_refusal():
             raise Forbidden(refusal)
 
+    def _refuse_the_sample_groups(self) -> None:
+        """The sample groups stand in only for a local store: a `sample-…` identifier matches no
+        workspace group, so kept in the platform's store it would give nobody the role, and would
+        have the workspace's real grants read as gone."""
+        if getattr(self.directory, "sample", False) and self.backend.engine == "lakebase":
+            raise Forbidden(
+                "the sample groups stand in only for a local store, and this is the platform's: "
+                "its grants are to the workspace's own groups, searched where a workspace is configured"
+            )
+
+    def _named_by_the_directory(self, group_id: str, called: str) -> str:
+        """The name the directory gives the group with this identifier. A checked grant is one the
+        directory vouches for, so the identifier is what is checked — the all-users rule with it —
+        and the name kept beside it is the directory's, never the caller's."""
+        try:
+            name = self.directory.groups_by_id([group_id]).get(group_id, "")
+        except DirectoryUnavailable as exc:
+            raise ValueError(
+                f"{UNSEARCHABLE} ({exc}), so the identifier {group_id!r} cannot be checked: grant the "
+                "group by its exact name instead, or again once they can be searched"
+            ) from exc
+        if not name:
+            given = f" (given for {called!r})" if called and called != group_id else ""
+            raise NotFoundError(
+                group_id,
+                "group",
+                f"no group in {self.directory.label} has the identifier {group_id!r}{given}: "
+                "pick the group from the list, or check its identifier",
+            )
+        return self._text(name, "the group's name")
+
     def _keep_an_admin(
         self, before: list[RoleGrant], after: list[RoleGrant], acting: Sequence[GroupRef | str] | None
     ) -> None:
@@ -344,7 +426,11 @@ class AccessService:
                     "another admin can, if it is meant"
                 )
         if not deployment.get("admin"):
-            if any(g.role == "admin" for g in before) and not any(g.role == "admin" for g in after):
+            # an Admin grant to the all-users group lifts nobody (`role_for`), so it keeps no admin
+            def admits(g: RoleGrant) -> bool:
+                return g.role == "admin" and not is_all_users(g.group_name or g.group_id)
+
+            if any(admits(g) for g in before) and not any(admits(g) for g in after):
                 raise Forbidden(
                     "the last admin grant stays: the deployment names no admin group, so without it "
                     "nobody could administer the application — grant Admin to another group first"
@@ -369,13 +455,18 @@ class AccessService:
     ) -> RoleGrant:
         """Grant a role to a workspace group, or replace the role it holds.
 
-        `checked` says the group was picked from the directory, by its identifier; unchecked, the
-        exact name typed is the identifier and it is matched by that name. Picking a group from
-        the directory replaces a grant typed with its exact name. `acting` is the groups of the
-        admin making the change, where they are known, so their own Admin is kept.
+        `checked` says the group was picked from the directory, by its identifier: the directory
+        is asked again for the group with that identifier, which it must still hold, and its name
+        is the one kept. Unchecked, the exact name typed is the identifier and the name, and it is
+        matched by that name in any case. `group_name` is only what the caller called the group,
+        so a value that came back from a browser is never believed. A grant typed with the name
+        this one also means — the group picked from the directory, or the same name typed in
+        another case — is replaced by it. `acting` is the groups of the admin making the change,
+        where they are known, so their own Admin is kept.
         """
         require("grant_roles", what="grant a role")
         self._refuse_a_local_persona()
+        self._refuse_the_sample_groups()
         role = (role or "").strip().lower()
         if role not in GRANTABLE_ROLES:
             raise ValueError(
@@ -383,11 +474,13 @@ class AccessService:
                 "— Reader is everybody's, and Agent is the assistant's"
             )
         group_id = self._text(group_id, "the group's identifier")
-        group_name = self._text(group_name, "the group's name") or group_id
         if not group_id:
             raise ValueError("name the workspace group the role is granted to")
-        everyone = {group_name.casefold()} | ({group_id.casefold()} if not checked else set())
-        if role == "admin" and everyone & set(ALL_USERS_GROUPS):
+        if checked:
+            group_name = self._named_by_the_directory(group_id, " ".join((group_name or "").split()))
+        else:
+            group_name = group_id
+        if role == "admin" and is_all_users(group_name):
             raise Forbidden(
                 f"Admin is never granted to {group_name}, the workspace's group of every person in it: "
                 "it would make every person in the workspace an admin"
@@ -398,10 +491,7 @@ class AccessService:
             typed = [
                 g
                 for g in held
-                if checked
-                and not g.checked
-                and g.group_id != group_id
-                and g.group_id.casefold() == group_name.casefold()
+                if not g.checked and g.group_id != group_id and g.group_id.casefold() == group_name.casefold()
             ]
             after = [g for g in held if g.group_id != group_id and g not in typed] + [new]
             self._keep_an_admin(held, after, acting)
@@ -415,6 +505,7 @@ class AccessService:
         """Remove a group's grant; the change log keeps what it was and who removed it."""
         require("grant_roles", what="remove a role grant")
         self._refuse_a_local_persona()
+        self._refuse_the_sample_groups()
         with self.backend.transaction():
             held = self.backend.list_role_grants(lock=True)
             gone = next((g for g in held if g.group_id == group_id), None)
