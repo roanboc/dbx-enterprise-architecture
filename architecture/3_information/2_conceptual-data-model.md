@@ -9,7 +9,7 @@ exists; this document says how it is shaped, and
 [3_logical-data-model.md](./3_logical-data-model.md) says how it is stored.
 
 **Status: `◐` draft** — read from the code as it runs today (`src/ea/models.py`,
-`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022, with 0028 as proposed. It defines
+`src/ea/backend/sql.py`) and from decisions 0006, 0007, 0014, 0015, 0021 and 0022, and 0028. It defines
 no element of its own: every entity below names the data object it belongs to,
 and that catalogue owns the name.
 

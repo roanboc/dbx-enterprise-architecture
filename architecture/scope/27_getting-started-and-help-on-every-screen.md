@@ -3,8 +3,8 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26 for
-**Understanding**.
+**Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26,
+Understanding granted the same day.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 26.
 **Target plateau:** `PLAT1` The repository running locally, extended.
@@ -97,11 +97,9 @@ else once the welcome and a screen's tip have been closed.
 
 ## Approvals
 
-**No gate has been granted.** This document stops at **Understanding**: it is
-shown to the Requester with `ASVC13` in
-[1_application-services.md](../4_application/1_application-services.md), and
-`GAP30` and step 1p on the roadmap, each linked on the branch. Nothing of work
-packages 1 to 5 is built until that word is given.
+| Gate | Granted | When | What was shown |
+| ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-26 | This document; `ASVC13` in [1_application-services.md](../4_application/1_application-services.md); `GAP30` and step 1p on the roadmap — each linked on the branch, in the session, together with [initiative 28](./28_users-and-roles.md). The word was *"Yes, implement"* |
 
 ## Work packages
 

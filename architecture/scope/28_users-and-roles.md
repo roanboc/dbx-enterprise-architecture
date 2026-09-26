@@ -3,8 +3,8 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26 for
-**Understanding**.
+**Delivered as:** branch `claude/user-guide-onboarding-3bx0io`; drafted 2026-09-26,
+Understanding granted the same day.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 26,
 with [initiative 27](./27_getting-started-and-help-on-every-screen.md) drafted beside it.
@@ -90,15 +90,9 @@ it comes from, and whom to ask for another.
 
 ## Approvals
 
-**No gate has been granted.** This document stops at **Understanding**: it is
-shown to the Requester with `ROLE1` and `BOBJ2` in
-[1_actors-and-roles.md](../2_business/1_actors-and-roles.md), `BPROC7` in
-[2_processes-and-services.md](../2_business/2_processes-and-services.md),
-`DOBJ3.13` in [1_data-objects.md](../3_information/1_data-objects.md) with the
-`role_grant` table in [3_logical-data-model.md](../3_information/3_logical-data-model.md),
-[decision 0028](../decisions/0028-roles-granted-to-groups-in-the-application.md),
-and `GAP31` and step 1q on the roadmap, each linked on the branch. Nothing of
-work packages 1 to 6 is built until that word is given.
+| Gate | Granted | When | What was shown |
+| ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-26 | This document; `ROLE1` and `BOBJ2` in [1_actors-and-roles.md](../2_business/1_actors-and-roles.md), `BPROC7` in [2_processes-and-services.md](../2_business/2_processes-and-services.md), `DOBJ3.13` in [1_data-objects.md](../3_information/1_data-objects.md) with the `role_grant` table in [3_logical-data-model.md](../3_information/3_logical-data-model.md), [decision 0028](../decisions/0028-roles-granted-to-groups-in-the-application.md), and `GAP31` and step 1q on the roadmap — each linked on the branch, in the session, together with [initiative 27](./27_getting-started-and-help-on-every-screen.md). The word was *"Yes, implement"* |
 
 ## Work packages
 

@@ -103,7 +103,7 @@ flowchart TB
 The application enforces these roles since initiative 7. A role is derived
 from the signed-in user's workspace groups through the role configuration: the
 groups the deployment names, and the groups an admin grants a role on the Users
-and roles screen (initiative 28, pending Understanding). The highest role any of their groups gives
+and roles screen (initiative 28, Understanding granted). The highest role any of their groups gives
 is the user's, and a user in none of them is a Reader;
 locally, with mock authentication, the header offers a **debug persona
 switcher** whose default is Admin, so every path can be exercised without
@@ -112,7 +112,7 @@ Reader, Architect adds to Reader, Admin holds everything.
 
 | ID | Role | May | May not |
 | -- | ---- | --- | ------- |
-| `ROLE1` | **Admin** — the framework owner's role | Everything: edit the metamodel and its notation, load packs, create and abandon any branch, import onto `main`, edit on `main`, merge with or without a review, assign reviewers per type, keep the organisation's proposal templates, connect the organisation's systems for the assistant to read (initiative 26), grant a role to a workspace group and remove it, and read which role a person holds and which group gives it (initiative 28, pending Understanding), act as every other role | Remove or lower the grant their own Admin rests on; grant the Agent role; create a workspace group or change who is in one, which the workspace's own administrators do (initiative 28, pending Understanding) |
+| `ROLE1` | **Admin** — the framework owner's role | Everything: edit the metamodel and its notation, load packs, create and abandon any branch, import onto `main`, edit on `main`, merge with or without a review, assign reviewers per type, keep the organisation's proposal templates, connect the organisation's systems for the assistant to read (initiative 26), grant a role to a workspace group and remove it, and read which role a person holds and which group gives it (initiative 28, Understanding granted), act as every other role | Remove or lower the grant their own Admin rests on; grant the Agent role; create a workspace group or change who is in one, which the workspace's own administrators do (initiative 28, Understanding granted) |
 | `ROLE2` | **Architect** — the author's role | Create branches; edit elements, relationships and links on a branch; import onto a branch; hand in proposals; edit states; request a review of a branch; merge a branch once it is approved; ask | Edit on `main` directly; approve a branch, including their own; edit the metamodel |
 | `ROLE3` | **Reviewer** — the approver's role, scoped by element type | Approve or send back a branch for the element types assigned to them (or any type, when no reviewer is assigned to it); leave a review comment; everything a reader may | Edit content; merge; approve a branch they authored |
 | `ROLE4` | **Reader** — every signed-in user | Browse, search, open elements, run impact and target-state analyses, ask the assistant, run a deep dive and keep it in the catalogue, withdraw their own, rate any deep dive and clear their own rating, download views, documents and deep dives, download the proposal templates; read the model through an agent of their own connected to the application's tool server, which acts as them (initiative 26) | Change the model; withdraw another person's deep dive |
@@ -136,7 +136,7 @@ flowchart LR
 | ID | Business object | Held in |
 | -- | --------------- | ------- |
 | `BOBJ1` | **Workspace groups** — the identity provider's groups the user belongs to (Databricks workspace groups on the platform) | The workspace's directory, read once per forwarded user and kept for a few minutes (`TSVC5`, decision 0012); a groups header is believed only behind a proxy of the deployment's own |
-| `BOBJ2` | **Role configuration** — which group grants which role, and which reviewers cover which element types | Which group grants which role, in two halves: the deployment's own, `EA_ROLE_GROUPS` in the environment, which the application shows and never changes, so an admin group named there is always the way back in; and the grants an admin keeps in the store, the data object [`DOBJ3.13`] Role grant, made on the Users and roles screen (initiative 28, pending Understanding). The reviewer table in the store (`reviewer_assignment`), per organisation |
+| `BOBJ2` | **Role configuration** — which group grants which role, and which reviewers cover which element types | Which group grants which role, in two halves: the deployment's own, `EA_ROLE_GROUPS` in the environment, which the application shows and never changes, so an admin group named there is always the way back in; and the grants an admin keeps in the store, the data object [`DOBJ3.13`] Role grant, made on the Users and roles screen (initiative 28, Understanding granted). The reviewer table in the store (`reviewer_assignment`), per organisation |
 | `BOBJ3` | **Debug persona** — the role a local user impersonates when no identity provider is present | The session, set from the header switcher; mock authentication only |
 
 ## Relationships

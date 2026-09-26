@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Proposed 2026-09-26 (initiative 28), for the Requester at its Understanding gate.
+**Status:** Adopted 2026-09-26 at the Understanding of initiative 28.
 Refines [0008](./0008-roles-from-groups.md) and [0012](./0012-workspace-groups-looked-up.md).
 **Touches:** `ROLE1`, `BOBJ2`, `BPROC7`, `DOBJ3.13`, `ACMP12`, `TSVC5`, `ART6`, `GAP31`.
 
