@@ -54,7 +54,7 @@ it comes from, and whom to ask for another.
 | Question | Call | What follows from it |
 | -------- | ---- | -------------------- |
 | **A grant per organisation, or for the whole application?** | Adopted — for the whole application | A role holds in every organisation, as it does today. Roles per organisation are a gap note |
-| **Is a group kept by its name or its identifier?** | Adopted — by the workspace's identifier, its name kept as a label | A renamed group keeps its role, and a new group given an old name does not inherit it. The deployment's grants are still matched by name |
+| **Is a group kept by its name or its identifier?** | Adopted — by the workspace's identifier, its name kept as a label | A renamed group keeps its role, and a new group given an old name does not inherit it. The deployment's grants are still matched by name, and so is a picked group where a proxy of the deployment's own passes a person's groups by name alone |
 | **What if the workspace's groups cannot be searched?** | Adopted — an exact name may be typed, marked *not checked* | The screen stays usable at the first run on a workspace, before the search is proven there. The grant is matched by name until a later search finds the group |
 | **Who may grant Admin?** | Adopted — any admin | Admin already may do everything. The deployment's admin groups are the check, because nobody can remove them from the application |
 | **Who sees the grants?** | Adopted — admins only; every other person sees their own role and where it comes from | The grants are kept out of a reader's own SQL too. The store's check on that SQL could be stepped around, and is fixed first, directly, as a defect |
@@ -66,7 +66,8 @@ it comes from, and whom to ask for another.
 | **Are the deployment's group names matched with their case?** | Adopted, while building — without it | A group named `EA-Admins` in the workspace and `ea-admins` in the deployment is one group; before, the deployment's names had to match exactly |
 | **What if two processes each remove the other's last admin grant?** | Adopted, while building — the check and the write hold a lock the store's other processes honour | On Lakebase the table is locked for the change, so the second removal sees the first |
 | **What does the screen say of a group renamed in the workspace?** | Adopted, while building — *now called …* beside the grant | The grant still holds, by the group's identifier; the label is the name it had when it was granted |
-| **What if the platform signs people in but the workspace cannot be read?** | Adopted, while building — the page says the workspace's groups cannot be searched, and offers the exact name typed | Sample groups stand in only where the application does not use the platform's sign-in, so a real deployment is never shown groups it does not have |
+| **What if the platform signs people in but the workspace cannot be read?** | Adopted, while building — the page says the workspace's groups cannot be searched, and offers the exact name typed | Sample groups stand in only for a local DuckDB store off the platform: a Lakebase store always searches the workspace, from the page and from `ea roles`, and a sample group is never written into it |
+| **Is a picked group believed as the page sends it back?** | Adopted, at review — no | The workspace is asked again for the group by its identifier, an identifier it does not hold is refused, and the workspace's name is the one kept; so the all-users rule reads the group's real name, and an Admin grant never lifts anyone through the all-users group, whatever wrote it |
 
 ## What changes in the model
 

@@ -22,7 +22,10 @@ that it is groups only, never named people.
   a role holds in every organisation, as it does today.
 - **A group is picked from the workspace's directory** as its name is typed,
   and kept by the directory's identifier, so a renamed group keeps its role and
-  a new group given an old name does not inherit it. Where the directory cannot
+  a new group given an old name does not inherit it. The directory is asked
+  again for the group by that identifier, and its name is the one kept. Where a
+  proxy of the deployment's own passes a person's groups by name alone, a picked
+  group is matched by the name it was granted under. Where the directory cannot
   be searched, an exact name may be typed; it is marked as not checked, and is
   matched by name until a later search finds its identifier.
 - **The deployment's grants stay.** `EA_ROLE_GROUPS` is read as today, matched
@@ -35,7 +38,8 @@ that it is groups only, never named people.
 - **An admin cannot take away their own Admin.** A removal or a lowering that
   would leave the acting admin below Admin is refused, and so is one that would
   leave no admin grant anywhere. The workspace's all-users group cannot be
-  granted Admin.
+  granted Admin, and an Admin grant never lifts anyone through it, whatever
+  wrote it.
 - **A change is felt within a minute.** Each process keeps the grants for a
   minute and forgets them at once when it changes one. Who is in a group is
   still read from the directory and kept five minutes (decision 0012).
