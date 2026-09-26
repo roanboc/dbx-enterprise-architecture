@@ -151,12 +151,20 @@ def stamped(root: ET.Element, cid: str, export_id: str, label: str = "", **data:
 
 
 def document(
-    title: str, agent: str, page_w: int = 1169, page_h: int = 827, diagram_id: str = "view"
+    title: str,
+    agent: str,
+    page_w: int = 1169,
+    page_h: int = 827,
+    diagram_id: str = "view",
+    elements: list[str] | tuple[str, ...] = (),
+    relationships: list[str] | tuple[str, ...] = (),
 ) -> tuple[ET.Element, ET.Element, str]:
     """An empty draw.io document, the export stamped on its root cell; returns it, its root and the export's id.
 
     draw.io keeps a drawing's own data on the root cell — *Edit Data* with nothing selected —
-    so the stamp survives a person opening, editing and saving the file.
+    so the stamp survives a person opening, editing and saving the file. The stamp lists the
+    elements and relationships the export drew, so a drawing handed back says what a person
+    took out as well as what they added (`ea.agent.drawing`).
     """
     export_id = uuid.uuid4().hex[:12]
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -191,6 +199,8 @@ def document(
         ea_org=current_org(),
         ea_branch=current_branch(),
         ea_title=title,
+        ea_elements=" ".join(dict.fromkeys(i for i in elements if i)),
+        ea_relationships=" ".join(dict.fromkeys(i for i in relationships if i)),
     )
     ET.SubElement(doc, "mxCell")
     _cell(root, "1", parent="0")
@@ -212,7 +222,7 @@ def to_drawio(
     """
     if positions and sum(1 for n in view.nodes if n.id in positions) >= max(1, len(view.nodes) // 2):
         return _to_drawio_positioned(view, base_url, positions, marked)
-    mxfile, root, export_id = document(view.title, "ea-repository view export")
+    mxfile, root, export_id = _view_document(view)
 
     layers = sorted(view.layers(), key=layer_rank)
     sizes = {n.id: node_size(n) for n in view.nodes}
@@ -276,6 +286,12 @@ def node_size(n: ViewNode) -> tuple[int, int]:
     return width, height
 
 
+def _view_document(view: View) -> tuple[ET.Element, ET.Element, str]:
+    ids = set(view.ids())
+    drawn = [e.relationship_id for e in view.edges if e.src in ids and e.dst in ids]
+    return document(view.title, "ea-repository view export", elements=view.ids(), relationships=drawn)
+
+
 def _object(root: ET.Element, n: ViewNode, base_url: str, export_id: str, marked: bool = False) -> ET.Element:
     """The linking contract: every shape carries its element identifier and a link to its page."""
     obj = ET.SubElement(
@@ -319,7 +335,7 @@ def _edges(root: ET.Element, view: View, export_id: str, marked: bool = False) -
 def _to_drawio_positioned(
     view: View, base_url: str, positions: dict[str, dict[str, float]], marked: bool = False
 ) -> str:
-    mxfile, root, export_id = document(view.title, "ea-repository view export")
+    mxfile, root, export_id = _view_document(view)
     margin = 40
     xs = [p["x"] - p.get("w", NODE_W) / 2 for p in positions.values()]
     ys = [p["y"] - p.get("h", NODE_H) / 2 for p in positions.values()]

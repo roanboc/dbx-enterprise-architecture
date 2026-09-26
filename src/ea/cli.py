@@ -1392,7 +1392,9 @@ def _proposals():
 
 @app.command()
 def propose(
-    files: list[Path] = typer.Argument(..., help="the page(s) to read: Markdown, text or CSV"),
+    files: list[Path] = typer.Argument(
+        ..., help="the page(s) to read: Markdown, text or CSV, or a draw.io drawing"
+    ),
     template: str = typer.Option("", help="template name or id, for a page that names none itself"),
     apply: bool = typer.Option(
         False, "--apply", help="write it to the branch (--branch) when nothing is missing"

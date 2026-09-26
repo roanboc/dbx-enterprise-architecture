@@ -106,6 +106,9 @@ def test_drawio_export_stamps_everything_the_application_drew(registry, graph):
     export = doc.get("ea_export")
     assert doc.get("ea_origin") == ORIGIN and export and doc.get("ea_branch") == "main"
     assert doc.get("ea_org") and doc.get("ea_exported_at") and doc.get("ea_title") == view.title
+    # what it drew, so a drawing handed back says what a person took out
+    assert doc.get("ea_elements").split() == view.ids()
+    assert sorted(doc.get("ea_relationships").split()) == sorted(e.relationship_id for e in view.edges)
     drawn = _drawn(root)
     assert drawn and all(obj is not None for obj, _ in drawn)
     for obj, _ in drawn:

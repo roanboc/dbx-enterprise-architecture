@@ -77,7 +77,13 @@ def _html(s: Shape) -> str:
 def layout_to_drawio(lay: Layout, base_url: str = "") -> str:
     """One layout as an uncompressed `.drawio` file, shape for shape."""
     mxfile, root, export_id = document(
-        lay.title, "ea-repository deep dive", round(lay.width), round(lay.height), diagram_id="figure"
+        lay.title,
+        "ea-repository deep dive",
+        round(lay.width),
+        round(lay.height),
+        diagram_id="figure",
+        elements=[s.element_id for s in lay.shapes if s.element_id],
+        relationships=[line.relationship_id for line in lay.lines],
     )
     by_sid = {s.sid: s for s in lay.shapes}
     for s in lay.shapes:
