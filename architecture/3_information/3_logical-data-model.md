@@ -141,7 +141,7 @@ so the history survives the feed being deleted — the line above is what a run
 | `proposal` | what an architect handed in and what came of it | `org_id`, `proposal_id` | `org_id` |
 | `proposal_template` | a document shape the organisation proposes in, and how it is read | `org_id`, `template_id` | `org_id` |
 | `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
-| `connected_system` | a system the assistant may read over the Model Context Protocol — where it is reached, the types and link addresses it speaks for, the read-only tools it may call, how a person is known to it and which roles may have it read; never a credential | `org_id`, `system_id` | `org_id` |
+| `connected_system` | a system the assistant may read over the Model Context Protocol — where it is reached, the types and link addresses it speaks for, the read-only tools it may call, how a page's address becomes its page tool's arguments, how a person is known to it and which roles may have it read; never a credential | `org_id`, `system_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
 | `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
 | `deep_dive` | one analysis a reader settled with the assistant: its brief, catalogue entry, views, findings and references | `org_id`, `deep_dive_id` | `org_id` |
@@ -424,6 +424,7 @@ SQL client (principle `P4`).
 | `before_json`, `after_json` | `change_log` | the whole row before and after |
 | `sources_json`, `result_json`, `pushback_json`, `conversation_json` | `proposal` | what was handed in, derived — with the reader's own finding and the impact — pushed back, and asked and answered |
 | `domain_ids`, `type_ids`, `brief_json`, `content_json` | `deep_dive` | its catalogue entry, what the reader settled, and what the analysis read and found |
+| `speaks_for`, `link_prefixes`, `tools`, `roles`, `page_arguments` | `connected_system` | the types and addresses it speaks for, the tools it may call, the roles it reads for, and a page tool's arguments with their placeholders |
 
 A column added after a table first shipped is listed in `MIGRATIONS` in
 `src/ea/backend/sql.py` and applied on start-up with `ADD COLUMN IF NOT EXISTS`,

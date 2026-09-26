@@ -41,3 +41,7 @@ The drawing is kept with the proposal as its source, and never as a diagram of t
   renamed, or a drawing kept today stops being read tomorrow.
 - A drawing from nothing — no stamp at all — is read too, every shape matched by name as a
   page's rows are, so an architect can start a proposal from a picture.
+- A new shape's type is weighed in one order: the type a person says in its label or its `type`
+  property, then the exact type a copy or a shape from the metamodel's shape library carries,
+  then its stencil through the notation, then a question. A copy keeps its type only because it
+  is stamped, so the stamp stays.

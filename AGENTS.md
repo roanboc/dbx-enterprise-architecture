@@ -130,8 +130,9 @@ until the application has users and runs on Databricks. The enterprise content i
   ReportLab (`views/deep_dive_pdf.py`, decision 0025), the analysis itself in
   `agent/deep_dive.py` and the catalogue in `services/deep_dives.py`. **Every cell a draw.io
   export draws is stamped** (`ea_origin`, the export's id, draw.io's `tags`; the file lists what it
-  drew), and that stamp is a contract: add to it, never rename it, or a kept drawing stops being
-  read. A drawing comes back through Propose (`agent/drawing.py`, decision 0026), never into
+  drew), and so is every shape of the metamodel's draw.io library (`ea metamodel palette`), which
+  carries `ea_palette` and its exact `ea_type` and no `ea_id` (and not draw.io's tag, so hiding the application's cells never hides what a person dragged in). That stamp is a contract: add to it,
+  never rename it, or a kept drawing or a dragged shape stops being read. A drawing comes back through Propose (`agent/drawing.py`, decision 0026), never into
   the store directly. **The Model Context Protocol, both ways** (initiative 26, decision 0027):
   `tool_server.py` serves the assistant's read tools to other agents (`ea mcp`, the
   `ea-tool-server` app), acting as the person who connected and writing nothing;
