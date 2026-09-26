@@ -175,9 +175,9 @@ def test_the_draw_io_file_is_drawn_from_the_same_layout_as_the_pdf(dives):
             "https://ea.example",
         )
         root = ET.fromstring(xml)
-        objects = {o.get("ea_id"): o for o in root.iter("object")}
+        objects = {o.get("ea_id"): o for o in root.iter("object") if o.get("ea_id")}
         assert set(objects) == {s.element_id for s in lay.elements()}, fig["fid"]
-        cells = {c.get("id") for c in root.iter("mxCell")} | set(objects)
+        cells = {c.get("id") for c in root.iter("mxCell")} | {o.get("id") for o in root.iter("object")}
         for s in lay.elements():
             o = objects[s.element_id]
             assert o.get("link") == f"https://ea.example/element/{s.element_id}"
@@ -202,6 +202,31 @@ def test_a_presentation_shape_carries_its_icon_into_draw_io(dives):
     chips = {o.get("id") for o in root.iter("object")}
     assert icons and {c.get("parent") for c in icons} & chips
     assert all("data:image/svg+xml," in c.get("style") for c in icons)
+
+
+def test_a_deep_dive_s_draw_io_files_stamp_what_the_application_drew(dives):
+    """Every shape, icon and line in a deep dive's diagrams carries the export's stamp; an edge its relationship."""
+    from ea.views.drawio import ORIGIN, TAG
+
+    for fig in figures(dives["impact"].content):
+        (_, xml), *_ = diagram_files(
+            DeepDive(
+                title="t",
+                content={"levels": [{"figures": [fig]}], "elements": dives["impact"].content["elements"]},
+            )
+        )
+        root = ET.fromstring(xml)
+        export = next(o for o in root.iter("object") if o.get("id") == "0").get("ea_export")
+        assert export, fig["fid"]
+        for parent in root.iter():
+            for cell in parent.findall("mxCell"):
+                if cell.get("vertex") == "1" or cell.get("edge") == "1":
+                    assert parent.tag == "object", (fig["fid"], cell.get("style"))
+                    assert parent.get("ea_origin") == ORIGIN and parent.get("ea_export") == export
+                    assert TAG in (parent.get("tags") or "").split()
+    rows = dives["impact"].content["elements"]
+    lines = [line for f in figures(dives["impact"].content) for line in layout_figure(f, rows).lines]
+    assert any(line.relationship_id for line in lines)  # an architecture figure's edges are relationships
 
 
 # ------------------------------------------------------------------------ PDF

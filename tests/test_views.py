@@ -63,7 +63,7 @@ def test_drawio_export_carries_the_linking_contract(registry, graph):
     view = view_from_neighbourhood(registry, graph, "LDC-CURR", 1)
     xml = to_drawio(view, base_url="http://localhost:8050")
     root = ET.fromstring(xml)
-    objects = root.findall(".//object")
+    objects = [o for o in root.findall(".//object") if o.get("ea_id")]
     assert len(objects) == len(view.nodes)
     for o in objects:
         assert o.get("ea_id") in view.ids()
@@ -73,8 +73,58 @@ def test_drawio_export_carries_the_linking_contract(registry, graph):
         assert "mxgraph.archimate3" in cell.get("style")
     edges = [c for c in root.findall(".//mxCell") if c.get("edge") == "1"]
     assert len(edges) == len(view.edges)
-    lanes = [c for c in root.findall(".//mxCell") if (c.get("style") or "").startswith("swimlane")]
-    assert [c.get("value") for c in lanes] == ["Business", "Application"]
+    lanes = [
+        o for o in root.findall(".//object") if (o.find("mxCell").get("style") or "").startswith("swimlane")
+    ]
+    assert [o.get("label") for o in lanes] == ["Business", "Application"]
+
+
+def _drawn(root: ET.Element) -> list[tuple[ET.Element | None, ET.Element]]:
+    """Every vertex and edge in a draw.io document, with the `object` that carries its data."""
+    out = []
+    for parent in root.iter():
+        for cell in parent.findall("mxCell"):
+            if cell.get("vertex") == "1" or cell.get("edge") == "1":
+                out.append((parent if parent.tag == "object" else None, cell))
+    return out
+
+
+def test_drawio_export_stamps_everything_the_application_drew(registry, graph):
+    """A shape a person adds in draw.io is the one without the stamp, and every edge names its relationship.
+
+    Architects keep the files and draw on them; when one comes back, what the application drew,
+    from which export, and what a person added must be told apart without guessing.
+    """
+    from ea.backend.branching import use_branch
+    from ea.views.drawio import ORIGIN, TAG
+
+    view = view_from_neighbourhood(registry, graph, "LDC-CURR", 1)
+    assert view.edges and all(e.relationship_id for e in view.edges)
+    with use_branch("main"):
+        root = ET.fromstring(to_drawio(view, base_url="http://x"))
+    doc = next(o for o in root.iter("object") if o.get("id") == "0")  # the file's own data
+    export = doc.get("ea_export")
+    assert doc.get("ea_origin") == ORIGIN and export and doc.get("ea_branch") == "main"
+    assert doc.get("ea_org") and doc.get("ea_exported_at") and doc.get("ea_title") == view.title
+    drawn = _drawn(root)
+    assert drawn and all(obj is not None for obj, _ in drawn)
+    for obj, _ in drawn:
+        assert obj.get("ea_origin") == ORIGIN and obj.get("ea_export") == export
+        assert TAG in (obj.get("tags") or "").split()
+    names = {n.id: n.name for n in view.nodes}
+    shapes = [o for o, _ in drawn if o.get("ea_id")]
+    assert {o.get("ea_id"): o.get("ea_name") for o in shapes} == names  # the name as exported
+    edges = [(o, c) for o, c in drawn if c.get("edge") == "1"]
+    assert sorted(o.get("ea_rel_id") for o, _ in edges) == sorted(e.relationship_id for e in view.edges)
+    for o, c in edges:
+        assert (o.get("ea_src"), o.get("ea_dst")) == (c.get("source"), c.get("target"))
+        assert o.get("ea_rel_type")
+    positioned = ET.fromstring(
+        to_drawio(view, "http://x", {n.id: {"x": 90.0 * i, "y": 0.0} for i, n in enumerate(view.nodes)})
+    )
+    assert all(obj is not None and obj.get("ea_origin") == ORIGIN for obj, _ in _drawn(positioned))
+    again = ET.fromstring(to_drawio(view))
+    assert next(o for o in again.iter("object") if o.get("id") == "0").get("ea_export") != export
 
 
 def test_drawio_export_honours_browser_positions(registry, graph):
@@ -85,7 +135,7 @@ def test_drawio_export_honours_browser_positions(registry, graph):
     positions["LDC-CURR"] = {"x": 900.0, "y": 700.0, "w": 160, "h": 60}
     xml = to_drawio(view, "http://x", positions)
     root = ET.fromstring(xml)
-    geo = {o.get("ea_id"): o.find("mxCell/mxGeometry") for o in root.findall(".//object")}
+    geo = {o.get("ea_id"): o.find("mxCell/mxGeometry") for o in root.findall(".//object") if o.get("ea_id")}
     assert len(geo) == len(view.nodes)
     # relative placement is preserved: the focus node sits far right and below the others
     lc = geo["LDC-CURR"]
@@ -93,11 +143,11 @@ def test_drawio_export_honours_browser_positions(registry, graph):
     assert all(float(lc.get("x")) > float(g.get("x")) for g in others)
     assert all(float(lc.get("y")) > float(g.get("y")) for g in others)
     lanes = [
-        c
-        for c in root.findall(".//mxCell")
-        if "dashed=1" in (c.get("style") or "") and c.get("vertex") == "1"
+        o
+        for o in root.findall(".//object")
+        if "dashed=1" in (o.find("mxCell").get("style") or "") and o.get("ea_layer")
     ]
-    assert {c.get("value") for c in lanes} == {"Business", "Application"}
+    assert {o.get("label") for o in lanes} == {"Business", "Application"}
     # too few positions: the grid layout is used instead
     xml2 = to_drawio(view, "http://x", {"LDC-CURR": positions["LDC-CURR"]})
     assert "swimlane" in xml2

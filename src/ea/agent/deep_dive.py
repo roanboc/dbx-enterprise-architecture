@@ -1367,6 +1367,7 @@ class DeepDiveAnalyst:
                     "rel_type_id": r.rel_type_id,
                     "qualifier": r.qualifier or "",
                     "target_state": r.target_state or "undecided",
+                    "relationship_id": r.relationship_id,
                 }
             )
         return out
@@ -1632,6 +1633,7 @@ class DeepDiveAnalyst:
                     "rel_type_id": e.get("rel_type_id") or "",
                     "qualifier": e.get("qualifier") or "",
                     "target_state": e.get("target_state") or "undecided",
+                    "relationship_id": e.get("relationship_id") or "",
                 }
                 for e in sub["edges"]
             ]
