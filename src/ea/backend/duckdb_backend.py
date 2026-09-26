@@ -27,6 +27,12 @@ class DuckDBBackend(SqlBackend):
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(self.path)
+        # A reader's own SQL runs on this connection, and DuckDB reads a file named where a table
+        # stands (`from 'x.csv'`, `from "x.json"`) as a table: no reading of the query text finds
+        # every place a name can stand. So the engine reads nothing but its own database — which
+        # the store never asks more of: frames are registered, never read from disk. It cannot be
+        # turned back on while the database is open.
+        self._conn.execute("SET enable_external_access = false")
         self.init_schema()
 
     # ------------------------------------------------------------ engine hooks

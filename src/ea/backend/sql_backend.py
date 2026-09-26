@@ -95,7 +95,9 @@ _READ_ONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 _WITH_RE = re.compile(r"^\s*with\s+(recursive\s+)?", re.IGNORECASE)
 _FORBIDDEN_RE = re.compile(
     r"\b(insert|update|delete|merge|drop|alter|create|truncate|attach|copy|export|import|pragma|call|"
-    r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck)\b",
+    # set_config() changes a setting from inside a SELECT, and the change outlives the read-only
+    # transaction on the connection every later query shares.
+    r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck|set_config)\b",
     re.IGNORECASE,
 )
 #: The catalogues a reader could find the store's own schema names in, and the qualifiers
@@ -104,6 +106,90 @@ _FORBIDDEN_RE = re.compile(
 _SYSTEM_SCHEMAS = ("information_schema", "pg_catalog", "pg_temp", "main", "memory", "system", "temp")
 # The keys of an attribute definition kept in the `extra` JSON column of meta_attribute.
 _ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", "help", "properties")
+#: Functions that reach a table, a query or a file by a name written in a string —
+#: `query_table('ea_content.element')`, `query_to_xml('select … from ea_content.element', …)`,
+#: `read_csv('…')`. The scoping shadows the names a query is written with, and a name inside a
+#: string is a value it cannot see. DuckDB's and Postgres's alike, refused on both engines.
+_STRING_READER_RE = re.compile(
+    r"\b(query|query_table|json_execute_serialized_sql|glob|sniff_csv|read_\w+|parquet_\w+|iceberg_\w+|"
+    r"delta_scan|postgres_\w+|mysql_\w+|(?:query|table|cursor|schema|database)_to_xml\w*|ts_stat|"
+    r"ts_rewrite|dblink\w*|crosstab\w*|connectby|lo_\w+)\s*\(",
+    re.IGNORECASE,
+)
+#: The database's own catalogues and functions, reached without naming a schema: `pg_stats`
+#: holds sample values of every organisation's columns, `pragma_storage_info` the least and
+#: greatest of each, `pg_read_file` a file of the server's.
+_DATABASE_OWN_RE = re.compile(r"\b(?:pg|duckdb|pragma|sqlite)_\w+", re.IGNORECASE)
+#: What in a reader's SQL is read differently by the engine and by the check: a comment, a
+#: string, a double-quoted name, and a `$` (a dollar-quoted string, or a parameter).
+_LEXEME_RE = re.compile(r"--|/\*|['\"$]")
+_QUOTING_REFUSED = (
+    "write a string as '…' and a name as \"…\": an escape string (E'…'), a dollar-quoted string "
+    "or a Unicode escape (U&) would hide what the query names from the check that keeps it to its "
+    "organisation and branch"
+)
+
+
+def _reader_sql(sql: str) -> tuple[str, str]:
+    """A reader's SQL as it will run, and as it is checked — read once, left to right, the way
+    the engine reads it.
+
+    A comment is dropped from both, so nothing the check passed over as a comment is left for
+    the engine to run. A string is kept in what runs and blanked in what is checked: a word in a
+    value is not a table. A double-quoted name is kept in what runs and unquoted in what is
+    checked, apart from its neighbours: `"ea_content".element` is `ea_content.element`. The forms
+    whose extent or spelling the engines read differently from this — an escape string, where a
+    backslash escapes the quote; a dollar-quoted string; a Unicode escape — are refused rather
+    than guessed at, and so is a string or a name left open.
+    """
+    run: list[str] = []
+    checked: list[str] = []
+    i = 0
+    while found := _LEXEME_RE.search(sql, i):
+        start, lexeme = found.start(), found.group()
+        run.append(sql[i:start])
+        checked.append(sql[i:start])
+        if lexeme == "--":
+            end = sql.find("\n", start)
+            i = len(sql) if end < 0 else end
+            run.append(" ")
+            checked.append(" ")
+        elif lexeme == "/*":
+            depth, i = 1, start + 2
+            while i < len(sql) and depth:
+                if sql.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif sql.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            run.append(" ")
+            checked.append(" ")
+        elif lexeme == "$":
+            raise ValueError(_QUOTING_REFUSED)
+        else:
+            # E'…' is an escape string unless the E ends a longer name; U&"…" is a Unicode escape.
+            before = sql[max(0, start - 2) : start]
+            escape = (
+                lexeme == "'" and before[-1:] in ("e", "E") and not re.fullmatch(r"[A-Za-z_]", before[:-1])
+            )
+            if escape or before.endswith("&"):
+                raise ValueError(_QUOTING_REFUSED)
+            end = start + 1
+            while True:
+                end = sql.find(lexeme, end)
+                if end < 0:
+                    raise ValueError("a string or a quoted name is left open: close it with its quote")
+                if not sql.startswith(lexeme, end + 1):
+                    break
+                end += 2  # a doubled quote is the quote itself
+            run.append(sql[start : end + 1])
+            name = sql[start + 1 : end].replace(lexeme * 2, lexeme)
+            checked.append(" '' " if lexeme == "'" else f" {name} ")
+            i = end + 1
+    run.append(sql[i:])
+    checked.append(sql[i:])
+    return "".join(run), "".join(checked)
 
 
 def _now() -> datetime:
@@ -3713,15 +3799,26 @@ class SqlBackend(DatabaseBackend):
     def query(
         self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
     ) -> pd.DataFrame:
-        stripped = re.sub(r"--[^\n]*", "", sql).strip().rstrip(";").strip()
+        run, checked = _reader_sql(sql)
+        stripped = run.strip().rstrip(";").strip()
         # A word inside a string literal is a value ('merge' is a target state), not a statement.
-        bare = re.sub(r"'(?:[^']|'')*'", "''", stripped)
+        bare = checked.strip().rstrip(";").strip()
         if ";" in bare or not _READ_ONLY_RE.match(bare) or _FORBIDDEN_RE.search(bare):
             raise ValueError("only a single read-only SELECT/WITH statement is allowed")
         if scoped and (named := self._qualified_escape(bare)):
             raise ValueError(
                 f"name the table on its own, not as {named}.<table>: a qualified name reads past "
                 f"the organisation and branch this query answers for"
+            )
+        if found := _STRING_READER_RE.search(bare):
+            raise ValueError(
+                f"{found.group(1)}() reaches a table, a query or a file named in a string, which reads "
+                f"past the organisation and branch this query answers for: name the table on its own"
+            )
+        if found := _DATABASE_OWN_RE.search(bare):
+            raise ValueError(
+                f"{found.group()} is the database's own, not the model's: it reads past the "
+                f"organisation and branch this query answers for"
             )
         if scoped:
             ctes = self._scope_ctes()

@@ -257,6 +257,9 @@ class LakebaseBackend(SqlBackend):
         """A reader's own SQL, in a transaction the server itself holds to reads."""
         with self._lock, self._conn.transaction():
             self._execute("SET LOCAL transaction_read_only = on")
+            # The check reads '…' as a string whose only escape is a doubled quote; the server is
+            # held to reading it the same way, whatever the database's default.
+            self._execute("SET LOCAL standard_conforming_strings = on")
             return super().query(sql, params, limit, scoped)
 
 

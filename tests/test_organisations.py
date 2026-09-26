@@ -236,6 +236,119 @@ def test_a_readers_sql_cannot_name_a_schema_and_read_past_its_organisation(loade
         assert int(loaded.query("select count(*) as n from element")["n"][0]) == 1
 
 
+def test_a_readers_sql_cannot_hide_a_schema_in_quotes_or_behind_a_comment(loaded, orgs):
+    """The check for a qualified name read the query as written, not as the engine reads it.
+
+    A schema name in double quotes (`"ea_content".element`) or cut from its dot by a block
+    comment (`ea_content/**/.element`) was not seen, and read every organisation's rows. The
+    query is now read the way the engine reads it — comments dropped, quotes taken off a name —
+    before it is checked; and the forms whose extent the engines read differently from any
+    such reading (an escape string, a dollar-quoted string, a Unicode escape) are refused.
+    """
+    orgs.create("Trial", "ada")
+    with use_org("trial"):
+        loaded.insert_element(Element("E1", "capability", "Only ours"), "ada")
+        schema = schemas(loaded.schema_prefix)[1]  # the content group
+        catalog = loaded._fetch_all("select current_database()")[0][0]
+        for query in (
+            f'select count(*) as n from "{schema}".element',
+            f'select count(*) as n from "{schema}"."element"',
+            f'select count(*) as n from "{schema.upper()}".element',
+            f'select count(*) as n from"{schema}".element',
+            f"select count(*) as n from {schema}/**/.element",
+            f"select count(*) as n from {schema}/* one /* nested */ comment */.element",
+            f"select count(*) as n from {schema} -- a comment\n.element",
+            f"select count(*) as n from {schema}\n\t.\nelement",
+            f'select count(*) as n from "{catalog}"."{schema}"."element"',
+            f"select count(*) as n from {catalog}.{schema}.element",
+            'select count(*) as n from "pg_catalog".pg_class',
+            'select count(*) as n from "information_schema".tables',
+        ):
+            with pytest.raises(ValueError, match="name the table on its own"):
+                loaded.query(query)
+        unicode_name = "".join(f"\\{ord(c):04x}" for c in schema)
+        for query in (
+            f"select E'\\'' as a, (select count(*) from {schema}.element) as n, 1 as \"'\"",
+            f"select $$'$$ as a, (select count(*) from {schema}.element) as n, 1 as \"'\"",
+            f'select count(*) as n from U&"{unicode_name}".element',
+        ):
+            with pytest.raises(ValueError, match="would hide what the query names"):
+                loaded.query(query)
+        assert int(loaded.query("select count(*) as n from element")["n"][0]) == 1
+
+
+def test_a_readers_sql_cannot_reach_a_table_or_a_file_named_in_a_string(loaded, orgs):
+    """`query_table('ea_content.element')` read the base table: the scoping shadows the names a
+    query is written with, and a name inside a string is a value it cannot see.
+
+    The functions that take a table, a query or a file by a string are refused by name, on both
+    engines whichever engine the function belongs to; so are the database's own catalogues and
+    functions, reached without naming a schema (`pg_stats` holds sample values of every
+    organisation's columns, `pragma_storage_info` the least and greatest of each).
+    """
+    orgs.create("Trial", "ada")
+    with use_org("trial"):
+        loaded.insert_element(Element("E1", "capability", "Only ours"), "ada")
+        table = f"{schemas(loaded.schema_prefix)[1]}.element"
+        for query in (
+            f"select count(*) as n from query_table('{table}')",
+            f"select * from query('select count(*) as n from {table}')",
+            f"select count(*) as n from \"QUERY_TABLE\" /* spaced */ ('{table}')",
+            f"select * from json_execute_serialized_sql(json_serialize_sql('select count(*) from {table}'))",
+            f"select query_to_xml('select count(*) from {table}', true, false, '') as n",
+            f"select table_to_xml('{table}', true, false, '') as n",
+            "select database_to_xml(true, false, '') as n",
+            f"select count(*) as n from ts_stat('select to_tsvector(name) from {table}')",
+            "select count(*) as n from read_csv('data/sample/elements.csv')",
+            "select count(*) as n from read_text('pyproject.toml')",
+            "select count(*) as n from sniff_csv('data/sample/elements.csv')",
+            "select count(*) as n from glob('*')",
+        ):
+            with pytest.raises(ValueError, match="named in a string"):
+                loaded.query(query)
+        for query in (
+            "select count(*) as n from pg_stats",
+            "select count(*) as n from pg_class",
+            "select pg_read_file('/etc/hostname') as n",
+            "select count(*) as n from pragma_storage_info('element')",
+            "select count(*) as n from duckdb_tables()",
+            "select count(*) as n from sqlite_master",
+        ):
+            with pytest.raises(ValueError, match="the database's own"):
+                loaded.query(query)
+
+
+def test_a_readers_ordinary_sql_still_answers_for_its_organisation(loaded, orgs):
+    """What the stricter reading must not refuse: a quoted name or alias, a string that holds a
+    dot, a schema's name or a function's, comments, WITH — each answered for the reader's
+    organisation alone."""
+    orgs.create("Trial", "ada")
+    schema = schemas(loaded.schema_prefix)[1]
+    with use_org("trial"):
+        loaded.insert_element(
+            Element("E1", "capability", "Only ours", description_md=f"{schema}.element"), "ada"
+        )
+
+        def n(query: str) -> int:
+            return int(loaded.query(query)["n"][0])
+
+        assert n("select count(*) as n from element") == 1
+        assert n('select count(*) as "n" from "element" as "e"') == 1
+        assert n('select count(*) as n from (select name as "Element name" from element) as s') == 1
+        assert n(f"select count(*) as n from element where description_md = '{schema}.element'") == 1
+        assert (
+            n("select count(*) as n from element where name <> 'a.b' and name <> 'query_table(''x'')'") == 1
+        )
+        assert (
+            n("select count(*) as n from element where name not in ('a--b', '/* c */', 'pg_stats', '$$')")
+            == 1
+        )
+        assert n("select count(*) as n from element e where e.name = 'Only ours'") == 1
+        assert n("with c as (select * from element) select count(*) as n from c") == 1
+        assert n("select count(*) as n -- how many\nfrom element /* ours */;") == 1
+        assert loaded.query("select 'it''s -- not a comment' as x")["x"][0] == "it's -- not a comment"
+
+
 def test_an_older_store_is_given_its_organisation(backend, pack):
     """Rows from before organisations and versions belong to the default organisation, and the
     default organisation applies the pack most recently loaded."""

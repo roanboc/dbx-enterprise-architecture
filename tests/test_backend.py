@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import duckdb
 import pytest
 from tests.conftest import HIGHER_ED
 
+from ea.backend.duckdb_backend import DuckDBBackend
 from ea.backend.organisations import DEFAULT_ORG
 from ea.backend.sql import column_types, qualified
 from ea.models import ConflictError, Element, Relationship
@@ -116,9 +118,32 @@ def test_query_is_read_only(backend):
         "select 1; drop table element",
         "update element set name='x'",
         "merge into element using element on 1=1 when matched then delete",
+        # a setting changed from a SELECT outlives it, on the connection every later query shares
+        "select set_config('search_path', 'pg_catalog', false)",
     ):
         with pytest.raises(ValueError):
             backend.query(bad)
     # a word inside a literal is a value: 'merge' is a target state, 'delete' a change-log op
     assert len(backend.query("select element_id from element where target_state = 'merge'")) == 1
     assert len(backend.query("select * from change_log where op = 'delete; drop'")) == 0
+
+
+def test_a_readers_sql_reads_no_file_on_duckdb(tmp_path):
+    """DuckDB reads a file named where a table stands — `from 'x.csv'`, `from "x.json"` — as a
+    table, and no reading of the query text finds every place a name can stand. So the engine is
+    told to read nothing but its own database; the store itself never asks it to."""
+    secret = tmp_path / "secret.csv"
+    secret.write_text("key\nvalue\n")
+    store = DuckDBBackend(":memory:")
+    try:
+        for query in (
+            f"select * from '{secret}'",
+            f'select * from "{secret}"',
+            f"select * from element, '{secret}'",
+            f"select * from element join '{secret}' on true",
+        ):
+            with pytest.raises(duckdb.PermissionException):
+                store.query(query)
+        assert len(store.query("select * from element")) == 0, "and its own tables still answer"
+    finally:
+        store.close()
