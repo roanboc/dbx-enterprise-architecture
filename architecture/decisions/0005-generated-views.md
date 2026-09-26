@@ -2,7 +2,7 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Accepted, 2026-09-05. **Touches:** `ACMP8`, `ASVC6`, `P8`.
+**Status:** Accepted, 2026-09-05; its one-way export superseded by [decision 0026](./0026-a-drawing-comes-back-as-a-proposal.md) (2026-09-26). **Touches:** `ACMP8`, `ASVC6`, `P8`.
 
 ## Context
 

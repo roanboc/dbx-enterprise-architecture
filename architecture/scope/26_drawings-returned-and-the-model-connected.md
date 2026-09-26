@@ -3,7 +3,7 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/admiring-bell-wj7ocn`; drafted 2026-09-26 for **Understanding**.
+**Delivered as:** branch `claude/admiring-bell-wj7ocn`; drafted 2026-09-26, Understanding granted the same day.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 25, and the draw.io
 stamp built the same day. **Target plateaus:** `PLAT1` The repository running locally, extended;
@@ -120,9 +120,9 @@ turning it into a change is an architect's proposal.
 
 ## Approvals
 
-**No gate has been granted.** This document stops at **Understanding**: it is shown to the
-Requester with the business and information rows it changes, decision 0026 and the roadmap rows,
-each linked on the branch. Nothing of work packages 1 to 3 is built until that word is given.
+| Gate | Granted | When | What was shown |
+| ---- | ------- | ---- | -------------- |
+| Understanding | The product owner | 2026-09-26 | This document; `BPROC2.2` and `BPROC3` in [2_processes-and-services.md](../2_business/2_processes-and-services.md); `ACT6`, `ROLE1`, `ROLE4` and `ROLE5` in [1_actors-and-roles.md](../2_business/1_actors-and-roles.md); `DOBJ3.6`, `DOBJ3.11` and `DOBJ3.12` in [1_data-objects.md](../3_information/1_data-objects.md) and the `connected_system` table in [3_logical-data-model.md](../3_information/3_logical-data-model.md); [decision 0026](../decisions/0026-a-drawing-comes-back-as-a-proposal.md), with the contradiction of decision 0005 it resolves; `GAP7`, `GAP28` and `GAP29` and step 1o on the roadmap — each linked on the branch, in the session. The word was *"Approved"* |
 
 ## Work packages
 

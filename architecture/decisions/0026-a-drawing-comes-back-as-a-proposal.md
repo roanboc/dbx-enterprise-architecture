@@ -2,9 +2,9 @@
 
 _[← Decisions](./README.md)_
 
-**Status:** Proposed 2026-09-26 (initiative 26, pending its Understanding). Once adopted, it
-supersedes one consequence of [decision 0005](./0005-generated-views.md) — *"the draw.io export is
-a one-way draft; nothing imports it back"* — and keeps the rest of it. **Touches:** `BPROC2.2`,
+**Status:** Adopted 2026-09-26 (initiative 26, its Understanding granted), at the Requester's word.
+It supersedes one consequence of [decision 0005](./0005-generated-views.md) — *"the draw.io export
+is a one-way draft; nothing imports it back"* — and keeps the rest of it. **Touches:** `BPROC2.2`,
 `DOBJ3.6`, `ACMP8`, `ACMP10`, `P8`, `GAP29`.
 
 ## Context
