@@ -17,7 +17,8 @@ and `GAP26` opened and closed by [initiative 24](../scope/24_proposals-refined-i
 [initiative 25](../scope/25_deep-dives-settled-in-conversation.md), which closed the first; `GAP7` and
 `GAP28` restated, `GAP29` opened, and all three closed by
 [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md), `GAP7`'s platform
-half with `PLAT2`'s run on a workspace. The gaps beyond `PLAT1` are intent, not work.
+half with `PLAT2`'s run on a workspace; `GAP30` opened by
+[initiative 27](../scope/27_getting-started-and-help-on-every-screen.md), pending its **Understanding**. The gaps beyond `PLAT1` are intent, not work.
 
 ## How to read this document
 
@@ -91,6 +92,7 @@ flowchart LR
   g27["⊘ An analysis is answered in one pass, and nothing learnt is kept [GAP27]"]:::implementation
   g28["⊘ What the enterprise's other systems say is not read [GAP28]"]:::implementation
   g29["⊘ A drawing that comes back is read by nobody [GAP29]"]:::implementation
+  g30["⊘ A newcomer has nothing on the screen to learn from [GAP30]"]:::implementation
   p4["≡ Governed change [PLAT4]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
@@ -112,6 +114,7 @@ flowchart LR
   g27 -.-> p1
   g28 -.-> p3
   g29 -.-> p4
+  g30 -.-> p1
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -147,6 +150,7 @@ flowchart LR
 | `GAP27` | **An analysis is answered in one pass, and nothing learnt is kept** — Ask answers one question at a time with one view, and the answer document is not stored. An architect who needs an analysis asks several questions, assembles the result and draws its diagrams again by hand; nothing says how far the elements it rests on can be trusted; and the next architect who needs the same analysis starts from a blank page | `PLAT1` | Closed by [initiative 25](../scope/25_deep-dives-settled-in-conversation.md) (built 2026-09-25): a deep dive settled with the reader in conversation, weighing the maturity of what it rests on and where an element and what documents it disagree; handed out as a styled PDF with its draw.io diagrams; catalogued, kept, linked from every element it cites, rated by the people who read it, and weighed by the next deep dive on the same elements |
 | `GAP28` | **What the enterprise's other systems say is not read** — an element carries links to the pages that describe it — a wiki's design pages, a solution's own documentation, its code — and the systems that master its facts (the CMDB, the project portfolio tool) hold what is true of it today; neither the assistant nor a deep dive reads any of them, so what they add to the model is missed, and where they disagree with it nobody is told. Restated by initiative 26 from the linked pages alone, because a page and a system's record are read the same way | `PLAT1` and `PLAT3` | The assistant reading an organisation's **connected systems** over the Model Context Protocol, read-only and as the reader — the pages an element links to where a connected system answers for their address, and what a system says about the elements it masters — citing them as the system's, never as the model's, and reporting where they disagree; a disagreement becomes a proposal only through an architect. **Closed for systems reached over the protocol by [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md)** (built 2026-09-26): connected systems per organisation, read by Ask, deep dives and Propose's hosted reader. A page on no connected system is still listed, not read; loading what a system says into the model stays `GAP20` |
 | `GAP29` | **A drawing that comes back is read by nobody** — architects keep the draw.io files the application exports and draw on them, and nothing reads one back: what a person added, renamed or took out is retyped by hand as a proposal, or lost (decision [0005](../decisions/0005-generated-views.md) made the export one-way) | `PLAT1` and `PLAT4` | A drawing handed in on Propose like a page: what the application drew known by its stamp, what a person added typed from its shape or asked about, nothing deleted unless the architect says so, and every row applied only when ticked (`P3`, `P8`; decision [0026](../decisions/0026-a-drawing-comes-back-as-a-proposal.md), proposed). **Closed by [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md)** (built 2026-09-26): the stamp, with the export's manifest, and the drawing read on Propose |
+| `GAP30` | **A newcomer has nothing on the screen to learn from** — the Guide says what the repository is for and how each role works in it, by role and not screen by screen, so a person who opens Browse, Branches or Propose for the first time finds nothing on the screen about why it exists, what it shows or how it is used, and learns it from a colleague or not at all. An application meant to replace the current EA tool (`PLAT6`) is adopted only as far as its people can learn it alone | `PLAT1` | A welcome shown once on a first visit, help on every screen of the navigation — why, what and how, with a diagram and what the reader's role may do — opened only when asked beside the screen's title, a tip on a screen's first visit, and all of it gathered on the Guide page. **In flight with [initiative 27](../scope/27_getting-started-and-help-on-every-screen.md)**, pending Understanding |
 
 ## Gaps closed so far, and by what
 
