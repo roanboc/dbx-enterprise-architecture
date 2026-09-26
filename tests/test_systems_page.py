@@ -110,7 +110,8 @@ def test_an_admin_is_offered_the_workspace_connections_and_the_new_fields(app_co
             for n in node:
                 walk(n)
         elif node is not None and not isinstance(node, str):
-            found.add(getattr(node, "id", None))
+            if isinstance(getattr(node, "id", None), str):  # a pattern-matched id is a dict
+                found.add(node.id)
             walk(getattr(node, "children", None))
 
     walk(page)
