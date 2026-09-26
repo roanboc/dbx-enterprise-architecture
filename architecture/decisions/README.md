@@ -36,3 +36,4 @@ alternative?".
 | [0023](./0023-the-model-is-served-by-the-platform.md) | The assistant's model is a Model Serving endpoint, and which model is the workspace's choice | Adopted 2026-09-24, at the Requester's word (initiative 24) | `ACMP5`, `ACMP10`, `TSVC7`, `ART6`, `GAP25` |
 | [0024](./0024-deep-dives-are-kept.md) | A deep dive is kept, catalogued and rated; an answer is not | Adopted 2026-09-25, at the Requester's word (initiative 25) | `DOBJ3.5`, `DOBJ3.11`, `BPROC3`, `BSVC1`, `ROLE4`, `GAP27` |
 | [0025](./0025-a-pdf-drawn-in-python.md) | A deep dive's PDF is drawn in Python, with ReportLab | Adopted 2026-09-25, the agent's call (initiative 25) | `ACMP8`, `ART4` |
+| [0026](./0026-a-drawing-comes-back-as-a-proposal.md) | A drawing comes back as a proposal, never as the store | Proposed 2026-09-26 (initiative 26, pending Understanding); supersedes one consequence of 0005 once adopted | `BPROC2.2`, `DOBJ3.6`, `ACMP8`, `ACMP10`, `P8`, `GAP29` |
