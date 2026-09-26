@@ -17,6 +17,7 @@ from dash import ALL, MATCH, Input, Output, State, dcc, html, no_update
 from dash import ctx as dash_ctx
 
 from ea.agent.document import slug
+from ea.agent.drawing import MAX_DRAWING_CHARS
 from ea.agent.proposal import ProposalResult, fetch_link, result_from_payload
 from ea.agent.questions import MAX_SHOWN, shown
 from ea.backend.branching import MAIN
@@ -53,6 +54,7 @@ STORED = (
     "technical",
     "provider",
     "model",
+    "drawing",
 )
 
 _GRID = dict(
@@ -195,6 +197,10 @@ def _el_rows(r: ProposalResult) -> list[dict[str, Any]]:
             "confirmed_new": e.confirmed_new,
             "referenced_from": e.referenced_from,
             "reference_url": e.reference_url,
+            "drawn": e.drawn,
+            "drawn_label": e.drawn_label,
+            "rename_to": e.rename_to,
+            "type_candidates": list(e.type_candidates),
         }
         for i, e in enumerate(r.elements)
     ]
@@ -213,6 +219,7 @@ def _rel_rows(r: ProposalResult) -> list[dict[str, Any]]:
             "note": x.note,
             "resolved": x.rel_type_id or "",
             "issues": "; ".join(x.issues),
+            "drawn": x.drawn,
         }
         for i, x in enumerate(r.relationships)
     ]
@@ -241,6 +248,7 @@ def _payload_from_rows(
         "asked": list(stored.get("asked") or []),
         "reason": stored.get("reason", ""),
         "technical": bool(stored.get("technical", False)),
+        "drawing": dict(stored.get("drawing") or {}),
         "work_package": work_package,
         "elements": [
             {
@@ -257,6 +265,10 @@ def _payload_from_rows(
                 "confirmed_new": bool(r.get("confirmed_new")),
                 "referenced_from": r.get("referenced_from") or "",
                 "reference_url": r.get("reference_url") or "",
+                "drawn": r.get("drawn") or "",
+                "drawn_label": r.get("drawn_label") or "",
+                "rename_to": r.get("rename_to") or "",
+                "type_candidates": list(r.get("type_candidates") or []),
             }
             for i, r in enumerate(el_rows or [])
             if (r.get("name") or r.get("type"))
@@ -271,6 +283,7 @@ def _payload_from_rows(
                 "target_state": r.get("target_state") or "",
                 "note": r.get("note") or "",
                 "include": r.get("key") in rel_keys,
+                "drawn": bool(r.get("drawn")),
             }
             for i, r in enumerate(rel_rows or [])
             if (r.get("source") or r.get("target"))
@@ -889,7 +902,7 @@ def render(ctx: AppContext) -> html.Div:
                                         [
                                             icon("tabler:cloud-upload", 20),
                                             dmc.Text(
-                                                "Drop Markdown, text or CSV files here, or click to choose",
+                                                "Drop Markdown, text or CSV files, or a draw.io drawing, here — or click to choose",
                                                 size="sm",
                                             ),
                                         ],
@@ -1082,7 +1095,9 @@ def register(app: dash.Dash) -> None:
         store = dict(store or {})
         for content, name in zip(contents, names, strict=True):
             _, b64 = content.split(",", 1)
-            store[name] = base64.b64decode(b64).decode("utf-8-sig", errors="replace")[:400_000]
+            # a drawing carries its icons inline, so it is taken whole up to a larger size
+            cap = MAX_DRAWING_CHARS if name.lower().endswith(".drawio") else 400_000
+            store[name] = base64.b64decode(b64).decode("utf-8-sig", errors="replace")[:cap]
         rows = [
             dmc.Group(
                 [

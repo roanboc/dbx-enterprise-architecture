@@ -1060,6 +1060,37 @@ def metamodel_check(
     raise typer.Exit(code=0 if report.ok else 1)
 
 
+@metamodel_app.command("palette")
+def metamodel_palette(
+    out: Path = typer.Option(None, "--out", "-o", help="the file to write (default: print it)"),
+    version: str = typer.Option(
+        None, "--version", "-v", help="a stored version, as a name or identifier with @version"
+    ),
+):
+    """The metamodel as a draw.io shape library, to open in draw.io with File › Open Library.
+
+    Every shape dragged from it is read back on Propose as an element of exactly its type.
+    """
+    from ea.metamodel import Registry
+    from ea.views.drawio import palette_library
+
+    backend, registry, svc, _ = _metamodels()
+    if version:
+        try:
+            registry = Registry(svc.get(version))
+        except Exception:
+            held = ", ".join(f"{v.label} ({v.short_id})" for v in backend.list_pack_versions()) or "none"
+            _refuse(f"no metamodel version {version!r} in this database; it holds: {held}")
+    library = palette_library(registry)
+    if out is None:
+        typer.echo(library)
+        return
+    out.write_text(library, encoding="utf-8")
+    typer.echo(
+        f"{registry.pack.name or registry.pack.id} {registry.pack.version}: shape library written to {out}"
+    )
+
+
 # ------------------------------------------------------------------ organisations
 org_app = typer.Typer(
     help="The organisations the store holds: which is the default, which metamodel version each applies.",
@@ -1392,7 +1423,9 @@ def _proposals():
 
 @app.command()
 def propose(
-    files: list[Path] = typer.Argument(..., help="the page(s) to read: Markdown, text or CSV"),
+    files: list[Path] = typer.Argument(
+        ..., help="the page(s) to read: Markdown, text or CSV, or a draw.io drawing"
+    ),
     template: str = typer.Option("", help="template name or id, for a page that names none itself"),
     apply: bool = typer.Option(
         False, "--apply", help="write it to the branch (--branch) when nothing is missing"
@@ -1616,6 +1649,222 @@ def templates_check(file: Path):
     for line in notes:
         typer.echo(f"  {line}")
     typer.echo("every heading and column is placed" if not notes else f"{len(notes)} note(s)")
+
+
+systems_app = typer.Typer(
+    help="The enterprise's systems the assistant may read over the Model Context Protocol.",
+    no_args_is_help=True,
+)
+app.add_typer(systems_app, name="systems")
+
+
+#: Makes the workspace client `ea systems connections` lists from; None is the Databricks SDK's
+#: own. Tests hand a fake one here rather than through the environment.
+WORKSPACE = None
+
+
+def _systems():
+    from ea.services.connected import ConnectedSystemService
+
+    _, backend, registry, *_ = _ctx()
+    return ConnectedSystemService(backend, registry, workspace=WORKSPACE)
+
+
+def _csv(text: str) -> list[str]:
+    return [x.strip() for x in (text or "").split(",") if x.strip()]
+
+
+@systems_app.command("list")
+def systems_list():
+    """The organisation's connected systems: where each is, what it speaks for, as whom it is read."""
+    held = _systems().list()
+    for s in held:
+        state = "" if s.enabled else "  [off]"
+        typer.echo(f"{s.system_id}  {s.name}  {s.url}  as {s.auth}  tools: {', '.join(s.tools)}{state}")
+        if s.speaks_for:
+            typer.echo(f"    speaks for: {', '.join(s.speaks_for)}")
+        if s.link_prefixes:
+            typer.echo(f"    reads pages under: {', '.join(s.link_prefixes)} with {s.page_tool}")
+        if s.page_pattern:
+            typer.echo(f"    page pattern: {s.page_pattern}")
+        if s.page_arguments:
+            typer.echo(f"    page arguments: {json.dumps(s.page_arguments)}")
+    if not held:
+        typer.echo("no system connected in this organisation")
+
+
+@systems_app.command("connections")
+def systems_connections():
+    """The workspace's connections that can serve the protocol, and the address each answers at."""
+    offered, reason = _systems().workspace_connections()
+    if reason:
+        _refuse(f"no workspace connection is listed: {reason}")
+    for c in offered:
+        typer.echo(f"{c['name']}  {c['url']}" + (f"  — {c['comment']}" if c["comment"] else ""))
+    if not offered:
+        typer.echo("the workspace offers no connection that serves the protocol")
+
+
+@systems_app.command("add")
+def systems_add(
+    name: str = typer.Argument(..., help="what the system is called"),
+    url: str = typer.Option("", "--url", help="where it answers the protocol's streamable HTTP"),
+    connection: str = typer.Option(
+        "",
+        "--connection",
+        help="a workspace connection whose address it answers at (`ea systems connections`)",
+    ),
+    tools: str = typer.Option(
+        ..., "--tools", help="the tools the assistant may call, comma-separated; each a read"
+    ),
+    speaks_for: str = typer.Option("", "--speaks-for", help="the element types it masters, comma-separated"),
+    pages: str = typer.Option(
+        "", "--pages", help="the link addresses it answers for, comma-separated prefixes"
+    ),
+    page_tool: str = typer.Option("", "--page-tool", help="the tool that reads a page"),
+    page_argument: str = typer.Option(
+        "url", "--page-argument", help="the argument the page tool takes the address in"
+    ),
+    page_pattern: str = typer.Option(
+        "",
+        "--page-pattern",
+        help="a regular expression whose named groups pick a page's id out of its address",
+    ),
+    page_arguments: str = typer.Option(
+        "",
+        "--page-arguments",
+        help='the page tool\'s arguments as JSON, with {url} and {<group>}: {"pageId": "{page_id}"}',
+    ),
+    auth: str = typer.Option(
+        "reader",
+        "--auth",
+        help="reader (the person's own identity), credential, app (the application's) or none",
+    ),
+    credential_env: str = typer.Option(
+        "", "--credential-env", help="the environment variable holding its credential"
+    ),
+    roles: str = typer.Option(
+        "",
+        "--roles",
+        help="with a credential or as the application (needed for either): the roles it is read for, comma-separated",
+    ),
+    description: str = typer.Option("", "--description"),
+    system_id: str = typer.Option("", "--id", help="replace the system with this id"),
+    actor: str = typer.Option("admin"),
+):
+    """Connect a system for the assistant to read (an admin's decision; initiative 26)."""
+    from ea.models import ConnectedSystem
+
+    svc = _systems()
+    if connection:
+        offered, reason = svc.workspace_connections()
+        picked = next((c for c in offered if c["name"] == connection), None)
+        if picked is None:
+            _refuse(
+                f"no connection {connection!r} in the workspace"
+                + (f": {reason}" if reason else "; `ea systems connections` lists them")
+            )
+        url = url or picked["url"]
+    if not url:
+        _refuse("say where it answers: --url, or --connection for one of the workspace's")
+    kept = svc.save(
+        ConnectedSystem(
+            system_id=system_id,
+            name=name,
+            description=description,
+            url=url,
+            tools=_csv(tools),
+            speaks_for=_csv(speaks_for),
+            link_prefixes=_csv(pages),
+            page_tool=page_tool,
+            page_argument=page_argument,
+            page_pattern=page_pattern,
+            page_arguments=page_arguments,  # the service reads the JSON and says what is wrong with it
+            auth=auth,
+            credential_env=credential_env,
+            roles=_csv(roles),
+        ),
+        actor,
+    )
+    typer.echo(f"connected {kept.name!r} as {kept.system_id}")
+
+
+@systems_app.command("remove")
+def systems_remove(system: str, actor: str = typer.Option("admin")):
+    """Disconnect a system: the assistant stops reading it."""
+    svc = _systems()
+    held = svc.find(system)
+    if held is None:
+        _refuse(f"no connected system {system!r}; `ea systems list` says which there are")
+    svc.delete(held.system_id, actor)
+    typer.echo(f"disconnected {held.name!r}")
+
+
+@systems_app.command("check")
+def systems_check(
+    system: str,
+    token: str = typer.Option(
+        "", envvar="EA_READER_TOKEN", help="the reader's own token, for a system that reads as the person"
+    ),
+):
+    """Reach a system and say which of its tools the assistant is given, as the person asking."""
+    from ea.agent.connected import ConnectedReader
+
+    held = _systems().find(system)
+    if held is None:
+        _refuse(f"no connected system {system!r}; `ea systems list` says which there are")
+    reader = ConnectedReader([held], token=token)
+    specs = reader.specs()
+    for spec in specs:
+        typer.echo(f"  {spec['name']}")
+    if held.name in reader.unavailable:
+        _refuse(f"{held.name} cannot be read: {reader.unavailable[held.name]}")
+    if not specs:
+        _refuse(f"{held.name} answered, and offers none of the tools listed: {', '.join(held.tools)}")
+    typer.echo(f"{held.name}: {len(specs)} tool(s) given to the assistant")
+
+
+@app.command("mcp")
+def mcp(
+    http: bool = typer.Option(
+        False,
+        "--http",
+        help="serve streamable HTTP at /mcp, as its own app on the platform, instead of stdio",
+    ),
+    port: int = typer.Option(
+        0, "--port", help="the port for --http; DATABRICKS_APP_PORT, PORT or 8765 when not given"
+    ),
+    actor: str = typer.Option(
+        "", "--actor", help="who the agent reads as, on stdio; the local user when not given"
+    ),
+):
+    """Serve the model's read tools to another agent over the Model Context Protocol (initiative 26).
+
+    On stdio it acts as `--as`, `--org` and `--branch` say — how an editor starts a local
+    server. With --http each request acts as the person the platform forwarded, in the
+    organisation and branch the request names (X-EA-Org, X-EA-Branch). It writes nothing."""
+    import getpass
+    import os
+
+    from ea.backend.branching import current_branch
+    from ea.services.roles import current_role
+    from ea.tool_server import Refused, caller_for, http_app, serve_stdio
+    from ea.ui.context import open_context
+
+    ctx = open_context(Settings.from_env())
+    if http:
+        import uvicorn
+
+        port = port or int(os.environ.get("DATABRICKS_APP_PORT") or os.environ.get("PORT") or 8765)
+        uvicorn.run(http_app(ctx), host="0.0.0.0", port=port, log_level="info")  # noqa: S104
+        return
+    try:
+        caller = caller_for(
+            ctx, actor or getpass.getuser(), current_role(), _scope.get("org") or "", current_branch()
+        )
+    except Refused as exc:
+        _refuse(str(exc))
+    serve_stdio(ctx, caller)
 
 
 # Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a

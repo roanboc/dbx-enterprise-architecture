@@ -11,6 +11,7 @@ import pandas as pd
 from ea.models import (
     Branch,
     ChangeSet,
+    ConnectedSystem,
     DeepDive,
     DeepDiveRating,
     Element,
@@ -348,6 +349,20 @@ class DatabaseBackend(ABC):
 
     @abstractmethod
     def delete_feed(self, feed_id: str, actor: str) -> None: ...
+
+    # ----------------------------------------------------- connected systems
+    @abstractmethod
+    def save_connected_system(self, system: ConnectedSystem, actor: str) -> ConnectedSystem:
+        """Store a connected system's configuration, by system_id, in the current organisation."""
+
+    @abstractmethod
+    def list_connected_systems(self) -> list[ConnectedSystem]: ...
+
+    @abstractmethod
+    def get_connected_system(self, system_id: str) -> ConnectedSystem | None: ...
+
+    @abstractmethod
+    def delete_connected_system(self, system_id: str, actor: str) -> None: ...
 
     # ------------------------------------------------------- import history
     @abstractmethod

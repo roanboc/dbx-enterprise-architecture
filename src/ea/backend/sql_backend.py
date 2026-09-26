@@ -65,6 +65,7 @@ from ea.models import (
     ChangeItem,
     ChangeSet,
     ConflictError,
+    ConnectedSystem,
     DeepDive,
     DeepDiveElement,
     DeepDiveRating,
@@ -3421,6 +3422,119 @@ class SqlBackend(DatabaseBackend):
             self._execute("DELETE FROM source_feed WHERE org_id = ? AND feed_id = ?", [org, feed_id])
             if before is not None:
                 self._log("source_feed", feed_id, "delete", actor, self._public(before), None, None)
+
+    # ----------------------------------------------------- connected systems
+    _SYSTEM_COLUMNS = (
+        "system_id",
+        "name",
+        "description",
+        "url",
+        "speaks_for",
+        "link_prefixes",
+        "tools",
+        "page_tool",
+        "page_argument",
+        "page_pattern",
+        "page_arguments",
+        "auth",
+        "credential_env",
+        "roles",
+        "enabled",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "updated_by",
+    )
+
+    def save_connected_system(self, system: ConnectedSystem, actor: str) -> ConnectedSystem:
+        system.system_id = system.system_id or new_id("sys")
+        now, org = _now(), self._org()
+        with self._lock:
+            existing = self.get_connected_system(system.system_id)
+            system.created_at = existing.created_at if existing else now
+            system.created_by = existing.created_by if existing else actor
+            system.updated_at, system.updated_by = now, actor
+            self._execute(
+                "DELETE FROM connected_system WHERE org_id = ? AND system_id = ?", [org, system.system_id]
+            )
+            s = system
+            self._insert_rows(
+                "connected_system",
+                [
+                    [
+                        s.system_id,
+                        s.name or None,
+                        s.description or None,
+                        s.url or None,
+                        json.dumps(list(s.speaks_for)),
+                        json.dumps(list(s.link_prefixes)),
+                        json.dumps(list(s.tools)),
+                        s.page_tool or None,
+                        s.page_argument or None,
+                        s.page_pattern or None,
+                        json.dumps(dict(s.page_arguments)) if s.page_arguments else None,
+                        s.auth or None,
+                        s.credential_env or None,
+                        json.dumps(list(s.roles)),
+                        bool(s.enabled),
+                        s.created_at,
+                        s.created_by or None,
+                        s.updated_at,
+                        s.updated_by or None,
+                        org,
+                    ]
+                ],
+            )
+            self._log("connected_system", system.system_id, "save", actor, None, self._public(system), None)
+        return system
+
+    def _row_to_system(self, r: tuple) -> ConnectedSystem:
+        def listed(v: Any) -> list[str]:
+            return [str(x) for x in json.loads(v)] if v else []
+
+        return ConnectedSystem(
+            system_id=r[0],
+            name=r[1] or "",
+            description=r[2] or "",
+            url=r[3] or "",
+            speaks_for=listed(r[4]),
+            link_prefixes=listed(r[5]),
+            tools=listed(r[6]),
+            page_tool=r[7] or "",
+            page_argument=r[8] or "url",
+            page_pattern=r[9] or "",
+            page_arguments=json.loads(r[10]) if r[10] else {},
+            auth=r[11] or "reader",
+            credential_env=r[12] or "",
+            roles=listed(r[13]),
+            enabled=bool(r[14]),
+            created_at=r[15],
+            created_by=r[16] or "",
+            updated_at=r[17],
+            updated_by=r[18] or "",
+        )
+
+    def list_connected_systems(self) -> list[ConnectedSystem]:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._SYSTEM_COLUMNS)} FROM connected_system WHERE org_id = ? ORDER BY name, system_id",
+            [self._org()],
+        )
+        return [self._row_to_system(r) for r in rows]
+
+    def get_connected_system(self, system_id: str) -> ConnectedSystem | None:
+        rows = self._fetch_all(
+            f"SELECT {', '.join(self._SYSTEM_COLUMNS)} FROM connected_system WHERE org_id = ? AND system_id = ?",
+            [self._org(), system_id],
+        )
+        return self._row_to_system(rows[0]) if rows else None
+
+    def delete_connected_system(self, system_id: str, actor: str) -> None:
+        org = self._org()
+        with self._lock:
+            before = self.get_connected_system(system_id)
+            self._execute("DELETE FROM connected_system WHERE org_id = ? AND system_id = ?", [org, system_id])
+            if before is not None:
+                self._log("connected_system", system_id, "delete", actor, self._public(before), None, None)
 
     # ------------------------------------------------------ import history
     _RUN_COLUMNS = (

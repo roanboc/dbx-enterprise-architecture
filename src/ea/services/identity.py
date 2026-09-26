@@ -11,6 +11,7 @@ user, so a page with twenty callbacks costs one lookup.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 import threading
@@ -19,6 +20,21 @@ from collections.abc import Callable
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# The signed-in person's own platform token for this request, when the platform forwarded one:
+# what a connected system that knows people is shown (initiative 26). Set per request, as the
+# role is, and never stored.
+_token: contextvars.ContextVar[str] = contextvars.ContextVar("ea_reader_token", default="")
+
+
+def current_token() -> str:
+    """The reader's own forwarded token for this request, or empty."""
+    return _token.get()
+
+
+def set_token(token: str | None) -> contextvars.Token[str]:
+    return _token.set(token or "")
+
 
 HEADER_EMAIL = "X-Forwarded-Email"
 HEADER_USERNAME = "X-Forwarded-Preferred-Username"

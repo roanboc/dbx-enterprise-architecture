@@ -99,6 +99,7 @@ class Line:
     width: float = 1
     dashed: bool = False
     arrow: bool = True
+    relationship_id: str = ""  # set where the line draws a stored relationship
 
 
 @dataclass
@@ -624,7 +625,11 @@ def view_layout(fig: dict[str, Any]) -> Layout:
         st = TARGET_STYLE.get(e.target_state)
         if marked and st and e.target_state not in ("undecided", "keep"):
             colour, width_, dashed = st["hex"], 2.0, e.target_state in ("new", "merge")
-        lay.lines.append(Line(f"_edge_{n}", e.src, e.dst, e.label, colour, width_, dashed))
+        lay.lines.append(
+            Line(
+                f"_edge_{n}", e.src, e.dst, e.label, colour, width_, dashed, relationship_id=e.relationship_id
+            )
+        )
     if view.note:
         lay.shapes.append(
             Shape("_note", 20, y, width - 40, 20, "text", text=view.note, font=MUTED, font_size=9)

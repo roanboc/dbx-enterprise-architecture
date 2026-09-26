@@ -62,11 +62,15 @@ MAX_LINK_BYTES = 400_000
 FUZZY_CUTOFF = 0.88
 #: How much of each source is kept with the proposal, so a reviewer reads the page it came from.
 MAX_SOURCE_CHARS = 200_000
+#: How a relationship row names an element row that has no name yet — a shape in a drawing
+#: nobody has named — by its row number: `#3`. Rows keep their numbers, so the line survives.
+ROW_REF = "#"
 
 __all__ = [
     "AnswerError",
     "ELEMENT_HEADERS",
     "RELATIONSHIP_HEADERS",
+    "ROW_REF",
     "ProposalResult",
     "ProposalService",
     "ProposedElement",
@@ -106,11 +110,18 @@ class ProposedElement:
     # system's reference and the page that describes the part. The row itself is not applied.
     referenced_from: str = ""
     reference_url: str = ""
+    # Read from a drawing (initiative 26): `shape` a shape a person added, `note` a text box not
+    # yet said to be an element, `renamed` the application's shape with a label a person edited
+    drawn: str = ""
+    drawn_label: str = ""  # the label a person gave the application's shape
+    rename_to: str = ""  # the name Apply writes, once the architect says the edit is a rename
+    type_candidates: list[str] = field(default_factory=list)  # the types drawn as its shape
 
     @property
     def ref(self) -> str:
-        """How relationships refer to this element: its id when linked, `new:<name>` otherwise."""
-        return self.element_id or f"new:{_norm(self.name)}"
+        """How relationships refer to this element: its id when linked, `new:<name>` otherwise,
+        and `new:#<row>` while it has no name, so two unnamed rows are never taken for one."""
+        return self.element_id or f"new:{_norm(self.name) or ROW_REF + str(self.row)}"
 
 
 @dataclass
@@ -128,6 +139,7 @@ class ProposedRelationship:
     relationship_id: str = ""  # the relationship it names, when it exists already
     issues: list[str] = field(default_factory=list)
     include: bool = True
+    drawn: bool = False  # a line a person drew: its relationship may be the drawing's to settle
 
 
 @dataclass
@@ -160,6 +172,9 @@ class ProposalResult:
     asked: list[dict[str, Any]] = field(default_factory=list)
     reason: str = ""  # why the change is made, in the architect's words
     technical: bool = False  # the architect said it changes no business
+    # What a drawing handed in said beyond its rows (initiative 26): its export, and the
+    # renamed shapes and the shapes and lines taken out, each asked about
+    drawing: dict[str, Any] = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
@@ -201,6 +216,7 @@ class ProposalResult:
             asked=list(d.get("asked") or []),
             reason=d.get("reason", ""),
             technical=bool(d.get("technical", False)),
+            drawing=dict(d.get("drawing") or {}),
         )
 
 
@@ -384,10 +400,24 @@ class ProposalService:
         `template`, the key of a template the organisation keeps or of a starter
         (`TemplateService.offered`); failing both, with the metamodel's own names.
         """
+        from ea.agent.drawing import MAX_DRAWING_CHARS, is_drawing, read_drawing
+
         with _on(branch_id):
-            first = next((s.get("text") for s in sources if (s.get("text") or "").strip()), None)
+            drawings = [s for s in sources if is_drawing(s)]
+            pages = [s for s in sources if not is_drawing(s)]
+            first = next((s.get("text") for s in pages if (s.get("text") or "").strip()), None)
             reading, template_id, template_name = self.templates.reading(template, first)
-            result = self.provider.extract(sources, self, reading)
+            if pages or not drawings:
+                if self.toolbox is not None:
+                    self.toolbox.begin()
+                result = self.provider.extract(pages, self, reading)
+            else:
+                # a drawing is read by rules, with or without a model (decision 0026)
+                result = ProposalResult(
+                    provider=self.provider.name, model=getattr(self.provider, "model", "")
+                )
+            for s in drawings:
+                _merge(result, read_drawing(s.get("text") or "", self.registry, self.backend))
             result.template_id = template_id
             result.template_name = template_name or result.template_name
             result.sources = [
@@ -395,7 +425,7 @@ class ProposalService:
                     "kind": s.get("kind", ""),
                     "name": s.get("name", ""),
                     "chars": len(s.get("text") or ""),
-                    "text": (s.get("text") or "")[:MAX_SOURCE_CHARS],
+                    "text": (s.get("text") or "")[: MAX_DRAWING_CHARS if is_drawing(s) else MAX_SOURCE_CHARS],
                 }
                 for s in sources
             ]
@@ -420,6 +450,7 @@ class ProposalService:
         refs = {}
         for el in result.elements:
             refs[_norm(el.name)] = el
+            refs[f"{ROW_REF}{el.row}"] = el
             if el.element_id:
                 refs[el.element_id.lower()] = el
         for rel in result.relationships:
@@ -533,8 +564,11 @@ class ProposalService:
         )
 
     def change_input(self, result: ProposalResult) -> ChangeInput:
-        """The ticked rows of a proposal as a change set to assess."""
-        els = [el for el in result.elements if el.include]
+        """The ticked rows of a proposal as a change set to assess.
+
+        A drawing's text box not yet said to be an element is not part of the change: until the
+        architect answers, it may be a note, and assessing it would ask what a note serves."""
+        els = [el for el in result.elements if el.include and el.drawn != "note"]
         rels = [r for r in result.relationships if r.include]
         return ChangeInput(
             changed={
@@ -666,6 +700,10 @@ class ProposalService:
             el.issues.append("target state is missing")
         if el.attrs and el.type_id:
             el.issues.extend(self._attr_issues(el.type_id, el.attrs))
+        if el.drawn == "note":
+            # a text box is asked about once: whether it is a note or an element. What an
+            # element would owe (a type, a description) is asked only once it is said to be one
+            el.issues = ["a text box in the drawing: say whether it is a note or an element"]
 
     def _attr_issues(self, type_id: str, attrs: dict[str, str]) -> list[str]:
         """What the attribute values a page gives say against the type: one it does not declare,
@@ -710,10 +748,21 @@ class ProposalService:
         if not rel.dst_ref:
             rel.issues.append(f"target {rel.target!r} is neither in the Elements table nor in the repository")
         rel.rel_type_id = rel.relationship_id = ""
+        if rel.drawn and src_t and dst_t:
+            # a line a person drew: the relationship its label names, or the only one the
+            # metamodel allows between the two; otherwise it is asked about
+            allowed = self.registry.allowed_rel_types(src_t, dst_t)
+            named = (
+                self.registry.resolve_rel_type(rel.relationship, src_t, dst_t) if rel.relationship else None
+            )
+            if named is None and len(allowed) == 1:
+                rel.relationship = allowed[0].name
         if rel.target_state and rel.target_state not in TARGET_STATES:
             rel.issues.append(f"target state {rel.target_state!r} is not one of {', '.join(TARGET_STATES)}")
         if not rel.relationship:
-            rel.issues.append("relationship is missing")
+            rel.issues.append(
+                "a line in the drawing: which relationship is it?" if rel.drawn else "relationship is missing"
+            )
         elif src_t and dst_t:
             rt = self.registry.resolve_rel_type(rel.relationship, src_t, dst_t)
             if rt is None:
@@ -857,6 +906,8 @@ class ProposalService:
                         changes["target_work_package"] = wp_id
                     if el.note and el.note != current.target_note:
                         changes["target_note"] = el.note
+                    if el.rename_to and el.rename_to != current.name:
+                        changes["name"] = el.rename_to
                     if el.attrs and {**current.attrs, **el.attrs} != current.attrs:
                         # a filled cell overwrites; a blank one never empties (it is not in attrs)
                         changes["attrs"] = {**current.attrs, **el.attrs}
@@ -1066,6 +1117,8 @@ class ProposalService:
             conversation.append(_turn("architect", "message", message.strip()))
         if (message.strip() or words) and self.converses:
             with _on(branch_id):
+                if self.toolbox is not None:
+                    self.toolbox.begin()
                 result, reply = self.provider.converse(result, conversation, words, self)
             result = self.resolve(result, branch_id)
         elif message.strip() or words:
@@ -1185,6 +1238,33 @@ class ProposalService:
         if held.created_by and held.created_by != actor:
             raise PermissionError("this draft belongs to another architect")
         self.backend.delete_proposal(proposal_id)
+
+
+def _merge(into: ProposalResult, part: ProposalResult) -> None:
+    """A drawing's reading added to what the pages said: its rows after theirs, its findings beside them."""
+    into.title = into.title or part.title
+    into.error = into.error or part.error
+    offset = max((el.row for el in into.elements), default=0)
+    for el in part.elements:
+        el.row += offset
+        into.elements.append(el)
+    for rel in part.relationships:
+        # a line to a shape nobody named names its row, which has moved down by as many
+        rel.source, rel.target = _row_ref_moved(rel.source, offset), _row_ref_moved(rel.target, offset)
+    offset = max((rel.row for rel in into.relationships), default=0)
+    for rel in part.relationships:
+        rel.row += offset
+        into.relationships.append(rel)
+    for key, value in part.drawing.items():
+        if isinstance(value, list):
+            into.drawing.setdefault(key, []).extend(value)
+        elif value and not into.drawing.get(key):
+            into.drawing[key] = value
+
+
+def _row_ref_moved(text: str, offset: int) -> str:
+    m = re.fullmatch(re.escape(ROW_REF) + r"(\d+)", text or "")
+    return f"{ROW_REF}{int(m.group(1)) + offset}" if m else text
 
 
 def _count(n: int, noun: str) -> str:
@@ -1404,7 +1484,11 @@ class HostedProposalProvider:
     def _loop(self, system: str, content: str, toolbox: ToolBox) -> dict[str, Any]:
         """The tool loop: read tools answered from the repository, a submitted change set and
         the questions asked kept. Returns {submitted, asked, text, error}."""
-        tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS] + [SUBMIT_TOOL, ASK_TOOL]
+        tools = [t for t in toolbox.specs() if t["name"] in READER_TOOLS]
+        if toolbox.reader is not None:
+            # what the enterprise's connected systems say about what the draft changes (initiative 26)
+            tools += toolbox.reader.specs()
+        tools += [SUBMIT_TOOL, ASK_TOOL]
         messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
         out: dict[str, Any] = {"submitted": None, "asked": [], "text": "", "error": ""}
         for _ in range(self.max_turns):
@@ -1542,12 +1626,19 @@ def redraft(before: ProposalResult, after: ProposalResult) -> ProposalResult:
     after.answers, after.asked = before.answers, before.asked
     after.reason, after.technical = before.reason, before.technical
     after.missing = after.missing or before.missing
+    after.drawing = before.drawing
     held = {_norm(el.name): el for el in before.elements}
     for el in after.elements:
         was = held.get(_norm(el.name))
         if was is None:
             continue
         el.confirmed_new = was.confirmed_new
+        # what a drawing said of the row, which the model's payload does not carry
+        el.drawn, el.drawn_label, el.rename_to = was.drawn, was.drawn_label, was.rename_to
+        el.type_candidates = el.type_candidates or was.type_candidates
+    drawn = {(_norm(r.source), _norm(r.target)) for r in before.relationships if r.drawn}
+    for rel in after.relationships:
+        rel.drawn = (_norm(rel.source), _norm(rel.target)) in drawn
         if was.referenced_from:
             el.referenced_from, el.reference_url, el.include = was.referenced_from, was.reference_url, False
     # a referenced part the redraft left out is still referenced
@@ -1650,6 +1741,10 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                 confirmed_new=bool(e.get("confirmed_new", False)),
                 referenced_from=str(e.get("referenced_from") or ""),
                 reference_url=str(e.get("reference_url") or ""),
+                drawn=str(e.get("drawn") or ""),
+                drawn_label=str(e.get("drawn_label") or ""),
+                rename_to=str(e.get("rename_to") or ""),
+                type_candidates=[str(t) for t in e.get("type_candidates") or []],
             )
         )
     for i, r in enumerate(payload.get("relationships") or [], start=1):
@@ -1663,6 +1758,7 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
                 note=str(r.get("note") or ""),
                 target_state=_state(str(r.get("target_state") or "")),
                 include=bool(r.get("include", True)),
+                drawn=bool(r.get("drawn", False)),
             )
         )
     result.missing = [str(m) for m in payload.get("missing") or [] if m]
@@ -1673,6 +1769,7 @@ def result_from_payload(payload: dict[str, Any], provider: str = "", model: str 
     result.asked = [dict(q) for q in payload.get("asked") or [] if isinstance(q, dict)]
     result.reason = str(payload.get("reason") or "")
     result.technical = bool(payload.get("technical", False))
+    result.drawing = dict(payload.get("drawing") or {})
     return result
 
 

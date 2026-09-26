@@ -70,6 +70,9 @@ class ViewEdge:
     rel_type_id: str = ""
     qualifier: str = ""
     target_state: str = "undecided"
+    # the stored relationship the edge draws; empty where there is none — a metamodel's
+    # relationship type, or a relationship a proposal would create
+    relationship_id: str = ""
 
 
 @dataclass
@@ -165,6 +168,7 @@ def view_from_ids(
                 rel_type_id=e.get("rel_type_id", "") or "",
                 qualifier=e.get("qualifier", "") or "",
                 target_state=e.get("target_state") or "undecided",
+                relationship_id=e.get("relationship_id", "") or "",
             )
         )
     if omitted:
@@ -212,6 +216,7 @@ def view_of_change(
                     rel_type_id=e.get("rel_type_id", "") or "",
                     qualifier=e.get("qualifier", "") or "",
                     target_state=e.get("target_state") or "undecided",
+                    relationship_id=e.get("relationship_id", "") or "",
                 )
             )
     if omitted:
@@ -241,6 +246,7 @@ def view_from_neighbourhood(
                 e.get("rel_type_id") or "",
                 e.get("qualifier") or "",
                 e.get("target_state") or "undecided",
+                e.get("relationship_id") or "",
             )
         )
     if sub.get("truncated"):

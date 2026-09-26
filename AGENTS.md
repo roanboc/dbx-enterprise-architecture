@@ -109,7 +109,7 @@ until the application has users and runs on Databricks. The enterprise content i
   CSV contract and per-tool column mappings (`tool-export`). `data/sample/` — a
   fictional institution's content so the demo works without real data.
 - `src/ea/` — `models` → `metamodel` → `backend` → `services` → `views`,
-  `importer`, `agent` → `ui`, plus `cli.py` and `capacity.py`. `backend/` is the store written
+  `importer`, `agent` → `ui`, plus `cli.py`, `capacity.py` and `tool_server.py`. `backend/` is the store written
   once on SQL (`sql_backend.py`) with two engines, DuckDB and Lakebase (the
   platform's Postgres, `lakebase_backend.py`), that add only how they connect,
   run a statement and land rows (decisions 0011 and 0013); the unit suite runs
@@ -128,7 +128,17 @@ until the application has users and runs on Databricks. The enterprise content i
   dive's pack (initiative 25) is drawn from what the deep dive kept: one layout per figure
   (`views/deep_dive_layout.py`) written both as a draw.io file and into a PDF composed with
   ReportLab (`views/deep_dive_pdf.py`, decision 0025), the analysis itself in
-  `agent/deep_dive.py` and the catalogue in `services/deep_dives.py`. A module imports only from layers to its
+  `agent/deep_dive.py` and the catalogue in `services/deep_dives.py`. **Every cell a draw.io
+  export draws is stamped** (`ea_origin`, the export's id, draw.io's `tags`; the file lists what it
+  drew), and so is every shape of the metamodel's draw.io library (`ea metamodel palette`), which
+  carries `ea_palette` and its exact `ea_type` and no `ea_id` (and not draw.io's tag, so hiding the application's cells never hides what a person dragged in). That stamp is a contract: add to it,
+  never rename it, or a kept drawing or a dragged shape stops being read. A drawing comes back through Propose (`agent/drawing.py`, decision 0026), never into
+  the store directly. **The Model Context Protocol, both ways** (initiative 26, decision 0027):
+  `tool_server.py` serves the assistant's read tools to other agents (`ea mcp`, the
+  `ea-tool-server` app), acting as the person who connected and writing nothing;
+  `agent/connected.py` reads the organisation's connected systems for an answer, as the person
+  asking, bounded, and cited as the system's — never counted as grounding and never written into
+  the model. A module imports only from layers to its
   left; SQL lives in `backend/` only; framework and institution names live in
   `packs/` and `connectors/` only.
 - **Organisations and metamodel versions.** The store holds more than one
@@ -203,7 +213,7 @@ make test-fast   # the unit tests alone, while iterating (every store test on bo
 make test-live   # the unit tests on a Lakebase instance, on demand (EA_LAKEBASE_INSTANCE, DATABRICKS_HOST and the SDK's credentials)
 make deploy      # the bundle's dev target: the Lakebase instance and the app, deployed, not started; then make deploy-run
 make gui         # the application test round in a browser, on demand; writes .testrun/<stamp>/report.md and key-screens.html
-uv run ea --help # the CLI: init, load-pack, export-pack, import, export, validate, stats, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …, metamodel …, org …, feed …, runs …, propose [--interactive], templates …; --branch, --as and --org on any command
+uv run ea --help # the CLI: init, load-pack, export-pack, import, export, validate, stats, find, get, set, neighbours, trace, impact, view, target, health, sql, summary, branch …, reviewers …, metamodel …, org …, feed …, runs …, propose [--interactive], templates …, systems …, mcp [--http]; --branch, --as and --org on any command
 ```
 
 The DuckDB file is single-writer: stop the app before running the CLI on the

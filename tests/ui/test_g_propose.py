@@ -28,14 +28,21 @@ Beyond the template the group hands the page every other source it accepts — a
 and a CSV dropped on the upload zone, a link it will not follow, and nothing at all, which is
 the case the page itself suggests when there is no document — and pastes three short documents
 whose only purpose is to be wrong in one way each, so that what the reader refuses is on the
-record beside what it accepts. The last scenario reads the template back on the branch the
+record beside what it accepts. G21 reads the template back on the branch the
 round applied to: the only proof that what the apply reported is what it wrote, and that main
 was left alone.
+
+The last source is a drawing (initiative 26, decision 0026). G24 downloads an element's view
+as draw.io, draws on it the way an architect does — a label edited, a shape taken out, one
+moved, a shape that says its type, a text box and a line — and hands the file back. Nothing is
+applied: the scenario reads what the drawing became and answers the questions only a drawing
+raises, which is as far as a browser adds anything to what the unit suite proves.
 """
 
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -1695,3 +1702,245 @@ def test_the_guide_states_the_boundary(ui, record):
     _analyse(ui, UNSETTLED, work_package=None)
     link = ui.page.locator("#pr-conv a[href='/guide#the-boundary']")
     ui.check("the conversation links to the boundary", link.count() == 1)
+
+
+# ------------------------------------------------------------------ a drawing handed back
+
+FOCUS = "PAC-CMS"  # the element whose view is exported, drawn on and handed back
+RELABEL = "G-Drawn Curriculum Hub"  # typed over one of the application's shapes
+DRAWN_NAME = "G-Drawn Approval Record"  # a shape the architect adds, saying its own type
+DRAWN_TYPE = "Data Entity"
+NOTE = "G: ask the board about timing"  # a text box: a note until the architect says otherwise
+ORIGIN = "ea-repository"  # the stamp on everything the application draws
+
+
+def _export_view(ui, element_id: str = FOCUS) -> Path:
+    """An element's generated view, downloaded as draw.io from its Graph tab."""
+    ui.goto(f"/element/{element_id}")
+    ui.click("#el-tabs [role='tab']:has-text('Graph')")
+    ui.page.wait_for_timeout(200)
+    ui.wait_mermaid()
+    return ui.download("el-view-drawio", ".drawio")
+
+
+def _vertex(cells: ET.Element, cid: str, label: str, style: str, y: int) -> None:
+    """A shape drawn in draw.io itself: a bare cell, carrying none of the application's stamp."""
+    cell = ET.SubElement(cells, "mxCell", id=cid, value=label, style=style, vertex="1", parent="1")
+    ET.SubElement(cell, "mxGeometry", x="40", y=str(y), width="220", height="60", **{"as": "geometry"})
+
+
+def _draw_on(ui, exported: Path) -> tuple[str, dict[str, str]]:
+    """The exported view as an architect hands it back, and what they did to it.
+
+    The shapes are picked from the file rather than named here, so a round in which another
+    group has moved the neighbourhood still draws on what it downloaded: one shape joined to
+    the rest by a single line is taken out with its line, another is relabelled, a third moved.
+    """
+    root = ET.fromstring(exported.read_text(encoding="utf-8"))  # noqa: S314 — the application's own file
+    cells = root.find(".//mxGraphModel/root")
+    ui.must("the export holds a drawing", cells is not None)
+    stamp = next((o for o in cells.findall("object") if o.get("id") == "0"), None)
+    ui.must(
+        "the export is stamped as the application's, with what it drew",
+        stamp is not None and stamp.get("ea_origin") == ORIGIN and FOCUS in (stamp.get("ea_elements") or ""),
+        str(stamp.attrib if stamp is not None else "no root object"),
+    )
+    shapes = {o.get("ea_id"): o for o in cells.findall("object") if o.get("ea_id")}
+    lines = [o for o in cells.findall("object") if o.get("ea_src")]
+    degree = {i: sum(1 for ln in lines if i in (ln.get("ea_src"), ln.get("ea_dst"))) for i in shapes}
+    others = [i for i in shapes if i != FOCUS]
+    taken_out = next((i for i in others if degree[i] == 1), "")
+    relabelled = next((i for i in others if i != taken_out), "")
+    moved = next((i for i in others if i not in (taken_out, relabelled)), "")
+    ui.must(
+        "the view has a shape to take out, one to relabel and one to move",
+        FOCUS in shapes and all((taken_out, relabelled, moved)),
+        f"{len(shapes)} shapes: {sorted(shapes)[:8]}",
+    )
+    did = {
+        "taken_out": taken_out,
+        "relabelled": relabelled,
+        "relabelled_name": shapes[relabelled].get("ea_name", ""),
+        "moved": moved,
+    }
+    shapes[relabelled].set("label", RELABEL)
+    geometry = shapes[moved].find("mxCell/mxGeometry")
+    geometry.set("x", str(float(geometry.get("x") or 0) + 320))  # moved: nothing to ask
+    cells.remove(shapes[taken_out])
+    for line in [ln for ln in lines if taken_out in (ln.get("ea_src"), ln.get("ea_dst"))]:
+        cells.remove(line)  # draw.io takes a shape's lines with it
+    _vertex(cells, "g-drawn", f"«{DRAWN_TYPE}» {DRAWN_NAME}", "rounded=0;whiteSpace=wrap;html=1;", 900)
+    _vertex(cells, "g-note", NOTE, "text;html=1;strokeColor=none;fillColor=none;", 980)
+    line = ET.SubElement(
+        cells, "mxCell", id="g-line", value="", style="endArrow=open;", edge="1", parent="1",
+        source="g-drawn", target=FOCUS,
+    )  # fmt: skip
+    ET.SubElement(line, "mxGeometry", relative="1", **{"as": "geometry"})
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode"), did
+
+
+def _pick(ui, question: str, choice: str) -> None:
+    """Answer a question by one of its radios.
+
+    `_answer` finds the choice by label, and a drawing's questions carry their own choices'
+    words ("…or only the picture?"), which the radio group is named by too; asking for a radio
+    by name finds the one choice and nothing else.
+    """
+    card = _question(ui, question)
+    card.get_by_role("radio", name=choice).check()
+    ui.settle()
+    card.get_by_role("button", name="Answer").click()
+    ui.settle()
+
+
+def _rows(ui, grid_id: str, *cols: str) -> list[dict[str, str]]:
+    """Every row of a draft's grid, read by the row's own id."""
+    return [{c: ui.grid_cell_of(grid_id, rid, c) for c in cols} for rid in ui.grid_row_ids(grid_id)]
+
+
+@pytest.mark.scenario(
+    scenario_id="G24",
+    group="G",
+    title="A view exported as draw.io, drawn on and handed back, is read by its stamp and asked about",
+    feature="Propose · sources · a drawing",
+    expected=(
+        "The element view's draw.io file, dropped on the upload zone after an architect drew on it, is "
+        "listed and analysed with no model: the relabelled shape is a row linked to its element under the "
+        "model's name, the shape that says «Data Entity» is a new Data Entity nobody is asked the type of, "
+        "the line drawn is a new relationship, and a shape only moved is no row at all. The conversation "
+        "asks whether the label is a rename and whether the text box is a note; once the context is "
+        "settled it asks whether the shape taken out leaves the model or only the picture; each answer is "
+        "said back, and nothing is applied."
+    ),
+)
+def test_a_drawing_handed_back(ui, record, finding):
+    exported = _export_view(ui)
+    ui.check(
+        "the view downloads as the element's draw.io file",
+        exported.name == f"{FOCUS}-view.drawio",
+        exported.name,
+    )
+    text, did = _draw_on(ui, exported)
+    path = _write(ui, "g-drawing.drawio", text)
+
+    _open(ui)
+    ui.select("pr-wp", WP_LABEL)
+    ui.check(
+        "the upload zone says it takes a draw.io drawing",
+        "or a draw.io drawing" in ui.text("pr-upload"),
+        ui.text("pr-upload"),
+    )
+    _upload(ui, path)
+    ui.check("the drawing is listed by name", path.name in ui.text("pr-files"), ui.text("pr-files"))
+    _press_analyse(ui)
+    ui.must("the drawing was read into a draft", ui.grid_row_count("pr-el-grid") > 0, _head_alert(ui))
+
+    rows = _rows(ui, "pr-el-grid", "action", "type", "name", "existing_id")
+    by_id = {r["existing_id"]: r for r in rows if r["existing_id"]}
+    by_name = {r["name"]: r for r in rows}
+    relabelled = by_id.get(did["relabelled"], {})
+    ui.check(
+        "the relabelled shape is its element, linked, under the model's name rather than the label",
+        relabelled.get("action") == "link" and relabelled.get("name") == did["relabelled_name"],
+        str(relabelled or rows),
+    )
+    drawn = by_name.get(DRAWN_NAME, {})
+    ui.check(
+        "the shape that says its type is a new element of that type",
+        drawn.get("action") == "new" and drawn.get("type") == DRAWN_TYPE,
+        str(drawn or rows),
+    )
+    ui.check("the text box is a row, waiting to be told what it is", NOTE in by_name, str(rows))
+    ui.check(
+        "a shape left alone or only moved is no row",
+        FOCUS not in by_id and did["moved"] not in by_id,
+        str(sorted(by_id)),
+    )
+    ui.check(
+        "a shape taken out is no row either: it is asked about instead",
+        did["taken_out"] not in by_id,
+        str(sorted(by_id)),
+    )
+    rels = _rows(ui, "pr-rel-grid", "source", "target")
+    ui.check(
+        "the line drawn is a new relationship from the shape it leaves",
+        len(rels) == 1 and rels[0]["source"] == DRAWN_NAME,
+        str(rels),
+    )
+
+    conv = ui.text("pr-conv")
+    ui.check(
+        "the conversation asks whether the label is a rename",
+        f"[{did['relabelled']}] is labelled '{RELABEL}' in the drawing" in conv,
+        conv[:500],
+    )
+    ui.check(
+        "and whether the text box is a note",
+        f"The drawing has a text box, '{NOTE}'. Is it a note, or an element of the model?" in conv,
+        conv[:500],
+    )
+    ui.check(
+        "the type the shape said is taken, not asked",
+        f"What type is {DRAWN_NAME}?" not in conv,
+        conv[:500],
+    )
+    ui.check(
+        "what the drawing leaves about the application rows waits for the context",
+        "wait until the context is settled" in conv,
+        conv[-300:],
+    )
+    ui.shot(
+        "A drawing handed back: the relabelled shape linked, the shape that said its type new, the "
+        "line a relationship, and the conversation asking about the label and the text box"
+    )
+    if f"{NOTE} is new and connected to nothing" in conv:
+        finding.append(
+            Finding(
+                finding_id="G-5",
+                where="src/ea/agent/questions.py · the questions a drawing's text box raises",
+                severity="usability",
+                summary="A text box the architect has not yet said is an element is asked what it serves, beside the question whether it is a note at all.",
+                detail=(
+                    f"A drawing with a text box reading '{NOTE}' is analysed. The conversation asks "
+                    f"'The drawing has a text box, …. Is it a note, or an element of the model?' and, among "
+                    f"the same first questions, '{NOTE} is new and connected to nothing that exists. What "
+                    "does it serve or use?' — a question only an element can answer, put before anyone has "
+                    "said it is one. The pushback lists the same row as missing a type and a description. "
+                    "The row questions already wait for a text box (`_row_question` skips a note); the "
+                    "isolated check and the row issues do not, so a note costs the architect three "
+                    "questions instead of one."
+                ),
+            )
+        )
+
+    _pick(ui, "in the drawing. Is it renamed", "Only the drawing's label")
+    conv = ui.text("pr-conv")
+    ui.check(
+        "an edited label is kept out of the model when that is the answer, and said back",
+        f"Only the drawing's label changes; {did['relabelled_name']} keeps its name." in conv,
+        conv[-400:],
+    )
+    _pick(ui, "The drawing has a text box", "A note — leave it out")
+    conv = ui.text("pr-conv")
+    ui.check(
+        "the text box is left out as a note", f"'{NOTE}' is a note, not an element." in conv, conv[-400:]
+    )
+    _pick(ui, "Which part of the business", "None: a purely technical change")
+    conv = ui.text("pr-conv")
+    taken = (
+        f"[{did['taken_out']}] was taken out of the drawing. Does it leave the model, or only the picture?"
+    )
+    ui.must("with the context settled, the shape taken out is asked about", taken in conv, conv[-600:])
+    _pick(ui, "was taken out of the drawing", "Only the picture")
+    conv = ui.text("pr-conv")
+    ui.check(
+        "a shape taken out of the picture stays in the model",
+        "It stays in the model; it is only out of this picture." in conv,
+        conv[-400:],
+    )
+    ui.check(
+        "and nothing is applied: what the new shape is and what its line means are still open",
+        _blocked(ui),
+        _pushback(ui)[:300],
+    )
+    ui.shot("The drawing's own questions answered, and the draft still waiting on the new shape")

@@ -53,12 +53,13 @@ validate:           ## archreator validators (relative links, element-ID referen
 
 check: lint test validate   ## everything CI runs
 
-deploy:             ## the bundle: the Lakebase instance and the app, deployed and not yet started (TARGET=dev)
+deploy:             ## the bundle: the Lakebase instance, the app and the tool server, deployed and not yet started (TARGET=dev)
 	databricks bundle validate -t $(or $(TARGET),dev)
 	databricks bundle deploy -t $(or $(TARGET),dev)
 
-deploy-run:         ## start (or restart) the deployed app
+deploy-run:         ## start (or restart) the deployed app and its tool server
 	databricks bundle run ea_repository -t $(or $(TARGET),dev)
+	databricks bundle run ea_tool_server -t $(or $(TARGET),dev)
 
 clean:
 	rm -f data/ea.duckdb data/ea.duckdb.wal

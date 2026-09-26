@@ -51,3 +51,26 @@ def test_the_bundle_runs_the_app_on_its_own_lakebase_instance_with_the_extra_ins
         "what the platform injects or the engine looks up is never set by the bundle"
     )
     assert bundle["targets"]["dev"]["default"] is True and "prod" in bundle["targets"]
+
+
+def test_the_tool_server_is_an_app_of_its_own_on_the_same_store():
+    """Initiative 26: the read tools served over MCP, beside the web application, never inside it."""
+    bundle = yaml.safe_load(Path(ROOT / "databricks.yml").read_text())
+    apps = bundle["resources"]["apps"]
+    web, tools = apps["ea_repository"], apps["ea_tool_server"]
+    assert tools["config"]["command"][-3:] == ["ea", "mcp", "--http"]
+    assert tools["resources"][0]["database"] == web["resources"][0]["database"]
+    env = {e["name"]: e["value"] for e in tools["config"]["env"]}
+    web_env = {e["name"]: e["value"] for e in web["config"]["env"]}
+    for name in (
+        "EA_BACKEND",
+        "EA_LAKEBASE_INSTANCE",
+        "PGDATABASE",
+        "EA_SCHEMA",
+        "EA_AUTH",
+        "EA_ROLE_GROUPS",
+    ):
+        assert env[name] == web_env[name], name
+    # it answers with the model's own tools, never a model: no serving endpoint is granted
+    assert not any("serving_endpoint" in r for r in tools["resources"])
+    assert "EA_AGENT_ENDPOINT" not in env

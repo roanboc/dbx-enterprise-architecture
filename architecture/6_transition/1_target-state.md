@@ -14,8 +14,10 @@ opened and closed by
 opened and closed by [initiative 22](../scope/22_proposal-templates-revisions-and-impact.md); `GAP24`
 and `GAP26` opened and closed by [initiative 24](../scope/24_proposals-refined-in-conversation.md), and
 `GAP25` opened by it and closed with `PLAT2`'s run on a workspace; `GAP27` and `GAP28` opened by
-[initiative 25](../scope/25_deep-dives-settled-in-conversation.md), which closed the first. The
-gaps beyond `PLAT1` are intent, not work.
+[initiative 25](../scope/25_deep-dives-settled-in-conversation.md), which closed the first; `GAP7` and
+`GAP28` restated, `GAP29` opened, and all three closed by
+[initiative 26](../scope/26_drawings-returned-and-the-model-connected.md), `GAP7`'s platform
+half with `PLAT2`'s run on a workspace. The gaps beyond `PLAT1` are intent, not work.
 
 ## How to read this document
 
@@ -87,7 +89,8 @@ flowchart LR
   g25["⊘ The assistant's model is reached outside the platform [GAP25]"]:::implementation
   g26["⊘ Nothing says, or keeps to, what belongs at the enterprise level [GAP26]"]:::implementation
   g27["⊘ An analysis is answered in one pass, and nothing learnt is kept [GAP27]"]:::implementation
-  g28["⊘ The documentation an element links to is not read [GAP28]"]:::implementation
+  g28["⊘ What the enterprise's other systems say is not read [GAP28]"]:::implementation
+  g29["⊘ A drawing that comes back is read by nobody [GAP29]"]:::implementation
   p4["≡ Governed change [PLAT4]"]:::implementation
   g1 -.-> p2
   g2 -.-> p2
@@ -108,6 +111,7 @@ flowchart LR
   g26 -.-> p4
   g27 -.-> p1
   g28 -.-> p3
+  g29 -.-> p4
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```
@@ -120,7 +124,7 @@ flowchart LR
 | `GAP4` | **No source feeds** — the current EA tool's export is the source of everything; nothing distinguishes a mirrored fact from an authored one yet | `PLAT1` and `PLAT3` | **Narrowed, not closed,** by initiative 18 (built 2026-09-21): a source leaves rows in a staging schema of the store's own database and a configured feed loads them through the same validation, report, branch and role rules an uploaded file gets, with a deletion indicator, a readable schedule and the history of every run. Two things keep it open — **nothing in the application fires a schedule** (a trigger outside it honours the stored expression), and the per-type source-of-record semantics still wait on the table agreed with the enterprise architecture team |
 | `GAP5` | **No change-set model** — edits are immediate, with optimistic concurrency and a change log but no proposal, review or approval | `PLAT1` and `PLAT4` | Core closed by initiative 4 (built 2026-09-06): branches as overlays, diff with base versions, merge item by item with conflicts resolved; the review and approval flow by a second person follows once roles are enforced |
 | `GAP6` | **No projection, glossary or Genie-based agent** — the graph is generic tables only | `PLAT2` and `PLAT5` | Initiative 6: generated typed views with comments and keys, glossary publishing to Unity Catalog, Genie-based agents |
-| `GAP7` | **No tool server for external agents** — the agent's tools are in-process, so the only agent that can reach the model is the one inside the application. An agent on the platform, or any other, has nothing to connect to (assessment `ASM11`) | `PLAT2` and `PLAT5` | A tool server exposing the existing tools over the Model Context Protocol, under the same roles and the same citation rule the in-process agent obeys (`P3`, `P6`) |
+| `GAP7` | **No tool server for external agents** — the agent's tools are in-process, so the only agent that can reach the model is the one inside the application. An agent on the platform, an architect's own agent in their editor, or any other, has nothing to connect to (assessment `ASM11`) | `PLAT1` and `PLAT5` | A tool server exposing the existing read tools over the Model Context Protocol, under the same organisation, branch and role scoping and the same identifiers the in-process agent cites (`P3`, `P6`). **Closed in code by [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md)** (built 2026-09-26), restated from step 5 to a step of its own (1o) because it needs neither the projection nor real content: `ea mcp` over stdio on a laptop, and `ea mcp --http` as the `ea-tool-server` app, whose run on a workspace waits with `PLAT2` (decision 0027) |
 | `GAP8` | **No retirement criteria for the current EA tool** — nobody has written down what must be true before the current tool goes | `PLAT5` and `PLAT6` | Agreed with the enterprise architecture team before initiative 7 |
 | `GAP9` | **Views are graph layouts, not architecture diagrams** — neighbourhood, impact and agent answers show force-directed graphs; an answer has no picture | `PLAT1` as delivered by initiative 1 and `PLAT1` as extended | Initiative 2 (built 2026-09-05): a view model rendered to Mermaid in the archreator notation on the Element and Impact pages, answers composed into documents with views |
 | `GAP10` | **No reusable diagram export** — an architect who wants to start a solution diagram from the model has nothing to open in a diagram tool | `PLAT1` and `PLAT1` as extended | Initiative 2 (built 2026-09-05): the same view exported as a draft draw.io file with ArchiMate stencils and an element identifier on every shape |
@@ -141,7 +145,8 @@ flowchart LR
 | `GAP25` | **The assistant's model is reached outside the platform** — the only hosted reader calls a model provider directly with a key stored as an app secret, so on Databricks the assistant needs outbound access and a credential the platform does not govern | `PLAT1` and `PLAT2` | In flight — [initiative 24](../scope/24_proposals-refined-in-conversation.md) (built 2026-09-24): the assistant reads through a Databricks Model Serving endpoint as the app's own identity, for Ask and Propose alike (decision 0023), and the bundle grants the app the endpoint; locally the same endpoint is reached with the architect's Databricks credentials, and the direct provider and the model-free reader remain. Proven against a stand-in endpoint; **the run on a workspace waits with `PLAT2`** |
 | `GAP26` | **Nothing says, or keeps to, what belongs at the enterprise level** — principle `P9` says an element earns its place by its relationships, upward to the business it serves and outward beyond its own system, but nothing in the product tests it: a proposal can bring a system's internal parts in as elements, a technical element can arrive with no business reason, and nowhere in the application tells an enterprise or a solution architect where the line is | `PLAT1` and `PLAT4` | [Initiative 24](../scope/24_proposals-refined-in-conversation.md) (built 2026-09-24): the assistant asks about both tests and offers to link a system's inside from the system; each element type says whether it sits at the enterprise level; a Guide page states the boundary for each persona. Left open: finding what already crosses the line in the content held today |
 | `GAP27` | **An analysis is answered in one pass, and nothing learnt is kept** — Ask answers one question at a time with one view, and the answer document is not stored. An architect who needs an analysis asks several questions, assembles the result and draws its diagrams again by hand; nothing says how far the elements it rests on can be trusted; and the next architect who needs the same analysis starts from a blank page | `PLAT1` | Closed by [initiative 25](../scope/25_deep-dives-settled-in-conversation.md) (built 2026-09-25): a deep dive settled with the reader in conversation, weighing the maturity of what it rests on and where an element and what documents it disagree; handed out as a styled PDF with its draw.io diagrams; catalogued, kept, linked from every element it cites, rated by the people who read it, and weighed by the next deep dive on the same elements |
-| `GAP28` | **The documentation an element links to is not read** — an element carries links to the pages that describe it — a wiki's design pages, a solution's own documentation — and neither the assistant nor a deep dive reads them, so what they add to the model is missed, and where they disagree with it nobody is told | `PLAT1` and `PLAT3` | A deep dive that reads the pages its key elements link to, reached as the reader on the platform — as a source is under `GAP20` — cites them among its references, and reports where they disagree with the model. Not started |
+| `GAP28` | **What the enterprise's other systems say is not read** — an element carries links to the pages that describe it — a wiki's design pages, a solution's own documentation, its code — and the systems that master its facts (the CMDB, the project portfolio tool) hold what is true of it today; neither the assistant nor a deep dive reads any of them, so what they add to the model is missed, and where they disagree with it nobody is told. Restated by initiative 26 from the linked pages alone, because a page and a system's record are read the same way | `PLAT1` and `PLAT3` | The assistant reading an organisation's **connected systems** over the Model Context Protocol, read-only and as the reader — the pages an element links to where a connected system answers for their address, and what a system says about the elements it masters — citing them as the system's, never as the model's, and reporting where they disagree; a disagreement becomes a proposal only through an architect. **Closed for systems reached over the protocol by [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md)** (built 2026-09-26): connected systems per organisation, read by Ask, deep dives and Propose's hosted reader. A page on no connected system is still listed, not read; loading what a system says into the model stays `GAP20` |
+| `GAP29` | **A drawing that comes back is read by nobody** — architects keep the draw.io files the application exports and draw on them, and nothing reads one back: what a person added, renamed or took out is retyped by hand as a proposal, or lost (decision [0005](../decisions/0005-generated-views.md) made the export one-way) | `PLAT1` and `PLAT4` | A drawing handed in on Propose like a page: what the application drew known by its stamp, what a person added typed from its shape or asked about, nothing deleted unless the architect says so, and every row applied only when ticked (`P3`, `P8`; decision [0026](../decisions/0026-a-drawing-comes-back-as-a-proposal.md), proposed). **Closed by [initiative 26](../scope/26_drawings-returned-and-the-model-connected.md)** (built 2026-09-26): the stamp, with the export's manifest, and the drawing read on Propose |
 
 ## Gaps closed so far, and by what
 
@@ -167,6 +172,11 @@ flowchart LR
   g24["⊘ The assistant cannot ask [GAP24]"]:::implementation
   g26["⊘ Nothing says, or keeps to, what belongs at the enterprise level [GAP26]"]:::implementation
   g27["⊘ An analysis is answered in one pass, and nothing learnt is kept [GAP27]"]:::implementation
+  g7["⊘ No tool server for external agents [GAP7]"]:::implementation
+  g28["⊘ What the enterprise's other systems say is not read [GAP28]"]:::implementation
+  g29["⊘ A drawing that comes back is read by nobody [GAP29]"]:::implementation
+  p5["≡ Semantic front doors [PLAT5]"]:::implementation
+  p3["≡ Real content with provenance [PLAT3]"]:::implementation
   g9 -->|closed, initiative 2| p1
   g11 -->|closed, initiative 3| p1
   g12 -->|closed, initiative 4| p4
@@ -184,6 +194,9 @@ flowchart LR
   g24 -->|closed, initiative 24| p4
   g26 -->|closed, initiative 24| p4
   g27 -->|closed, initiative 25| p1
+  g7 -->|closed in code, initiative 26| p5
+  g28 -->|closed for connected systems, initiative 26| p3
+  g29 -->|closed, initiative 26| p4
 
   classDef implementation fill:#f8d7da,stroke:#c0392b,color:#333
 ```

@@ -50,6 +50,8 @@ class AgentResult:
     model: str = ""
     ungrounded_ids: list[str] = field(default_factory=list)
     error: str = ""
+    # what the answer read from the enterprise's connected systems, cited as theirs (initiative 26)
+    read_from: list[dict[str, Any]] = field(default_factory=list)
 
 
 class StubProvider:
@@ -212,7 +214,7 @@ class HostedProvider:
         messages: list[dict[str, Any]] = list(history) + [{"role": "user", "content": question}]
         calls: list[ToolCall] = []
         system = SYSTEM_PROMPT + toolbox.registry.summary_markdown()
-        tools = toolbox.specs()
+        tools = toolbox.all_specs()
         reply = None
         for _ in range(self.max_turns):
             try:
@@ -251,9 +253,10 @@ class Agent:
         return HostedProvider(model) if model is not None else StubProvider()
 
     def ask(self, question: str) -> AgentResult:
-        self.toolbox.seen_ids.clear()
-        self.toolbox.requested_views.clear()
+        self.toolbox.begin()
         result = self.provider.answer(question, self.toolbox, self.history)
+        if self.toolbox.reader is not None:
+            result.read_from = list(self.toolbox.reader.read)
         cited = set(ID_RE.findall(result.answer))
         known_now = {i for i in cited if self.toolbox.backend.get_element(i) is not None}
         result.ungrounded_ids = sorted(

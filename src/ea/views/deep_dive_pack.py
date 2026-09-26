@@ -4,8 +4,9 @@ The draw.io files are written from the same layout the PDF draws (`deep_dive_lay
 in the order the deep dive reads — level first — so the folder reads top-down as the PDF does
 on paper. Every shape that stands for an element is an `object` carrying its identifier and a
 link to its page, as every draw.io export here does; the architecture shapes are the ArchiMate
-stencils the view export uses, the presentation shapes carry the icon the PDF draws. Nothing is
-written in Markdown.
+stencils the view export uses, the presentation shapes carry the icon the PDF draws. Every cell
+carries the export's stamp, as the view export's do (`drawio.document`). Nothing is written in
+Markdown.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import html
 import io
 import xml.etree.ElementTree as ET
 import zipfile
-from datetime import UTC, datetime
 
 from ea.models import DeepDive
 from ea.views.deep_dive_layout import (
@@ -27,7 +27,7 @@ from ea.views.deep_dive_layout import (
     pack_filename,
 )
 from ea.views.deep_dive_pdf import deep_dive_pdf
-from ea.views.drawio import _label, _object, node_style
+from ea.views.drawio import _label, _object, document, node_style, stamped
 from ea.views.icons import icon_data_uri
 from ea.views.model import ViewNode
 
@@ -76,55 +76,35 @@ def _html(s: Shape) -> str:
 
 def layout_to_drawio(lay: Layout, base_url: str = "") -> str:
     """One layout as an uncompressed `.drawio` file, shape for shape."""
-    mxfile = ET.Element(
-        "mxfile",
-        host="ea-repository",
-        modified=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        agent="ea-repository deep dive",
-        version="1",
+    mxfile, root, export_id = document(
+        lay.title,
+        "ea-repository deep dive",
+        round(lay.width),
+        round(lay.height),
+        diagram_id="figure",
+        elements=[s.element_id for s in lay.shapes if s.element_id],
+        relationships=[line.relationship_id for line in lay.lines],
     )
-    diagram = ET.SubElement(mxfile, "diagram", id="figure", name=lay.title[:80])
-    model = ET.SubElement(
-        diagram,
-        "mxGraphModel",
-        dx="0",
-        dy="0",
-        grid="1",
-        gridSize="10",
-        guides="1",
-        tooltips="1",
-        connect="1",
-        arrows="1",
-        fold="1",
-        page="1",
-        pageScale="1",
-        pageWidth=str(round(lay.width)),
-        pageHeight=str(round(lay.height)),
-    )
-    root = ET.SubElement(model, "root")
-    ET.SubElement(root, "mxCell", id="0")
-    ET.SubElement(root, "mxCell", id="1", parent="0")
     by_sid = {s.sid: s for s in lay.shapes}
     for s in lay.shapes:
         parent = s.parent if s.parent in by_sid else "1"
         ox, oy = (by_sid[parent].x, by_sid[parent].y) if parent != "1" else (0.0, 0.0)
         if s.element_id and s.style == "architecture" and s.node:
             node = ViewNode(**s.node)
-            obj = _object(root, node, base_url, s.marked)
+            obj = _object(root, node, base_url, export_id, s.marked)
             obj.set(
                 "label",
                 f'{_label(node, s.marked)}<br><span style="font-size:8px">{html.escape(s.sub)}</span>',
             )
             cell = ET.SubElement(obj, "mxCell", style=node_style(node, s.marked), vertex="1", parent=parent)
         elif s.element_id:
-            obj = ET.SubElement(root, "object", label=_html(s), ea_id=s.element_id, id=s.sid)
+            obj = stamped(root, s.sid, export_id, _html(s), ea_id=s.element_id, ea_name=s.text)
             if base_url:
                 obj.set("link", f"{base_url}/element/{s.element_id}")
             cell = ET.SubElement(obj, "mxCell", style=_style(s), vertex="1", parent=parent)
         else:
-            cell = ET.SubElement(
-                root, "mxCell", id=s.sid, value=_html(s), style=_style(s), vertex="1", parent=parent
-            )
+            obj = stamped(root, s.sid, export_id, _html(s))
+            cell = ET.SubElement(obj, "mxCell", style=_style(s), vertex="1", parent=parent)
         ET.SubElement(
             cell,
             "mxGeometry",
@@ -137,10 +117,8 @@ def layout_to_drawio(lay: Layout, base_url: str = "") -> str:
         if s.icon and s.style == "presentation":
             size = min(ICON_SIZE, s.h - 8)
             icon = ET.SubElement(
-                root,
+                stamped(root, f"{s.sid}__icon", export_id),
                 "mxCell",
-                id=f"{s.sid}__icon",
-                value="",
                 style=f"shape=image;html=1;imageAspect=1;aspect=fixed;image={icon_data_uri(s.icon, s.icon_colour)};",
                 vertex="1",
                 parent=s.sid,
@@ -163,16 +141,10 @@ def layout_to_drawio(lay: Layout, base_url: str = "") -> str:
         )
         if line.dashed:
             style += "dashed=1;"
+        data = {"ea_rel_id": line.relationship_id} if line.relationship_id else {}
+        obj = stamped(root, line.lid, export_id, line.label, **data)
         cell = ET.SubElement(
-            root,
-            "mxCell",
-            id=line.lid,
-            value=line.label,
-            style=style,
-            edge="1",
-            parent="1",
-            source=line.src,
-            target=line.dst,
+            obj, "mxCell", style=style, edge="1", parent="1", source=line.src, target=line.dst
         )
         ET.SubElement(cell, "mxGeometry", relative="1", **{"as": "geometry"})
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")

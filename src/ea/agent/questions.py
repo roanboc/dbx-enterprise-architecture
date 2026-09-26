@@ -64,6 +64,8 @@ MAX_WALKS = 40
 
 #: Questions whose open state stops Apply. The rest inform.
 BLOCKING = (
+    "drawn_note",
+    "drawn_rename",
     "why",
     "business",
     "trace",
@@ -79,6 +81,8 @@ KIND_ORDER = (
     "why",
     "business",
     "work_package",
+    "drawn_note",
+    "drawn_rename",
     "type",
     "match",
     "trace",
@@ -87,6 +91,7 @@ KIND_ORDER = (
     "description",
     "dangling",
     "isolated",
+    "drawn_removed",
     "assistant",
 )
 
@@ -261,6 +266,9 @@ class QuestionRules:
                         free=True,
                     )
                 )
+        for q in self._drawn(result, rows):
+            if q.qid not in (result.answers or {}):
+                add(q)
         for d in (result.impact or {}).get("dangling") or []:
             add(self._dangling(d, rows))
         asked_trace = {q.qid.split(":", 1)[1] for q in questions if q.kind == "trace"}
@@ -403,9 +411,75 @@ class QuestionRules:
             free=True,
         )
 
+    def _drawn(self, result: ProposalResult, rows: list[ProposedElement]) -> list[Question]:
+        """What a drawing handed in says beyond its rows (initiative 26): a label a person edited
+        on the application's shape, a text box that may be a note, a shape or a line taken out."""
+        out = []
+        for el in rows:
+            if el.drawn == "note":
+                out.append(
+                    Question(
+                        qid=f"drawn_note:{el.row}",
+                        kind="drawn_note",
+                        layer="",
+                        about=f"element:{el.row}",
+                        text=f"The drawing has a text box, '{el.name}'. Is it a note, or an element of the model?",
+                        options=[Option("note", "A note — leave it out"), Option("element", "An element")],
+                    )
+                )
+            elif el.drawn == "renamed" and not el.rename_to:
+                out.append(
+                    Question(
+                        qid=f"drawn_rename:{el.existing_id}",
+                        kind="drawn_rename",
+                        layer=self.layer(el.type_id),
+                        about=f"element:{el.row}",
+                        text=(
+                            f"{el.name} [{el.existing_id}] is labelled '{el.drawn_label}' in the drawing. "
+                            "Is it renamed, or is only the drawing's label different?"
+                        ),
+                        options=[
+                            Option("rename", f"Rename it to {el.drawn_label}"),
+                            Option("label", "Only the drawing's label"),
+                        ],
+                    )
+                )
+        drawing = result.drawing or {}
+        for gone in drawing.get("removed_elements") or []:
+            out.append(
+                Question(
+                    qid=f"drawn_removed:element:{gone['element_id']}",
+                    kind="drawn_removed",
+                    layer=self.layer(gone.get("type_id", "")),
+                    about=f"element:{gone['element_id']}",
+                    text=(
+                        f"{gone['name']} [{gone['element_id']}] was taken out of the drawing. "
+                        "Does it leave the model, or only the picture?"
+                    ),
+                    options=[Option("picture", "Only the picture"), Option("retire", "It is retired")],
+                    blocking=False,
+                )
+            )
+        for gone in drawing.get("removed_relationships") or []:
+            out.append(
+                Question(
+                    qid=f"drawn_removed:relationship:{gone['relationship_id']}",
+                    kind="drawn_removed",
+                    layer="",
+                    about=f"relationship:{gone['relationship_id']}",
+                    text=(
+                        f"The line {gone['src_name']} {gone['relationship']} {gone['dst_name']} was taken "
+                        "out of the drawing. Does the relationship end, or only leave the picture?"
+                    ),
+                    options=[Option("picture", "Only the picture"), Option("retire", "It ends")],
+                    blocking=False,
+                )
+            )
+        return out
+
     def _row_question(self, el: ProposedElement) -> Question | None:
         """A row's type or its match: what has to be settled before anything else about it."""
-        if el.referenced_from:
+        if el.referenced_from or el.drawn == "note":
             return None
         label = el.name or el.type_label or f"row {el.row}"
         if not el.type_id and el.action != "link":
@@ -416,7 +490,16 @@ class QuestionRules:
                 )
                 rank = {c: i for i, c in enumerate(close)}
                 names.sort(key=lambda t: rank.get(t["label"].lower(), 999))
-            said = f"{el.type_label!r} is not in the metamodel" if el.type_label else "the row names no type"
+            if el.type_candidates:
+                # the types a drawing's shape is drawn as come first
+                names.sort(key=lambda t: t["key"] not in el.type_candidates)
+            said = (
+                f"{el.type_label!r} is not in the metamodel"
+                if el.type_label
+                else "its shape in the drawing is drawn for several types"
+                if el.type_candidates
+                else "the row names no type"
+            )
             return Question(
                 qid=f"type:{norm(el.name) or el.row}",
                 kind="type",
@@ -577,7 +660,7 @@ class QuestionRules:
         )
 
     def _relationship(self, rel: ProposedRelationship, endpoints) -> Question | None:
-        if rel.rel_type_id or not rel.relationship or not (rel.src_ref and rel.dst_ref):
+        if rel.rel_type_id or not (rel.relationship or rel.drawn) or not (rel.src_ref and rel.dst_ref):
             return None
         src_t = endpoints.get(rel.src_ref, ("", ""))[0]
         dst_t = endpoints.get(rel.dst_ref, ("", ""))[0]
@@ -599,6 +682,9 @@ class QuestionRules:
             text=(
                 f"{rel.source} {rel.relationship} {rel.target}: the metamodel has no {rel.relationship!r} "
                 f"from {self._type_name(src_t)} to {self._type_name(dst_t)}. Which relationship is it?"
+                if rel.relationship
+                else f"A line is drawn from {endpoints[rel.src_ref][1]} to {endpoints[rel.dst_ref][1]}. "
+                "Which relationship is it?"
             ),
             options=options,
         )
@@ -910,6 +996,49 @@ class QuestionRules:
                 return f"{d.get('retiring_name') or d['retiring']} is kept."
             if key == "leave":
                 return "Left for now."
+        if q.kind == "drawn_note":
+            el = self._row(result, q.about)
+            if el is None:
+                raise AnswerError("that row is no longer in the draft")
+            if key == "note":
+                self._drop_row(result, el)
+                return f"'{el.name}' is a note, not an element."
+            el.drawn = "shape"
+            return f"{el.name} is an element."
+        if q.kind == "drawn_rename":
+            el = self._row(result, q.about)
+            if el is None:
+                raise AnswerError("that row is no longer in the draft")
+            if key == "rename":
+                el.rename_to = el.drawn_label
+                return f"{el.name} [{el.existing_id}] is renamed {el.drawn_label}."
+            return f"Only the drawing's label changes; {el.name} keeps its name."
+        if q.kind == "drawn_removed":
+            what, _, ident = q.about.partition(":")
+            drawing = result.drawing or {}
+            if key == "picture":
+                return "It stays in the model; it is only out of this picture."
+            if what == "element":
+                el = self._add_existing(result, ident)
+                el.target_state = "decommission"
+                return f"{el.name} [{ident}] is retired."
+            gone = next(
+                (g for g in drawing.get("removed_relationships") or [] if g["relationship_id"] == ident), None
+            )
+            if gone is None:
+                raise AnswerError("that line is no longer in the draft")
+            from ea.agent.proposal import ProposedRelationship
+
+            result.relationships.append(
+                ProposedRelationship(
+                    row=self._next_row(result.relationships),
+                    source=gone["src"],
+                    relationship=gone["relationship"],
+                    target=gone["dst"],
+                    target_state="decommission",
+                )
+            )
+            return f"{gone['src_name']} {gone['relationship']} {gone['dst_name']} ends."
         if q.kind == "assistant":
             return text or next((o.label for o in q.options if o.key == key), key)
         raise AnswerError(f"{key!r} cannot be applied to a {q.kind} question")

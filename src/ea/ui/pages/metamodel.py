@@ -55,7 +55,7 @@ from ea.ui.components import (
 )
 from ea.ui.context import AppContext, get_context
 from ea.views import view_from_metamodel
-from ea.views.drawio import STENCIL, to_drawio
+from ea.views.drawio import STENCIL, palette_library, to_drawio
 from ea.views.mermaid import SHAPES, to_markdown, to_mermaid
 from ea.views.model import LAYER_ORDER, View, ViewNode, layer_rank
 
@@ -992,10 +992,32 @@ def _view_panel(reg: Registry) -> Any:
                 ids.MM_VIEW_DRAWIO,
                 "Every shape is an element type of the version shown; nothing here is drawn by hand.",
                 note_id=ids.MM_VIEW_NOTE,
+                extra=[
+                    dmc.Button(
+                        "Shape library (draw.io)",
+                        id=ids.MM_PALETTE,
+                        size="xs",
+                        variant="light",
+                        leftSection=icon("tabler:palette", 14),
+                    )
+                ],
+            ),
+            dmc.Text(
+                "The shape library is this version's types to draw with: open it in draw.io with "
+                "File › Open Library, and every shape dragged from it is read back on Propose as "
+                "an element of exactly its type.",
+                size="xs",
+                c="dimmed",
             ),
         ],
         gap="sm",
     )
+
+
+def palette_download(reg: Registry) -> dict[str, Any]:
+    """The metamodel's shape library as the file the page hands over, named for the metamodel."""
+    stem = slugify(reg.pack.name) if reg.pack.name else reg.pack.id
+    return dcc.send_string(palette_library(reg), f"{stem}-shapes.xml")
 
 
 def _notation_panel(ctx: AppContext, reg: Registry) -> Any:
@@ -1748,6 +1770,17 @@ def register(app: dash.Dash) -> None:
         if trigger == ids.MM_VIEW_MD:
             return dcc.send_string(to_markdown(view, legend=True), f"{stem}.md")
         return dcc.send_string(to_drawio(view, positions=positions or None), f"{stem}.drawio")
+
+    @app.callback(
+        Output(ids.DOWNLOAD, "data", allow_duplicate=True),
+        Input(ids.MM_PALETTE, "n_clicks"),
+        State(ids.MM_VERSION, "data"),
+        prevent_initial_call=True,
+    )
+    def download_palette(n, ref):
+        if not n:
+            return no_update
+        return palette_download(_shown(get_context(), ref))
 
     @app.callback(
         Output(ids.MM_TYPES_GRID, "rowTransaction"),

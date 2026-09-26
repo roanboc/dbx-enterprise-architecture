@@ -290,8 +290,12 @@ class DeepDiveAnalyst:
         model: ChatModel | None = None,
         now: datetime | None = None,
         dives: DeepDiveService | None = None,
+        connected: Any = None,
     ):
         self.backend, self.registry, self.model = backend, registry, model
+        # the organisation's connected systems, as the reader may read them (initiative 26): a
+        # `ConnectedReader`, through which the pages the subject links to are read
+        self.connected = connected
         self.graph = GraphService(backend, registry)
         self.target = TargetStateService(backend, registry)
         self.dives = dives or DeepDiveService(backend, registry)
@@ -567,10 +571,11 @@ class DeepDiveAnalyst:
         els, rels = self._read(area, steps)
         work = self._work(area, els, rels, steps)
         links = {i: self.backend.get_links(i) for i in area.scope}
+        pages = self._pages(area, links, steps)
         adjacency = self._adjacency(rels)
         traced, walks = self._traced(els, adjacency)
         maturity = {i: self._maturity(els[i], adjacency, links.get(i, []), traced.get(i)) for i in els}
-        inconsistencies = self._inconsistencies(area, els, rels, links)
+        inconsistencies = self._inconsistencies(area, els, rels, links, pages)
         findings = self._findings(brief, area, els, rels, adjacency, maturity, traced, inconsistencies, work)
         key = self._key(area, findings, adjacency)
         detail = self._detail(key, els, maturity, adjacency, traced, steps)
@@ -595,7 +600,7 @@ class DeepDiveAnalyst:
             "findings": findings,
             "inconsistencies": inconsistencies,
             "work_packages": work,
-            "references": self._references(brief, area, key),
+            "references": self._references(brief, area, key, pages),
             "key_ids": key,
             "read": {
                 "elements": len(area.scope),
@@ -940,12 +945,43 @@ class DeepDiveAnalyst:
         return level, why
 
     # ------------------------------------------------ inconsistencies
+    def _pages(
+        self, area: _Area, links: dict[str, list[Any]], steps: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """The pages the subject links to, read through the connected system that answers for
+        each address, as the reader (initiative 26). None when no system is connected."""
+        if self.connected is None:
+            return []
+        out = []
+        for i in area.subject or list(area.scope)[:3]:
+            for ln in links.get(i, []):
+                if self.connected.page_system(ln.url) is None:
+                    continue
+                said = self.connected.read_page(ln.url) or {}
+                if said.get("error") or said.get("failed"):
+                    steps.append(
+                        {"tool": "read a page", "detail": f"{ln.url}: {said.get('error') or 'refused'}"}
+                    )
+                    continue
+                out.append(
+                    {
+                        "element_id": i,
+                        "url": ln.url,
+                        "system": said.get("system", ""),
+                        "read_at": said.get("read_at", ""),
+                        "said": said.get("said", ""),
+                    }
+                )
+                steps.append({"tool": "read a page", "detail": f"{ln.url}, through {said.get('system', '')}"})
+        return out
+
     def _inconsistencies(
         self,
         area: _Area,
         els: dict[str, Element],
         rels: list[Relationship],
         links: dict[str, list[Any]],
+        pages: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Where an element and what the repository holds about it disagree, within what was read."""
         out: list[dict[str, Any]] = []
@@ -967,23 +1003,42 @@ class DeepDiveAnalyst:
             patterns.append(
                 (o, re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(pieces) + r")(?![A-Za-z0-9])", re.I))
             )
-        for i in scope:
-            text = els[i].description_md or ""
-            if not text:
-                continue
+
+        def mentions(text: str) -> set[str]:
             spans = [(m.start(), m.end(), o) for o, pattern in patterns for m in pattern.finditer(text)]
             # a name inside a longer name the text uses is that longer name's, not a mention of its own
-            mentioned = {
+            return {
                 o
                 for a, b, o in spans
                 if not any(x <= a and b <= y and (y - x) > (b - a) and p != o for x, y, p in spans)
             }
+
+        for i in scope:
+            text = els[i].description_md or ""
+            if not text:
+                continue
+            mentioned = mentions(text)
             for o in sorted(mentioned):
                 if o != i and frozenset((i, o)) not in joined:
                     add(
                         "names_unrelated",
                         i,
                         f"{els[i].name} [{i}] says it concerns {els[o].name} [{o}], and no relationship joins them.",
+                        o,
+                    )
+        # the page an element links to, read from a connected system, names an element nothing
+        # joins it to: the model and its source disagree (initiative 26)
+        for page in pages or []:
+            i = page["element_id"]
+            if i not in els:
+                continue
+            for o in sorted(mentions(page.get("said") or "")):
+                if o != i and frozenset((i, o)) not in joined:
+                    add(
+                        "source_disagrees",
+                        i,
+                        f"The page {els[i].name} [{i}] links to, read from {page['system']}, says it concerns "
+                        f"{els[o].name} [{o}], and no relationship joins them.",
                         o,
                     )
         # a state contradicts the relationships
@@ -1367,6 +1422,7 @@ class DeepDiveAnalyst:
                     "rel_type_id": r.rel_type_id,
                     "qualifier": r.qualifier or "",
                     "target_state": r.target_state or "undecided",
+                    "relationship_id": r.relationship_id,
                 }
             )
         return out
@@ -1632,6 +1688,7 @@ class DeepDiveAnalyst:
                     "rel_type_id": e.get("rel_type_id") or "",
                     "qualifier": e.get("qualifier") or "",
                     "target_state": e.get("target_state") or "undecided",
+                    "relationship_id": e.get("relationship_id") or "",
                 }
                 for e in sub["edges"]
             ]
@@ -1665,7 +1722,9 @@ class DeepDiveAnalyst:
         }
 
     # ---------------------------------------------------- the rest
-    def _references(self, brief: Brief, area: _Area, key: list[str]) -> dict[str, Any]:
+    def _references(
+        self, brief: Brief, area: _Area, key: list[str], pages: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
         ids = list(area.subject) or ([area.work_package] if area.work_package else [])
         earlier = self.dives.earlier(ids, 5) if ids else []
         if brief.from_deep_dive and all(d.deep_dive_id != brief.from_deep_dive for d in earlier):
@@ -1691,10 +1750,23 @@ class DeepDiveAnalyst:
             }
             for d in earlier
         ]
+        read = {(p["element_id"], p["url"]): p for p in pages or []}
         links = []
-        for k in key:
+        for k in dict.fromkeys([*key, *(p["element_id"] for p in pages or [])]):
             for ln in self.backend.get_links(k):
-                links.append({"element_id": k, "url": ln.url, "label": ln.label, "read": False})
+                page = read.get((k, ln.url))
+                links.append(
+                    {
+                        "element_id": k,
+                        "url": ln.url,
+                        "label": ln.label,
+                        "read": page is not None,
+                        # what the page's system said, cited as that system's (initiative 26)
+                        "system": page["system"] if page else "",
+                        "read_at": page["read_at"] if page else "",
+                        "said": (page["said"][:600] if page else ""),
+                    }
+                )
         return {"deep_dives": dives, "links": links}
 
     def _title(self, brief: Brief, area: _Area, els: dict[str, Element]) -> str:

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ea.agent import Agent
+from ea.agent.connected import ConnectedReader
 from ea.agent.deep_dive import DeepDiveAnalyst
 from ea.agent.llm import chat_model
 from ea.agent.proposal import ProposalService
@@ -41,7 +42,8 @@ from ea.services import (
     TemplateService,
 )
 from ea.services.branches import refusal_for_writing
-from ea.services.identity import WorkspaceGroups, forwarded_identity
+from ea.services.connected import ConnectedSystemService
+from ea.services.identity import WorkspaceGroups, current_token, forwarded_identity
 from ea.services.roles import LABELS, allowed, current_role, parse_role_groups, role_from_groups
 
 log = logging.getLogger(__name__)
@@ -83,6 +85,7 @@ class Bundle:
     templates: TemplateService
     impact: ChangeImpactService
     deep_dives: DeepDiveService
+    connected: ConnectedSystemService
     # One Ask agent per conversation, never one per organisation: what a follow-up needs
     # (the messages so far, the identifiers the tools returned) is one reader's own.
     agents: OrderedDict[str, Agent] = field(default_factory=OrderedDict)
@@ -103,6 +106,7 @@ class Bundle:
             templates=TemplateService(backend, registry),
             impact=ChangeImpactService(backend, registry),
             deep_dives=DeepDiveService(backend, registry),
+            connected=ConnectedSystemService(backend, registry),
         )
 
 
@@ -182,7 +186,7 @@ class AppContext:
             if agent is None:
                 if self._agent_provider is None:
                     self._agent_provider = Agent.make_provider(self.settings)
-                toolbox = ToolBox(self.backend, b.registry, b.repo, b.graph)
+                toolbox = ToolBox(self.backend, b.registry, b.repo, b.graph, self.connected_reader)
                 agent = b.agents[key] = Agent(toolbox, self.settings, self._agent_provider)
                 while len(b.agents) > CONVERSATIONS_KEPT:
                     b.agents.popitem(last=False)
@@ -216,6 +220,16 @@ class AppContext:
         return self._bundle().deep_dives
 
     @property
+    def connected(self) -> ConnectedSystemService:
+        return self._bundle().connected
+
+    def connected_reader(self) -> ConnectedReader | None:
+        """What one answer may read from the organisation's connected systems, as the person asking
+        (initiative 26): the systems their role may use, and their own token where one was forwarded."""
+        systems = self.connected.usable()
+        return ConnectedReader(systems, token=current_token()) if systems else None
+
+    @property
     def analyst(self) -> DeepDiveAnalyst:
         """Settles a deep dive's brief and analyses it, with the hosted model when one is configured.
 
@@ -231,7 +245,13 @@ class AppContext:
                     log.exception("no model for deep dives; the rules answer alone")
                     self._deep_model = None
                 self._deep_model_read = True
-        return DeepDiveAnalyst(self.backend, b.registry, model=self._deep_model, dives=b.deep_dives)
+        return DeepDiveAnalyst(
+            self.backend,
+            b.registry,
+            model=self._deep_model,
+            dives=b.deep_dives,
+            connected=self.connected_reader(),
+        )
 
     @property
     def proposals(self) -> ProposalService:
@@ -244,7 +264,7 @@ class AppContext:
                 b.branches,
                 b.target,
                 self.settings,
-                ToolBox(self.backend, b.registry, b.repo, b.graph),
+                ToolBox(self.backend, b.registry, b.repo, b.graph, self.connected_reader),
                 b.templates,
                 b.impact,
             )

@@ -55,7 +55,7 @@ flowchart TB
 | `NODE1.1` | **Python process** — one Python 3.11 process: Flask and Dash serve the pages and callbacks; gunicorn (one worker, four threads) in production mode, the Dash development server locally; the same process hosts the agent and the importer, and draws a deep dive's PDF with ReportLab, which installs from its wheel with nothing beside Python, so the platform draws it as a laptop does (decision 0025) | `app.py`, `src/ea/` | Running |
 | `NODE1.2` | **DuckDB engine** — the embedded analytical engine, in-process, one writer per file; recursive queries for the traversals | `src/ea/backend/duckdb_backend.py` | Running |
 | `NODE1.3` | **Browser** — where the pages render, the diagrams are drawn and the graph panel is laid out; nothing is fetched from the internet at run time (icons, Mermaid and Cytoscape are bundled) | `assets/` | Running |
-| `NODE2` | **Databricks workspace** — Databricks Apps hosting the same process, a Lakebase database instance holding the store — including the staging schema a source writes to, which is how content reaches the application without it reaching into the catalogue (decision 0020) — the signed-in user forwarded as headers and their groups read from the workspace's directory; an app is given 6 GB of memory by default, which is what an in-process graph is measured against (adopted — the platform's documented default, assessment `ASM6`) | `databricks.yml` deploys it; `src/ea/backend/lakebase_backend.py` is the store on it | **Pending — plateau `PLAT2`**: built by initiatives 13 and 14, Running once a workspace runs it (`make test-live`, `make deploy`) |
+| `NODE2` | **Databricks workspace** — Databricks Apps hosting the same process, a Lakebase database instance holding the store — including the staging schema a source writes to, which is how content reaches the application without it reaching into the catalogue (decision 0020) — the signed-in user forwarded as headers and their groups read from the workspace's directory; an app is given 6 GB of memory by default, which is what an in-process graph is measured against (adopted — the platform's documented default, assessment `ASM6`) A second app, `ea-tool-server`, serves the model's read tools over the Model Context Protocol on the same store (initiative 26, decision 0027) | `databricks.yml` deploys it; `src/ea/backend/lakebase_backend.py` is the store on it | **Pending — plateau `PLAT2`**: built by initiatives 13 and 14, Running once a workspace runs it (`make test-live`, `make deploy`) |
 
 ## Technology services
 
@@ -67,6 +67,9 @@ flowchart LR
   lake(["⬯ Lakebase SQL store [TSVC6]"]):::technology
   idp(["⬯ Workspace identity [TSVC5]"]):::technology
   serve(["⬯ Model serving [TSVC7]"]):::technology
+  mcp(["⬯ Protocol serving and reading [TSVC8]"]):::technology
+  ts["⊞ Tool server [ACMP16]"]:::application
+  conn["⊞ Connected-system reader [ACMP17]"]:::application
   ui["⊞ Web application [ACMP6]"]:::application
   agent["⊞ Agent [ACMP5]"]:::application
   reader["⊞ Proposal agent [ACMP10]"]:::application
@@ -89,6 +92,10 @@ flowchart LR
   engine -.->|uses, pending| lake
   roles -.->|uses, pending| idp
   ui -.->|hosted on, pending| dbx
+  ts -->|uses| mcp
+  conn -->|uses| mcp
+  dbx -.->|provides, pending| mcp
+  ts -.->|hosted on, pending| dbx
 
   classDef technology fill:#c9e7b7,stroke:#558b2f,color:#333
   classDef application fill:#c2f0ff,stroke:#0288d1,color:#333
@@ -102,6 +109,7 @@ flowchart LR
 | `TSVC5` | **Workspace identity** — the signed-in user's e-mail, username and, with the `iam.current-user:read` scope, an access token forwarded on every request; the user's groups read from the workspace's directory with that token, or as the app's service principal | `NODE2` | `ACMP12`, `ACMP6` | **Pending — plateau `PLAT2`**: the lookup exists, the workspace has not run it |
 | `TSVC6` | **Lakebase SQL store** — SQL over a Lakebase database, the platform's Postgres, in a schema per group of tables named from `EA_SCHEMA` (decision 0018), reached over the Postgres protocol with TLS; the portable DDL read as written, a statement bound with as many values as it needs, a bulk load held in one transaction; the app's service principal signs in with an OAuth token the SDK generates for the instance, good for an hour, under the Postgres role its database resource gives it (connect to the database, create in it), which covers the schema the deep dives are kept in (`ea_knowledge`) as it covers every other | `NODE2` | `ACMP2.3` | **Pending — plateau `PLAT2`**: the engine exists, an instance has not run it |
 | `TSVC7` | **Model serving** — the assistant's model as a Databricks Model Serving endpoint, queried over the chat completions API every served model speaks at `<workspace>/serving-endpoints/<endpoint>/invocations`; which model answers — one, or several behind the endpoint's AI Gateway with traffic splitting and fallbacks — is the workspace's choice, and the bundle names none; each request signed with a token the Databricks SDK issues — the app's service principal on the platform, the architect's own credentials on a laptop — and renewed as it expires; the bundle grants the app `CAN_QUERY` on the one endpoint it names (decision [0023](../decisions/0023-the-model-is-served-by-the-platform.md)) | `NODE2` | `ACMP5`, `ACMP10` | **Pending — plateau `PLAT2`**: the provider exists and is proven against a stand-in endpoint; a workspace has not run it |
+| `TSVC8` | **Protocol serving and reading** — the Model Context Protocol, both ways (decision 0027): the tool server over standard input and output on a workstation and as streamable HTTP at `/mcp` on the port the platform names, behind the workspace's sign-in, as an app of its own; and the connected systems read over streamable HTTP with the person's token, the organisation's credential, the application's own identity or nothing | `NODE1.1`, `NODE2` | `ACMP16`, `ACMP17` | Running on a workstation, tested in-process; **Pending — plateau `PLAT2`** on the platform |
 
 ## Artifacts
 
@@ -133,9 +141,9 @@ flowchart LR
 | `ART1` | **Repository file** — the DuckDB database holding the metamodel tables, the content tables, the branch overlays, the proposals, the deep dives kept and the change log | `data/ea.duckdb` (`EA_DB_PATH`) | Not committed; rebuilt by `make seed` |
 | `ART2` | **Metamodel pack** — a framework as YAML, carrying the opaque identifier its framework is stored under (decision 0021), loaded into the store on `ea init`, on reload, and when one is picked as a starter; a file with no identifier is a framework the store has not met, and is given one folded from its name | `packs/*/metamodel.yaml` — one directory per pack, and every one of them a starter | Committed; the store holds the copy the app uses |
 | `ART3` | **Exchange files** — the CSV files of the contract and a source's mapping | `data/sample/`, `connectors/` | The sample is committed; institutional exports are not |
-| `ART4` | **Source repository** — the code, the packs, the connectors and this model, in git; the runtime's libraries — ReportLab for a deep dive's PDF among them (decision 0025) — named in `pyproject.toml` and pinned in `uv.lock`, which is all the platform installs | the repository root | Apache-2.0; public |
+| `ART4` | **Source repository** — the code, the packs, the connectors and this model, in git; the runtime's libraries — ReportLab for a deep dive's PDF among them (decision 0025) — named in `pyproject.toml` and pinned in `uv.lock`, which is all the platform installs The Model Context Protocol's Python library serves the tool server and reads the connected systems (decision 0027) | the repository root | Apache-2.0; public |
 | `ART5` | **Bundled assets** — the Mermaid renderer, the icon set, the styles and the view-arranging script the browser runs | `assets/` | Attributed in `NOTICE` |
-| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Lakebase database instance and the app with the database resource it connects through and the app's configuration; the resources grant the app's service principal what the store needs and `CAN_QUERY` on the serving endpoint the assistant uses (decision 0023), so nothing follows the deploy but the start | `databricks.yml` | Committed; `make deploy`, `make deploy-run` |
+| `ART6` | **Deployment bundle** — the Databricks Asset Bundle that creates the Lakebase database instance and the app with the database resource it connects through and the app's configuration; the resources grant the app's service principal what the store needs and `CAN_QUERY` on the serving endpoint the assistant uses (decision 0023), so nothing follows the deploy but the start It deploys a second app, the tool server, with the same database resource and no serving endpoint (decision 0027) | `databricks.yml` | Committed; `make deploy`, `make deploy-run` |
 
 ## Relationships
 
@@ -165,6 +173,11 @@ flowchart LR
 | `NODE2` | ⬒ «Node» Databricks workspace | `TSVC7` | ⚙ «Technology Service» Model serving | provides | **Pending — plateau `PLAT2`** |
 | `ACMP5` | ▭ «Application Component» Agent | `TSVC7` | ⚙ «Technology Service» Model serving | uses | **Pending — plateau `PLAT2`**: the provider exists |
 | `ACMP10` | ▭ «Application Component» Proposal agent | `TSVC7` | ⚙ «Technology Service» Model serving | uses | **Pending — plateau `PLAT2`**: the provider exists |
+| `NODE1.1` | ⬡ «System Software» Python process | `TSVC8` | ⚙ «Technology Service» Protocol serving and reading | provides | `ea mcp` on stdio |
+| `NODE2` | ⬒ «Node» Databricks workspace | `TSVC8` | ⚙ «Technology Service» Protocol serving and reading | provides | **Pending — plateau `PLAT2`**: the `ea-tool-server` app |
+| `ACMP16` | ▭ «Application Component» Tool server | `TSVC8` | ⚙ «Technology Service» Protocol serving and reading | uses | |
+| `ACMP17` | ▭ «Application Component» Connected-system reader | `TSVC8` | ⚙ «Technology Service» Protocol serving and reading | uses | |
+| `ACMP16` | ▭ «Application Component» Tool server | `NODE2` | ⬒ «Node» Databricks workspace | hosted on | **Pending — plateau `PLAT2`** |
 | `ACMP2.3` | ▭ «Application Component» Lakebase backend | `TSVC6` | ⚙ «Technology Service» Lakebase SQL store | uses | **Pending — plateau `PLAT2`**: the engine exists |
 | `ACMP12` | ▭ «Application Component» Roles and review | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the lookup exists |
 | `ACMP6` | ▭ «Application Component» Web application | `TSVC5` | ⚙ «Technology Service» Workspace identity | uses | **Pending — plateau `PLAT2`**: the forwarded headers |

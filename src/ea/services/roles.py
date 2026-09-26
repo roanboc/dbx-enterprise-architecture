@@ -55,6 +55,9 @@ ACTIONS: dict[str, tuple[str, ...]] = {
     # The document shapes the organisation proposes in are its configuration, like its feeds;
     # proposing in one needs no template kept, since a page's front matter travels with it.
     "manage_templates": ("admin",),
+    # Which of the enterprise's systems the assistant may read, and as whom (initiative 26): the
+    # organisation's configuration, like its feeds. Reading one is asking; nothing writes to it.
+    "connect_systems": ("admin",),
     "assign_reviewers": ("admin",),
 }
 DESCRIPTIONS = {
