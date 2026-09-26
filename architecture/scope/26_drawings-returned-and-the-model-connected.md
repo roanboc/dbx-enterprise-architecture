@@ -3,14 +3,15 @@
 _[← Scope index](./README.md) · [Model home](../README.md)_
 
 **ArchiMate viewpoint:** Implementation & Migration.
-**Delivered as:** branch `claude/admiring-bell-wj7ocn`; drafted 2026-09-26, Understanding granted the same day.
+**Delivered as:** branch `claude/admiring-bell-wj7ocn`; drafted 2026-09-26, Understanding granted and built the same day; the platform half waits with `PLAT2`'s run on a workspace.
 **Requester:** the product owner. **Agent:** the coding agent in this
 repository. **Reviewer:** the product owner. **Baseline:** initiatives 1 to 25, and the draw.io
 stamp built the same day. **Target plateaus:** `PLAT1` The repository running locally, extended;
 `PLAT4` Governed change, its intake; `PLAT5` Semantic front doors, its tool server.
-**Gaps:** `GAP29` **A drawing that comes back is read by nobody**, opened; `GAP7` **No tool
-server for external agents** and `GAP28` **What the enterprise's other systems say is not read**,
-restated and brought forward to a step of their own (1o).
+**Gaps:** `GAP29` **A drawing that comes back is read by nobody**, opened and closed; `GAP7`
+**No tool server for external agents** and `GAP28` **What the enterprise's other systems say is
+not read**, restated, brought forward to a step of their own (1o) and closed — `GAP7` in code,
+`GAP28` for systems reached over the protocol.
 
 The Requester asked for the last changes before the application moves to Databricks and real
 content. Architects keep the draw.io files the application exports and draw on them, so what
@@ -88,6 +89,13 @@ turning it into a change is an architect's proposal.
 | **How much is read?** | Adopted — a bounded number of calls per answer and a bounded size per result, as every read is (decision [0019](../decisions/0019-the-size-the-application-declares.md)) | A slow or large system shortens an answer; it does not stall one |
 | **Is `GAP20` closed?** | No | Reading a system for an answer is not loading it into the model. A connected system is the configuration a source reached over the protocol will use later |
 | **Why now, rather than with step 5?** | The Requester's word — *"final changes before I move this to Databricks"* | Neither the tool server nor a connected system needs the projection or real content; both are proved on a laptop and served on the platform with `PLAT2` |
+| **How does a returned file say what was taken out?** | Adopted, while building — the export lists the elements and relationships it drew on the file's own data | A file carries no memory of the export otherwise; a drawing exported before 2026-09-26 is read as additions only |
+| **A question left unanswered about a shape taken out?** | Adopted — it does not stop Apply, and changes nothing | Leaving something out of a picture is the likelier meaning; the rename and the note questions do stop Apply, because the drawing says something changed |
+| **Where does the tool server run on the platform?** | Adopted — an app of its own in the bundle, on the same store and sign-in ([decision 0027](../decisions/0027-the-protocol-served-by-an-app-of-its-own.md)) | The web application's server stays as it is; an agent connects to the tool server's own address |
+| **How much may one answer read from the systems?** | Adopted — eight reads (listing what a system offers counts), twenty seconds each, eight thousand characters of each result | Enough for a question about a few elements; a larger need is a deep dive's, which reads pages the same way |
+| **A system that reads as the person, on a laptop?** | Adopted — it is not read, and the answer says why | Only the platform passes a person's identity on; the organisation's credential is the admin's choice for a system that must be read locally |
+| **Which pages does a deep dive read?** | Adopted — the ones its subject links to, through the system that answers for each address | The subject is what the reader asked about; the reads are bounded as an answer's are |
+| **Is what a system masters compared without a model?** | Adopted — no: a page is compared by the rule that finds a named element nothing joins to; a system's record is read and weighed by the hosted model on Ask and Propose | A record's fields mean what its system says they mean; a rule written for one CMDB would be wrong for the next (`P5`) |
 
 ## What changes in the model
 
@@ -114,9 +122,9 @@ turning it into a change is an architect's proposal.
 | 1_strategy | **Aligned — no change.** Serves `G6` **The model is served, not exported** (the tool server) and `G1` **Query the architecture sustainably** (answers that read the enterprise's systems), and prepares `G7` **A source is connected, not piped**. Stays inside `P3` (nothing from a drawing or a system lands without an architect), `P5` (a shape's type comes from the notation), `P6` (external facts cited as the system's, element identifiers checked as today) and `P8` (a drawing is a source, never a diagram of the model). **One stop, named:** decision 0005 says the draw.io export is one-way — a contradiction, resolved by [decision 0026](../decisions/0026-a-drawing-comes-back-as-a-proposal.md), which this gate adopts or refuses. When built, `ASM11` and `G6` are restated as half reached. |
 | 2_business | [2_processes-and-services.md](../2_business/2_processes-and-services.md): `BPROC2.2`, `BPROC3`. [1_actors-and-roles.md](../2_business/1_actors-and-roles.md): `ACT6`, `ROLE1`, `ROLE4`, `ROLE5`. |
 | 3_information | [1_data-objects.md](../3_information/1_data-objects.md): `DOBJ3.6`, `DOBJ3.11`; `DOBJ3.12` **Connected system** added, with what it speaks for, answers for and is cited by. [3_logical-data-model.md](../3_information/3_logical-data-model.md): table `connected_system` in the `ea_governance` schema, beside the feeds. No change to `proposal`: a drawing is one more entry in `sources_json`. |
-| 4_application | To align after Understanding: `ASVC9` **Propose** reads a drawing; a service for the **tool server**; `ASVC5` and `ASVC14` read connected systems; `ACMP10` **Proposal agent** gains the drawing reader; `ACMP5` **Agent** gains the connected systems' tools beside its own and cites them apart; a component for the tool server; `ACMP6` gains the drawing on Propose and a Connected systems list under Manage; `ACMP7` gains `ea mcp`; `ACMP12` gains who may connect a system. |
-| 5_technology | To align after Understanding: the Model Context Protocol's Python library in the runtime; on Databricks, the tool server behind the app's sign-in and a connected system reached through what the platform offers for it, with the reader's identity where it passes one on. Recorded as a decision when chosen. |
-| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP7` and `GAP28` restated, `GAP29` opened. [2_sequence.md](../6_transition/2_sequence.md): step 1o, before step 2; step 5 keeps `GAP6` and serves `GAP7` on the platform. |
+| 4_application | [1_application-services.md](../4_application/1_application-services.md): `ASVC9` reads a drawing; `ASVC5` and `ASVC14` read connected systems; `ASVC15` **Tool server** and `ASVC16` **Connected systems** added. [2_application-components.md](../4_application/2_application-components.md): `ACMP10` gains the drawing reader, `ACMP5` the connected systems' tools, `ACMP6` the Connected systems page, `ACMP7` `ea mcp` and `ea systems`, `ACMP12` who may connect a system; `ACMP16` **Tool server** and `ACMP17` **Connected-system reader** added. |
+| 5_technology | [1_runtime.md](../5_technology/1_runtime.md): `TSVC8` **Protocol serving and reading** added; `NODE2` hosts a second app, `ART4` carries the protocol's library, `ART6` deploys the tool server. Recorded as [decision 0027](../decisions/0027-the-protocol-served-by-an-app-of-its-own.md). |
+| Transition | [1_target-state.md](../6_transition/1_target-state.md): `GAP7` and `GAP28` restated and closed, `GAP29` opened and closed. [2_sequence.md](../6_transition/2_sequence.md): step 1o built, before step 2; step 5 keeps `GAP6` and serves `GAP7` on the platform. [1_motivation.md](../1_strategy/1_motivation.md): `G6` and `ASM11` half reached — the rows kept true, not changed. |
 
 ## Approvals
 
@@ -128,10 +136,10 @@ turning it into a change is an architect's proposal.
 
 | WP | Delivers |
 | -- | -------- |
-| 0 — The stamp (built 2026-09-26, inside `ACMP8`) | Every cell of a view's and a deep dive's draw.io file stamped; the file's own data; the exported name on a shape; the relationship on an edge |
-| 1 — The drawing read | The stamp read against the model; the table above as rules; shapes typed from the notation; the questions in Propose's conversation; the drawing kept as the proposal's source; a drawing handed in on the Propose page and on `ea propose` |
-| 2 — The tool server | The read tools over the protocol, scoped by the caller's organisation, branch and role; `ea mcp` on a laptop; the same server on the platform behind the app's sign-in |
-| 3 — Connected systems | The `connected_system` table on both engines; the admin's list; the systems' read-only tools offered to the assistant, bounded, as the reader; cited apart from element identifiers; read by Ask, a deep dive and Propose's questions |
+| 0 — The stamp (built, inside `ACMP8`) | Every cell of a view's and a deep dive's draw.io file stamped; the file's own data, with what it drew; the exported name on a shape; the relationship on an edge — `src/ea/views/drawio.py`, `src/ea/views/deep_dive_pack.py` |
+| 1 — The drawing read (built) | `src/ea/agent/drawing.py`: the stamp read against the model, compressed files and drawings from nothing too; a new shape typed from its stencil by the notation read in reverse; the drawing's questions in `src/ea/agent/questions.py`; a rename applied by `ProposalService.apply`; a `.drawio` file taken by the Propose page and `ea propose` |
+| 2 — The tool server (built) | `src/ea/tool_server.py`: the read tools and the deep dives over the protocol, scoped by the caller's organisation, branch and role; `ea mcp` on stdio; `ea mcp --http` as the `ea-tool-server` app in `databricks.yml`, started by `make deploy-run` |
+| 3 — Connected systems (built) | Table `connected_system` on both engines; `src/ea/services/connected.py` and the `connect_systems` action; `src/ea/agent/connected.py`, offered through each answer's toolbox to Ask and Propose's hosted reader; a deep dive's linked pages read and compared; the Connected systems page (`src/ea/ui/pages/systems.py`) and `ea systems` |
 
 ## In scope / out of scope
 
@@ -143,6 +151,11 @@ turning it into a change is an architect's proposal.
 | Systems that answer the Model Context Protocol | A system that answers only its own API, until something puts the protocol in front of it |
 
 ## Gap notes
+
+- **A retired element is asked what it serves.** Retiring a shape taken out of a drawing adds
+  it to the draft as a change, and the rule of initiative 24 asks what business an application
+  element being changed serves — for something being retired, where the question matters less.
+  It is the rule's, not the drawing's; a later look at the rule could leave a retirement out.
 
 - **Loading from a connected system (`GAP20`).** A connected system already says what it masters;
   loading what it says through the feed pipeline — validation, provenance, a branch, review — is

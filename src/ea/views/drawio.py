@@ -1,7 +1,9 @@
 """Render a view as a draw.io (mxGraph) file with ArchiMate 3 stencils: a draft for an architect to reuse.
 
-The file is a one-way export. Every shape carries the element identifier (`ea_id`) and a
-link to the element's page, which is the linking contract; nothing imports it back.
+Every shape carries the element identifier (`ea_id`) and a link to the element's page, which
+is the linking contract. Nothing imports a drawing into the store: one handed back is read as a
+proposal's source (`ea.agent.drawing`, decision 0026), and nothing is applied until an architect
+ticks it.
 
 Architects keep these files and draw on them, so everything the application draws is
 stamped: the file's own data (the root cell) says which export it is, from which

@@ -75,7 +75,7 @@ given per group.
 | `ea_metamodel` | the six `meta_` tables: what may exist, in versions | everyone; written by whoever may edit a version |
 | `ea_content` | the organisations and their elements, relationships and links | everyone |
 | `ea_branch` | a branch and the rows it lays over the content | whoever works on a branch |
-| `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from — and, pending initiative 26, the systems the assistant may read | reviewers and admins |
+| `ea_governance` | reviews, reviewer assignments, proposals and the templates they are written in, and the feeds that say where content comes from — and the systems the assistant may read | reviewers and admins |
 | `ea_audit` | the change log and the history of every import | anyone who may read the content; never updated, only appended |
 | `ea_knowledge` | the deep dives kept on the content, the elements each cites and the ratings people gave them | anyone who may read the content; written by whoever may ask, and rated by anyone who may read |
 | `ea_staging` | **nothing the store makes.** The one schema it creates and never fills: a source leaves rows here in the contract's own shape and a feed reads them (decision 0020) | the store reads it; whatever writes it is outside the application |
@@ -114,8 +114,8 @@ erDiagram
   deep_dive ||--o{ deep_dive_rating : "is rated in"
 ```
 
-Twenty-three tables, and a twenty-fourth pending with initiative 26 (`connected_system`). The six `meta_` tables are shared by every organisation and keyed
-by pack and version, and so is the `organisation` table itself; the sixteen
+Twenty-four tables. The six `meta_` tables are shared by every organisation and keyed
+by pack and version, and so is the `organisation` table itself; the seventeen
 others carry `org_id` and belong to exactly one organisation (decision 0014).
 A run names the feed it was of and keeps that feed's name beside the identifier,
 so the history survives the feed being deleted — the line above is what a run
@@ -141,7 +141,7 @@ so the history survives the feed being deleted — the line above is what a run
 | `proposal` | what an architect handed in and what came of it | `org_id`, `proposal_id` | `org_id` |
 | `proposal_template` | a document shape the organisation proposes in, and how it is read | `org_id`, `template_id` | `org_id` |
 | `source_feed` | a configured source: its staging tables, its mapping inline, where it writes and when it is meant to run | `org_id`, `feed_id` | `org_id` |
-| `connected_system` | Pending — initiative 26: a system the assistant may read over the Model Context Protocol — where it is reached, the types and link addresses it speaks for, the read-only tools it may call, how a person is known to it and which roles may have it read; never a credential | `org_id`, `system_id` | `org_id` |
+| `connected_system` | a system the assistant may read over the Model Context Protocol — where it is reached, the types and link addresses it speaks for, the read-only tools it may call, how a person is known to it and which roles may have it read; never a credential | `org_id`, `system_id` | `org_id` |
 | `change_log` | every change, append-only | `org_id`, `change_id` | `org_id` |
 | `import_run` | what one import was: what it read, where it wrote, what it changed, a bounded sample of its issues and the complete count of them, and why it stopped. Written once and never updated | `org_id`, `run_id`; read newest first on `org_id`, `started_at`, and per feed on `org_id`, `feed_id`, `started_at` | `org_id` |
 | `deep_dive` | one analysis a reader settled with the assistant: its brief, catalogue entry, views, findings and references | `org_id`, `deep_dive_id` | `org_id` |
