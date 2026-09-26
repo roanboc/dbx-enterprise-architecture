@@ -26,7 +26,7 @@ it may read, so you know what an answer may have consulted.
 2. As an admin, pick one under **A connection registered in the workspace** to fill **Name** and **Where it answers the protocol**, or type them.
 3. List the **Tools the assistant may call**, separated by commas, and pick the **Element types it masters**.
 4. If elements link to this system's pages, fill **Pages it answers for** and **The tool that reads a page**.
-5. Choose how it is **Read**. For a credential or the application's identity, name the roles under **Read with the credential or as the application for**.
+5. Choose how it is **Read**. For a credential or the application's identity, name the roles under **Read with the credential or as the application for**. For a credential, also fill **The credential's environment variable**.
 6. Press **Connect**. The assistant may read the system from the next answer.
 
 ## The flow
@@ -35,7 +35,7 @@ it may read, so you know what an answer may have consulted.
 flowchart LR
   a["An admin connects a system"] --> b["You ask a question"]
   b --> c["The assistant reads the model"]
-  b --> d["It reads the connected system too"]
+  b --> d["It may read a connected system too"]
   c --> e["The answer, with the system cited"]
   d --> e
 ```
@@ -45,8 +45,8 @@ answer names the system for what it said.
 
 ## Tips
 
-- List only tools that read, because the assistant is given exactly the tools you list.
-  Nothing a system says is ever written into the model.
+- List only tools that read: nothing checks that a listed tool only reads. Nothing a
+  system says is ever written into the model.
 - Never put a secret into **What the page tool is given**. A value that looks like
   one is refused; read the system with the organisation's credential instead.
 - **Disconnect** acts at once, without asking you to confirm.

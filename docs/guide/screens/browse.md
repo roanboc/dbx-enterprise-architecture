@@ -20,7 +20,7 @@ the search, so you can send a colleague the same list.
   **Work package**, **Source system**, **Lifecycle status**, **Attribute** and
   **is**, **Updated since** and **Columns**.
 - The grid, 100 rows a page, with a pager beneath it. The **matched in** column
-  shows where your words were found.
+  shows the text your words matched, when they matched outside the name.
 
 ## How
 
@@ -35,7 +35,7 @@ the search, so you can send a colleague the same list.
 
 ```mermaid
 flowchart LR
-  a["Your words and filters"] --> b["Every matching row, ranked"]
+  a["Your words and filters"] --> b["Every matching row, sorted"]
   b --> c["The grid, 100 rows a page"]
   c --> d["Open a row"]
   c --> e["Bulk edit ticked rows, on a branch"]

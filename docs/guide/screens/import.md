@@ -7,8 +7,8 @@
 
 Most architecture content already sits in a spreadsheet or another tool's
 export. Import brings it in as CSV files and checks every row against the
-metamodel before anything is written. It loads onto a branch, so the change is
-reviewed before it reaches main.
+metamodel before anything is written. It loads onto a branch, so the change can
+be reviewed before it reaches main.
 
 ## What you see
 
@@ -19,13 +19,13 @@ reviewed before it reaches main.
   **Download current content**.
 - **2 · Add the files**: a drop zone, the files added with their row counts
   and a bin for each, **Validate only** and **Load**.
-- The report after each run: a summary of the rows read, loaded and skipped,
-  then **Issues**, each with its level, code, message, file and row.
+- The report after each run: a summary of the rows read, loaded and skipped.
+  Then **Issues**, each with its level, code, message, file, row and entity.
 
 ## How
 
 1. Pick a branch in the header, or create one. **Load** is off on main.
-2. Fill in **Source system** and choose a **Mapping**. Choose **No mapping (CSV contract)** for files made from the template.
+2. Set **Source system** to where the files come from, and choose a **Mapping**. Choose **No mapping (CSV contract)** for files made from the template.
 3. Press **Download template** for example files, or **Download current content** to edit what is already there.
 4. Drop your CSV files on the drop zone, or click it to choose them.
 5. Press **Validate only**, read the **Issues**, fix your files and validate again.
@@ -47,8 +47,8 @@ your branch, and merge it after review.
 
 ## Tips
 
-- Without a mapping, a file's name must contain element, relationship or link.
-  Any other file is ignored.
+- Without a mapping, a file's name must end in .csv and contain element,
+  relationship or link. Any other file is ignored.
 - Loading the same rows again updates them rather than adding copies. So you can
   edit **Download current content** in a spreadsheet and load it back.
 - Anyone may press **Validate only**, which writes nothing. Only an architect or

@@ -184,7 +184,19 @@ def test_the_guide_gathers_the_help(newcomer, record):
     ui.must("the Guide opens with Getting started", "Getting started" in body, body[:200])
     ui.check("it gathers the screens' help", "The screens" in body and "Browse" in body)
     ui.check("the roles follow", "Solution architect" in body and "What belongs in the repository" in body)
-    ui.wait_mermaid(2)
+    blocks = ui.page.locator(".ea-mermaid").count()
+    ui.check("Getting started and every screen carry a diagram", blocks >= 16, str(blocks))
+    try:
+        ui.wait_mermaid(blocks)
+        drawn = True
+    except Exception:  # noqa: BLE001 — how many were drawn is the finding
+        drawn = False
+    svgs = ui.page.locator(".ea-mermaid svg")
+    ui.check(
+        "every diagram on the Guide is drawn", drawn and svgs.count() >= blocks, f"{svgs.count()} of {blocks}"
+    )
+    broken = [i for i in range(svgs.count()) if "Syntax error" in (svgs.nth(i).text_content() or "")]
+    ui.check("no diagram shows a syntax error", not broken, str(broken))
     ui.shot("the Guide")
     ui.page.get_by_role("button", name="Show the welcome and tips again").click()
     ui.settle()

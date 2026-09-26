@@ -6,8 +6,8 @@
 ## Why
 
 People trust a model only while it stays current and filled in. Health shows where
-content has gone stale or is missing something. Every number opens the rows behind it,
-so you can go straight to fixing them.
+content has gone stale or is missing something. Each stale or missing count opens the
+rows behind it, so you can go straight to fixing them.
 
 ## What you see
 
@@ -17,7 +17,8 @@ so you can go straight to fixing them.
 - **Freshness**: a row per source system, with **first loaded**, **last updated**, the
   elements not updated for 30, 90 or 180 days, and those **never updated**.
   Content with no source system is counted as **(authored)**.
-- **Change activity, last 12 weeks**: a bar for each week's changes on this branch.
+- **Change activity, last 12 weeks**: a bar for each week's recorded changes in the
+  organisation, on every branch.
 - **Completeness**: for each element type, the share with a **Description**, a **Link**,
   a **Relationship**, its **Required attributes** filled and its **Target decided**.
 - **Relationship types with no instance**: types the metamodel declares that no
@@ -47,9 +48,9 @@ A figure opens its rows in **Browse**; you fix them on a branch, check the figur
 
 ## Tips
 
-- The figures follow the branch and the organisation in the header. Switch to main
-  to see the model everyone reads.
-- The link behind each number carries its filter in the address, so you can bookmark
+- Size, freshness and completeness follow the branch and the organisation in the header.
+  Switch to main to see the model everyone reads.
+- The link behind each count carries its filter in the address, so you can bookmark
   or share the rows it opens.
 - A completeness bar is green from 90%, yellow from 60% and red below that.
-- Fix what a source system feeds at the source, or its next feed undoes your correction.
+- Fix what a source system feeds at the source, or its next feed may undo your correction.

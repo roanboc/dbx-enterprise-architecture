@@ -30,7 +30,7 @@ that colleagues can reuse and rate.
 2. For a quick answer, type your question or click an example, then press **Ask**.
 3. Read the diagram, the **Answer** and **Elements in this answer**. Check the working under **How this was answered** and in the **Tool trace**.
 4. Take the answer away with **Copy Markdown**, **Download Markdown** or **Download draw.io**.
-5. For a deep dive, type what you need to know and press **Start the brief**. Answer each card with its **Answer** button, then press **Write the deep dive**.
+5. For a deep dive, type what you need to know and press **Start the brief**. Answer the open cards, each with its **Answer** button, then press **Write the deep dive**.
 6. On **Kept deep dives**, open one and press **Download the pack**. Give it one to five stars and a line of why, then press **Rate it**.
 
 ## The flow
@@ -49,8 +49,8 @@ that becomes a kept deep dive.
 
 ## Tips
 
-- Identifiers in the answer link to their elements. A yellow box lists any
-  identifier that no look-up returned, so treat those as unverified.
+- Identifiers the model holds link to their elements. A yellow box lists any
+  that no look-up returned and the model does not hold, so treat those as unverified.
 - Unless the provider badge says stub, a follow-up question builds on the last
   answer. **Reset conversation** clears the answer and starts afresh.
 - Answers and deep dives read the branch picked in the header. A kept deep dive

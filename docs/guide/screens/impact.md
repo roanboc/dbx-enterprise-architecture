@@ -18,8 +18,9 @@ short list is not mistaken for a safe change.
   counts by type, and **How complete is this answer?**.
 - Two tables, **Depends on this (upstream)** and **This depends on
   (downstream)**, with the columns hops, element, type and via.
-- A network graph of the element's neighbours, grouped by layer at first, with
-  a grouping choice, a layout choice, **Fit**, zoom and full-screen controls.
+- A network graph of the neighbours up to two hops away, grouped by layer at
+  first. Controls set the grouping and the layout, with **Fit**, zoom and full
+  screen.
 - **Architecture view**: the result drawn as a generated diagram, with
   **Download Markdown** and **Download draw.io**.
 
@@ -27,7 +28,7 @@ short list is not mistaken for a safe change.
 
 1. Type at least two letters in **Search an element…** and pick the element. The analysis runs straight away.
 2. Change the number of hops, from 1 to 6, and press **Run** to follow the relationships that far.
-3. Read **How complete is this answer?**, then the two tables. The via column names the relationships that led to each row.
+3. Read **How complete is this answer?**, then the two tables. The via column names the relationship types along the path to each row.
 4. In the graph, change the grouping or the layout, and tap a node to open that element's page.
 5. Take the diagram away with **Download Markdown** or **Download draw.io** under **Architecture view**.
 
@@ -49,8 +50,8 @@ of it, and you open or download what it finds.
 
 - The **Impact** button on an element's page opens this screen with that
   element already traced to three hops.
-- Each element appears once, at its shortest distance, with one path to it
-  rather than every path.
+- Each element appears once in a table, at its shortest distance, with one
+  path rather than every path. Retired relationships are not followed.
 - A yellow **How complete is this answer?** box names relationship types with
   nothing in them yet. An empty table may then mean missing content, not no
   dependents.

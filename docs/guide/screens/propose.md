@@ -53,6 +53,6 @@ a branch and have it reviewed on **Branches**.
 - Your draft is kept each time you press **Analyse**, answer a question or press
   **Re-check rows**. **Resume** brings back the draft and its conversation.
 - **What it touches** is read from main and never stops Apply. Its tab label warns
-  when the change leaves relationships pointing at a retired element.
+  when the change leaves relationships pointing at an element being retired.
 - In a draw.io drawing, moving or resizing a shape changes nothing. A drawing
   exported from another organisation is refused.

@@ -14,7 +14,7 @@ it adds, changes, decommissions or merges, and what is still undecided.
 
 - **Branches** beside the title, the work package picker (**All work packages**
   or one package) and the **Only what changes** switch.
-- A badge with a count for each target state in scope, and a line counting the
+- A badge counting the elements in each target state, and a line counting the
   elements, the relationships and the elements that change.
 - **Current state by target state**: how many elements sit in each pair of what
   is true today and what is intended.

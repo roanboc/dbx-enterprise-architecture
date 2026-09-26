@@ -10,17 +10,15 @@ reviewed before it is merged into main, which is the model itself.
 
 ```mermaid
 flowchart LR
-  discover["Discover: find and ask"] --> branch["Contribute: change on a branch"]
-  discover --> proposal["Contribute: hand in a proposal"]
-  proposal --> branch
-  branch --> review["Review"]
-  review --> main["Merge into main"]
-  main --> discover
-  manage["Manage: metamodel, organisations, users and roles"] --> main
+  main["Main: the model everyone reads"] -->|"find and ask"| discover["Discover"]
+  discover -->|"a change is needed"| contribute["Contribute: a branch or a proposal"]
+  contribute -->|"request review"| review["Review"]
+  review -->|"merge"| main
+  manage["Manage: metamodel, organisations, users and roles"] -.->|"shapes what it can hold"| main
 ```
 
-You find and ask, change on a branch or by proposal, pass review, then merge
-into main; Manage shapes what the model can hold.
+You read the model on main, and change it on a branch or through a proposal.
+The change returns to main once reviewed, and Manage shapes what the model can hold.
 
 ## The navigation
 
