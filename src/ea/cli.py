@@ -1620,6 +1620,49 @@ def templates_check(file: Path):
     typer.echo("every heading and column is placed" if not notes else f"{len(notes)} note(s)")
 
 
+@app.command("mcp")
+def mcp(
+    http: bool = typer.Option(
+        False,
+        "--http",
+        help="serve streamable HTTP at /mcp, as its own app on the platform, instead of stdio",
+    ),
+    port: int = typer.Option(
+        0, "--port", help="the port for --http; DATABRICKS_APP_PORT, PORT or 8765 when not given"
+    ),
+    actor: str = typer.Option(
+        "", "--actor", help="who the agent reads as, on stdio; the local user when not given"
+    ),
+):
+    """Serve the model's read tools to another agent over the Model Context Protocol (initiative 26).
+
+    On stdio it acts as `--as`, `--org` and `--branch` say — how an editor starts a local
+    server. With --http each request acts as the person the platform forwarded, in the
+    organisation and branch the request names (X-EA-Org, X-EA-Branch). It writes nothing."""
+    import getpass
+    import os
+
+    from ea.backend.branching import current_branch
+    from ea.services.roles import current_role
+    from ea.tool_server import Refused, caller_for, http_app, serve_stdio
+    from ea.ui.context import open_context
+
+    ctx = open_context(Settings.from_env())
+    if http:
+        import uvicorn
+
+        port = port or int(os.environ.get("DATABRICKS_APP_PORT") or os.environ.get("PORT") or 8765)
+        uvicorn.run(http_app(ctx), host="0.0.0.0", port=port, log_level="info")  # noqa: S104
+        return
+    try:
+        caller = caller_for(
+            ctx, actor or getpass.getuser(), current_role(), _scope.get("org") or "", current_branch()
+        )
+    except Refused as exc:
+        _refuse(str(exc))
+    serve_stdio(ctx, caller)
+
+
 # Last in the file on purpose: `python -m ea.cli` executes the module top to bottom, so a
 # command group registered after this line would not exist by the time `run()` reads the
 # arguments. Everything the application offers has to be declared above it.
