@@ -232,7 +232,9 @@ def test_written_and_downloaded(ui, record):
     ui.check("and nothing in Markdown", not any(n.endswith(".md") for n in names))
     for name in [n for n in names if n.endswith(".drawio")]:
         root = ET.fromstring(zipfile.ZipFile(path).read(name))
-        objects = list(root.iter("object"))
+        # Every cell is stamped (initiative 26), text boxes, lanes and lines included; an
+        # element's shape is the one that says which type it is, and it must say which element.
+        objects = [o for o in root.iter("object") if o.get("ea_type")]
         charted = "-maturity-" in name or "-findings-by-" in name
         ui.check(
             f"{name.rsplit('/', 1)[1]} parses, with an identifier on every element shape",

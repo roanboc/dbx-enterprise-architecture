@@ -218,7 +218,20 @@ def _drawio(ui, path: Path) -> ET.Element:
 
 
 def _shapes(root: ET.Element) -> list[ET.Element]:
-    return root.findall(".//object")
+    """The shapes the file draws for elements.
+
+    Every cell an export draws is wrapped in an `object` that carries its stamp (initiative
+    26): the document itself, a lane per layer (`ea_layer`) and every relationship's line
+    as well as the elements. The element shapes are the boxes that are none of those, so a
+    box drawn without its identifier still shows here as one without it.
+    """
+    out = []
+    for o in root.iter("object"):
+        cell = o.find("mxCell")
+        if cell is None or cell.get("vertex") != "1" or o.get("ea_layer"):
+            continue
+        out.append(o)
+    return out
 
 
 def _shape_ids(root: ET.Element) -> list[str]:

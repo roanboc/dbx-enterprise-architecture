@@ -1779,8 +1779,11 @@ def _draw_on(ui, exported: Path) -> tuple[str, dict[str, str]]:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode"), did
 
 
-def _pick(ui, question: str, choice: str) -> None:
+def _pick_answer(ui, question: str, choice: str) -> None:
     """Answer a question by one of its radios.
+
+    Not `_pick`, which chooses from an open dropdown: one module-level name for both made the
+    later definition the only one, and every dropdown scenario called it with too few arguments.
 
     `_answer` finds the choice by label, and a drawing's questions carry their own choices'
     words ("…or only the picture?"), which the radio group is named by too; asking for a radio
@@ -1913,25 +1916,25 @@ def test_a_drawing_handed_back(ui, record, finding):
             )
         )
 
-    _pick(ui, "in the drawing. Is it renamed", "Only the drawing's label")
+    _pick_answer(ui, "in the drawing. Is it renamed", "Only the drawing's label")
     conv = ui.text("pr-conv")
     ui.check(
         "an edited label is kept out of the model when that is the answer, and said back",
         f"Only the drawing's label changes; {did['relabelled_name']} keeps its name." in conv,
         conv[-400:],
     )
-    _pick(ui, "The drawing has a text box", "A note — leave it out")
+    _pick_answer(ui, "The drawing has a text box", "A note — leave it out")
     conv = ui.text("pr-conv")
     ui.check(
         "the text box is left out as a note", f"'{NOTE}' is a note, not an element." in conv, conv[-400:]
     )
-    _pick(ui, "Which part of the business", "None: a purely technical change")
+    _pick_answer(ui, "Which part of the business", "None: a purely technical change")
     conv = ui.text("pr-conv")
     taken = (
         f"[{did['taken_out']}] was taken out of the drawing. Does it leave the model, or only the picture?"
     )
     ui.must("with the context settled, the shape taken out is asked about", taken in conv, conv[-600:])
-    _pick(ui, "was taken out of the drawing", "Only the picture")
+    _pick_answer(ui, "was taken out of the drawing", "Only the picture")
     conv = ui.text("pr-conv")
     ui.check(
         "a shape taken out of the picture stays in the model",
