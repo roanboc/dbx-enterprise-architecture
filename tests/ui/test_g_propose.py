@@ -194,7 +194,7 @@ def test_page(ui, record):
     ui.check("the paste box is offered", ui.page.locator(PASTE).first.is_visible())
     ui.check(
         "the page says the template's tables work without a model key",
-        "its tables work without a model key" in ui.body(),
+        "Its tables work without a model key" in ui.body(),
     )
     ui.check(
         "the page says rows can be added by hand when there is no document",
@@ -1228,7 +1228,7 @@ def test_upload_csv(ui, record):
     title="The work package the document names wins over the one chosen in the panel",
     feature="Propose · destination · work package",
     expected=(
-        "The panel says the document's own says wins. With a new work package name typed into panel 1 "
+        "The panel says the one the page names wins. With a new work package name typed into panel 1 "
         "and a document naming WP-CMS-UPGRADE, the change set lands in WP-CMS-UPGRADE and the typed "
         "name is not used."
     ),
@@ -1237,7 +1237,7 @@ def test_document_work_package_wins(ui, record):
     _open(ui)
     ui.check(
         "the panel says the document's own work package wins when it names one",
-        "the document's own says wins when it names one" in ui.body(),
+        "one the page names wins" in ui.body(),
     )
     ui.select("pr-wp", "New work package")
     ui.fill("pr-wp-new", NEW_WP)
@@ -1984,6 +1984,10 @@ def test_the_proposal_has_the_room(ui, record):
     ui.segmented(MD_MODE, "Split")
     divider = ui.page.locator(DIVIDER).first
     ui.must("Split shows the divider", divider.is_visible())
+    # a draft kept by an earlier scenario stands above the page's sections, so bring the editor
+    # into the window before the pointer reaches for its divider
+    ui.page.locator(f"{MD_WRAP} .ea-md-body").first.evaluate("e => e.scrollIntoView({block: 'center'})")
+    ui.page.wait_for_timeout(200)
     body = ui.page.locator(f"{MD_WRAP} .ea-md-body").first.bounding_box()
     handle = divider.bounding_box()
     y = handle["y"] + handle["height"] / 2
