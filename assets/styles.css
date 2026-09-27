@@ -199,18 +199,25 @@ body { background: #e9ecef; }
    Darkening them here fixes every place at once, and nothing in the application has
    to know which shade it asked for. The declarations are marked important because
    the component library injects its own values at runtime, after this file is linked,
-   so an override of equal weight would lose. */
+   so an override of equal weight would lose.
+
+   Every value here clears the floor on every ground the application paints: a card,
+   the grey canvas, the header, and inside an alert of any colour on any of them, where
+   a light button is its own tint laid over the alert's. `tests/test_readable_colour.py`
+   measures each one that way, at rest and under the pointer. */
 :root {
   /* Captions and hints: grey 6 on a pale card is 2.6:1. Grey 7 clears the floor
      everywhere it is used. */
   --mantine-color-dimmed: #495057 !important;
 
-  /* A link on white was 4.32:1. */
-  --mantine-color-anchor: #3b5bdb !important;
+  /* A link on white was 4.32:1, and indigo 8 inside an alert on the canvas is 4.2:1.
+     Indigo 9 clears the floor on both. */
+  --mantine-color-anchor: #364fc7 !important;
 
   /* The required-field asterisk beside a label takes the error colour, and red 6 on
-     white is 3.28:1. Red 9 clears the floor and still reads as red. */
-  --mantine-color-error: #c92a2a !important;
+     white is 3.28:1. Red 9 is 4.6:1 on the canvas but 4.1:1 inside an alert there; a
+     red darker than the palette goes clears the floor on both and still reads as red. */
+  --mantine-color-error: #b02525 !important;
 
   /* The text of a light or outline badge, alert or button, on its own pale tint. A
      badge sits on a card, so the tint is laid over grey rather than white and needs
@@ -243,20 +250,37 @@ body { background: #e9ecef; }
   --mantine-color-gray-light-color: #3f464d !important;
   --mantine-color-gray-outline: #3f464d !important;
 
-  /* What a filled badge or button puts white text on. */
+  /* What a filled badge, button or segmented control puts white text on, and what a
+     filled button turns to under the pointer. The stock hover is one shade darker than
+     the stock fill, which is lighter than a fill darkened here: a green button went from
+     6.1:1 to 2.75:1 as the pointer reached it. So every colour a domain may be given
+     names both, and the hover is always the darker of the two. */
   --mantine-color-indigo-filled: #3b5bdb !important;
   --mantine-color-indigo-filled-hover: #364fc7 !important;
   --mantine-color-blue-filled: #1971c2 !important;
   --mantine-color-blue-filled-hover: #1864ab !important;
-  --mantine-color-cyan-filled: #0c8599 !important;
+  --mantine-color-cyan-filled: #0b7285 !important;
+  --mantine-color-cyan-filled-hover: #095c6b !important;
   --mantine-color-teal-filled: #087f5b !important;
+  --mantine-color-teal-filled-hover: #066649 !important;
   --mantine-color-green-filled: #237032 !important;
+  --mantine-color-green-filled-hover: #1b5e2a !important;
+  --mantine-color-lime-filled: #4a6b0e !important;
+  --mantine-color-lime-filled-hover: #3f5d0c !important;
   --mantine-color-yellow-filled: #7a5200 !important;
+  --mantine-color-yellow-filled-hover: #6b4700 !important;
   --mantine-color-orange-filled: #b34700 !important;
+  --mantine-color-orange-filled-hover: #9a3d00 !important;
   --mantine-color-red-filled: #c92a2a !important;
+  --mantine-color-red-filled-hover: #b02525 !important;
   --mantine-color-pink-filled: #a61e4d !important;
+  --mantine-color-pink-filled-hover: #8a1840 !important;
+  --mantine-color-grape-filled: #862e9c !important;
+  --mantine-color-grape-filled-hover: #6a1f7a !important;
   --mantine-color-violet-filled: #5f3dc4 !important;
+  --mantine-color-violet-filled-hover: #4a2fa8 !important;
   --mantine-color-gray-filled: #495057 !important;
+  --mantine-color-gray-filled-hover: #343a40 !important;
 
   --mantine-primary-color-filled: #3b5bdb !important;
   --mantine-primary-color-filled-hover: #364fc7 !important;
