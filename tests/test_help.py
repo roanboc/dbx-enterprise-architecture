@@ -16,10 +16,12 @@ from ea.services.roles import ACTIONS
 from ea.ui import ids, layout, screen_help
 from ea.ui.screen_help import (
     SCREEN_ACTIONS,
+    SEEN_DEFAULT,
     after_action,
     demote,
     first_visit,
     help_body,
+    patch_for,
     pressed,
     role_block,
     seen_state,
@@ -144,6 +146,10 @@ def test_the_shell_keeps_what_was_closed_in_the_browser_and_holds_the_side_panel
         c for c in _walk(shell) if getattr(c, "id", None) == ids.HELP_SEEN and type(c).__name__ == "Store"
     ]
     assert stores and stores[0].storage_type == "local"
+    patches = [c for c in _walk(shell) if getattr(c, "id", None) == ids.HELP_PATCH]
+    assert patches and getattr(patches[0], "storage_type", "memory") == "memory", (
+        "a patch is applied, not kept"
+    )
     drawer = next(c for c in _walk(shell) if getattr(c, "id", None) == ids.HELP_DRAWER)
     assert drawer.keepMounted is True and drawer.opened is False
     assert drawer.closeButtonProps == {"aria-label": "Close help"}
@@ -179,18 +185,51 @@ def test_each_screen_s_tip_shows_once_while_tips_are_on():
     kind, state = first_visit(state, "ask")
     assert kind == "tip" and "ask" in state["screens"]
     assert first_visit(state, "ask")[0] is None
-    off, _ = after_action("tips-off", state)
-    assert first_visit(off, "impact")[0] is None
+    assert first_visit(dict(state, tips=False), "impact")[0] is None
+
+
+def test_turning_tips_off_is_a_patch_that_touches_nothing_else():
+    """The browser applies it to the record it holds when the button is pressed, so the screens
+    already seen stay seen, whatever the server was answering at the time."""
+    assert after_action("tips-off") == ({"op": "tips-off"}, False)
 
 
 def test_the_guide_brings_the_welcome_and_the_tips_back():
-    state, again = after_action("reset", {"welcome": True, "tips": False, "screens": ["ask"]})
-    assert again is True and state == {"v": 1, "welcome": False, "tips": True, "screens": []}
-    assert first_visit(state, "ask")[0] == "welcome"
+    patch, again = after_action("reset")
+    assert patch == {"op": "reset"} and again is True
+    assert first_visit(SEEN_DEFAULT, "ask")[0] == "welcome"  # the record a reset leaves
 
 
 def test_closing_changes_nothing_that_is_remembered():
-    assert after_action("close", {"welcome": True}) == (None, False)
+    assert after_action("close") == (None, False)
+    assert after_action(None) == (None, False)
+    # and what the browser is handed to apply on a press is exactly that rule
+    assert screen_help.PRESS_PATCHES == {"tips-off": {"op": "tips-off"}, "reset": {"op": "reset"}}
+
+
+def test_what_a_screen_showed_is_told_as_a_patch_the_browser_merges():
+    """A server answer is built from the record as it stood when the request left. Written back
+    whole, it undid a Turn off tips pressed while it was on its way; told as what it showed, it
+    is merged into the record as the browser holds it when the answer lands."""
+    kind, _ = first_visit(None, "browse")
+    welcome = patch_for(kind, "browse")
+    assert welcome is not None
+    assert {k: welcome[k] for k in ("op", "screen", "welcome")} == {
+        "op": "shown",
+        "screen": "browse",
+        "welcome": True,
+    }
+    tip = patch_for("tip", "ask")
+    assert tip is not None and (tip["op"], tip["screen"], tip["welcome"]) == ("shown", "ask", False)
+    assert "tips" not in tip, "a first visit never says whether tips are on"
+    assert patch_for(None, "ask") is None and patch_for("tip", None) is None
+
+
+def test_every_patch_is_new_so_the_browser_applies_it_even_when_it_repeats_one():
+    """The same screen shown twice (the Guide brought the welcome back in between) is two
+    patches: a store handed the value it holds does not tell anyone."""
+    first, again = patch_for("tip", "ask"), patch_for("tip", "ask")
+    assert first and again and first["stamp"] != again["stamp"]
 
 
 def test_a_record_from_elsewhere_starts_afresh():
@@ -249,8 +288,23 @@ def _help_app() -> dash.Dash:
 
 def test_the_help_callbacks_are_wired_to_the_shell_and_the_pages():
     outputs = " ".join(str(cb["output"]) for cb in _help_app().callback_map.values())
-    for target in (ids.HELP_DRAWER, ids.HELP_BODY, ids.HELP_HINT, ids.HELP_SEEN):
+    for target in (ids.HELP_DRAWER, ids.HELP_BODY, ids.HELP_HINT, ids.HELP_PATCH, ids.HELP_SEEN):
         assert target in outputs, target
+
+
+def test_the_record_is_written_in_the_browser_and_never_from_the_server():
+    """What the server answers left before the reader's last press, so no server callback writes
+    the record: the first visit's answer goes to the patch, and the browser merges it — and each
+    press on the welcome, a tip or the Guide — into the record as it holds it at that moment."""
+    callbacks = list(_help_app().callback_map.values())
+    on_server = [cb for cb in callbacks if "callback" in cb]  # a browser callback has no function here
+    assert not [cb for cb in on_server if ids.HELP_SEEN in str(cb["output"])]
+    first_visits = [cb for cb in on_server if {"id": ids.HELP_SCREEN, "property": "data"} in cb["inputs"]]
+    assert first_visits and ids.HELP_PATCH in str(first_visits[0]["output"])
+    in_browser = [cb for cb in callbacks if "callback" not in cb and ids.HELP_SEEN in str(cb["output"])]
+    inputs = " ".join(str(i["id"]) for cb in in_browser for i in cb["inputs"])
+    assert ids.HELP_PATCH in inputs and ids.HELP_ACTION in inputs, inputs
+    assert all({"id": ids.HELP_SEEN, "property": "data"} in cb["state"] for cb in in_browser)
 
 
 def test_following_a_link_from_the_side_panel_closes_it():

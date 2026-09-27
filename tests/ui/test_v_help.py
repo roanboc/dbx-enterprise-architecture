@@ -324,6 +324,80 @@ def test_help_at_480(newcomer, record):
     ui.shot("the side panel at 480 px", full_page=False)
 
 
+def _dash_call(url: str) -> bool:
+    """A callback's request; its address carries a query string, so a glob would miss it."""
+    return "/_dash-update-component" in url
+
+
+def _presses(post_data: str | None) -> bool:
+    """Whether a callback request carries a press on the welcome, a tip or the Guide."""
+    try:
+        body = json.loads(post_data or "{}")
+    except ValueError:
+        return False
+    for group in body.get("inputs", []):
+        for item in group if isinstance(group, list) else [group]:
+            key = item.get("id") if isinstance(item, dict) else None
+            if isinstance(key, dict) and key.get("type") == "help-action" and item.get("value"):
+                return True
+    return False
+
+
+@pytest.mark.scenario(
+    scenario_id="V06",
+    group="V",
+    title="Turn off tips holds when the reader moves on before the server has answered the press",
+    feature="Help · first-visit tips",
+    expected=(
+        "The browser keeps the press the moment it is made. With the server's answer to Turn off tips "
+        "held back and the reader already on the next screen, that screen shows no tip; once the answer "
+        "is let through, tips are still off and the screen after shows none either. What the server says "
+        "a screen showed reaches the browser as a patch (help-patch) merged into what it holds, never "
+        "written over it."
+    ),
+)
+def test_tips_off_holds_when_the_reader_moves_on(newcomer, record):
+    ui = newcomer
+    ui.goto("/")  # the welcome is spent here
+    ui.goto("/impact")
+    ui.page.wait_for_selector(".ea-tip", timeout=15_000)
+    held: list = []
+
+    def hold(route, request):  # noqa: ANN001 — playwright's route and request
+        if _presses(request.post_data):
+            held.append(route)
+        else:
+            route.continue_()
+
+    def first_visit(response) -> bool:  # noqa: ANN001 — playwright's response
+        return _dash_call(response.url) and '"help-screen"' in (response.request.post_data or "")
+
+    ui.page.route(_dash_call, hold)
+    try:
+        ui.page.get_by_role("button", name="Turn off tips").click()
+        ui.page.wait_for_timeout(200)  # a moment, not the server's answer: that is held
+        kept = _kept(ui)
+        ui.check("the browser keeps the press at once", kept.get("tips") is False, json.dumps(kept))
+        with ui.page.expect_response(first_visit, timeout=20_000):
+            ui.page.locator("#nav-target").click()
+        ui.page.wait_for_timeout(600)  # the answer drawn, if it drew anything
+        ui.check("the server's answer to the press was held back", len(held) >= 1, str(len(held)))
+        ui.check(
+            "the next screen, reached before that answer, shows no tip",
+            ui.page.locator(".ea-tip").count() == 0,
+            _hint(ui),
+        )
+    finally:
+        for route in held:  # let through before the handler goes, which would settle them itself
+            route.continue_()
+        ui.page.unroute(_dash_call, hold)
+    ui.settle()
+    kept = _kept(ui)
+    ui.check("tips are still off once the answer lands", kept.get("tips") is False, json.dumps(kept))
+    ui.goto("/feeds")
+    ui.check("the screen after shows no tip either", ui.page.locator(".ea-tip").count() == 0, _hint(ui))
+
+
 @pytest.mark.scenario(
     scenario_id="V07",
     group="V",

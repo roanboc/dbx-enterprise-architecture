@@ -243,8 +243,10 @@ def shell(
             dcc.Store(id=ids.NAVBAR_OPEN, data=False),
             dcc.Download(id=ids.DOWNLOAD),
             # What a person has closed — the welcome, each screen's tip, tips altogether — kept by
-            # their browser and never by the store (initiative 27).
+            # their browser and never by the store (initiative 27). The server never writes it:
+            # it says what a screen showed in the patch, and the browser merges that in.
             dcc.Store(id=ids.HELP_SEEN, storage_type="local"),
+            dcc.Store(id=ids.HELP_PATCH),
             dmc.NotificationContainer(id=ids.NOTIFY, position="top-right"),
             new_branch_modal(work_packages or []),
             help_drawer(),

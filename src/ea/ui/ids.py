@@ -23,6 +23,7 @@ HELP_DRAWER = "help-drawer"
 HELP_TITLE = "help-title"
 HELP_BODY = "help-body"
 HELP_SEEN = "help-seen"  # the browser's own record of what a person has closed; never the store
+HELP_PATCH = "help-patch"  # what a first visit showed, merged into HELP_SEEN by the browser
 HELP_SCREEN = "help-screen"  # the page key the title's help is for
 HELP_HINT = "help-hint"  # where the welcome or a first-visit tip stands
 HELP_ACTION = "help-action"  # pattern-matching: {"type": HELP_ACTION, "action": close|tips-off|reset}

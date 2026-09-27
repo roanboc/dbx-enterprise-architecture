@@ -5,11 +5,18 @@ What a person has closed is remembered by their browser (`ids.HELP_SEEN`, local 
 never by the store: nothing about a person is kept, and a second browser shows the welcome
 once more. The help's text is the screen's page in `docs/guide/screens/`, the same text the
 Guide page draws, so the two cannot disagree.
+
+The record changes only in the browser, by a patch merged into what it holds at that moment
+(`assets/ea-help.js`): a press the moment it is made, and a first visit's patch when the
+server's answer lands. An answer written back whole was built from the record as it stood
+when the request left, and undid a press made while it was on its way.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import uuid
 from typing import Any
 
 import dash_mantine_components as dmc
@@ -106,16 +113,36 @@ def first_visit(seen: Any, screen: str | None) -> tuple[str | None, dict[str, An
     return None, state
 
 
-def after_action(action: str | None, seen: Any) -> tuple[dict[str, Any] | None, bool]:
-    """A press on the welcome, a tip or the Guide: the record after it (None: unchanged), and
-    whether the slot says the welcome and tips will come again."""
-    state = seen_state(seen)
+def patch_for(kind: str | None, screen: str | None) -> dict[str, Any] | None:
+    """What a first visit tells the browser it showed, for the browser to merge into its record
+    (None: nothing shown). It says only that: whatever else the record holds by the time the
+    answer lands — tips turned off meanwhile, say — is the browser's, and stays.
+
+    Each patch is new, so one that repeats an earlier one still reaches the browser.
+    """
+    if kind not in ("welcome", "tip") or not screen:
+        return None
+    return {"op": "shown", "screen": screen, "welcome": kind == "welcome", "stamp": uuid.uuid4().hex}
+
+
+def after_action(action: str | None) -> tuple[dict[str, Any] | None, bool]:
+    """A press on the welcome, a tip or the Guide: the patch it makes to the record (None:
+    unchanged), and whether the slot says the welcome and tips will come again.
+
+    The browser applies the patch itself, the moment the button is pressed. An answer from the
+    server may never arrive: the renderer drops a call to a pattern-matched callback that is
+    still on its way when the next screen draws or removes that callback's buttons.
+    """
     if action == "tips-off":
-        state["tips"] = False
-        return state, False
+        return {"op": "tips-off"}, False
     if action == "reset":
-        return dict(SEEN_DEFAULT, screens=[]), True
+        return {"op": "reset"}, True
     return None, False
+
+
+#: The patch each button on the welcome, a tip or the Guide makes to the record, by its action:
+#: handed to the browser, which applies it when the button is pressed.
+PRESS_PATCHES = {a: p for a in ("close", "tips-off", "reset") if (p := after_action(a)[0])}
 
 
 def pressed(triggered: Any, clicks: list | None, spec: list[dict]) -> bool:
@@ -361,31 +388,33 @@ def register(app) -> None:
 
     @app.callback(
         Output(ids.HELP_HINT, "children"),
-        Output(ids.HELP_SEEN, "data"),
+        Output(ids.HELP_PATCH, "data"),
         Input(ids.HELP_SCREEN, "data"),
         State(ids.HELP_SEEN, "data"),
     )
     def show_first_visit(screen, seen):
-        kind, state = first_visit(seen, screen)
+        """What the screen shows unasked, and the patch saying so; never the record itself."""
+        kind, _ = first_visit(seen, screen)
+        patch = patch_for(kind, screen)
         if kind == "welcome":
-            return welcome(get_context().current_user().role, screen), state
+            return welcome(get_context().current_user().role, screen), patch
         if kind == "tip":
             help_ = GuideService(get_context().registry).screen(screen)
-            return (tip(help_) if help_ and help_.tip else None), state
+            return (tip(help_) if help_ and help_.tip else None), patch
         return None, no_update
 
     @app.callback(
-        Output(ids.HELP_SEEN, "data", allow_duplicate=True),
         Output(ids.HELP_HINT, "children", allow_duplicate=True),
         Input({"type": ids.HELP_ACTION, "action": ALL}, "n_clicks"),
-        State(ids.HELP_SEEN, "data"),
         prevent_initial_call=True,
     )
-    def help_action(clicks, seen):
+    def help_action(clicks):
+        """The slot after a press: closed, or saying the welcome and tips will come again. The
+        record is the browser's, and it has changed already."""
         if not pressed(ctx.triggered_id, clicks, ctx.inputs_list[0]):
-            return no_update, no_update
-        state, again = after_action(ctx.triggered_id.get("action"), seen)
-        note = (
+            return no_update
+        _, again = after_action(ctx.triggered_id.get("action"))
+        return (
             dmc.Text(
                 "Done: the welcome and each screen's tip will show again, once each.",
                 size="sm",
@@ -394,4 +423,32 @@ def register(app) -> None:
             if again
             else None
         )
-        return (state if state is not None else no_update), note
+
+    # The record's only writers, both in the browser and both merging a patch into the record as
+    # it stands when they run: what a first visit showed, when the server's answer lands, and a
+    # press on the welcome, a tip or the Guide, when it is made.
+    app.clientside_callback(
+        """
+        function(patch, seen) {
+            if (!patch || !window.eaHelp) { return window.dash_clientside.no_update; }
+            return window.eaHelp.merge(seen, patch);
+        }
+        """,
+        Output(ids.HELP_SEEN, "data"),
+        Input(ids.HELP_PATCH, "data"),
+        State(ids.HELP_SEEN, "data"),
+        prevent_initial_call=True,
+    )
+    app.clientside_callback(
+        f"""
+        function(clicks, seen) {{
+            const action = window.eaHelp && window.eaHelp.pressed(clicks);
+            const patch = action && {json.dumps(PRESS_PATCHES)}[action];
+            return patch ? window.eaHelp.merge(seen, patch) : window.dash_clientside.no_update;
+        }}
+        """,
+        Output(ids.HELP_SEEN, "data", allow_duplicate=True),
+        Input({"type": ids.HELP_ACTION, "action": ALL}, "n_clicks"),
+        State(ids.HELP_SEEN, "data"),
+        prevent_initial_call=True,
+    )
