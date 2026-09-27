@@ -241,9 +241,21 @@ def test_a_page_s_own_headings_sit_under_the_one_that_holds_it():
     )
 
 
-def test_the_help_callbacks_are_wired_to_the_shell_and_the_pages():
+def _help_app() -> dash.Dash:
     app = dash.Dash(__name__)
     screen_help.register(app)
-    outputs = " ".join(str(cb["output"]) for cb in app.callback_map.values())
+    return app
+
+
+def test_the_help_callbacks_are_wired_to_the_shell_and_the_pages():
+    outputs = " ".join(str(cb["output"]) for cb in _help_app().callback_map.values())
     for target in (ids.HELP_DRAWER, ids.HELP_BODY, ids.HELP_HINT, ids.HELP_SEEN):
         assert target in outputs, target
+
+
+def test_following_a_link_from_the_side_panel_closes_it():
+    """On the Guide a link to one of its sections changes only the address's fragment, and the
+    panel stood open over the section it had just brought into view."""
+    opens = [cb for cb in _help_app().callback_map.values() if ids.HELP_DRAWER in str(cb["output"])]
+    assert opens and {"id": ids.URL, "property": "hash"} in opens[0]["inputs"]
+    assert {"id": ids.URL, "property": "pathname"} in opens[0]["inputs"]

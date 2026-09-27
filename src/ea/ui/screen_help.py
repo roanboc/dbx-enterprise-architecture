@@ -344,10 +344,12 @@ def register(app) -> None:
         Output(ids.HELP_TITLE, "children"),
         Input({"type": ids.HELP_OPEN, "screen": ALL, "place": ALL}, "n_clicks"),
         Input(ids.URL, "pathname"),
+        Input(ids.URL, "hash"),
         prevent_initial_call=True,
     )
-    def open_help(clicks, _pathname):
-        """A help button opens its screen's help; moving to another screen closes it."""
+    def open_help(clicks, _pathname, _hash):
+        """A help button opens its screen's help; following a link closes it — to another
+        screen, or to a section of the Guide while the Guide is the screen."""
         button = ctx.triggered_id
         if not isinstance(button, dict):
             return False, no_update, no_update

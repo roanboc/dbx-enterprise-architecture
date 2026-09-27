@@ -59,10 +59,50 @@ def _drawer_open(ui) -> bool:
     return ui.page.locator(DRAWER).first.is_visible() if ui.page.locator(DRAWER).count() else False
 
 
+def _shut(ui) -> bool:
+    """Wait for the side panel to finish closing, and say whether it did."""
+    try:
+        ui.page.wait_for_selector(DRAWER, state="hidden", timeout=5_000)
+        return True
+    except Exception:  # noqa: BLE001 — a panel left open is the finding
+        return False
+
+
 def _focus(ui) -> str:
     """What has the keyboard: the element's tag and, for an input, its type."""
     return ui.page.evaluate(
         "() => { const e = document.activeElement; return e ? `${e.tagName} ${e.type || ''}`.trim() : ''; }"
+    )
+
+
+#: Whether the element a link points at stands at the top of the window, below the header, or as
+#: near it as the page scrolls: the last section of a long page cannot be brought any higher.
+LANDED = """id => {
+  const el = document.getElementById(id);
+  if (!el) { return false; }
+  const top = el.getBoundingClientRect().top;
+  const bottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+  return window.scrollY > 0 && top > -20 && (top < 150 || (bottom && top < window.innerHeight));
+}"""
+
+
+def _landed(ui, anchor: str) -> bool:
+    """Wait for a link to land on its section, and say whether it stayed there."""
+    try:
+        ui.page.wait_for_function(LANDED, arg=anchor, timeout=10_000)
+        ui.page.wait_for_timeout(400)  # the page may still be drawing what stands above it
+        return bool(ui.page.evaluate(LANDED, anchor))
+    except Exception:  # noqa: BLE001 — where the page stopped is the finding
+        return False
+
+
+def _where(ui, anchor: str) -> str:
+    """Where the page stands, for the report when a link did not land."""
+    return ui.page.evaluate(
+        "id => { const el = document.getElementById(id); return JSON.stringify({scrollY: window.scrollY, "
+        "top: el ? Math.round(el.getBoundingClientRect().top) : null, hash: location.hash, "
+        "path: location.pathname}); }",
+        anchor,
     )
 
 
@@ -282,3 +322,54 @@ def test_help_at_480(newcomer, record):
     box = ui.page.locator(DRAWER).first.bounding_box() or {"width": 10_000}
     ui.check("the side panel fits the width", box["width"] <= 481, str(box))
     ui.shot("the side panel at 480 px", full_page=False)
+
+
+@pytest.mark.scenario(
+    scenario_id="V07",
+    group="V",
+    title="A link to a section of the Guide lands on that section",
+    feature="Help · the Guide",
+    expected=(
+        "A link in the Guide's contents scrolls to its section. From another screen, the side panel's "
+        "link to the guide for the reader's role opens the Guide at that section. On the Guide itself, "
+        "a link in the side panel closes the panel and scrolls to its section. An address naming a "
+        "section, opened afresh, lands on it too."
+    ),
+)
+def test_guide_links_land_on_their_section(ui, record):
+    ui.goto("/guide")
+    ui.page.locator(".ea-guide-contents a[href='#screen-users']").first.click()
+    ui.check(
+        "a link in the Guide's contents lands on its section",
+        _landed(ui, "screen-users"),
+        _where(ui, "screen-users"),
+    )
+    ui.shot("the Guide at Users and roles, from its contents", full_page=False)
+
+    ui.goto("/browse")
+    ui.click(TITLE_BUTTON)
+    ui.page.wait_for_selector(DRAWER, state="visible", timeout=15_000)
+    link = ui.page.locator(f"{DRAWER} a", has_text="The guide for your role").first
+    role = (link.get_attribute("href") or "#").split("#", 1)[1]
+    link.click()
+    ui.settle()
+    ui.check("the side panel's link opens the Guide", ui.page.evaluate("() => location.pathname") == "/guide")
+    ui.check("it lands on the guide for the reader's role", _landed(ui, role), _where(ui, role))
+    ui.check("the panel closes behind it", _shut(ui))
+    ui.shot("the Guide at the reader's role, from the side panel of Browse", full_page=False)
+
+    ui.click(TITLE_BUTTON)
+    ui.page.wait_for_selector(DRAWER, state="visible", timeout=15_000)
+    ui.page.locator(f"{DRAWER} a", has_text="Getting started").first.click()
+    ui.settle()
+    ui.check("on the Guide, a link in the side panel closes it", _shut(ui))
+    ui.check("and lands on its section", _landed(ui, "getting-started"), _where(ui, "getting-started"))
+    ui.shot("the Guide at Getting started, from its own side panel", full_page=False)
+
+    ui.goto("/guide#the-boundary")
+    ui.check(
+        "an address naming a section, opened afresh, lands on it",
+        _landed(ui, "the-boundary"),
+        _where(ui, "the-boundary"),
+    )
+    ui.shot("the Guide opened at the boundary", full_page=False)

@@ -7,7 +7,7 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**500 scenarios in twenty-three groups**, and around fifty minutes end to end. The
+**501 scenarios in twenty-three groups**, and around fifty minutes end to end. The
 command-line group (M, 79 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
@@ -70,7 +70,7 @@ where the round is the only thing that can see it.
 | - | ----- | ------ | --------- |
 | S | Critical path | One new organisation from nothing to deleted, in the order each step needs the last: its own metamodel version, elements by hand and by import, a merge, discovery, every graph mode, a proposal, a question, updates and deletions, export and isolation | 11 |
 | A | Shell and navigation | The header, the four navigation groups, routing, the narrow viewport | 19 |
-| V | Help and first visits | The welcome once, each screen's tip once and turned off, the help beside every title in its side panel, the Guide gathering it all, at 480 px; in a browser of their own, since every other group runs as a returning reader | 5 |
+| V | Help and first visits | The welcome once, each screen's tip once and turned off, the help beside every title in its side panel and the `?` key's rules, the Guide gathering it all and its links landing on their sections, at 480 px; in a browser of their own, since every other group runs as a returning reader | 6 |
 | B | Browse | Filters, ranked search, the grid, the New element modal, bulk edit | 29 |
 | C | Element | Five tabs, editing, relationships, the graph, the generated view, history | 35 |
 | D | Impact | Closure both ways, completeness, the graph and the view | 19 |

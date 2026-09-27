@@ -152,21 +152,27 @@ def _screens(groups: list[tuple[str, list[ScreenHelp]]]) -> dmc.Paper:
     return dmc.Paper(blocks, p="lg", withBorder=True, className="ea-card ea-guide-persona")
 
 
+def _link(title: str, anchor: str) -> html.A:
+    """A link to a section of this page, left to the browser: it scrolls to the section itself.
+
+    A Mantine anchor takes the click, changes the address and puts the page back at its top,
+    which on a page this long left the reader where they were."""
+    return html.A(title, href=f"#{anchor}", className="mantine-focus-auto ea-guide-link")
+
+
 def _contents(start: list[GuideSection], groups, roles: list[GuideSection]) -> dmc.Paper:
     def column(title: str, links: list) -> dmc.Stack:
         return dmc.Stack([dmc.Text(title, size="xs", fw=700, c="dimmed", tt="uppercase"), *links], gap=2)
 
-    screens = [dmc.Anchor(h.title, href=f"#screen-{h.key}", size="sm") for _, helps in groups for h in helps]
+    screens = [_link(h.title, f"screen-{h.key}") for _, helps in groups for h in helps]
     return dmc.Paper(
         dmc.Stack(
             [
                 html.Div(
                     [
-                        column(
-                            "Start here", [dmc.Anchor(s.title, href=f"#{s.slug}", size="sm") for s in start]
-                        ),
+                        column("Start here", [_link(s.title, s.slug) for s in start]),
                         column("The screens", screens),
-                        column("By role", [dmc.Anchor(s.title, href=f"#{s.slug}", size="sm") for s in roles]),
+                        column("By role", [_link(s.title, s.slug) for s in roles]),
                     ],
                     className="ea-guide-contents",
                 ),

@@ -393,3 +393,11 @@ body { background: #e9ecef; }
 .ea-guide-screen { border-top: 1px solid var(--mantine-color-gray-3); margin-top: 0.75rem; padding-top: 0.5rem; }
 .ea-guide-contents { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; }
 .ea-guide-contents > * { min-width: 10rem; }
+/* the contents' plain links, drawn as the application's other links are */
+.ea-guide-link {
+  color: var(--mantine-color-anchor);
+  font-size: var(--mantine-font-size-sm);
+  line-height: var(--mantine-line-height-sm);
+  text-decoration: none;
+}
+.ea-guide-link:hover { text-decoration: underline; }

@@ -84,5 +84,43 @@ def test_every_anchor_on_the_page_is_its_own(app_context):
     assert "the-boundary" in anchors  # Propose links to it by that name
 
 
+def _links(component) -> list:
+    """Every component in a rendered tree that carries an address."""
+    out: list = []
+
+    def walk(node):
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+            return
+        if node is None or isinstance(node, (str, int, float)):
+            return
+        if getattr(node, "href", None):
+            out.append(node)
+        for attribute in ("children", "label"):
+            value = getattr(node, attribute, None)
+            if value is not None and not isinstance(value, str):
+                walk(value)
+
+    walk(component)
+    return out
+
+
+def test_the_contents_link_to_their_sections_the_way_the_browser_scrolls_to_them(app_context):
+    """A Mantine anchor takes the click from the browser, changes the address itself and puts the
+    page back at its top, so a contents link on a page 25 000 px long went nowhere. A plain link
+    leaves it to the browser, which scrolls to the section the fragment names."""
+    page = render(app_context)
+    anchors = set(_anchors(page))
+    within = [link for link in _links(page) if str(link.href).startswith("#")]
+    assert within, "the contents link to nothing"
+    plain = {type(link).__name__ for link in within}
+    assert plain == {"A"} and all(type(link).__module__.startswith("dash.html") for link in within), plain
+    missing = sorted(link.href for link in within if link.href[1:] not in anchors)
+    assert not missing, f"a contents link names a section the page does not carry: {missing}"
+    hrefs = {link.href for link in within}
+    assert {"#getting-started", "#screen-users", "#reader"} <= hrefs
+
+
 def test_the_guide_brings_the_welcome_and_tips_back(app_context):
     assert "Show the welcome and tips again" in _texts(render(app_context))
