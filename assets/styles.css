@@ -341,7 +341,7 @@ body { background: #e9ecef; }
 }
 
 /* The first thing the keyboard finds, and the only thing that shows it: a reader working
-   without a mouse would otherwise walk the header and the ten navigation links on every
+   without a mouse would otherwise walk the header and every navigation link on every
    screen before reaching the page. */
 .ea-skip-link {
   position: absolute;
@@ -359,6 +359,13 @@ body { background: #e9ecef; }
 .ea-skip-link:focus,
 .ea-skip-link:focus-visible {
   left: 0;
+}
+
+/* Where the skip link puts the keyboard (ea-a11y.js). The page holds the focus only until
+   the next Tab and is not a control, so it draws no ring: a ring round the whole screen
+   says nothing about what the next key would do. */
+#page:focus {
+  outline: none;
 }
 
 /* Said to a screen reader and to nothing else: the reason a disabled control gives when

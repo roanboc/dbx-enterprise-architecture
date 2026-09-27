@@ -1,4 +1,6 @@
-/* Names for the controls the component libraries render without one.
+/* What a keyboard or a screen reader needs that the markup alone does not give it: names for
+   the controls the component libraries render without one, and a skip link that moves the
+   keyboard and not only the view.
 
    A file input inside an upload area, and the occasional button a library draws with an
    icon and no text, reach the page with nothing a screen reader can announce — there is
@@ -47,4 +49,34 @@
     observer._t = window.setTimeout(pass, 150);
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
+})();
+
+/* "Skip to the page" hands the keyboard to the page itself.
+
+   Followed as a plain link it only scrolls: the focus falls to the document, a screen reader
+   says nothing about where the reader now is, and whether the next Tab starts from the page
+   or from the top of the header is up to the browser. So the page container takes the focus
+   instead, and the next Tab reaches the page's first control in every browser. It is made
+   focusable for that moment and plain again once the focus moves on — a click on the page's
+   background must not pull the tab order back to the page's top — and the address is left as
+   it was, since there is nowhere to go back to. Nothing scrolls either: the link is only on screen at the top of the
+   window, where the page already shows below the header, and scrolling the page's top to the
+   window's top would put its title under the header pinned there. Without this script the
+   link still does what a plain link does. */
+(function () {
+  document.addEventListener('click', function (ev) {
+    if (ev.defaultPrevented || ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) {
+      return;
+    }
+    var link = ev.target && ev.target.closest ? ev.target.closest('a.ea-skip-link') : null;
+    var target = link ? document.getElementById((link.getAttribute('href') || '').slice(1)) : null;
+    if (!target) { return; }
+    ev.preventDefault();
+    target.setAttribute('tabindex', '-1');
+    target.addEventListener('blur', function done() {
+      target.removeAttribute('tabindex');
+      target.removeEventListener('blur', done);
+    });
+    target.focus({ preventScroll: true });
+  });
 })();
