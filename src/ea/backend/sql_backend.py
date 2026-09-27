@@ -99,7 +99,12 @@ _FORBIDDEN_RE = re.compile(
     r"\b(insert|update|delete|merge|drop|alter|create|truncate|attach|copy|export|import|pragma|call|"
     # set_config() changes a setting from inside a SELECT, and the change outlives the read-only
     # transaction on the connection every later query shares.
-    r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck|set_config)\b",
+    r"install|load|grant|revoke|vacuum|optimize|restore|refresh|msck|set_config)\b"
+    # So do DuckDB's logging, profiling and checkpoint switches, its variables and the random
+    # seed: `enable_logging(storage := 'file', …)`, on a connection that reads no file, fails
+    # every statement after it until the process restarts. Refused as calls, so that a column
+    # or an alias of the same name is not.
+    r"|\b(?:(?:enable|disable)_\w+|truncate_duckdb_logs|(?:force_)?checkpoint|set_variable|setseed)\s*\(",
     re.IGNORECASE,
 )
 #: The catalogues a reader could find the store's own schema names in, and the qualifiers
@@ -112,10 +117,14 @@ _ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", 
 #: `query_table('ea_content.element')`, `query_to_xml('select … from ea_content.element', …)`,
 #: `read_csv('…')`. The scoping shadows the names a query is written with, and a name inside a
 #: string is a value it cannot see. DuckDB's and Postgres's alike, refused on both engines.
+#: DuckDB's own macros that call `query_table()` are among them — `histogram_values()`, and
+#: `histogram()` that calls it (`tests/test_organisations.py` lists them from DuckDB itself);
+#: DuckDB's `histogram()` aggregate of the same name goes with it, and a GROUP BY answers what
+#: it would, on both engines.
 _STRING_READER_RE = re.compile(
     r"\b(query|query_table|json_execute_serialized_sql|glob|sniff_csv|read_\w+|parquet_\w+|iceberg_\w+|"
     r"delta_scan|postgres_\w+|mysql_\w+|(?:query|table|cursor|schema|database)_to_xml\w*|ts_stat|"
-    r"ts_rewrite|dblink\w*|crosstab\w*|connectby|lo_\w+)\s*\(",
+    r"ts_rewrite|dblink\w*|crosstab\w*|connectby|lo_\w+|histogram(?:_values)?)\s*\(",
     re.IGNORECASE,
 )
 #: The database's own catalogues and functions, reached without naming a schema: `pg_stats`

@@ -8,12 +8,15 @@ compatibility check; the roles guard the lot.
 
 from __future__ import annotations
 
+import re
+
+import duckdb
 import pytest
 from tests.conftest import HIGHER_ED
 
 from ea.backend.branching import use_branch
 from ea.backend.organisations import DEFAULT_ORG, current_org, org_id_from_name, use_org
-from ea.backend.sql import schemas
+from ea.backend.sql import schema_of, schemas
 from ea.metamodel import Registry
 from ea.metamodel.loader import pack_to_dict
 from ea.models import ConflictError, Element, Forbidden, NotFoundError, Relationship
@@ -347,6 +350,52 @@ def test_a_readers_ordinary_sql_still_answers_for_its_organisation(loaded, orgs)
         assert n("with c as (select * from element) select count(*) as n from c") == 1
         assert n("select count(*) as n -- how many\nfrom element /* ours */;") == 1
         assert loaded.query("select 'it''s -- not a comment' as x")["x"][0] == "it's -- not a comment"
+
+
+def _duckdb_macros_that_read_a_name_in_a_string() -> list[str]:
+    """DuckDB's own macros that reach `query_table()` or `query()`, however many macros deep.
+
+    Read from DuckDB itself, on a connection of the test's own, so a version of DuckDB that
+    ships another such macro fails the test below until the deny-list names it too."""
+    con = duckdb.connect()
+    try:
+        macros = con.execute(
+            "SELECT DISTINCT function_name, macro_definition FROM duckdb_functions() "
+            "WHERE function_type IN ('macro', 'table_macro') AND macro_definition IS NOT NULL"
+        ).fetchall()
+    finally:
+        con.close()
+    readers = {"query_table", "query"}
+    while True:
+        calls = re.compile(r'(?<![\w$])"?(?:' + "|".join(map(re.escape, readers)) + r')"?\s*\(', re.I)
+        more = {name for name, body in macros if name not in readers and calls.search(body)}
+        if not more:
+            return sorted(readers - {"query_table", "query"})
+        readers |= more
+
+
+def test_a_readers_sql_cannot_reach_a_table_through_one_of_duckdbs_own_macros(loaded, orgs):
+    """`histogram_values('ea_content.element', …)` is a macro DuckDB ships, and it reads the table
+    named in its string through `query_table()`: every organisation's rows, and the role grants
+    only admins read. Every macro of DuckDB's own that reaches `query_table()` or `query()` is
+    refused by name, on both engines, as the functions it calls are."""
+    found = _duckdb_macros_that_read_a_name_in_a_string()
+    assert {"histogram", "histogram_values"} <= set(found), "the listing still finds what it is for"
+    orgs.create("Trial", "ada")
+    with use_org("trial"):
+        loaded.insert_element(Element("E1", "capability", "Only ours"), "ada")
+        content, governance = schemas(loaded.schema_prefix)[1], schema_of("role_grant", loaded.schema_prefix)
+        for name in found:
+            for query in (
+                f"select * from {name}('{content}.element', org_id || '|' || element_id)",
+                f"select * from {name}('{governance}.role_grant', group_id, bin_count := 1000)",
+                f"select count(*) as n from element, lateral {name}('{content}.element', name)",
+                f"select * from \"{name.upper()}\" /* spaced */ ('{content}.element', org_id)",
+                f"select {name}('{content}.element', org_id) as n",
+            ):
+                with pytest.raises(ValueError, match="named in a string"):
+                    loaded.query(query)
+        assert int(loaded.query("select count(*) as n from element")["n"][0]) == 1
 
 
 def test_an_older_store_is_given_its_organisation(backend, pack):

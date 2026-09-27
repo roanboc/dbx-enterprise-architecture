@@ -128,6 +128,42 @@ def test_query_is_read_only(backend):
     assert len(backend.query("select * from change_log where op = 'delete; drop'")) == 0
 
 
+def test_a_readers_sql_cannot_switch_what_the_shared_connection_does(backend, tmp_path):
+    """DuckDB's logging, profiling and checkpoint switches, and its variables, are called from a
+    SELECT, and what they change outlives it on the connection every later query shares.
+
+    `enable_logging(storage := 'file', …)` on a store that reads no file left every statement
+    after it failed — every user's pages, every write — until the process restarted, and
+    `enable_profiling()` printed a profile of every later statement. Each is refused with the
+    other writes, on both engines, and the store answers as before.
+    """
+    backend.insert_element(Element("X1", "capability", "Cap"), "ada")
+    logs = tmp_path / "logs"
+    for query in (
+        f"select * from enable_logging(storage := 'file', storage_path := '{logs}')",
+        "select * from enable_logging()",
+        "select * from disable_logging()",
+        "select * from enable_profiling()",
+        "select * from disable_profiling()",
+        "select * from truncate_duckdb_logs()",
+        "select * from checkpoint()",
+        "select * from force_checkpoint()",
+        "select set_variable('x', 1) as n",
+        "select setseed(0.5) as n",
+        'select count(*) as n from element, "ENABLE_LOGGING" /* spaced */ ()',
+        "with c as (select * from checkpoint()) select * from c",
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            backend.query(query)
+    assert not logs.exists()
+    assert len(backend.query("select * from element")) == 1, "the reader's own SQL still answers"
+    assert backend.count_elements() == 1, "and so does the store"
+    backend.insert_element(Element("X2", "capability", "Cap 2"), "ada")
+    assert backend.count_elements() == 2, "and it still writes"
+    # a word is not a call: a column or an alias of the same name is not refused
+    assert list(backend.query("select 1 as checkpoint")["checkpoint"]) == [1]
+
+
 def test_a_readers_sql_reads_no_file_on_duckdb(tmp_path):
     """DuckDB reads a file named where a table stands — `from 'x.csv'`, `from "x.json"` — as a
     table, and no reading of the query text finds every place a name can stand. So the engine is
