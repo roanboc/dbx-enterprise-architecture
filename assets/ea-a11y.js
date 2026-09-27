@@ -55,22 +55,31 @@
 
    Followed as a plain link it only scrolls: the focus falls to the document, a screen reader
    says nothing about where the reader now is, and whether the next Tab starts from the page
-   or from the top of the header is up to the browser. So the page container takes the focus
-   instead, and the next Tab reaches the page's first control in every browser. It is made
-   focusable for that moment and plain again once the focus moves on — a click on the page's
-   background must not pull the tab order back to the page's top — and the address is left as
-   it was, since there is nowhere to go back to. Nothing scrolls either: the link is only on screen at the top of the
-   window, where the page already shows below the header, and scrolling the page's top to the
-   window's top would put its title under the header pinned there. Without this script the
-   link still does what a plain link does. */
+   or from the top of the header is up to the browser. So the keyboard goes to the page's
+   title instead, and the next Tab reaches the page's first control in every browser. The
+   title, and not the container the link points at: a screen reader announces what takes the
+   focus by its role and its name, and a container with no role of its own is named from
+   everything inside it — the whole page read out on every skip — where the title is heard as
+   "Browse, heading level 1", which is where the reader now is. The title is the page's first
+   line, so nothing on the page comes before it in the tab order. A page with no title yet,
+   still being drawn, gives the keyboard to the main landmark around it, which a screen reader
+   announces by its role and never names from its contents.
+
+   What takes the focus is made focusable for that moment and plain again once the focus
+   moves on — a click on the title must not pull the tab order back to the page's top — and
+   the address is left as it was, since there is nowhere to go back to. Nothing scrolls
+   either: the link is only on screen at the top of the window, where the page already shows
+   below the header, and scrolling the title to the window's top would put it under the
+   header pinned there. Without this script the link still does what a plain link does. */
 (function () {
   document.addEventListener('click', function (ev) {
     if (ev.defaultPrevented || ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) {
       return;
     }
     var link = ev.target && ev.target.closest ? ev.target.closest('a.ea-skip-link') : null;
-    var target = link ? document.getElementById((link.getAttribute('href') || '').slice(1)) : null;
-    if (!target) { return; }
+    var page = link ? document.getElementById((link.getAttribute('href') || '').slice(1)) : null;
+    if (!page) { return; }
+    var target = page.querySelector('h1') || page.closest('main') || page;
     ev.preventDefault();
     target.setAttribute('tabindex', '-1');
     target.addEventListener('blur', function done() {

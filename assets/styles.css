@@ -361,10 +361,19 @@ body { background: #e9ecef; }
   left: 0;
 }
 
-/* Where the skip link puts the keyboard (ea-a11y.js). The page holds the focus only until
-   the next Tab and is not a control, so it draws no ring: a ring round the whole screen
-   says nothing about what the next key would do. */
-#page:focus {
+/* Where the skip link puts the keyboard (ea-a11y.js): the page's title, ringed as the
+   application's controls are, so a reader who can see it knows where the keyboard went. The
+   ring goes round the words, not the width of the column the title stands in; the title is
+   on a line of its own, so narrowing its box moves nothing. It holds the focus only until the
+   next Tab. The landmark taken instead while a page is still being drawn draws no ring: a
+   ring round the whole screen says nothing about where the reader is. */
+#page h1:focus-visible {
+  width: fit-content;
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+main:focus {
   outline: none;
 }
 

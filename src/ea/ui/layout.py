@@ -252,7 +252,7 @@ def shell(
             help_drawer(),
             # The first thing the keyboard reaches, so a reader working without a mouse is
             # not walked through the header and every navigation link on every screen.
-            # Following it hands the keyboard to the page itself (assets/ea-a11y.js).
+            # Following it hands the keyboard to the page's title (assets/ea-a11y.js).
             html.A("Skip to the page", href="#page", className="ea-skip-link"),
             dmc.AppShell(
                 [
