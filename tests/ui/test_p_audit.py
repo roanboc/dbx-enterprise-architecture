@@ -1065,6 +1065,13 @@ SKIP_LIMIT = 8  # tab stops a reader should not have to pass to reach the page i
 # that is hidden — so read further into a page it reports rings those controls do draw.
 FOCUS_PAGE_STOPS = 1
 FOCUS_WALK_LIMIT = 80  # presses at most, for a walk that never finds its way back round
+# What a screen reader says as the skip link puts the reader on the page: the role and the name
+# the browser's accessibility tree gives the element that took the keyboard. A container with no
+# role of its own is named from everything inside it, so a reader skipping the shell would hear
+# the page read out whole; the place they arrive at has to be named in a few words — a title, or
+# a landmark, which is never named from its contents.
+SKIP_NAME_WORDS = 12
+UNNAMED_ROLES = ("", "generic", "none", "presentation")
 
 FOCUS_PROPERTIES = (
     "outline-style",
@@ -1117,8 +1124,9 @@ FOCUS_STOP_JS = (
 """
 )
 
-# Where the keyboard is now, for following the skip link: on the page container itself, or on
-# a control inside it — `closest('#page')` cannot tell the two apart.
+# Where the keyboard is now, for following the skip link: on the page rather than on one of its
+# controls — the page container, the landmark around it, or its title made focusable for the
+# moment — or on a control inside it; `closest('#page')` cannot tell the two apart.
 FOCUSED_JS = (
     """
 () => {
@@ -1134,8 +1142,9 @@ FOCUSED_JS = (
     sel: where(el),
     name: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 34),
     skip: !!el.closest('.ea-skip-link'),
-    page: el === page,
-    inside: !!page && el !== page && page.contains(el),
+    page: !!page && (el === page || (el.matches('main') && el.contains(page))
+      || (page.contains(el) && el.tabIndex < 0)),
+    inside: !!page && el !== page && page.contains(el) && el.tabIndex >= 0,
   };
 }
 """
@@ -1381,12 +1390,36 @@ def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3, in_page: 
     return stops
 
 
+def _announced(ui) -> dict:
+    """The role and the name a screen reader is given for the element that has the keyboard.
+
+    Read from the browser's own accessibility tree rather than worked out from the markup: how
+    a name is computed — from a label, from a heading's text, from everything a container holds
+    — is the browser's to decide, and it is what the screen reader hears.
+    """
+    cdp = ui.page.context.new_cdp_session(ui.page)
+    try:
+        focused = cdp.send("Runtime.evaluate", {"expression": "document.activeElement"})
+        object_id = focused.get("result", {}).get("objectId")
+        if not object_id:
+            return {"role": "", "name": ""}
+        tree = cdp.send("Accessibility.getPartialAXTree", {"objectId": object_id, "fetchRelatives": False})
+        node = next(iter(tree.get("nodes") or []), {})
+        return {
+            "role": str((node.get("role") or {}).get("value") or ""),
+            "name": " ".join(str((node.get("name") or {}).get("value") or "").split()),
+        }
+    finally:
+        cdp.detach()
+
+
 def _follow_skip_link(ui, path: str) -> dict:
     """Open a screen afresh and do what a keyboard reader does to skip the shell.
 
     One Tab, which should find the skip link; Enter on it; and one Tab more, which should land
     on the page's first control. Where the keyboard is after each is returned, and nothing
-    after the first Tab when that did not find a skip link.
+    after the first Tab when that did not find a skip link; after Enter, with what a screen
+    reader is told of the place it went.
     """
     ui.goto(path)
     ui.page.keyboard.press("Tab")
@@ -1396,7 +1429,7 @@ def _follow_skip_link(ui, path: str) -> dict:
         return {"first": first}
     ui.page.keyboard.press("Enter")
     ui.page.wait_for_timeout(300)
-    taken = ui.page.evaluate(FOCUSED_JS)
+    taken = ui.page.evaluate(FOCUSED_JS) | {"said": _announced(ui)}
     ui.page.keyboard.press("Tab")
     ui.page.wait_for_timeout(140)
     return {"first": first, "taken": taken, "landed": ui.page.evaluate(FOCUSED_JS)}
@@ -2061,8 +2094,10 @@ def test_dialogs_audit(ui, record, finding):
     title="Checkpoint 9 · tabbing reaches the controls and shows where it is",
     feature="Screen audit · focus",
     expected="On Home, Browse and Ask the first Tab finds the skip link, Enter on it hands the keyboard to "
-    "the page itself, and the next Tab lands on the page's first control — the header and the navigation "
-    "skipped in one press, however long the navigation grows. Walked from the top without it, the keyboard "
+    "the page itself — to something a screen reader names in a few words, such as the page's title, and "
+    "not to a container it would name by reading out the whole page — and the next Tab lands on the "
+    "page's first control: the header and the navigation skipped in one press, however long the "
+    "navigation grows. Walked from the top without it, the keyboard "
     "moves through the header and the navigation into the page, and every control it lands on changes as "
     "it takes the keyboard — an outline, a ring, a border — read by measuring each control focused and again "
     "at rest. A control that changes in no way at all is lodged; so is a screen with no working way past the "
@@ -2120,6 +2155,15 @@ def test_focus_audit(ui, record, finding):
                 f"checkpoint 9 · {name} · Enter on the skip link hands the keyboard to the page itself",
                 taken["page"],
                 f"the keyboard is on {taken['sel']}",
+            )
+            said = taken["said"]
+            words = len(said["name"].split())
+            ui.check(
+                f"checkpoint 9 · {name} · a screen reader names where the skip link went in a few words",
+                said["role"] not in UNNAMED_ROLES and words <= SKIP_NAME_WORDS,
+                f"{said['role'] or 'no role'} named {said['name'][:70]!r}"
+                + ("…" if len(said["name"]) > 70 else "")
+                + f" ({words} word{'' if words == 1 else 's'})",
             )
             ui.check(
                 f"checkpoint 9 · {name} · Tab, Enter on the skip link, then Tab lands inside the page",
