@@ -496,3 +496,66 @@ def test_role_gating(ui, record):
     ui.shot("The Organisations page as an Architect: readable, checkable, not manageable")
     ui.persona("Admin")
     ui.page.wait_for_timeout(300)
+
+
+@pytest.mark.scenario(
+    scenario_id="Q08",
+    group="Q",
+    title="An admin renames the default organisation, the header and Home follow, and the name goes back",
+    feature="Organisations · rename",
+    expected=(
+        "Rename opens a dialog filled with the organisation's name and description; Save changes the "
+        "name and keeps the identifier; the row, the header's organisation selector and Home's title "
+        "say the new name at once. An empty name is refused and says so. The round renames it back, "
+        "so every later group meets the organisation it expects."
+    ),
+)
+def test_rename(ui, record):
+    new_name = "Example University"
+    _open(ui)
+    ui.click(_action("rename", DEFAULT))
+    ui.page.wait_for_timeout(300)
+    ui.settle()
+    ui.must("the rename dialog opened", ui.visible("orgs-rename-modal-body"))
+    ui.check(
+        "it is filled with the name as it stands",
+        ui.page.locator("#orgs-rename-name").input_value() == DEFAULT_NAME,
+        ui.page.locator("#orgs-rename-name").input_value(),
+    )
+    ui.fill("orgs-rename-name", "   ")
+    ui.click("orgs-rename-save")
+    ui.check(
+        "an empty name is refused",
+        "needs a name" in ui.text("orgs-rename-feedback"),
+        ui.text("orgs-rename-feedback"),
+    )
+    ui.fill("orgs-rename-name", new_name)
+    ui.fill("orgs-rename-desc", "The enterprise this repository describes")
+    ui.shot("Renaming the default organisation")
+    ui.click("orgs-rename-save")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    said = ui.text("orgs-feedback")
+    ui.must("the name changed", f"is now called {new_name}" in said, said or "(no feedback)")
+    ui.check("the dialog closed", not ui.visible("orgs-rename-modal-body"))
+    ui.check(
+        "the row says the new name and the same identifier",
+        new_name.lower() in _row(ui, DEFAULT),
+        _row(ui, DEFAULT),
+    )
+    ui.check("the header's selector says the new name", _org_badge(ui) == new_name, _org_badge(ui))
+    ui.goto("/")
+    ui.check(
+        "Home is headed by the new name", ui.page.locator("#page h1").first.inner_text().strip() == new_name
+    )
+    ui.shot("Home under the organisation's new name")
+    _open(ui)
+    ui.click(_action("rename", DEFAULT))
+    ui.page.wait_for_timeout(300)
+    ui.settle()
+    ui.fill("orgs-rename-name", DEFAULT_NAME)
+    ui.fill("orgs-rename-desc", "")
+    ui.click("orgs-rename-save")
+    ui.page.wait_for_timeout(400)
+    ui.settle()
+    ui.must("the name went back", _org_badge(ui) == DEFAULT_NAME, _org_badge(ui))

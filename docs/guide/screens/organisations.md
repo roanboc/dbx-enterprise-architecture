@@ -16,7 +16,7 @@ everyone gets it.
   and **you are here** marks the one you are in.
 - For each organisation: the metamodel version it **applies**, its elements,
   relationships and open branches, and what it is about.
-- **Switch to**, **Make default** and **Delete** on every row.
+- **Switch to**, **Rename**, **Make default** and **Delete** on every row.
 - **New organisation**: **Name**, **What it is for**, **Metamodel version it applies**,
   **Copy the content of** and a **Create** button.
 - **Start from a metamodel that ships**: a **Metamodel** picker,
@@ -48,6 +48,9 @@ then publish the version and apply it to the default.
 
 ## Tips
 
+- **Rename** changes an organisation's name and description, the default one's too.
+  Its identifier stays, so links, branches and the command line keep working. The
+  header's selector and Home show the new name at once.
 - Switching organisation puts you on its main, because a branch belongs to the
   organisation it was opened in.
 - A copy takes the elements, relationships and links on main, the reviewer

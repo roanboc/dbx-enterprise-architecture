@@ -7,7 +7,7 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**504 scenarios in twenty-three groups**, and around fifty minutes end to end. The
+**505 scenarios in twenty-three groups**, and around fifty minutes end to end. The
 command-line group (M, 79 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
@@ -81,7 +81,7 @@ where the round is the only thing that can see it.
 | H | Import | Validation, loading, the issue report, the template | 23 |
 | I | Branches | Overlay, merge log, conflicts, review and the freeze | 26 |
 | J | Metamodel | One version at a time: the lists and what deleting a row takes with it, the type graph, the architecture view, notation, versions and their lifecycle, reviewers, export and load, the shape library | 26 |
-| Q | Organisations | The partition a version is tried in: creating a sandbox, switching, isolation, checking and applying a version, the default, deleting | 7 |
+| Q | Organisations | The partition a version is tried in: creating a sandbox, switching, isolation, checking and applying a version, renaming, the default, deleting | 8 |
 | U | Connected systems | The systems the assistant may read: connecting one and disconnecting it, what is refused, what a Reader sees | 4 |
 | W | Users and roles | Which workspace groups hold which role: a group picked and granted, a person checked, a grant removed, what an admin may not grant, what a Reader sees of their own role | 4 |
 | R | Feeds | Sources configured, scheduled and run, and the history of every import | 15 |

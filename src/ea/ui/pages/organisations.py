@@ -60,6 +60,27 @@ def _action(label: str, action: str, org_id: str, enabled: bool, colour: str = "
     )
 
 
+def rename(ctx: AppContext, org_id: str, name: str | None, description: str | None) -> tuple[bool, Any]:
+    """Rename an organisation, and what the page says about it: whether it took, and why not.
+
+    The identifier stays: it is what the content, the branches and every address key off,
+    so a name is corrected freely, the default one's included (ASVC11).
+    """
+    if not (name or "").strip():
+        return False, alert("An organisation needs a name.", "yellow")
+    try:
+        before = ctx.orgs.get(org_id)
+        o = ctx.orgs.update(org_id, ctx.actor, name.strip(), (description or "").strip())
+    except (ConflictError, Forbidden, NotFoundError, ValueError) as exc:
+        return False, alert(str(exc), "red")
+    said = (
+        f"{before.name} is now called {o.name}."
+        if before.name != o.name
+        else f"{o.name}'s description is saved."
+    )
+    return True, alert(said, "green")
+
+
 def _version_label(ctx: AppContext, ref: str) -> str:
     """A metamodel version as a reader knows it: its name and its version, never its key.
 
@@ -133,6 +154,7 @@ def organisations_table(ctx: AppContext) -> Any:
                             disabled=o.org_id == here,
                             leftSection=icon("tabler:building", 12),
                         ),
+                        _action("Rename", "rename", o.org_id, can_manage, "gray", "tabler:pencil"),
                         _action(
                             "Make default",
                             "default",
@@ -442,6 +464,35 @@ def render(ctx: AppContext, search: str | None = None) -> html.Div:
                 ),
             ),
             html.Div(id=ids.ORGS_CONFIRM_STORE, hidden=True),
+            dmc.Modal(
+                id=ids.ORGS_RENAME_MODAL,
+                title=modal_title("Rename the organisation", ids.ORGS_RENAME_MODAL),
+                closeButtonProps={"aria-label": "Close this dialog"},
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "The name is what the header, Home and every list show. The identifier stays "
+                            "as it is, so links, branches and the command line keep working.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.TextInput(id=ids.ORGS_RENAME_NAME, label="Name", required=True),
+                        dmc.Textarea(id=ids.ORGS_RENAME_DESC, label="Description", autosize=True, minRows=2),
+                        html.Div(id=ids.ORGS_RENAME_FEEDBACK),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Save",
+                                    id=ids.ORGS_RENAME_SAVE,
+                                    leftSection=icon("tabler:device-floppy", 16),
+                                )
+                            ],
+                            justify="flex-end",
+                        ),
+                    ]
+                ),
+            ),
+            html.Div(id=ids.ORGS_RENAME_STORE, hidden=True),
         ]
     )
 
@@ -600,6 +651,47 @@ def register(app: dash.Dash) -> None:
             return (alert(str(exc), "red"),) + (no_update,) * 5 + (False,)
         ctx.reload_registry()
         return refreshed(ctx, alert(f"Organisation {org_id} deleted.", "green")) + (False,)
+
+    @app.callback(
+        Output(ids.ORGS_RENAME_MODAL, "opened"),
+        Output(ids.ORGS_RENAME_NAME, "value"),
+        Output(ids.ORGS_RENAME_DESC, "value"),
+        Output(ids.ORGS_RENAME_STORE, "children"),
+        Output(ids.ORGS_RENAME_FEEDBACK, "children"),
+        Input({"type": ids.ORGS_ACTION, "action": "rename", "org": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def open_rename(clicks):
+        """The dialog, filled with the organisation's name and description as they stand."""
+        trigger = dash_ctx.triggered_id
+        if not isinstance(trigger, dict) or not any(n for n in (clicks or []) if n):
+            return (no_update,) * 5
+        ctx = get_context()
+        try:
+            o = ctx.orgs.get(trigger.get("org"))
+        except NotFoundError as exc:
+            return (no_update,) * 4 + (alert(str(exc), "red"),)
+        return True, o.name, o.description or "", o.org_id, None
+
+    @app.callback(
+        *list_outputs,
+        Output(ids.ORGS_RENAME_MODAL, "opened", allow_duplicate=True),
+        Output(ids.ORGS_RENAME_FEEDBACK, "children", allow_duplicate=True),
+        Input(ids.ORGS_RENAME_SAVE, "n_clicks"),
+        State(ids.ORGS_RENAME_STORE, "children"),
+        State(ids.ORGS_RENAME_NAME, "value"),
+        State(ids.ORGS_RENAME_DESC, "value"),
+        prevent_initial_call=True,
+        running=[(Output(ids.ORGS_RENAME_SAVE, "loading"), True, False)],
+    )
+    def save_rename(n, org_id, name, description):
+        if not n or not org_id:
+            return (no_update,) * 8
+        ctx = get_context()
+        ok, said = rename(ctx, org_id, name, description)
+        if not ok:
+            return (no_update,) * 7 + (said,)
+        return refreshed(ctx, said) + (False, None)
 
     @app.callback(
         *list_outputs,

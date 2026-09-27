@@ -101,6 +101,12 @@ ORGS_CONFIRM_MODAL = "orgs-confirm-modal"
 ORGS_CONFIRM_TEXT = "orgs-confirm-text"
 ORGS_CONFIRM_YES = "orgs-confirm-yes"
 ORGS_CONFIRM_STORE = "orgs-confirm-store"
+ORGS_RENAME_MODAL = "orgs-rename-modal"  # an organisation's name and description, changed
+ORGS_RENAME_NAME = "orgs-rename-name"
+ORGS_RENAME_DESC = "orgs-rename-desc"
+ORGS_RENAME_SAVE = "orgs-rename-save"
+ORGS_RENAME_STORE = "orgs-rename-store"  # which organisation the dialog renames
+ORGS_RENAME_FEEDBACK = "orgs-rename-feedback"
 
 # metamodel
 MM_GRAPH = "mm-graph"
