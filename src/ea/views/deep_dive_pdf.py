@@ -134,10 +134,13 @@ def drawing(lay: Layout, max_w: float, max_h: float) -> Drawing:
     front = [sh for sh in lay.shapes if sh.kind not in ("panel", "band")]
     for sh in behind:
         _shape(g, sh, Y)
+    drawn = []
     for line in lay.lines:
         a, b = by_sid.get(line.src), by_sid.get(line.dst)
         if a is not None and b is not None:
-            _line(g, a, b, line, Y)
+            drawn.append((line, _line(g, a, b, line, Y)))
+    for line, pts in drawn:  # every label over every line, so no line runs through a label
+        _line_label(g, line, pts, Y)
     for sh in front:
         _shape(g, sh, Y)
     d.add(g)
@@ -318,21 +321,22 @@ def _border(sh: Shape, tx: float, ty: float) -> tuple[float, float]:
     return cx + dx * scale, cy + dy * scale
 
 
-def _line(g: Group, a: Shape, b: Shape, line: Any, Y) -> None:
-    ax, ay = _border(a, b.x + b.w / 2, b.y + b.h / 2)
-    bx, by = _border(b, a.x + a.w / 2, a.y + a.h / 2)
+def _line(g: Group, a: Shape, b: Shape, line: Any, Y) -> list[tuple[float, float]]:
+    """A line: along its routed bends where it has them, else straight between the two shapes."""
+    if len(line.points) >= 2:
+        pts = [(float(x), float(y)) for x, y in line.points]
+    else:
+        pts = [_border(a, b.x + b.w / 2, b.y + b.h / 2), _border(b, a.x + a.w / 2, a.y + a.h / 2)]
     col = colors.HexColor(line.colour)
     g.add(
-        Line(
-            ax,
-            Y(ay),
-            bx,
-            Y(by),
+        PolyLine(
+            [v for x, y in pts for v in (x, Y(y))],
             strokeColor=col,
             strokeWidth=line.width,
             strokeDashArray=[5, 3] if line.dashed else None,
         )
     )
+    (ax, ay), (bx, by) = pts[-2], pts[-1]
     if line.arrow:
         angle = math.atan2(by - ay, bx - ax)
         size = 6 + line.width
@@ -345,11 +349,19 @@ def _line(g: Group, a: Shape, b: Shape, line: Any, Y) -> None:
                 strokeWidth=line.width,
             )
         )
+    return pts
+
+
+def _line_label(g: Group, line: Any, pts: list[tuple[float, float]], Y) -> None:
     if line.label:
         label = safe(line.label)
         size = 7.0
         w = stringWidth(label, "Helvetica", size) + 4
-        mx, my = (ax + bx) / 2, (ay + by) / 2
+        if line.label_at:
+            mx, my = line.label_at
+        else:
+            (ax, ay), (bx, by) = pts[0], pts[-1]
+            mx, my = (ax + bx) / 2, (ay + by) / 2
         g.add(
             Rect(
                 mx - w / 2,

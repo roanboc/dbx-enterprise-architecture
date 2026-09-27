@@ -523,7 +523,8 @@ def mermaid_block(block_id: str, code: str, arrangeable: bool = True, legend: An
             dmc.Group(
                 [
                     dmc.Text(
-                        "Drag to pan, scroll to zoom, Ctrl-drag (Command on a Mac) to move a shape. Nothing is saved.",
+                        "Drag a shape to move it, drag the canvas to select; right-drag or Ctrl-drag to pan; "
+                        "scroll to move, Ctrl-scroll to zoom. Nothing is saved.",
                         size="xs",
                         c="dimmed",
                     ),

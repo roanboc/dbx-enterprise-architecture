@@ -117,14 +117,17 @@ until the application has users and runs on Databricks. The enterprise content i
   (`tests/postgres_server.py`) or the one `EA_TEST_POSTGRES` names, and on a
   Lakebase instance with `make test-live`. `views/` renders a part of the
   model as Mermaid or draw.io from the pack's `notation`; nothing is drawn by
-  hand and every shape carries an element identifier (principle `P8`). A
+  hand and every shape carries an element identifier (principle `P8`). A view
+  nobody arranged, and every architecture figure of a deep dive, is laid out by
+  `views/layered.py`: a band per layer, lines routed in right angles around the
+  shapes; one the reader arranged keeps its positions and is only routed. A
   generated view draws no layer boxes: the layer is the fill colour. On a screen
   a chip per layer stands above the diagram in that layer's own colour
   (`ui.components.layer_chips`); the exported Markdown and the diagram's own
   source carry the same legend as a swatch and a name (`views.mermaid.layer_legend`),
   which is as close as a text format comes to showing a colour. `ui/graph.py`
   is the one network-graph panel (grouping, layouts, pack colours);
-  `assets/ea-views.js` lets a reader arrange a generated view without saving it. A deep
+  `assets/ea-views.js` lets a reader arrange a generated view without saving it, with the mouse as draw.io uses it (`assets/ea-graph.js` does the same on a graph panel). A deep
   dive's pack (initiative 25) is drawn from what the deep dive kept: one layout per figure
   (`views/deep_dive_layout.py`) written both as a draw.io file and into a PDF composed with
   ReportLab (`views/deep_dive_pdf.py`, decision 0025), the analysis itself in

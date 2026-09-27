@@ -22,6 +22,7 @@ from typing import Any
 from ea.services.target import NOT_REAL, TARGET_STYLE
 from ea.views.drawio import LAYER_FILL, SPECIAL_FILL
 from ea.views.icons import icon_for
+from ea.views.layered import Box, Link, arrange, aspect_tier, fit_box
 from ea.views.model import LAYER_ORDER, LAYER_TITLES, layer_rank, view_from_dict
 
 INK, MUTED, RULE, PAPER = "#1f2933", "#52606d", "#cbd2d9", "#ffffff"
@@ -100,6 +101,12 @@ class Line:
     dashed: bool = False
     arrow: bool = True
     relationship_id: str = ""  # set where the line draws a stored relationship
+    # a routed line: its bends from border to border, where its label sits, and its two ports
+    # (relative to each box); empty where the line runs straight from centre to centre
+    points: list[tuple[float, float]] = field(default_factory=list)
+    label_at: tuple[float, float] | None = None
+    exit: tuple[float, float] | None = None
+    entry: tuple[float, float] | None = None
 
 
 @dataclass
@@ -519,17 +526,29 @@ def bar_chart(fig: dict[str, Any], colours: list[str]) -> Layout:
 
 
 # ------------------------------------------------------------------ architecture
-NODE_W, NODE_H, COLS, GAP_X, GAP_Y, LAYER_GAP = 150, 58, 4, 34, 40, 56
+#: The most boxes a row of one layer holds before it wraps.
+COLS = 4
 
 
 def view_layout(fig: dict[str, Any]) -> Layout:
-    """A view in the metamodel's notation: a row per layer, top-down; the layer is the fill."""
+    """A view in the metamodel's notation: a band per layer, top-down; the layer is the fill.
+
+    The boxes and lines come from the layered layout (`ea.views.layered`): rows ordered to cross
+    few lines, each line a run of right angles from a port on one box to a port on the other,
+    around every box rather than across it, its label on the line where nothing else is.
+    """
     view = view_from_dict(fig["view"])
     marked = bool(fig.get("marked"))
     flagged = set(fig.get("flagged") or [])
     layers = sorted(view.layers(), key=layer_rank)
-    widest = max((min(len(view.nodes_in(lv)), COLS) for lv in layers), default=1)
-    width = max(560.0, 40 + widest * NODE_W + (widest - 1) * GAP_X)
+    boxes = []
+    for node in view.nodes:
+        w, h = fit_box(f"{node.glyph} {node.name}".strip() if marked else node.name, node.id)
+        boxes.append(Box(node.id, w, h, band=layer_rank(node.layer), tier=aspect_tier(node.archimate)))
+    present = {n.id for n in view.nodes}
+    edges = [(n, e) for n, e in enumerate(view.edges) if e.src in present and e.dst in present]
+    plan = arrange(boxes, [Link(f"_edge_{n}", e.src, e.dst, e.label) for n, e in edges], max_cols=COLS)
+    width = max(560.0, plan.width)
     lay = Layout(fig["title"], "architecture", width, 0)
     # the key: the layers by their fill, and the target states when they are drawn
     keys = [
@@ -554,82 +573,85 @@ def view_layout(fig: dict[str, Any]) -> Layout:
             )
             for state in ("new", "change", "decommission", "merge")
         ]
-    y = _legend(lay, keys, 10, width)
-    y += 6
-    for lv in layers:
-        nodes = view.nodes_in(lv)
-        for start in range(0, len(nodes), COLS):
-            chunk = nodes[start : start + COLS]
-            row_w = len(chunk) * NODE_W + (len(chunk) - 1) * GAP_X
-            x0 = (width - row_w) / 2
-            for n, node in enumerate(chunk):
-                fill = SPECIAL_FILL.get(node.archimate) or LAYER_FILL.get(node.layer, LAYER_FILL["other"])
-                stroke, sw, dashed = "#555555", 1.0, False
-                if node.focus:
-                    stroke, sw = INK, 2.5
-                st = TARGET_STYLE.get(node.target_state)
-                if marked and st and node.target_state not in ("undecided", "keep"):
-                    stroke, sw = st["hex"], 2.5
-                if marked and (node.current_state in NOT_REAL or node.target_state in ("new", "merge")):
-                    dashed = True
-                shape = Shape(
-                    node.id,
-                    x0 + n * (NODE_W + GAP_X),
-                    y,
-                    NODE_W,
-                    NODE_H,
-                    "element",
-                    text=node.name,
-                    sub=node.id,
-                    fill=fill,
-                    stroke=stroke,
-                    stroke_width=sw,
-                    dashed=dashed,
-                    font="#c92a2a" if marked and node.target_state == "decommission" else INK,
-                    font_size=10,
-                    rounded=8 if node.archimate.endswith(("Process", "Function", "Service", "Event")) else 0,
-                    icon=icon_for(node.archimate, node.layer),
-                    icon_colour=INK,
-                    element_id=node.id,
-                    style="architecture",
-                    node=_node_dict(node),
-                    marked=marked,
-                    strike=marked and node.target_state == "decommission",
+    top = _legend(lay, keys, 10, width) - 10
+    plan.shift((width - plan.width) / 2, top)
+    for node in view.nodes:
+        box = plan.boxes[node.id]
+        fill = SPECIAL_FILL.get(node.archimate) or LAYER_FILL.get(node.layer, LAYER_FILL["other"])
+        stroke, sw, dashed = "#555555", 1.0, False
+        if node.focus:
+            stroke, sw = INK, 2.5
+        st = TARGET_STYLE.get(node.target_state)
+        if marked and st and node.target_state not in ("undecided", "keep"):
+            stroke, sw = st["hex"], 2.5
+        if marked and (node.current_state in NOT_REAL or node.target_state in ("new", "merge")):
+            dashed = True
+        shape = Shape(
+            node.id,
+            box.x,
+            box.y,
+            box.w,
+            box.h,
+            "element",
+            text=node.name,
+            sub=node.id,
+            fill=fill,
+            stroke=stroke,
+            stroke_width=sw,
+            dashed=dashed,
+            font="#c92a2a" if marked and node.target_state == "decommission" else INK,
+            font_size=10,
+            rounded=8 if node.archimate.endswith(("Process", "Function", "Service", "Event")) else 0,
+            icon=icon_for(node.archimate, node.layer),
+            icon_colour=INK,
+            element_id=node.id,
+            style="architecture",
+            node=_node_dict(node),
+            marked=marked,
+            strike=marked and node.target_state == "decommission",
+        )
+        lay.shapes.append(shape)
+        if node.id in flagged:
+            lay.shapes.append(
+                Shape(
+                    f"_flag_{node.id}",
+                    shape.x - 8,
+                    shape.y - 8,
+                    18,
+                    18,
+                    "badge",
+                    text="!",
+                    fill=SEVERITY_FILL["high"],
+                    stroke=PAPER,
+                    font=PAPER,
+                    font_size=9,
+                    bold=True,
+                    parent=node.id,
                 )
-                lay.shapes.append(shape)
-                if node.id in flagged:
-                    lay.shapes.append(
-                        Shape(
-                            f"_flag_{node.id}",
-                            shape.x - 8,
-                            shape.y - 8,
-                            18,
-                            18,
-                            "badge",
-                            text="!",
-                            fill=SEVERITY_FILL["high"],
-                            stroke=PAPER,
-                            font=PAPER,
-                            font_size=9,
-                            bold=True,
-                            parent=node.id,
-                        )
-                    )
-            y += NODE_H + GAP_Y
-        y += LAYER_GAP - GAP_Y
-    present = {n.id for n in view.nodes}
-    for n, e in enumerate(view.edges):
-        if e.src not in present or e.dst not in present:
-            continue
+            )
+    for n, e in edges:
         colour, width_, dashed = MUTED, 1.0, False
         st = TARGET_STYLE.get(e.target_state)
         if marked and st and e.target_state not in ("undecided", "keep"):
             colour, width_, dashed = st["hex"], 2.0, e.target_state in ("new", "merge")
+        r = plan.routes.get(f"_edge_{n}")
         lay.lines.append(
             Line(
-                f"_edge_{n}", e.src, e.dst, e.label, colour, width_, dashed, relationship_id=e.relationship_id
+                f"_edge_{n}",
+                e.src,
+                e.dst,
+                e.label,
+                colour,
+                width_,
+                dashed,
+                relationship_id=e.relationship_id,
+                points=list(r.points) if r else [],
+                label_at=r.label_at if r else None,
+                exit=r.exit if r else None,
+                entry=r.entry if r else None,
             )
         )
+    y = top + plan.height
     if view.note:
         lay.shapes.append(
             Shape("_note", 20, y, width - 40, 20, "text", text=view.note, font=MUTED, font_size=9)

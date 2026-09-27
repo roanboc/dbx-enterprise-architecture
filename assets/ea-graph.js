@@ -1,5 +1,11 @@
-/* Network graph panels: the Cytoscape instance behind a panel id, and the gestures the
- * toolbar offers on top of the ones Cytoscape already handles (drag to pan, wheel to zoom).
+/* Network graph panels: the Cytoscape instance behind a panel id, the toolbar's gestures, and
+ * the mouse as draw.io uses it.
+ *
+ * Cytoscape itself moves a node dragged with the left button and draws a selection box when
+ * the drag starts on the empty canvas (its own panning and wheel zoom are turned off in
+ * `graph.py`). What draw.io adds is handled here, before Cytoscape sees it: the right or middle
+ * button, Ctrl (Command on a Mac) or a held Space pan; the wheel scrolls, Shift sideways, and
+ * zooms with Ctrl, Command or Alt, which is what a trackpad pinch sends.
  */
 (function () {
   function container(panelId) {
@@ -56,16 +62,72 @@
     return found;
   }
 
-  // A plain drag pans the panel, as it does on the generated views; Ctrl (Command on a
-  // Mac) frees the nodes so the same drag moves one.
-  function setGrabbable(on) {
-    instances().forEach(function (cy) { cy.autoungrabify(!on); });
+  function cyAt(target) {
+    const frame = target && target.closest ? target.closest('.ea-graph-canvas') : null;
+    if (!frame) { return null; }
+    if (frame._cyreg && frame._cyreg.cy) { return frame._cyreg.cy; }
+    let found = null;
+    frame.querySelectorAll('*').forEach(function (el) { if (!found && el._cyreg && el._cyreg.cy) { found = el._cyreg.cy; } });
+    return found;
   }
+
+  let space = false, pan = null;
+
+  function panGesture(evt) {
+    return evt.button === 1 || evt.button === 2 || (evt.button === 0 && (evt.ctrlKey || evt.metaKey || space));
+  }
+
+  // Capture, on the document, runs before Cytoscape's own listeners inside the panel, so a pan
+  // gesture never also starts a selection box or a node drag.
+  function down(evt) {
+    const cy = cyAt(evt.target);
+    if (!cy || (!pan && !panGesture(evt))) { return; }
+    evt.stopPropagation();
+    evt.preventDefault();
+    if (!pan) { pan = { cy: cy, x: evt.clientX, y: evt.clientY }; }
+  }
+  document.addEventListener('pointerdown', down, true);
+  document.addEventListener('mousedown', down, true);
+  document.addEventListener('pointermove', function (evt) {
+    if (!pan) { return; }
+    pan.cy.panBy({ x: evt.clientX - pan.x, y: evt.clientY - pan.y });
+    pan.x = evt.clientX; pan.y = evt.clientY;
+  }, true);
+  function up(evt) {
+    if (!pan) { return; }
+    evt.stopPropagation();
+    if (evt.type === 'pointerup' || evt.type === 'pointercancel') { pan = null; }
+  }
+  document.addEventListener('pointerup', up, true);
+  document.addEventListener('pointercancel', up, true);
+  document.addEventListener('mouseup', function (evt) { if (pan) { evt.stopPropagation(); } }, true);
+
+  document.addEventListener('wheel', function (evt) {
+    const cy = cyAt(evt.target);
+    if (!cy) { return; }
+    evt.preventDefault();
+    evt.stopPropagation();
+    if (evt.ctrlKey || evt.metaKey || evt.altKey) {
+      const r = cy.container().getBoundingClientRect();
+      cy.zoom({
+        level: Math.max(cy.minZoom(), Math.min(cy.maxZoom(), cy.zoom() * Math.exp(-evt.deltaY * 0.0015))),
+        renderedPosition: { x: evt.clientX - r.left, y: evt.clientY - r.top },
+      });
+      return;
+    }
+    const sideways = evt.shiftKey && !evt.deltaX;
+    cy.panBy({ x: -(sideways ? evt.deltaY : evt.deltaX), y: sideways ? 0 : -evt.deltaY });
+  }, { capture: true, passive: false });
+
+  document.addEventListener('contextmenu', function (evt) {
+    if (cyAt(evt.target)) { evt.preventDefault(); }
+  }, true);
+
   document.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Control' || evt.key === 'Meta') { setGrabbable(true); }
+    if (evt.key !== ' ' || space) { return; }
+    // Space pans only while the pointer is over a panel, so it still scrolls the page elsewhere
+    if (document.querySelector('.ea-graph-canvas:hover')) { space = true; evt.preventDefault(); }
   });
-  document.addEventListener('keyup', function (evt) {
-    if (evt.key === 'Control' || evt.key === 'Meta') { setGrabbable(false); }
-  });
-  window.addEventListener('blur', function () { setGrabbable(false); });
+  document.addEventListener('keyup', function (evt) { if (evt.key === ' ') { space = false; } });
+  window.addEventListener('blur', function () { space = false; pan = null; });
 })();

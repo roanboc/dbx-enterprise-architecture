@@ -1,9 +1,15 @@
 /* Generated architecture views: render Mermaid, let the reader move shapes, report positions.
  *
+ * The mouse works as it does in draw.io: a drag on a shape moves it (with every shape selected
+ * beside it), a drag on the empty canvas draws a selection box, and the right or middle button,
+ * Ctrl (Command on a Mac) or a held Space turn a drag into a pan. The wheel scrolls — Shift
+ * sideways — and zooms with Ctrl, Command or Alt, which is also what a trackpad pinch sends.
+ * With the diagram focused, Escape clears the selection, Ctrl+A selects every shape, the arrow
+ * keys nudge the selection (Shift for ten points) and Ctrl+Shift+H fits the diagram.
+ *
  * Nothing here is saved: positions live in a browser-side store for the page's lifetime and
  * are handed to the draw.io export. Mermaid's layout engine is not re-run after a move; the
- * relationships of a moved shape are redrawn as straight connectors and its layer box grows
- * to keep it inside.
+ * relationships of a moved shape are redrawn as straight connectors.
  */
 (function () {
   const ID_RE = /\[([^\[\]]+)\]\s*$/;
@@ -89,50 +95,94 @@
     return out;
   }
 
-  function arranging(evt) {
-    return evt.ctrlKey || evt.metaKey;
+  function panGesture(evt, v) {
+    // draw.io pans with the right or middle button, or the left one with Ctrl, Command or Space
+    return evt.button === 1 || evt.button === 2 ||
+      (evt.button === 0 && (evt.ctrlKey || evt.metaKey || (v && v.space)));
   }
 
   function enableDrag(svg, onChange) {
     const nodes = nodeInfo(svg);
     let edges = edgeInfo(svg, nodes);
-    let dragging = null, start = null, origin = null;
+    const selected = new Set();
     function toSvg(evt) {
       const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
       return pt.matrixTransform(svg.getScreenCTM().inverse());
     }
-    Object.keys(nodes).forEach(function (k) {
-      const n = nodes[k];
-      n.el.addEventListener('pointerdown', function (evt) {
-        // a plain drag belongs to the canvas; only the modifier moves a shape
-        if (!arranging(evt)) { return; }
-        dragging = k; start = toSvg(evt); origin = { cx: n.cx, cy: n.cy };
-        evt.preventDefault(); evt.stopPropagation();
-        try { n.el.setPointerCapture(evt.pointerId); } catch (e) { /* older browsers */ }
-      });
-      n.el.addEventListener('pointermove', function (evt) {
-        if (dragging !== k) { return; }
-        const p = toSvg(evt);
-        n.cx = origin.cx + (p.x - start.x); n.cy = origin.cy + (p.y - start.y);
+    function keyOf(el) {
+      const g = el && el.closest ? el.closest('g.node') : null;
+      if (!g) { return null; }
+      return Object.keys(nodes).find(function (k) { return nodes[k].el === g; }) || null;
+    }
+    function paint() {
+      Object.keys(nodes).forEach(function (k) { nodes[k].el.classList.toggle('is-selected', selected.has(k)); });
+    }
+    function select(keys, add) {
+      if (!add) { selected.clear(); }
+      keys.forEach(function (k) { selected.add(k); });
+      paint();
+    }
+    function toggle(k) {
+      if (selected.has(k)) { selected.delete(k); } else { selected.add(k); }
+      paint();
+    }
+    function moveBy(keys, dx, dy, origins) {
+      keys.forEach(function (k) {
+        const n = nodes[k], o = origins ? origins[k] : { cx: n.cx, cy: n.cy };
+        n.cx = o.cx + dx; n.cy = o.cy + dy;
         n.el.setAttribute('transform', 'translate(' + n.cx + ', ' + n.cy + ')');
-        reroute(edges, nodes, k);
       });
-      const end = function (evt) {
-        if (dragging !== k) { return; }
-        dragging = null;
-        // let the canvas grow with the shapes so nothing is clipped
-        try {
-          const bb = svg.getBBox();
-          svg.setAttribute('viewBox', (bb.x - 10) + ' ' + (bb.y - 10) + ' ' + (bb.width + 20) + ' ' + (bb.height + 20));
-          svg.setAttribute('width', bb.width + 20); svg.setAttribute('height', bb.height + 20);
-        } catch (e) { /* ignore */ }
-        if (onChange) { onChange(positionsOf(nodes)); }
-      };
-      n.el.addEventListener('pointerup', end);
-      n.el.addEventListener('pointercancel', end);
-    });
+      keys.forEach(function (k) { reroute(edges, nodes, k); });
+    }
+    function settle() {
+      // let the canvas grow with the shapes so nothing is clipped
+      try {
+        const bb = svg.getBBox();
+        svg.setAttribute('viewBox', (bb.x - 10) + ' ' + (bb.y - 10) + ' ' + (bb.width + 20) + ' ' + (bb.height + 20));
+        svg.setAttribute('width', bb.width + 20); svg.setAttribute('height', bb.height + 20);
+      } catch (e) { /* ignore */ }
+      if (onChange) { onChange(positionsOf(nodes)); }
+    }
+    let drag = null;
     return {
       positions: positionsOf(nodes),
+      keyOf: keyOf,
+      // A left press on a shape: select it (Shift adds or takes it away) and start moving the selection.
+      press: function (evt, key) {
+        if (evt.shiftKey) { toggle(key); } else if (!selected.has(key)) { select([key], false); }
+        if (!selected.has(key)) { drag = null; return; }
+        const keys = Array.from(selected), origins = {};
+        keys.forEach(function (k) { origins[k] = { cx: nodes[k].cx, cy: nodes[k].cy }; });
+        drag = { start: toSvg(evt), keys: keys, origins: origins, moved: false, sx: evt.clientX, sy: evt.clientY };
+      },
+      move: function (evt) {
+        if (!drag) { return; }
+        if (!drag.moved && Math.abs(evt.clientX - drag.sx) + Math.abs(evt.clientY - drag.sy) < 4) { return; }
+        drag.moved = true;
+        const p = toSvg(evt);
+        moveBy(drag.keys, p.x - drag.start.x, p.y - drag.start.y, drag.origins);
+      },
+      release: function () {
+        const moved = drag && drag.moved;
+        drag = null;
+        if (moved) { settle(); }
+      },
+      // The shapes whose whole box lies inside a rectangle on screen, as draw.io's rubber band selects.
+      selectIn: function (rect, add) {
+        const keys = Object.keys(nodes).filter(function (k) {
+          const r = nodes[k].el.getBoundingClientRect();
+          return r.left >= rect.left && r.right <= rect.right && r.top >= rect.top && r.bottom <= rect.bottom;
+        });
+        select(keys, add);
+      },
+      clear: function () { select([], false); },
+      selectAll: function () { select(Object.keys(nodes), false); },
+      nudge: function (dx, dy) {
+        if (!selected.size) { return false; }
+        moveBy(Array.from(selected), dx, dy);
+        settle();
+        return true;
+      },
       // A view drawn where it could not be seen cannot be measured: `getBBox` throws on a
       // hidden shape, so every node falls back to the same default box. Read the geometry
       // again into the very nodes the drag already holds — a second, separate reading would
@@ -151,8 +201,7 @@
   }
 
   // ---------------------------------------------------------------- pan and zoom
-  // The rendered SVG sits on a canvas the reader drags and scales. A plain drag pans,
-  // wherever it starts; Ctrl (Command on a Mac) turns the same drag into a shape move.
+  // The rendered SVG sits on a canvas the reader pans and scales, with draw.io's gestures.
   const viewports = {};
   const MIN_K = 0.05, MAX_K = 4;
 
@@ -185,40 +234,119 @@
     applyView(v);
   }
 
-  function setupViewport(container, svg, remeasure) {
+  function setupViewport(container, svg, shapes, remeasure) {
     const canvas = document.createElement('div');
     canvas.className = 'ea-mermaid-canvas';
     canvas.appendChild(svg);
     container.innerHTML = '';
     container.appendChild(canvas);
-    const v = { container: container, canvas: canvas, svg: svg, k: 1, x: 0, y: 0, touched: false };
+    container.tabIndex = 0;
+    container.setAttribute('role', 'application');
+    container.setAttribute('aria-label',
+      'Diagram. Drag a shape to move it, drag the canvas to select, right-drag or Ctrl-drag to pan, ' +
+      'Ctrl and the wheel to zoom.');
+    const v = { container: container, canvas: canvas, svg: svg, k: 1, x: 0, y: 0, touched: false, space: false };
     viewports[container.id] = v;
 
     container.addEventListener('wheel', function (evt) {
       evt.preventDefault();
       v.touched = true;
-      const r = container.getBoundingClientRect();
-      zoomAt(v, evt.clientX - r.left, evt.clientY - r.top, Math.exp(-evt.deltaY * 0.0015));
+      if (evt.ctrlKey || evt.metaKey || evt.altKey) {
+        const r = container.getBoundingClientRect();
+        zoomAt(v, evt.clientX - r.left, evt.clientY - r.top, Math.exp(-evt.deltaY * 0.0015));
+        return;
+      }
+      const dx = evt.shiftKey && !evt.deltaX ? evt.deltaY : evt.deltaX;
+      const dy = evt.shiftKey && !evt.deltaX ? 0 : evt.deltaY;
+      v.x -= dx; v.y -= dy;
+      applyView(v);
     }, { passive: false });
 
-    let pan = null;
+    // no browser menu over the diagram: the right button pans, as in draw.io
+    container.addEventListener('contextmenu', function (evt) { evt.preventDefault(); });
+
+    let gesture = null, band = null;
     container.addEventListener('pointerdown', function (evt) {
-      if (arranging(evt) && evt.target.closest && evt.target.closest('g.node')) { return; }
-      pan = { px: evt.clientX, py: evt.clientY, x: v.x, y: v.y };
-      v.touched = true;
-      container.classList.add('is-panning');
+      try { container.focus({ preventScroll: true }); } catch (e) { container.focus(); }
+      const key = shapes ? shapes.keyOf(evt.target) : null;
+      if (panGesture(evt, v)) {
+        gesture = { kind: 'pan', px: evt.clientX, py: evt.clientY, x: v.x, y: v.y };
+        v.touched = true;
+        container.classList.add('is-panning');
+      } else if (evt.button === 0 && key && shapes) {
+        gesture = { kind: 'move' };
+        shapes.press(evt, key);
+      } else if (evt.button === 0) {
+        const r = container.getBoundingClientRect();
+        band = document.createElement('div');
+        band.className = 'ea-rubber-band';
+        container.appendChild(band);
+        gesture = { kind: 'band', sx: evt.clientX, sy: evt.clientY, ox: r.left, oy: r.top, add: evt.shiftKey };
+      } else {
+        return;
+      }
+      evt.preventDefault();
       try { container.setPointerCapture(evt.pointerId); } catch (e) { /* older browsers */ }
     });
     container.addEventListener('pointermove', function (evt) {
-      if (!pan) { return; }
-      v.x = pan.x + (evt.clientX - pan.px);
-      v.y = pan.y + (evt.clientY - pan.py);
-      applyView(v);
+      if (!gesture) { return; }
+      if (gesture.kind === 'pan') {
+        v.x = gesture.x + (evt.clientX - gesture.px);
+        v.y = gesture.y + (evt.clientY - gesture.py);
+        applyView(v);
+      } else if (gesture.kind === 'move') {
+        shapes.move(evt);
+      } else if (band) {
+        const x0 = Math.min(gesture.sx, evt.clientX), y0 = Math.min(gesture.sy, evt.clientY);
+        band.style.left = (x0 - gesture.ox) + 'px';
+        band.style.top = (y0 - gesture.oy) + 'px';
+        band.style.width = Math.abs(evt.clientX - gesture.sx) + 'px';
+        band.style.height = Math.abs(evt.clientY - gesture.sy) + 'px';
+      }
     });
-    const endPan = function () { pan = null; container.classList.remove('is-panning'); };
-    container.addEventListener('pointerup', endPan);
-    container.addEventListener('pointercancel', endPan);
-    container.addEventListener('pointerleave', endPan);
+    const end = function (evt) {
+      if (!gesture) { return; }
+      if (gesture.kind === 'move') {
+        shapes.release();
+      } else if (gesture.kind === 'band' && shapes) {
+        const rect = {
+          left: Math.min(gesture.sx, evt.clientX), right: Math.max(gesture.sx, evt.clientX),
+          top: Math.min(gesture.sy, evt.clientY), bottom: Math.max(gesture.sy, evt.clientY),
+        };
+        // a click on the empty canvas clears the selection; a drag selects what it encloses
+        if (rect.right - rect.left < 3 && rect.bottom - rect.top < 3) {
+          if (!gesture.add) { shapes.clear(); }
+        } else {
+          shapes.selectIn(rect, gesture.add);
+        }
+      }
+      if (band) { band.remove(); band = null; }
+      gesture = null;
+      container.classList.remove('is-panning');
+    };
+    container.addEventListener('pointerup', end);
+    container.addEventListener('pointercancel', end);
+
+    container.addEventListener('keydown', function (evt) {
+      const mod = evt.ctrlKey || evt.metaKey;
+      if (evt.key === ' ') {
+        v.space = true; container.classList.add('is-pan-ready'); evt.preventDefault();
+      } else if (evt.key === 'Escape' && shapes) {
+        shapes.clear();
+      } else if (mod && evt.shiftKey && (evt.key === 'H' || evt.key === 'h')) {
+        v.touched = false; fitView(v); evt.preventDefault();
+      } else if (mod && (evt.key === 'a' || evt.key === 'A') && shapes) {
+        shapes.selectAll(); evt.preventDefault();
+      } else if (shapes && evt.key.indexOf('Arrow') === 0) {
+        const step = evt.shiftKey ? 10 : 1;
+        const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[evt.key];
+        if (d && shapes.nudge(d[0], d[1])) { evt.preventDefault(); }
+      }
+    });
+    container.addEventListener('keyup', function (evt) {
+      if (evt.key === ' ') { v.space = false; container.classList.remove('is-pan-ready'); }
+    });
+    container.addEventListener('blur', function () { v.space = false; container.classList.remove('is-pan-ready'); });
 
     // the container may still be laying out (or hidden on another tab) when the SVG lands
     fitView(v);
@@ -259,7 +387,7 @@
           arranged = true;
           if (onChange) { onChange(p); }
         });
-        setupViewport(el, svg, function () {
+        setupViewport(el, svg, drag, function () {
           if (arranged || !onChange) { return; }
           onChange(drag.remeasure());
         });
@@ -304,17 +432,5 @@
     });
   });
 
-  function showArrangeCursor(on) {
-    document.querySelectorAll('.ea-mermaid').forEach(function (el) {
-      el.classList.toggle('is-arranging', on);
-    });
-  }
-  document.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Control' || evt.key === 'Meta') { showArrangeCursor(true); }
-  });
-  document.addEventListener('keyup', function (evt) {
-    if (evt.key === 'Control' || evt.key === 'Meta') { showArrangeCursor(false); }
-  });
-  window.addEventListener('blur', function () { showArrangeCursor(false); });
 })();
 

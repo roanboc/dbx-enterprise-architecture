@@ -32,15 +32,40 @@
   background: #fff;
   border: 1px solid #e9ecef;
   border-radius: 8px;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   overscroll-behavior: contain;
 }
-.ea-mermaid.is-panning {
+.ea-mermaid:focus-visible {
+  outline: 2px solid #1c7ed6;
+  outline-offset: -2px;
+}
+.ea-mermaid g.node {
+  cursor: move;
+}
+.ea-mermaid.is-pan-ready,
+.ea-mermaid.is-pan-ready g.node {
+  cursor: grab;
+}
+.ea-mermaid.is-panning,
+.ea-mermaid.is-panning g.node {
   cursor: grabbing;
 }
-.ea-mermaid.is-arranging g.node {
-  cursor: move;
+/* a selected shape, as draw.io marks one: a blue outline round it */
+.ea-mermaid g.node.is-selected {
+  filter: drop-shadow(0 0 0.5px #1c7ed6) drop-shadow(0 0 2px #1c7ed6);
+}
+.ea-mermaid g.node.is-selected :is(rect, polygon, path, circle, ellipse) {
+  stroke: #1c7ed6 !important;
+  stroke-width: 2px !important;
+}
+/* the selection box a drag on the empty canvas draws */
+.ea-rubber-band {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px dashed #1c7ed6;
+  background: rgba(28, 126, 214, 0.08);
 }
 .ea-mermaid-canvas {
   position: absolute;

@@ -507,7 +507,10 @@ def graph_panel(
     group_by: str = "domain",
     layout: str = "grouped",
     extra_controls: list[Any] | None = None,
-    hint: str = "Tap a node to open it; drag to pan, scroll to zoom, Ctrl-drag to move a node.",
+    hint: str = (
+        "Tap a node to open it. Drag a node to move it, drag the canvas to select; right-drag or "
+        "Ctrl-drag to pan; scroll to move, Ctrl-scroll to zoom."
+    ),
 ) -> html.Div:
     return html.Div(
         [
@@ -562,8 +565,12 @@ def graph_panel(
                 minZoom=0.05,
                 maxZoom=3,
                 wheelSensitivity=0.2,
-                boxSelectionEnabled=False,
-                autoungrabify=True,  # a plain drag pans; ea-graph.js frees the nodes while Ctrl is held
+                # draw.io's mouse: a drag moves a node or draws a selection box; ea-graph.js pans
+                # (right button, Ctrl or Space) and turns the wheel into scrolling and zooming
+                boxSelectionEnabled=True,
+                userPanningEnabled=False,
+                userZoomingEnabled=False,
+                autoungrabify=False,
             ),
             dmc.Text(hint, size="xs", c="dimmed", mt=4),
         ],

@@ -1505,7 +1505,7 @@ def test_the_file_reproduces_the_layout_on_screen(ui, record):
     group="N",
     title="A shape the reader moved is where they left it in the file",
     feature="Downloads · draw.io · a shape moved by hand",
-    expected="The page says Ctrl-drag moves a shape and that nothing is saved; the draw.io export is what "
+    expected="The page says a drag moves a shape, as in draw.io, and that nothing is saved; the draw.io export is what "
     "the move is for. Moving the element's own shape and exporting again must put it where it was left, "
     "the same distance from its neighbours as on screen.",
 )
@@ -1520,13 +1520,11 @@ def test_a_shape_the_reader_moved(ui, record):
     ui.must("the shape can be aimed at", box is not None and box["width"] > 0, str(box))
     start = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     ui.page.mouse.move(*start)
-    ui.page.keyboard.down("Control")
     ui.page.mouse.down()
     for step in range(1, 6):
         ui.page.mouse.move(start[0] + 44 * step, start[1] - 18 * step)
         ui.page.wait_for_timeout(40)
     ui.page.mouse.up()
-    ui.page.keyboard.up("Control")
     ui.page.wait_for_timeout(500)
     ui.settle()
 
@@ -1534,7 +1532,7 @@ def test_a_shape_the_reader_moved(ui, record):
     moved_x = after_screen[EL]["x"] - before_screen[EL]["x"]
     moved_y = after_screen[EL]["y"] - before_screen[EL]["y"]
     ui.must(
-        "Ctrl-dragging the shape moved it on screen",
+        "dragging the shape moved it on screen",
         abs(moved_x) > 20,
         f"it moved {moved_x:.0f} across and {moved_y:.0f} down, in the diagram's own units",
     )
@@ -1910,3 +1908,101 @@ def test_feed_staging_example(ui, record):
         header = archive.read("elements.csv").decode("utf-8").splitlines()[0]
     ui.check("and its columns are the contract's own", header.startswith("id,type,name"), header[:60])
     ui.shot("The feed form, having handed out the shape its staging tables take")
+
+
+# ================================================ the mouse on a diagram, as draw.io uses it
+
+
+def _canvas_transform(ui, block_id: str) -> str:
+    return ui.page.evaluate(
+        "(sel) => document.querySelector(sel + ' .ea-mermaid-canvas').style.transform",
+        _pm(id=block_id, type="mermaid-svg"),
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="N29",
+    group="N",
+    title="A diagram answers the mouse the way draw.io does",
+    feature="Generated views · pan, zoom, select and move",
+    expected="On a generated view the right button pans, a drag on the empty canvas draws a selection "
+    "box and selects every shape wholly inside it, a drag on a selected shape moves the whole "
+    "selection, the wheel scrolls and Ctrl with the wheel zooms, and Escape clears the selection.",
+)
+def test_a_diagram_answers_the_mouse_as_draw_io_does(ui, record):
+    _open_impact(ui)
+    frame = ui.page.locator(_pm(id="imp-view", type="mermaid-svg"))
+    frame.scroll_into_view_if_needed()
+    box = frame.bounding_box()
+    ui.must("the view is on screen", box is not None and box["width"] > 0, str(box))
+    corner = (box["x"] + 12, box["y"] + 12)
+
+    before = _canvas_transform(ui, "imp-view")
+    ui.page.mouse.move(*corner)
+    ui.page.mouse.down(button="right")
+    ui.page.mouse.move(corner[0] + 80, corner[1] + 40, steps=5)
+    ui.page.mouse.up(button="right")
+    ui.check(
+        "a right-button drag pans",
+        _canvas_transform(ui, "imp-view") != before,
+        _canvas_transform(ui, "imp-view"),
+    )
+
+    before = _canvas_transform(ui, "imp-view")
+    ui.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    ui.page.mouse.wheel(0, 120)
+    ui.page.wait_for_timeout(100)
+    scrolled = _canvas_transform(ui, "imp-view")
+    ui.check(
+        "the wheel scrolls without zooming",
+        scrolled != before and scrolled.split("scale")[1] == before.split("scale")[1],
+        f"{before} → {scrolled}",
+    )
+    ui.page.keyboard.down("Control")
+    ui.page.mouse.wheel(0, -200)
+    ui.page.keyboard.up("Control")
+    ui.page.wait_for_timeout(100)
+    zoomed = _canvas_transform(ui, "imp-view")
+    ui.check("Ctrl with the wheel zooms", zoomed.split("scale")[1] != scrolled.split("scale")[1], zoomed)
+
+    ui.click(_pm(id="imp-view", type="mermaid-fit"))
+    frame.scroll_into_view_if_needed()
+    box = frame.bounding_box()
+    ui.page.mouse.move(box["x"] + 3, box["y"] + 3)
+    ui.page.mouse.down()
+    ui.page.mouse.move(box["x"] + box["width"] - 3, box["y"] + box["height"] - 3, steps=8)
+    ui.page.mouse.up()  # a full-page screenshot mid-drag would move the page under the pointer
+    counts = ui.page.evaluate(
+        "(sel) => [document.querySelectorAll(sel + ' g.node').length,"
+        " document.querySelectorAll(sel + ' g.node.is-selected').length]",
+        _pm(id="imp-view", type="mermaid-svg"),
+    )
+    ui.shot("Every shape selected by a box drawn across the whole view")
+    ui.check(
+        "the box selects every shape inside it",
+        counts[0] > 0 and counts[0] == counts[1],
+        f"{counts[1]} of {counts[0]}",
+    )
+
+    before = _screen_nodes(ui, "imp-view")
+    frame.scroll_into_view_if_needed()
+    node = ui.page.locator(f"{_pm(id='imp-view', type='mermaid-svg')} g.node").first.bounding_box()
+    ui.page.mouse.move(node["x"] + node["width"] / 2, node["y"] + node["height"] / 2)
+    ui.page.mouse.down()
+    ui.page.mouse.move(node["x"] + node["width"] / 2 + 60, node["y"] + node["height"] / 2, steps=6)
+    ui.page.mouse.up()
+    after = _screen_nodes(ui, "imp-view")
+    moved = [k for k in before if k in after and abs(after[k]["x"] - before[k]["x"]) > 1]
+    ui.check(
+        "a drag on a selected shape moves the whole selection",
+        len(moved) == len(before),
+        f"{len(moved)} of {len(before)} moved",
+    )
+
+    ui.page.keyboard.press("Escape")
+    left = ui.page.evaluate(
+        "(sel) => document.querySelectorAll(sel + ' g.node.is-selected').length",
+        _pm(id="imp-view", type="mermaid-svg"),
+    )
+    ui.check("Escape clears the selection", left == 0, f"{left} still selected")
+    ui.shot("The view after the selection was moved and let go")

@@ -34,6 +34,7 @@ from ea.backend.branching import current_branch
 from ea.backend.organisations import current_org
 from ea.metamodel.registry import Registry
 from ea.services.target import NOT_REAL, TARGET_STYLE
+from ea.views.layered import Box, Link, Plan, Route, arrange, aspect_tier, route
 from ea.views.model import LAYER_TITLES, View, ViewNode, layer_rank
 
 # draw.io ArchiMate 3 fill colours per layer (from the ArchiMate 3 sidebar).
@@ -94,6 +95,8 @@ STENCIL = {
     "Gap": "application;appType=gap;archiType=square;",
     "Location": "application;appType=location;archiType=square;",
 }
+#: The room either side of a stencil's name, so the name never runs under the icon in its corner.
+ICON_ROOM = "spacingLeft=20;spacingRight=20;"
 SPECIAL_FILL = {"Location": "#efd1e4", "Plateau": "#E0FFE0", "Gap": "#E0FFE0"}
 
 #: What every cell the application draws carries, so what a person added is what carries none of it.
@@ -127,6 +130,8 @@ def node_style(n: ViewNode, marked: bool = False) -> str:
         style = f"rounded=1;whiteSpace=wrap;html=1;fillColor={fill};"
     else:
         style = f"{_AM}{frag}fillColor={fill};"
+        if "appType=" in frag:
+            style += ICON_ROOM
     if n.focus:
         style += "strokeWidth=3;"
     if marked:
@@ -143,6 +148,36 @@ def _label(n: ViewNode, marked: bool) -> str:
     if st and n.target_state not in ("undecided", "keep"):
         return f"{st['glyph']} {n.name}"
     return n.name
+
+
+#: How a routed line is drawn: exactly through its bends, the bends rounded, a hop where it crosses another.
+ROUTED = "edgeStyle=none;rounded=1;jumpStyle=arc;jumpSize=6;"
+
+
+def route_style(exit: tuple[float, float], entry: tuple[float, float]) -> str:
+    """The style fragment that pins a routed line to its two ports, off the shapes' outlines."""
+    return (
+        f"exitX={exit[0]};exitY={exit[1]};exitDx=0;exitDy=0;exitPerimeter=0;"
+        f"entryX={entry[0]};entryY={entry[1]};entryDx=0;entryDy=0;entryPerimeter=0;"
+    )
+
+
+def route_geometry(cell: ET.Element, route: Route | None) -> None:
+    """A line's geometry: its bends, and its label where the route placed it.
+
+    draw.io keeps an edge's label as a place along the edge, from -1 at the source to 1 at the
+    target, so the label stays on the line wherever it is moved.
+    """
+    geo = ET.SubElement(cell, "mxGeometry", relative="1", **{"as": "geometry"})
+    if route is None:
+        return
+    if route.label_at:
+        geo.set("x", str(round(2 * route.fraction(route.label_at) - 1, 4)))
+    bends = route.points[1:-1]
+    if bends:
+        array = ET.SubElement(geo, "Array", **{"as": "points"})
+        for x, y in bends:
+            ET.SubElement(array, "mxPoint", x=str(round(x, 1)), y=str(round(y, 1)))
 
 
 def _cell(container: ET.Element, cid: str, **attrs: str) -> ET.Element:
@@ -235,20 +270,10 @@ def to_drawio(
     if positions and sum(1 for n in view.nodes if n.id in positions) >= max(1, len(view.nodes) // 2):
         return _to_drawio_positioned(view, base_url, positions, marked)
     mxfile, root, export_id = _view_document(view)
-
-    layers = sorted(view.layers(), key=layer_rank)
-    sizes = {n.id: node_size(n) for n in view.nodes}
-    # One column width and one row height for the whole drawing, so the lanes still line up
-    # while every shape is big enough for what is written in it.
-    cell_w = max((w for w, _ in sizes.values()), default=NODE_W)
-    cell_h = max((h for _, h in sizes.values()), default=NODE_H)
-    widest = max((min(len(view.nodes_in(layer)), COLS) for layer in layers), default=1)
-    lane_w = GAP_X + widest * (cell_w + GAP_X)
-    y = 20
-    for layer in layers:
-        nodes = view.nodes_in(layer)
-        rows = (len(nodes) + COLS - 1) // COLS
-        lane_h = LANE_HEADER + GAP_Y + rows * (cell_h + GAP_Y)
+    plan = _plan(view)
+    lane_x, lane_w = 10.0, plan.width - 20
+    for layer in sorted(view.layers(), key=layer_rank):
+        top, bottom = plan.bands[layer_rank(layer)]
         lane_id = f"lane_{layer}"
         lane = ET.SubElement(
             stamped(root, lane_id, export_id, LAYER_TITLES.get(layer, layer), ea_layer=layer),
@@ -261,25 +286,47 @@ def to_drawio(
             parent="1",
         )
         ET.SubElement(
-            lane, "mxGeometry", x="20", y=str(y), width=str(lane_w), height=str(lane_h), **{"as": "geometry"}
+            lane,
+            "mxGeometry",
+            x=str(round(lane_x)),
+            y=str(round(top)),
+            width=str(round(lane_w)),
+            height=str(round(bottom - top)),
+            **{"as": "geometry"},
         )
-        for i, n in enumerate(nodes):
-            col, row = i % COLS, i // COLS
+        for n in view.nodes_in(layer):
+            box = plan.boxes[n.id]
             obj = _object(root, n, base_url, export_id, marked)
             cell = ET.SubElement(obj, "mxCell", style=node_style(n, marked), vertex="1", parent=lane_id)
             ET.SubElement(
                 cell,
                 "mxGeometry",
-                x=str(GAP_X + col * (cell_w + GAP_X)),
-                y=str(LANE_HEADER + GAP_Y + row * (cell_h + GAP_Y)),
-                width=str(sizes[n.id][0]),
-                height=str(sizes[n.id][1]),
+                x=str(round(box.x - lane_x)),
+                y=str(round(box.y - top)),
+                width=str(round(box.w)),
+                height=str(round(box.h)),
                 **{"as": "geometry"},
             )
-        y += lane_h + LANE_GAP
 
-    _edges(root, view, export_id, marked)
+    _edges(root, view, export_id, marked, plan.routes)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")
+
+
+def _links(view: View) -> list[Link]:
+    ids = set(view.ids())
+    return [
+        Link(f"edge_{i}", e.src, e.dst, e.label)
+        for i, e in enumerate(view.edges)
+        if e.src in ids and e.dst in ids
+    ]
+
+
+def _plan(view: View) -> Plan:
+    """A view nobody has arranged, laid out a band per layer with its lines routed."""
+    boxes = [
+        Box(n.id, *node_size(n), band=layer_rank(n.layer), tier=aspect_tier(n.archimate)) for n in view.nodes
+    ]
+    return arrange(boxes, _links(view), max_cols=COLS, band_header=LANE_HEADER, lane_pad=14)
 
 
 def node_size(n: ViewNode) -> tuple[int, int]:
@@ -293,7 +340,7 @@ def node_size(n: ViewNode) -> tuple[int, int]:
     label = f"{n.glyph} {n.name}".strip() or n.id
     lines = textwrap.wrap(label, WRAP_CHARS) or [label]
     widest = max(len(line) for line in lines)
-    width = max(NODE_W, min(NODE_W_MAX, int(widest * CHAR_W) + 28))
+    width = max(NODE_W, min(NODE_W_MAX, int(widest * CHAR_W) + 48))
     height = max(NODE_H, 24 + len(lines) * LINE_H)
     return width, height
 
@@ -325,12 +372,18 @@ def _object(root: ET.Element, n: ViewNode, base_url: str, export_id: str, marked
     return obj
 
 
-def _edges(root: ET.Element, view: View, export_id: str, marked: bool = False) -> None:
+def _edges(
+    root: ET.Element, view: View, export_id: str, marked: bool = False, routes: dict[str, Route] | None = None
+) -> None:
     ids = set(view.ids())
+    routes = routes or {}
     for i, e in enumerate(view.edges):
         if e.src not in ids or e.dst not in ids:
             continue
-        style = "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;endFill=0;strokeColor=#555555;fontSize=10;"
+        r = routes.get(f"edge_{i}")
+        style = (
+            ROUTED + route_style(r.exit, r.entry) if r else "edgeStyle=orthogonalEdgeStyle;rounded=0;"
+        ) + "html=1;endArrow=open;endFill=0;strokeColor=#555555;fontSize=10;labelBackgroundColor=#ffffff;"
         st = TARGET_STYLE.get(e.target_state)
         if marked and st and e.target_state not in ("undecided", "keep"):
             style += f"strokeColor={st['hex']};strokeWidth=2;"
@@ -341,7 +394,7 @@ def _edges(root: ET.Element, view: View, export_id: str, marked: bool = False) -
             data["ea_rel_id"] = e.relationship_id
         obj = stamped(root, f"edge_{i}", export_id, e.label, **data)
         cell = ET.SubElement(obj, "mxCell", style=style, edge="1", parent="1", source=e.src, target=e.dst)
-        ET.SubElement(cell, "mxGeometry", relative="1", **{"as": "geometry"})
+        route_geometry(cell, r)
 
 
 def _to_drawio_positioned(
@@ -404,7 +457,8 @@ def _to_drawio_positioned(
             height=str(round(h)),
             **{"as": "geometry"},
         )
-    _edges(root, view, export_id, marked)
+    placed = [Box(n.id, w, h, x=x, y=y) for n in view.nodes for x, y, w, h in [box(n)]]
+    _edges(root, view, export_id, marked, route(placed, _links(view)))
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")
 
 

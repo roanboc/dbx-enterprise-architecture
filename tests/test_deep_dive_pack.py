@@ -298,3 +298,30 @@ def test_the_pack_is_one_pdf_and_the_diagrams_and_nothing_in_markdown(dives):
     assert [n.rsplit("/", 1)[1] for n in diagrams] == [n for n, _ in diagram_files(d)]
     assert len(names) == 1 + len(diagrams) and not any(n.endswith(".md") for n in names)
     assert pack_filename(d).endswith("-dd-test.zip")
+
+
+def test_an_architecture_figure_s_lines_go_around_its_boxes(dives):
+    """Every line is routed in right angles, border to border, and runs through no box."""
+    for _, d, fig in _all(dives):
+        if fig["kind"] != "view":
+            continue
+        lay = layout_figure(fig, d.content["elements"])
+        boxes = lay.elements()
+        for line in lay.lines:
+            assert len(line.points) >= 2 and line.exit and line.entry, (fig["fid"], line.lid)
+            for (x0, y0), (x1, y1) in zip(line.points, line.points[1:], strict=False):
+                assert abs(x0 - x1) < 0.01 or abs(y0 - y1) < 0.01, (fig["fid"], line.lid)
+                for s in boxes:
+                    if abs(y0 - y1) < 0.01:
+                        through = (
+                            s.y + 1 < y0 < s.y + s.h - 1
+                            and min(x0, x1) < s.x + s.w - 1
+                            and max(x0, x1) > s.x + 1
+                        )
+                    else:
+                        through = (
+                            s.x + 1 < x0 < s.x + s.w - 1
+                            and min(y0, y1) < s.y + s.h - 1
+                            and max(y0, y1) > s.y + 1
+                        )
+                    assert not through, (fig["fid"], line.lid, s.sid)
