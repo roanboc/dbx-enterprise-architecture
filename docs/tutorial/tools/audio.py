@@ -47,8 +47,10 @@ def main() -> None:
 
     def put(sig: np.ndarray, start: float, gain: float, pan: float = 0.0) -> None:
         i = int(start * RATE)
+        if i < 0:  # a sound that begins before the film is heard from the film's first moment
+            sig, i = sig[-i:], 0
         j = min(n, i + len(sig))
-        if j <= i or i < 0:
+        if j <= i:
             return
         s = sig[: j - i] * gain
         left[i:j] += s * np.float32(np.sqrt(0.5 * (1 - pan)))
