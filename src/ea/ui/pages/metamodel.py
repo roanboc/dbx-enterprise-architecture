@@ -57,6 +57,7 @@ from ea.ui.context import AppContext, get_context
 from ea.views import view_from_metamodel
 from ea.views.drawio import STENCIL, palette_library, to_drawio
 from ea.views.mermaid import SHAPES, to_markdown, to_mermaid
+from ea.views.mermaid import node_id as mermaid_node_id
 from ea.views.model import LAYER_ORDER, View, ViewNode, layer_rank
 
 _SELECT = "agSelectCellEditor"
@@ -465,8 +466,29 @@ def notation_view(reg: Registry) -> View:
     return view
 
 
-def notation_preview(reg: Registry) -> str:
-    return to_mermaid(notation_view(reg), direction="LR")
+#: How many sample shapes stand in one row of the notation preview.
+PREVIEW_COLUMNS = 8
+
+
+def notation_preview(reg: Registry, columns: int = PREVIEW_COLUMNS) -> str:
+    """Every active type's sample shape, as a grid: a layer's shapes in rows of `columns`, one
+    layer under another.
+
+    The samples share no relationship, and Mermaid stacks shapes that nothing joins into one
+    column — a strip too narrow to read once it is fitted to the panel. Invisible links chain
+    each row so it lies across the panel, and the rows stack in layer order.
+    """
+    view = notation_view(reg)
+    lines = [to_mermaid(view, direction="LR").rstrip("\n"), ""]
+    by_layer: dict[str, list[str]] = {}
+    for n in view.nodes:
+        by_layer.setdefault(n.layer, []).append(mermaid_node_id(n.id))
+    for ids_ in by_layer.values():
+        for i in range(0, len(ids_), columns):
+            row = ids_[i : i + columns]
+            if len(row) > 1:
+                lines.append("  " + " ~~~ ".join(row))
+    return "\n".join(lines) + "\n"
 
 
 def metamodel_view_code(reg: Registry, domain: str | None, include_inactive: bool) -> str:
@@ -2402,7 +2424,7 @@ def register(app: dash.Dash) -> None:
                 no_update,
             )
         view = notation_view(reg)
-        return to_mermaid(view, direction="LR"), layer_chips(view), None, notation_swatches(reg)
+        return notation_preview(reg), layer_chips(view), None, notation_swatches(reg)
 
     @app.callback(
         Output(ids.MM_REVIEWERS_FEEDBACK, "children"),

@@ -155,3 +155,19 @@ def test_a_type_placed_below_the_enterprise_level_is_saved_so(registry, rows):
     row["level"] = "component"
     with pytest.raises(ValueError, match="level 'component' is not one of enterprise, solution"):
         _pack(registry, rows)
+
+
+def test_the_notation_preview_lays_the_sample_shapes_out_as_a_grid(registry):
+    """Shapes nothing joins stack in one column once fitted to the panel; rows of them fill it."""
+    from ea.ui.pages.metamodel import PREVIEW_COLUMNS, notation_preview, notation_view
+
+    code = notation_preview(registry)
+    rows = [line.strip() for line in code.splitlines() if "~~~" in line]
+    assert rows, "the samples are chained into rows"
+    assert all(len(r.split(" ~~~ ")) <= PREVIEW_COLUMNS for r in rows)
+    chained = {n for r in rows for n in r.split(" ~~~ ")}
+    per_layer: dict[str, int] = {}
+    for n in notation_view(registry).nodes:
+        per_layer[n.layer] = per_layer.get(n.layer, 0) + 1
+    assert len(rows) >= sum(-(-c // PREVIEW_COLUMNS) for c in per_layer.values() if c > 1)
+    assert "-->" not in code and chained
