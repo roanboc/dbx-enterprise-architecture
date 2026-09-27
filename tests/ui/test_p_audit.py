@@ -223,12 +223,15 @@ CONTRAST_JS = """
     });
     return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
   };
-  const over = (fg, bg) => ({
-    r: fg.r * fg.a + bg.r * (1 - fg.a),
-    g: fg.g * fg.a + bg.g * (1 - fg.a),
-    b: fg.b * fg.a + bg.b * (1 - fg.a),
-    a: 1,
-  });
+  // One layer painted over another, either of them translucent. A light button inside a
+  // light alert is a tint over a tint, and the two together are still only a tint: calling
+  // the pair opaque read the alert's own shade, at full strength, as the button's ground.
+  const over = (fg, bg) => {
+    const a = fg.a + bg.a * (1 - fg.a);
+    const mix = (f, b) => (a ? (f * fg.a + b * bg.a * (1 - fg.a)) / a : 0);
+    return {r: mix(fg.r, bg.r), g: mix(fg.g, bg.g), b: mix(fg.b, bg.b), a: a};
+  };
+  const white = {r: 255, g: 255, b: 255, a: 1};
   const hex = (c) => '#' + [c.r, c.g, c.b]
     .map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
   const background = (el) => {
@@ -243,7 +246,7 @@ CONTRAST_JS = """
       }
       node = node.parentElement;
     }
-    return {colour: acc && acc.a >= 0.99 ? acc : {r: 255, g: 255, b: 255, a: 1}, gradient};
+    return {colour: acc ? over(acc, white) : white, gradient};
   };
   const out = [];
   const nodes = document.querySelectorAll('body *');
