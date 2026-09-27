@@ -117,9 +117,10 @@
 .ea-table td, .ea-table th { font-size: 0.88rem; }
 .ea-chip { cursor: pointer; }
 .ea-chip:hover { border-color: #4c6ef5; color: #3b5bdb; }
-.ea-copy { cursor: pointer; padding: 3px 8px; border-radius: 6px; border: 1px solid #dbe4ff; background: #edf2ff; color: #3b5bdb; }
+/* Indigo 9, the link colour: indigo 8 was 4.47:1 on the hovered background. */
+.ea-copy { cursor: pointer; padding: 3px 8px; border-radius: 6px; border: 1px solid #dbe4ff; background: #edf2ff; color: #364fc7; }
 .ea-copy:hover { background: #dbe4ff; }
-.ea-clipboard { color: #3b5bdb; font-size: 0.9rem; }
+.ea-clipboard { color: #364fc7; font-size: 0.9rem; }
 .ea-clipboard svg { vertical-align: middle; }
 
 /* ---- shell ---- */
@@ -177,11 +178,15 @@ body { background: #e9ecef; }
   .ea-header-controls .mantine-Select-root { flex: 1 1 150px; }
 }
 
-/* Branches: the merge log */
+/* Branches: the merge log. It opens with every clean row ticked, and the grid lays its accent
+   colour over a ticked row, and more of it under the pointer, so a label here is read on a
+   pale blue rather than on white: orange 9 was 3.8:1 on a ticked row and red 9 4.45:1 on a
+   ticked row under the pointer. The orange and the red are the palette's darker ones the
+   readable-colour block below gives a filled button's hover and the error colour. */
 .ag-theme-alpine .ea-added { color: #237032; font-weight: 600; }
-.ag-theme-alpine .ea-changed { color: #d9480f; font-weight: 600; }
-.ag-theme-alpine .ea-deleted { color: #c92a2a; font-weight: 600; }
-.ag-theme-alpine .ea-conflict { color: #c92a2a; font-weight: 700; }
+.ag-theme-alpine .ea-changed { color: #9a3d00; font-weight: 600; }
+.ag-theme-alpine .ea-deleted { color: #b02525; font-weight: 600; }
+.ag-theme-alpine .ea-conflict { color: #b02525; font-weight: 700; }
 .ag-theme-alpine .ea-editable { background: #fff4e6; cursor: pointer; }
 .ag-theme-alpine .ea-link { color: #14507f; font-weight: 600; }
 .ag-theme-alpine .ea-snippet { color: #495057; font-style: italic; }
@@ -201,10 +206,12 @@ body { background: #e9ecef; }
    the component library injects its own values at runtime, after this file is linked,
    so an override of equal weight would lose.
 
-   Every value here clears the floor on every ground the application paints: a card,
-   the grey canvas, the header, and inside an alert of any colour on any of them, where
-   a light button is its own tint laid over the alert's. `tests/test_readable_colour.py`
-   measures each one that way, at rest and under the pointer. */
+   Every value here clears the floor on every ground a control is painted on: a card,
+   the grey canvas, the header, the branch stripe and a screen's tip, and inside an alert
+   of any colour on any of them, where a light button is its own tint laid over the
+   alert's. `tests/test_readable_colour.py` measures each one that way, at rest and under
+   the pointer, and measures every colour this stylesheet writes for itself, outside the
+   block, on the grounds that rule is painted on. */
 :root {
   /* Captions and hints: grey 6 on a pale card is 2.6:1. Grey 7 clears the floor
      everywhere it is used. */
@@ -378,11 +385,13 @@ body { background: #e9ecef; }
 
 /* The band above every page when the reader is on a branch rather than on main. The header
    badge is one chip among six controls and scrolls out of sight on a long grid; this does
-   not, because every edit made on the screen below it goes somewhere other than the model. */
+   not, because every edit made on the screen below it goes somewhere other than the model.
+   Its text is the orange of a light badge, which the readable-colour block darkens: orange 9
+   on orange 0 was 3.96:1. */
 .ea-branch-stripe {
   background: var(--mantine-color-orange-0);
   border-bottom: 1px solid var(--mantine-color-orange-3);
-  color: var(--mantine-color-orange-9);
+  color: var(--mantine-color-orange-light-color);
   padding: 0.35rem 1.5rem;
   width: 100%;
 }
