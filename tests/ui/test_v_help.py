@@ -45,6 +45,16 @@ def newcomer(browser, server, run_dir, record):
         context.close()
 
 
+#: Whether the help button's top is level with the title row's and its right edge with the row's.
+TOP_RIGHT = """() => {
+  const row = document.querySelector('#page .ea-page-title');
+  const button = document.querySelector('#page .ea-help-button');
+  if (!row || !button) return false;
+  const r = row.getBoundingClientRect(), b = button.getBoundingClientRect();
+  return Math.abs(b.top - r.top) <= 2 && Math.abs(b.right - r.right) <= 2;
+}"""
+
+
 def _kept(ui) -> dict:
     raw = ui.page.evaluate(f"() => window.localStorage.getItem('{SEEN}')")
     return json.loads(raw) if raw else {}
@@ -170,10 +180,11 @@ def test_the_tips_show_once_and_can_be_turned_off(newcomer, record):
 @pytest.mark.scenario(
     scenario_id="V03",
     group="V",
-    title="The help beside every screen's title opens that screen's help in a side panel, only when asked",
+    title="The help at the top right of every screen opens that screen's help in a side panel, only when asked",
     feature="Help · the side panel",
     expected=(
-        "Every screen of the navigation carries one help button beside its title. Pressing it — or "
+        "Every screen of the navigation, and the Element page, carries one help button at the top "
+        "right of its title's row, whatever wraps beside the title. Pressing it — or "
         "the ? key — opens a side panel titled with the screen's name: why, what you see, how, the "
         "flow drawn, and what the reader's own role may do there. Escape closes it; moving to "
         "another screen closes it too. ? works from a checkbox, a switch or a segmented control "
@@ -182,12 +193,19 @@ def test_the_tips_show_once_and_can_be_turned_off(newcomer, record):
     ),
 )
 def test_the_side_panel_opens_when_asked(ui, record):
-    missing = []
-    for path in SCREENS:
+    missing, astray = [], []
+    for path in [*SCREENS, "/element/LDC-CURR"]:
         ui.goto(path)
         if ui.page.locator(TITLE_BUTTON).count() != 1:
             missing.append(path)
+        elif not ui.page.evaluate(TOP_RIGHT):
+            astray.append(path)
     ui.check("every screen carries one help button beside its title", not missing, f"without one: {missing}")
+    ui.check(
+        "it stands in one place, the top right of the title's row, whatever wraps beside the title",
+        not astray,
+        f"elsewhere on: {astray}",
+    )
     ui.goto("/branches")
     ui.check("the panel is shut until asked", not _drawer_open(ui))
     ui.click(TITLE_BUTTON)

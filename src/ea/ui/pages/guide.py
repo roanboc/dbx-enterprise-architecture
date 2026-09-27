@@ -186,7 +186,7 @@ def _contents(start: list[GuideSection], groups, roles: list[GuideSection]) -> d
                             leftSection=icon("tabler:bulb", 14),
                         ),
                         dmc.Text(
-                            "Each screen's help is also one click away: the button beside its title, or the ? key.",
+                            "Each screen's help is also one click away: the button at its top right, or the ? key.",
                             size="xs",
                             c="dimmed",
                         ),

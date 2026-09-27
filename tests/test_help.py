@@ -103,26 +103,26 @@ def test_a_key_that_is_not_a_page_name_reads_nothing(registry):
 # ------------------------------------------------------ the button and the slot
 
 
-@pytest.mark.parametrize(
-    "module, key, args",
-    [
-        ("home", "home", ()),
-        ("guide", "guide", ()),
-        ("browse", "browse", (None,)),
-        ("ask", "ask", (None,)),
-        ("impact", "impact", (None,)),
-        ("target", "target", (None,)),
-        ("branches", "branches", (None,)),
-        ("import_page", "import", ()),
-        ("feeds", "feeds", ()),
-        ("propose", "propose", ()),
-        ("metamodel", "metamodel", ()),
-        ("organisations", "organisations", (None,)),
-        ("systems", "systems", ()),
-        ("health", "health", ()),
-        ("users", "users", ()),
-    ],
-)
+SCREEN_PAGES = [
+    ("home", "home", ()),
+    ("guide", "guide", ()),
+    ("browse", "browse", (None,)),
+    ("ask", "ask", (None,)),
+    ("impact", "impact", (None,)),
+    ("target", "target", (None,)),
+    ("branches", "branches", (None,)),
+    ("import_page", "import", ()),
+    ("feeds", "feeds", ()),
+    ("propose", "propose", ()),
+    ("metamodel", "metamodel", ()),
+    ("organisations", "organisations", (None,)),
+    ("systems", "systems", ()),
+    ("health", "health", ()),
+    ("users", "users", ()),
+]
+
+
+@pytest.mark.parametrize("module, key, args", SCREEN_PAGES)
 def test_every_screen_carries_one_help_button_beside_its_title(app_context, module, key, args):
     import importlib
 
@@ -131,6 +131,40 @@ def test_every_screen_carries_one_help_button_beside_its_title(app_context, modu
     buttons = [i for i in found if isinstance(i, dict) and i.get("type") == ids.HELP_OPEN]
     assert buttons == [{"type": ids.HELP_OPEN, "screen": key, "place": "title"}]
     assert found.count(ids.HELP_SCREEN) == 1 and found.count(ids.HELP_HINT) == 1
+
+
+def _title_row(page):
+    return next(c for c in _walk(page) if "ea-page-title" in str(getattr(c, "className", "") or "").split())
+
+
+def _render(app_context, module: str, args: tuple):
+    import importlib
+
+    if module == "element":
+        args = (app_context.repo.search(limit=1)[0].element_id,)
+    return importlib.import_module(f"ea.ui.pages.{module}").render(app_context, *args)
+
+
+@pytest.mark.parametrize("module, key, args", [*SCREEN_PAGES, ("element", "element", ())])
+def test_the_help_button_stands_at_the_top_right_of_every_title(app_context, module, key, args):
+    """One place on every screen: the last item of the title's row, outside the part that wraps.
+    A long subtitle, or controls beside the title, wrap within that part; the button stays at the
+    row's top right instead of dropping below the subtitle on its own."""
+    row = _title_row(_render(app_context, module, args))
+    main, last = row.children
+    assert "ea-page-title-main" in main.className.split()
+    assert _ids(last) == [{"type": ids.HELP_OPEN, "screen": key, "place": "title"}]
+    assert {"type": ids.HELP_OPEN, "screen": key, "place": "title"} not in _ids(main)
+
+
+def test_the_title_row_keeps_the_button_top_right_in_the_style_sheet():
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[1] / "assets" / "styles.css").read_text()
+    row = re.search(r"\.ea-page-title\s*\{([^}]*)\}", css)
+    main = re.search(r"\.ea-page-title-main\s*\{([^}]*)\}", css)
+    assert row and "flex-wrap: nowrap" in row.group(1) and "align-items: flex-start" in row.group(1)
+    assert main and "flex-wrap: wrap" in main.group(1) and "min-width: 0" in main.group(1)
 
 
 def test_the_element_page_carries_its_help_too(app_context):

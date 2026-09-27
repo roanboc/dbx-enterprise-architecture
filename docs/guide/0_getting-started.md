@@ -57,8 +57,8 @@ The change returns to main once reviewed, and Manage shapes what the model can h
 
 ## Help while you work
 
-- The help button beside every screen's title opens that screen's help in a side
-  panel. The **?** key opens it too, unless you are typing in a box. **Escape**
+- The help button at the top right of every screen opens that screen's help in a
+  side panel. The **?** key opens it too, unless you are typing in a box. **Escape**
   closes it.
 - The first screen you open in a browser shows a short welcome under its title.
 - After that, the first time you open a screen, one line under its title says

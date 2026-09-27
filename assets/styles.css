@@ -438,6 +438,27 @@ main:focus {
   padding: 0.4rem 0.75rem;
 }
 .ea-tip-text { min-width: 0; }
+/* Every screen's heading row: the title and its controls wrap inside the first part, and the help
+   button is the row's last item, so it stands at the top right however much wraps. */
+.ea-page-title {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+  margin-bottom: var(--mantine-spacing-md);
+}
+.ea-page-title-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+}
+/* the title takes the room its controls leave, and they drop below it only on a narrow window */
+.ea-page-title-main > :first-child { flex: 1 1 20rem; min-width: 0; }
+.ea-page-title > .ea-help-button { flex: none; }
 .ea-help .ea-mermaid { height: 460px; }
 .ea-guide-screen .ea-mermaid, .ea-guide-persona .ea-mermaid { height: 400px; }
 .ea-guide-screen { border-top: 1px solid var(--mantine-color-gray-3); margin-top: 0.75rem; padding-top: 0.5rem; }

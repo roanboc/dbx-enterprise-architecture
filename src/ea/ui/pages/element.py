@@ -29,8 +29,6 @@ from ea.ui import ids
 from ea.ui.components import (
     alert,
     element_anchor,
-    help_button,
-    help_slot,
     icon,
     keep_selected_option,
     kv_sections,
@@ -41,6 +39,7 @@ from ea.ui.components import (
     mermaid_block,
     simple_table,
     status_badge,
+    title_row,
     type_badge,
     view_toolbar,
 )
@@ -355,53 +354,43 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
     common = [a for a in attrs if a.type_id is None]
     # The Edit tab marks a restricted attribute; a reader who only reads has to be told too.
     attr_values = _attr_values(attrs, e.attrs, ctx.registry)
-    header = dmc.Group(
-        [
-            dmc.Stack(
-                [
-                    dmc.Group(
-                        [
-                            # The element is what this page is about, so its name is the
-                            # document title. Everything below it is a section.
-                            dmc.Title(e.name, order=1, size="h2"),
-                            type_badge(ctx.registry, e.type_id),
-                            status_badge(e.status),
-                            current_badge(e.current_state),
-                            target_badge(e.target_state) if e.target_state != "undecided" else None,
-                        ],
-                        gap="sm",
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Code(e.element_id),
-                            dmc.Text(f"key {e.key}", size="sm", c="dimmed")
-                            if e.key and e.key != e.element_id
-                            else None,
-                            dmc.Text(f"source {e.source_system}", size="sm", c="dimmed")
-                            if e.source_system
-                            else None,
-                            dmc.Text(f"v{e.version}", size="sm", c="dimmed"),
-                        ],
-                        gap="sm",
-                    ),
-                ],
-                gap=4,
-            ),
-            dmc.Group(
-                [
-                    dmc.Anchor(
-                        dmc.Button("Impact", variant="light", leftSection=icon("tabler:radar")),
-                        href=f"/impact?element={e.element_id}",
-                        underline="never",
-                    ),
-                    help_button("element"),
-                ],
-                gap="xs",
-            ),
-        ],
-        justify="space-between",
-        align="flex-start",
-        mb="md",
+    header = title_row(
+        dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        # The element is what this page is about, so its name is the
+                        # document title. Everything below it is a section.
+                        dmc.Title(e.name, order=1, size="h2"),
+                        type_badge(ctx.registry, e.type_id),
+                        status_badge(e.status),
+                        current_badge(e.current_state),
+                        target_badge(e.target_state) if e.target_state != "undecided" else None,
+                    ],
+                    gap="sm",
+                ),
+                dmc.Group(
+                    [
+                        dmc.Code(e.element_id),
+                        dmc.Text(f"key {e.key}", size="sm", c="dimmed")
+                        if e.key and e.key != e.element_id
+                        else None,
+                        dmc.Text(f"source {e.source_system}", size="sm", c="dimmed")
+                        if e.source_system
+                        else None,
+                        dmc.Text(f"v{e.version}", size="sm", c="dimmed"),
+                    ],
+                    gap="sm",
+                ),
+            ],
+            gap=4,
+        ),
+        dmc.Anchor(
+            dmc.Button("Impact", variant="light", leftSection=icon("tabler:radar")),
+            href=f"/impact?element={e.element_id}",
+            underline="never",
+        ),
+        help="element",
     )
     overview = dmc.SimpleGrid(
         [
@@ -665,7 +654,6 @@ def render(ctx: AppContext, element_id: str) -> html.Div:
             dcc.Store(id=ids.EL_ID, data=element_id),
             dcc.Store(id=ids.EL_VERSION, data=e.version),
             header,
-            help_slot("element"),
             dmc.Tabs(
                 [
                     dmc.TabsList(

@@ -442,11 +442,23 @@ def help_slot(screen: str) -> html.Div:
     return html.Div([dcc.Store(id=ids.HELP_SCREEN, data=screen), html.Div(id=ids.HELP_HINT)])
 
 
+def title_row(left: Any, right: Any = None, help: str = "") -> html.Div:
+    """A page's heading row: its title and controls, and with `help`, the screen's help button
+    at the row's top right, then the place for a first visit's tip below it.
+
+    The title and the controls wrap inside the first part of the row; the help button is the
+    row's last item, outside it, so a long subtitle or narrow window never drops it below the
+    title on a line of its own. Every screen's help stands in that one place."""
+    main = html.Div([left, right] if right is not None else [left], className="ea-page-title-main")
+    row = html.Div([main, help_button(help)] if help else [main], className="ea-page-title")
+    return html.Div([row, help_slot(help)]) if help else row
+
+
 def page_title(
     title: str, subtitle: str | None = None, right: Any = None, subtitle_id: str = "", help: str = ""
-) -> dmc.Group | html.Div:
+) -> html.Div:
     """The page's one heading, its subtitle and its controls; with `help`, the screen's help
-    button beside the controls and the place for a first visit's tip below them."""
+    button at the top right and the place for a first visit's tip below them."""
     left = dmc.Stack(
         [
             # The one h1 on the page: a document that starts at h2 gives assistive
@@ -458,12 +470,7 @@ def page_title(
         ],
         gap=2,
     )
-    if help:
-        right = dmc.Group([right, help_button(help)], gap="xs") if right is not None else help_button(help)
-    group = dmc.Group(
-        [left, right] if right is not None else [left], justify="space-between", align="flex-start", mb="md"
-    )
-    return html.Div([group, help_slot(help)]) if help else group
+    return title_row(left, right, help)
 
 
 def empty(text: str) -> html.Div:
