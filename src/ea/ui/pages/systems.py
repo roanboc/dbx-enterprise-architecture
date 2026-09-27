@@ -188,7 +188,8 @@ def _form(ctx: AppContext) -> Any:
     return dmc.Paper(
         dmc.Stack(
             [
-                dmc.Title("Connect a system", order=3),
+                # A section of the page, so the level under its h1; drawn at the size it had.
+                dmc.Title("Connect a system", order=2, size="h3"),
                 connection_picker(*ctx.connected.workspace_connections()),
                 dmc.SimpleGrid(
                     [
