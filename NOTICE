@@ -31,6 +31,13 @@ no request to a third-party icon service at run time.
 2014-2025 Knut Sveidqvist and contributors, MIT License, bundled so generated
 diagrams render without a request to a content delivery network.
 
+`docs/tutorial/fonts/` holds Manrope (copyright 2018 The Manrope Project
+Authors) and IBM Plex Mono (copyright 2017 IBM Corp.), both under the SIL Open
+Font License 1.1 (`OFL-*.txt` beside them), so the tutorial film renders
+without a request to a font service. The film's voice is made at build time by
+the Kokoro model (Apache License 2.0), downloaded by whoever builds it and not
+bundled; its music is synthesised by `docs/tutorial/tools/audio.py`.
+
 The draw.io export writes files in the diagrams.net (draw.io) XML format and
 names ArchiMate 3 stencil shapes from that application (Apache License 2.0,
 https://github.com/jgraph/drawio); no draw.io code is bundled.

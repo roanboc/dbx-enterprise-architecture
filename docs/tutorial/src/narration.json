@@ -1,0 +1,129 @@
+{
+  "title": "The EA Repository: a tour",
+  "voice": {
+    "voice": "af_heart",
+    "lang": "en-us",
+    "speed": 0.95,
+    "say": [["\\bEA\\b", "E A"], ["\\bmetamodel\\b", "meta-model"]]
+  },
+  "scenes": [
+    {
+      "id": "why",
+      "chapter": "Why a new EA platform",
+      "lead": 3.2,
+      "lines": [
+        {"id": "know", "text": "Most organisations know how they work."},
+        {"id": "week", "text": "Very few can answer a question about it in less than a week.", "hold": 0.6},
+        {"id": "ask", "text": "What depends on this system? Who owns this information? What breaks if we change it?", "hold": 0.4},
+        {"id": "spread", "text": "The answers exist, but they are spread across diagrams, spreadsheets, a service desk, an asset register and a few people's memory."},
+        {"id": "project", "text": "So every question becomes a small project.", "hold": 0.8},
+        {"id": "pictures", "text": "The knowledge is locked in pictures, current only until someone redraws them."},
+        {"id": "copied", "text": "The facts are copied in by hand from systems that already hold them."},
+        {"id": "nobody", "text": "No team, report or assistant can read it without an export."},
+        {"id": "vocab", "text": "And the vocabulary belongs to the tool, not to the business.", "hold": 0.8}
+      ]
+    },
+    {
+      "id": "new",
+      "chapter": "What's new",
+      "lines": [
+        {"id": "data", "text": "The EA Repository keeps the architecture as governed data, not drawings.", "hold": 0.5},
+        {"id": "cited", "text": "Ask a question and the answer comes back in seconds, every fact citing the element it came from."},
+        {"id": "current", "text": "Facts flow in from the systems that own them, and every row keeps its source."},
+        {"id": "platform", "text": "It runs on the data platform, where people and agents read the same model."},
+        {"id": "language", "text": "What the model can describe is yours to change: a metamodel, tried on a copy first."},
+        {"id": "governed", "text": "And change stays governed. Anyone can propose, owners review, and a person approves."},
+        {"id": "drafts", "text": "The assistant drafts and explains. It never approves.", "hold": 0.8}
+      ]
+    },
+    {
+      "id": "home",
+      "chapter": "A tour of the screens",
+      "lead": 0.6,
+      "lines": [
+        {"id": "app", "text": "Here is the application, with the sample model of a fictional university."},
+        {"id": "welcome", "text": "The first time you open it, a short welcome says where to start.", "hold": 0.4},
+        {"id": "nav", "text": "The navigation follows the work: discover, contribute, then manage.", "hold": 0.4}
+      ]
+    },
+    {
+      "id": "help",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "button", "text": "Every screen has its help at the top right.", "hold": 0.8},
+        {"id": "panel", "text": "It opens beside the screen: why it exists, what you see, how to use it, and what your role may do.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "browse",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "find", "text": "Browse finds any element by name, type or status.", "hold": 0.6},
+        {"id": "open", "text": "Open one, and its page shows what it is, where it stands, and what it relates to.", "hold": 1.0},
+        {"id": "shapes", "text": "Its views are generated from the model. Nothing is drawn by hand, and every shape is an element you can open.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "ask",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "ask", "text": "Ask takes a question in plain words.", "hold": 1.2},
+        {"id": "answer", "text": "Here, the impact of changing a course offering: a view of it, the answer, and every element the answer cites.", "hold": 1.0},
+        {"id": "impact", "text": "Impact lists what depends on an element, and what it depends on, hop by hop.", "hold": 0.8}
+      ]
+    },
+    {
+      "id": "propose",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "page", "text": "To change the model, you hand in a design page.", "hold": 0.4},
+        {"id": "split", "text": "Write it here, with its preview beside it, or drop in files and drawings.", "hold": 0.8},
+        {"id": "analyse", "text": "The assistant links what already exists, adopts what is new, and asks about what it cannot settle, such as which work package delivers the change.", "hold": 0.8},
+        {"id": "branch", "text": "You check every row, then apply them to a branch. Main is not touched.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "review",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "review", "text": "On Branches, the reviewers of each element type approve the change.", "hold": 0.4},
+        {"id": "merge", "text": "Then it is merged into main, row by row.", "hold": 0.6},
+        {"id": "target", "text": "Target state shows where each element is headed, and the work package that takes it there.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "manage",
+      "chapter": "A tour of the screens",
+      "lead": 0.4,
+      "lines": [
+        {"id": "feeds", "text": "Imports and feeds bring facts in from other systems, and keep a record of every run.", "hold": 0.4},
+        {"id": "metamodel", "text": "The metamodel is data too: its types, relationships and notation, kept in versions.", "hold": 0.8},
+        {"id": "orgs", "text": "A new version is tried in an organisation of its own before it is applied.", "hold": 0.4},
+        {"id": "users", "text": "Admins give workspace groups their roles.", "hold": 0.4},
+        {"id": "health", "text": "And Health shows what needs a steward's attention.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "guide",
+      "chapter": "Start here",
+      "lead": 0.6,
+      "lines": [
+        {"id": "guide", "text": "To learn more, open the Guide, or press the question mark on any screen.", "hold": 0.6}
+      ]
+    },
+    {
+      "id": "end",
+      "chapter": "Start here",
+      "lead": 0.8,
+      "tail": 4.5,
+      "lines": [
+        {"id": "close", "text": "Agents draft. People approve. And the architecture stays current, cited and shared."}
+      ]
+    }
+  ]
+}

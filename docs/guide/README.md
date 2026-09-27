@@ -3,8 +3,11 @@
 Getting started, the help of every screen, and what the repository is for and how
 to work in it, by role. The application shows the same pages on its Guide page,
 with the element types the organisation's metamodel places on each side of the
-enterprise level, and opens a screen's page beside its title when its help button
-is pressed.
+enterprise level, and opens a screen's page beside it when its help button, at the
+screen's top right, is pressed.
+
+A four-minute film — why a new EA platform, what is new, and a tour of the screens —
+is made from the application's own screens: [the tutorial film](../tutorial/README.md).
 
 | Page | For |
 | ---- | --- |

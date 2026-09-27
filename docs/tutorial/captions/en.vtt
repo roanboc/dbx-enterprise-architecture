@@ -1,0 +1,124 @@
+WEBVTT
+
+00:00:03.200 --> 00:00:05.424
+Most organisations know how they work.
+
+00:00:06.074 --> 00:00:09.610
+Very few can answer a question about it in less than a week.
+
+00:00:10.860 --> 00:00:15.739
+What depends on this system? Who owns this information? What breaks if we change it?
+
+00:00:16.789 --> 00:00:24.741
+The answers exist, but they are spread across diagrams, spreadsheets, a service desk, an asset register and a few people's memory.
+
+00:00:25.391 --> 00:00:28.090
+So every question becomes a small project.
+
+00:00:29.540 --> 00:00:34.060
+The knowledge is locked in pictures, current only until someone redraws them.
+
+00:00:34.710 --> 00:00:38.483
+The facts are copied in by hand from systems that already hold them.
+
+00:00:39.133 --> 00:00:42.924
+No team, report or assistant can read it without an export.
+
+00:00:43.574 --> 00:00:47.095
+And the vocabulary belongs to the tool, not to the business.
+
+00:00:50.545 --> 00:00:55.331
+The EA Repository keeps the architecture as governed data, not drawings.
+
+00:00:56.481 --> 00:01:02.292
+Ask a question and the answer comes back in seconds, every fact citing the element it came from.
+
+00:01:02.942 --> 00:01:07.265
+Facts flow in from the systems that own them, and every row keeps its source.
+
+00:01:07.915 --> 00:01:12.262
+It runs on the data platform, where people and agents read the same model.
+
+00:01:12.912 --> 00:01:18.156
+What the model can describe is yours to change: a metamodel, tried on a copy first.
+
+00:01:18.806 --> 00:01:24.262
+And change stays governed. Anyone can propose, owners review, and a person approves.
+
+00:01:24.912 --> 00:01:28.140
+The assistant drafts and explains. It never approves.
+
+00:01:31.390 --> 00:01:36.003
+Here is the application, with the sample model of a fictional university.
+
+00:01:36.653 --> 00:01:40.191
+The first time you open it, a short welcome says where to start.
+
+00:01:41.241 --> 00:01:45.467
+The navigation follows the work: discover, contribute, then manage.
+
+00:01:48.117 --> 00:01:50.367
+Every screen has its help at the top right.
+
+00:01:51.817 --> 00:01:57.717
+It opens beside the screen: why it exists, what you see, how to use it, and what your role may do.
+
+00:02:00.567 --> 00:02:03.791
+Browse finds any element by name, type or status.
+
+00:02:05.041 --> 00:02:09.867
+Open one, and its page shows what it is, where it stands, and what it relates to.
+
+00:02:11.517 --> 00:02:18.351
+Its views are generated from the model. Nothing is drawn by hand, and every shape is an element you can open.
+
+00:02:21.201 --> 00:02:23.325
+Ask takes a question in plain words.
+
+00:02:25.175 --> 00:02:31.930
+Here, the impact of changing a course offering: a view of it, the answer, and every element the answer cites.
+
+00:02:33.580 --> 00:02:38.313
+Impact lists what depends on an element, and what it depends on, hop by hop.
+
+00:02:41.363 --> 00:02:44.434
+To change the model, you hand in a design page.
+
+00:02:45.484 --> 00:02:49.901
+Write it here, with its preview beside it, or drop in files and drawings.
+
+00:02:51.351 --> 00:03:00.130
+The assistant links what already exists, adopts what is new, and asks about what it cannot settle, such as which work package delivers the change.
+
+00:03:01.580 --> 00:03:05.813
+You check every row, then apply them to a branch. Main is not touched.
+
+00:03:08.663 --> 00:03:12.659
+On Branches, the reviewers of each element type approve the change.
+
+00:03:13.709 --> 00:03:16.303
+Then it is merged into main, row by row.
+
+00:03:17.553 --> 00:03:22.322
+Target state shows where each element is headed, and the work package that takes it there.
+
+00:03:25.172 --> 00:03:30.194
+Imports and feeds bring facts in from other systems, and keep a record of every run.
+
+00:03:31.244 --> 00:03:36.859
+The metamodel is data too: its types, relationships and notation, kept in versions.
+
+00:03:38.309 --> 00:03:42.820
+A new version is tried in an organisation of its own before it is applied.
+
+00:03:43.870 --> 00:03:46.165
+Admins give workspace groups their roles.
+
+00:03:47.215 --> 00:03:49.742
+And Health shows what needs a steward's attention.
+
+00:03:52.792 --> 00:03:57.161
+To learn more, open the Guide, or press the question mark on any screen.
+
+00:04:00.411 --> 00:04:05.699
+Agents draft. People approve. And the architecture stays current, cited and shared.

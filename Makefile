@@ -1,4 +1,4 @@
-.PHONY: install seed run test test-serial test-fast test-live gui gui-install lint format check validate deploy deploy-run clean
+.PHONY: install seed run test test-serial test-fast test-live gui gui-install tutorial lint format check validate deploy deploy-run clean
 
 install:            ## create .venv and install runtime + dev dependencies with uv
 	uv sync
@@ -39,6 +39,19 @@ gui-install:        ## add the browser driver and its browser
 
 gui:                ## the browser-driven round: drives the app, writes .testrun/<stamp>/
 	uv run --group gui pytest tests/ui tests/test_ui_coverage.py -m "gui or cli"
+
+# The tutorial film (docs/tutorial/README.md): the application's own screens, a local voice,
+# drawn and rendered from code. It needs the voice model in docs/tutorial/models/ once.
+FILM = uv run --group gui --with-requirements docs/tutorial/requirements.txt python docs/tutorial/tools
+
+tutorial:           ## the tutorial film from the application's own screens: dist/ea-repository-tour.mp4 in docs/tutorial
+	$(FILM)/capture.py
+	$(FILM)/tts.py
+	$(FILM)/build.py
+	$(FILM)/check.py
+	$(FILM)/audio.py
+	$(FILM)/render.py --workers 3
+	$(FILM)/captions.py
 
 lint:               ## ruff, as CI runs it: the lint rules and the formatting
 	uv run ruff check src tests app.py
