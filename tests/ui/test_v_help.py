@@ -21,7 +21,7 @@ from tests.ui.harness import Ui
 pytestmark = pytest.mark.gui
 
 SEEN = "help-seen"  # the local store's key, and the id of the component that keeps it
-DRAWER = ".mantine-Drawer-content"
+DRAWER = ".mantine-Drawer-content:has(#help-title)"  # the help's side panel, not a page's own drawer
 TITLE_BUTTON = "#page .ea-help-button"
 HINT = "#help-hint"
 SCREENS = ["/browse", "/ask", "/impact", "/target", "/branches", "/import", "/feeds", "/propose"]
@@ -57,6 +57,13 @@ def _hint(ui) -> str:
 
 def _drawer_open(ui) -> bool:
     return ui.page.locator(DRAWER).first.is_visible() if ui.page.locator(DRAWER).count() else False
+
+
+def _focus(ui) -> str:
+    """What has the keyboard: the element's tag and, for an input, its type."""
+    return ui.page.evaluate(
+        "() => { const e = document.activeElement; return e ? `${e.tagName} ${e.type || ''}`.trim() : ''; }"
+    )
 
 
 @pytest.mark.scenario(
@@ -129,7 +136,9 @@ def test_the_tips_show_once_and_can_be_turned_off(newcomer, record):
         "Every screen of the navigation carries one help button beside its title. Pressing it — or "
         "the ? key — opens a side panel titled with the screen's name: why, what you see, how, the "
         "flow drawn, and what the reader's own role may do there. Escape closes it; moving to "
-        "another screen closes it too."
+        "another screen closes it too. ? works from a checkbox, a switch or a segmented control "
+        "that has the focus, and does nothing while the panel, or another dialog or side panel, is "
+        "open."
     ),
 )
 def test_the_side_panel_opens_when_asked(ui, record):
@@ -160,8 +169,53 @@ def test_the_side_panel_opens_when_asked(ui, record):
     ui.page.keyboard.press("?")
     ui.settle()
     ui.check("the ? key opens it", _drawer_open(ui))
+    title = ui.text("help-title")
+    ui.page.keyboard.press("?")
+    ui.settle()
+    ui.check("? on the open panel leaves it as it is", _drawer_open(ui) and ui.text("help-title") == title)
     ui.goto("/ask")
     ui.check("another screen closes it", not _drawer_open(ui))
+    # A control that takes no characters leaves ? to the help: a segmented control is a radio
+    # underneath, and a switch a checkbox.
+    ui.goto("/branches")
+    ui.segmented("br-status", "Merged")
+    focused = _focus(ui)
+    ui.page.keyboard.press("?")
+    ui.settle()
+    ui.check(
+        "? opens it from a segmented control that has the focus",
+        focused == "INPUT radio" and _drawer_open(ui),
+        focused,
+    )
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    ui.goto("/target")
+    ui.page.locator("#tg-only-changes").focus()  # as the keyboard reaches it, and Space flips it
+    ui.page.keyboard.press("Space")
+    ui.settle()
+    focused = _focus(ui)
+    ui.page.keyboard.press("?")
+    ui.settle()
+    ui.check(
+        "? opens it from a switch that has the focus",
+        focused == "INPUT checkbox" and _drawer_open(ui),
+        focused,
+    )
+    ui.page.keyboard.press("Escape")
+    ui.settle()
+    # Another panel over the screen keeps the keyboard: ? neither opens the help underneath it
+    # nor moves the focus into a panel nobody can see.
+    ui.goto("/browse")
+    ui.click("browse-more-open")
+    ui.page.wait_for_selector(".mantine-Drawer-content:has-text('Narrow the list')", state="visible")
+    ui.page.keyboard.press("?")
+    ui.settle()
+    ui.check("? does nothing while another side panel is open", not _drawer_open(ui))
+    lost = ui.page.evaluate(f"() => !!(document.activeElement && document.activeElement.closest('{DRAWER}'))")
+    ui.check("the keyboard stays in the panel that is open", not lost, _focus(ui))
+    ui.shot("? with the filters open leaves them on top", full_page=False)
+    ui.page.keyboard.press("Escape")
+    ui.settle()
 
 
 @pytest.mark.scenario(
