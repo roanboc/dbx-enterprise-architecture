@@ -75,6 +75,31 @@ def test_the_agent_reads_the_branch_its_person_named(app_context, loaded, regist
     assert json.loads(text)["element"]["name"] != "Curriculum Hub"
 
 
+def test_an_agents_own_sql_walks_the_model_and_reads_nothing_past_it(app_context):
+    """`run_sql` is the reader's own SQL: a recursive walk answers on both engines, and a
+    macro that reads a table named in a string, or a switch of the shared connection, is
+    refused as a failure the agent sees rather than run."""
+    caller = caller_for(app_context, "ana@example.org", "reader")
+    walk = (
+        "with recursive reach(id, depth) as ("
+        "select element_id, 0 from element where element_id = 'PAC-CMS' union "
+        "select r.dst_id, reach.depth + 1 from relationship r join reach on r.src_id = reach.id "
+        "where reach.depth < 2) select count(distinct id) as n from reach"
+    )
+    text, failed = call(app_context, caller, "run_sql", {"sql": walk})
+    assert not failed, text
+    assert json.loads(text)["rows"][0][0] >= 1
+    for sql in (
+        "select * from histogram_values('ea_governance.role_grant', group_id)",
+        "select * from enable_profiling()",
+        "select count(*) from public.element",
+    ):
+        text, failed = call(app_context, caller, "run_sql", {"sql": sql})
+        assert failed and "ValueError" in text, text
+    text, failed = call(app_context, caller, "run_sql", {"sql": "select count(*) as n from element"})
+    assert not failed and json.loads(text)["rows"][0][0] > 0
+
+
 def test_a_caller_names_only_what_exists(app_context):
     with pytest.raises(Refused, match="no organisation"):
         caller_for(app_context, "ana", "reader", org="nowhere")

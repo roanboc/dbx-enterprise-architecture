@@ -94,7 +94,6 @@ from ea.models import (
 )
 
 _READ_ONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
-_WITH_RE = re.compile(r"^\s*with\s+(recursive\s+)?", re.IGNORECASE)
 _FORBIDDEN_RE = re.compile(
     r"\b(insert|update|delete|merge|drop|alter|create|truncate|attach|copy|export|import|pragma|call|"
     # set_config() changes a setting from inside a SELECT, and the change outlives the read-only
@@ -3964,15 +3963,14 @@ class SqlBackend(DatabaseBackend):
                 f"{found.group()} is the database's own, not the model's: it reads past the "
                 f"organisation and branch this query answers for"
             )
+        statement = f"SELECT * FROM ({stripped}) AS reader LIMIT {int(limit)}"
         if scoped:
-            ctes = self._scope_ctes()
-            m = _WITH_RE.match(stripped)
-            if m:
-                recursive = "RECURSIVE " if m.group(1) else ""
-                stripped = f"WITH {recursive}{ctes}, {stripped[m.end() :]}"
-            else:
-                stripped = f"WITH {ctes} {stripped}"
-        return self._fetch_df(f"SELECT * FROM ({stripped}) AS q LIMIT {int(limit)}", params)
+            # Laid around the reader's statement, never merged into its WITH list: merged, a
+            # reader's RECURSIVE made each scope expression recursive too, and Postgres refused
+            # `element AS (SELECT * FROM element …)` as a recursion. Around it, a name the
+            # reader's own WITH gives again reads the scoped rows, as any bare name does.
+            statement = f"WITH {self._scope_ctes()} {statement}"
+        return self._fetch_df(statement, params)
 
 
 __all__ = ["SqlBackend", "chunks", "new_id", "pack_content", "table_columns"]

@@ -456,6 +456,51 @@ def test_a_readers_sql_cannot_read_another_deployments_schemas_in_a_database_the
         dev.close()
 
 
+def test_a_readers_recursive_sql_answers_for_its_organisation_on_both_engines(loaded, orgs):
+    """The scope is laid around the reader's statement, not merged into its WITH list.
+
+    Merged, a reader's `WITH RECURSIVE` made every scope expression recursive as well, and
+    Postgres refused each of them (`element AS (SELECT * FROM element …)` names itself), so no
+    recursive query ran on Lakebase. Around it, a name the reader's own WITH gives again
+    (`WITH element AS (SELECT * FROM element)`) still reads the scoped rows."""
+    default_ids = sorted(loaded.query("select element_id from element")["element_id"])
+    walk = (
+        "with recursive reach(id, depth) as ("
+        " select element_id, 0 from element"
+        " union"
+        " select r.dst_id, reach.depth + 1 from relationship r join reach on r.src_id = reach.id"
+        " where reach.depth < 3"
+        ") select count(distinct id) as n from reach"
+    )
+    assert int(loaded.query(walk)["n"][0]) == len(default_ids) == 47
+    orgs.create("Trial", "ada")
+    with use_org("trial"):
+        loaded.insert_element(Element("E1", "capability", "Only ours"), "ada")
+
+        def n(query: str) -> int:
+            return int(loaded.query(query)["n"][0])
+
+        series = "with recursive r(n) as (select 1 union all select n + 1 from r where n < 5) select n from r"
+        assert list(loaded.query(series + " order by n desc limit 3")["n"]) == [5, 4, 3]
+        assert n(walk) == 1
+        assert n("with element as (select * from element) select count(*) as n from element") == 1
+        assert n("with recursive ids as (select element_id from element) select count(*) as n from ids") == 1
+        assert (
+            n("select count(*) as n from (with element as (select * from element) select * from element) s")
+            == 1
+        )
+        found = loaded.query(
+            "select element_id from element where name = ? and element_id <> ?", ["Only ours", "X"]
+        )
+        assert list(found["element_id"]) == ["E1"]
+    ordered = loaded.query("select element_id from element order by element_id desc limit 3")
+    assert list(ordered["element_id"]) == default_ids[::-1][:3]
+    assert (
+        list(loaded.query("select element_id from element order by element_id", limit=4)["element_id"])
+        == (default_ids[:4])
+    )
+
+
 def test_an_older_store_is_given_its_organisation(backend, pack):
     """Rows from before organisations and versions belong to the default organisation, and the
     default organisation applies the pack most recently loaded."""
