@@ -1052,6 +1052,19 @@ LODGE_SUMMARY = {
 # style while it has the keyboard, and again once nothing has it, and asks whether anything
 # about it changed at all.
 SKIP_LIMIT = 8  # tab stops a reader should not have to pass to reach the page itself
+# How far the walk goes. Not a number of presses: the header and the navigation are as long as
+# the shell makes them, and a fixed count is one the shell outgrows as soon as a link is added —
+# twenty presses once reached the page and now end in the navigation. The walk goes on until it
+# reaches the first control inside the page, or until it comes back round to the stop it started
+# from, having walked the whole tab order; only then does a walk that never entered the page
+# mean the page cannot be reached.
+#
+# One control inside the page, not more: the probe reads the focused element alone, and a
+# Mantine field built of parts draws its ring elsewhere — a multi-select's border on the box
+# around the field that has the keyboard, a segmented control's ring on the label of a radio
+# that is hidden — so read further into a page it reports rings those controls do draw.
+FOCUS_PAGE_STOPS = 1
+FOCUS_WALK_LIMIT = 80  # presses at most, for a walk that never finds its way back round
 
 FOCUS_PROPERTIES = (
     "outline-style",
@@ -1100,6 +1113,30 @@ FOCUS_STOP_JS = (
     style: snap(cs),
   };
   return out;
+}
+"""
+)
+
+# Where the keyboard is now, for following the skip link: on the page container itself, or on
+# a control inside it — `closest('#page')` cannot tell the two apart.
+FOCUSED_JS = (
+    """
+() => {
+"""
+    + VISIBLE
+    + """
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {
+    return {sel: 'the document', name: '', skip: false, page: false, inside: false};
+  }
+  const page = document.getElementById('page');
+  return {
+    sel: where(el),
+    name: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 34),
+    skip: !!el.closest('.ea-skip-link'),
+    page: el === page,
+    inside: !!page && el !== page && page.contains(el),
+  };
 }
 """
 )
@@ -1294,17 +1331,23 @@ def _ask_box(ui):
     return field.first if field.count() else ui.page.locator("#ask-input textarea").first
 
 
-def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[dict]:
+def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3, in_page: int = 0) -> list[dict]:
     """Tab through a screen and report where the keyboard went and whether it showed.
 
     Every stop is read twice — once as it takes the keyboard and once, one press later, as
     it gives it up — so `ring` is whatever actually changed about that control rather than
     a guess at which property a design draws a ring with. One press more than the walk
     needs is made at the end, so the last stop is read at rest as well.
+
+    With `in_page`, `presses` is only a bound: the walk ends once it has read that many stops
+    inside the page, or when the keyboard comes back to the stop the walk started from — the
+    whole tab order walked, and nothing further to find.
     """
     stops: list[dict] = []
     resting: dict[int, list[str]] = {}
-    for i in range(presses + 1):
+    end = presses
+    i = 0
+    while i <= end:
         ui.page.keyboard.press("Tab")
         # Long enough for a border or a ring that fades in to have arrived: measured any
         # sooner, a control that does draw one reads as a control that draws nothing.
@@ -1312,10 +1355,17 @@ def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[d
         got = ui.page.evaluate(FOCUS_STOP_JS, i)
         if got.get("rested"):
             resting[got["rested"]["stop"]] = got["rested"]["style"]
-        if got.get("here") and i < presses:
-            stops.append(got["here"])
+        here = got.get("here")
+        if here and i < end:
+            if in_page and stops and (here["sel"], here["name"]) == (stops[0]["sel"], stops[0]["name"]):
+                end = i  # round to the start: this press read the last stop at rest
+            else:
+                stops.append(here)
+                if in_page and sum(1 for s in stops if s["inPage"]) >= in_page:
+                    end = i + 1  # one press more, to read this stop at rest
         if caption and i == shot_at:
             ui.shot(caption)
+        i += 1
     ui.page.evaluate("() => { window.__eaFocusStop = null; }")
     for stop in stops:
         was = resting.get(stop["stop"])
@@ -1329,6 +1379,27 @@ def _focus_walk(ui, presses: int, caption: str = "", shot_at: int = 3) -> list[d
         stop["ring"] = bool(changed) or was is None
         stop["how"] = ", ".join(changed) if changed else ("not read at rest" if was is None else "nothing")
     return stops
+
+
+def _follow_skip_link(ui, path: str) -> dict:
+    """Open a screen afresh and do what a keyboard reader does to skip the shell.
+
+    One Tab, which should find the skip link; Enter on it; and one Tab more, which should land
+    on the page's first control. Where the keyboard is after each is returned, and nothing
+    after the first Tab when that did not find a skip link.
+    """
+    ui.goto(path)
+    ui.page.keyboard.press("Tab")
+    ui.page.wait_for_timeout(140)
+    first = ui.page.evaluate(FOCUSED_JS)
+    if not first["skip"]:
+        return {"first": first}
+    ui.page.keyboard.press("Enter")
+    ui.page.wait_for_timeout(300)
+    taken = ui.page.evaluate(FOCUSED_JS)
+    ui.page.keyboard.press("Tab")
+    ui.page.wait_for_timeout(140)
+    return {"first": first, "taken": taken, "landed": ui.page.evaluate(FOCUSED_JS)}
 
 
 @pytest.mark.scenario(
@@ -1989,16 +2060,27 @@ def test_dialogs_audit(ui, record, finding):
     group="P",
     title="Checkpoint 9 · tabbing reaches the controls and shows where it is",
     feature="Screen audit · focus",
-    expected="On Home, Browse and Ask the keyboard moves through the screen, reaches the page's own "
-    "controls and not only the header, and every control it lands on changes as it takes the keyboard — "
-    "an outline, a ring, a border — read by measuring each control focused and again at rest. A control "
-    "that changes in no way at all is lodged, and so is a tab order that makes a reader walk the whole "
-    "header and navigation before the page itself.",
+    expected="On Home, Browse and Ask the first Tab finds the skip link, Enter on it hands the keyboard to "
+    "the page itself, and the next Tab lands on the page's first control — the header and the navigation "
+    "skipped in one press, however long the navigation grows. Walked from the top without it, the keyboard "
+    "moves through the header and the navigation into the page, and every control it lands on changes as "
+    "it takes the keyboard — an outline, a ring, a border — read by measuring each control focused and again "
+    "at rest. A control that changes in no way at all is lodged; so is a screen with no working way past the "
+    "shell whose page lies far down the tab order, and one whose page the keyboard never reaches at all, "
+    "walked until it reaches the page's first control or comes back round to where it started.",
 )
 def test_focus_audit(ui, record, finding):
     for name, path in (("Home", "/"), ("Browse", "/browse"), ("Ask", "/ask")):
         ui.goto(path)
-        stops = _focus_walk(ui, 20, f"{name}: where the keyboard is after four Tab presses")
+        # Walked until the keyboard reaches the page, not for a fixed number of presses: the
+        # shell is as long as its navigation, and a count the navigation outgrows would report
+        # a page that cannot be reached when it is only further down.
+        stops = _focus_walk(
+            ui,
+            FOCUS_WALK_LIMIT,
+            f"{name}: where the keyboard is after four Tab presses",
+            in_page=FOCUS_PAGE_STOPS,
+        )
         ui.must(f"tabbing moves the keyboard through {name}", len(stops) >= 3, f"{len(stops)} stops")
         ringless: list[str] = []
         for stop in stops:
@@ -2024,17 +2106,34 @@ def test_focus_audit(ui, record, finding):
             )
         first_in_page = next((n for n, stop in enumerate(stops, 1) if stop["inPage"]), 0)
         # A skip link is the answer to this checkpoint: one press, and the header and the
-        # navigation are behind the reader. It only counts if it is the first thing the
-        # keyboard finds, so measure that rather than the number of stops after it.
-        skipped = bool(stops) and stops[0].get("skip")
-        ui.check(
-            f"checkpoint 9 · {name} · the keyboard reaches the page without walking the shell",
-            True,
-            "a skip link is the first tab stop"
-            if skipped
-            else f"the first control inside the page is tab stop {first_in_page or 'never reached'}",
-        )
-        if not skipped and (not first_in_page or first_in_page > SKIP_LIMIT):
+        # navigation are behind the reader. So it is followed as a reader follows it — Tab,
+        # Enter, Tab — and counts only when that lands on a control inside the page. Being the
+        # first tab stop is not enough: a link that only scrolls the view leaves the keyboard
+        # wherever the browser leaves it and tells a screen reader nothing, and it is the page
+        # itself taking the keyboard on Enter that makes the next Tab land there in any browser.
+        followed = _follow_skip_link(ui, path)
+        first, taken, landed = followed["first"], followed.get("taken"), followed.get("landed")
+        skips = bool(landed and landed["inside"])
+        if taken and landed:
+            ui.shot(f"{name}: the skip link followed, and one Tab more")
+            ui.check(
+                f"checkpoint 9 · {name} · Enter on the skip link hands the keyboard to the page itself",
+                taken["page"],
+                f"the keyboard is on {taken['sel']}",
+            )
+            ui.check(
+                f"checkpoint 9 · {name} · Tab, Enter on the skip link, then Tab lands inside the page",
+                skips,
+                f"on {landed['sel']} {landed['name']!r}",
+            )
+        else:
+            ui.check(
+                f"checkpoint 9 · {name} · the keyboard reaches the page without walking the shell",
+                True,
+                f"no skip link: the first tab stop is {first['sel']} {first['name']!r}, and the first "
+                f"control inside the page is tab stop {first_in_page or 'never reached'}",
+            )
+        if not skips and (not first_in_page or first_in_page > SKIP_LIMIT):
             _lodge(
                 finding,
                 "no-way-past-the-navigation",
@@ -2054,10 +2153,12 @@ def test_focus_audit(ui, record, finding):
                 "focus-never-reaches-the-page",
                 name,
                 "accessibility",
-                "Twenty Tab presses from the top of the screen never reach the page's own controls: "
+                "Tabbing all the way round the screen never reaches the page's own controls: "
                 "everything the keyboard finds is header and navigation, so the screen cannot be "
                 "worked without a mouse",
-                [f"{name}: {len(stops)} stops, none of them inside the page"],
+                [
+                    f"{name}: {len(stops)} stops walked until the keyboard came back round, none inside the page"
+                ],
             )
         if unseen:
             _lodge(
