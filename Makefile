@@ -28,10 +28,10 @@ test-serial:        ## the same suite in one process, for a failure that only ha
 	uv run pytest
 
 test-fast:          ## the unit tests alone, while iterating
-	uv run pytest -m "not cli" $(PYTEST_ACROSS_CORES)
+	uv run pytest -m "not cli and not gui" $(PYTEST_ACROSS_CORES)
 
 test-live:          ## the unit tests a third time, on a Lakebase instance (EA_LAKEBASE_INSTANCE, DATABRICKS_HOST and the SDK's credentials)
-	EA_LIVE_LAKEBASE=1 uv run --extra databricks pytest -m "not cli"
+	EA_LIVE_LAKEBASE=1 uv run --extra databricks pytest -m "not cli and not gui"
 
 gui-install:        ## add the browser driver and its browser
 	uv sync --group gui
