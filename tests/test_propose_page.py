@@ -99,3 +99,48 @@ def test_the_reviewer_reads_how_each_row_was_settled():
         )
     )
     assert "How it was settled: 1 answer" in shown and "A purely technical change." in shown
+
+
+def _nodes(node, parents=()):
+    """Every component with the components it sits in, outermost first."""
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _nodes(item, parents)
+        return
+    if node is None or isinstance(node, (str, int, float)):
+        return
+    yield node, parents
+    for attribute in ("children", "label", "title"):
+        value = getattr(node, attribute, None)
+        if value is not None and not isinstance(value, str):
+            yield from _nodes(value, (*parents, node))
+
+
+def _holding(page, component_id):
+    return next((n, p) for n, p in _nodes(page) if getattr(n, "id", None) == component_id)
+
+
+def test_where_it_lands_is_a_strip_across_the_page_above_the_proposal(ctx):
+    """Section 1 is three choices side by side across the page, above section 2; the proposal
+    below it has the page's whole width, rather than half of it beside section 1."""
+    from ea.ui import ids
+    from ea.ui.pages import propose
+
+    page = propose.render(ctx)
+    _, branch_in = _holding(page, ids.PR_BRANCH)
+    _, text_in = _holding(page, {"type": ids.MD_TEXT, "id": ids.PR_TEXT})
+    shared = [p for p in branch_in if any(p is q for q in text_in)]
+    assert not any(type(p).__name__ == "SimpleGrid" for p in shared), "the two sections sit side by side"
+    strip = next(p for p in branch_in if "ea-propose-where" in str(getattr(p, "className", "")))
+    columns = [_ids_in(c) for c in strip.children]
+    assert [ids.PR_BRANCH in c for c in columns][:3] == [True, False, False]
+    assert [ids.PR_WP in c for c in columns][:3] == [False, True, False]
+    assert [ids.PR_TPL_PICK in c for c in columns][:3] == [False, False, True]
+    # a new branch's or work package's name is asked for under the choice it belongs to
+    assert ids.PR_BRANCH_NEW in columns[0] and ids.PR_WP_NEW in columns[1]
+    order = [getattr(n, "id", None) for n, _ in _nodes(page)]
+    assert order.index(ids.PR_BRANCH) < order.index({"type": ids.MD_TEXT, "id": ids.PR_TEXT})
+
+
+def _ids_in(node) -> list:
+    return [getattr(n, "id", None) for n, _ in _nodes(node)]

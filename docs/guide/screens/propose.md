@@ -14,10 +14,12 @@ about what it cannot settle, and nothing is written until you apply it to a bran
 - A badge beside the title names the reader. **reader: stub** reads template tables by
   rules alone; a hosted model also reads free text.
 - **Your drafts, kept between sittings**, with **Resume** and **Discard**, once you have a draft.
-- **1 · Where it lands**: **Branch**, **Work package**, **Template**,
+- **1 · Where it lands**, across the page: **Branch**, **Work package**, **Template**,
   **Download template** and **Load example**.
-- **2 · The proposal**: the **Paste the proposal** editor, a drop zone for files or a
-  draw.io drawing, **Links (one per line)** and **Analyse**.
+- **2 · The proposal**, below it with the page's whole width: the **Paste the proposal**
+  editor, a drop zone for files or a draw.io drawing, **Links (one per line)** and
+  **Analyse**. In **Split**, drag the divider between the text and its preview, or move it
+  with the arrow keys; drag the editor's lower corner to make both taller.
 - After **Analyse**: counts of new and linked elements, a list of what stops Apply, and
   the **Conversation** with its open questions.
 - Three tabs: **Rows**, with editable Elements and Relationships grids;

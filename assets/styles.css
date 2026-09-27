@@ -109,11 +109,87 @@
 .ea-markdown-preview { background: #fff; }
 .ea-markdown-preview .ea-doc p:first-child { margin-top: 0; }
 .mantine-Modal-content:fullscreen { background: #fff; padding: 1rem; overflow: auto; }
-.ea-md-body { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+.ea-md-body { display: flex; align-items: flex-start; }
+.ea-md-body > .ea-md-edit-pane, .ea-md-body > .ea-md-preview-pane { flex: 1 1 0; min-width: 0; }
 .ea-markdown-header { flex-wrap: wrap; row-gap: 4px; }
-.ea-markdown-editor.mode-split .ea-md-body { grid-template-columns: 1fr 1fr; }
+.ea-md-splitter { display: none; }
 .ea-markdown-editor.mode-edit .ea-md-preview-pane { display: none; }
 .ea-markdown-editor.mode-preview .ea-md-edit-pane { display: none; }
+/* Split: the text and its preview side by side, each as tall as the editor and scrolled on its
+   own; the divider between them is dragged or moved with the arrow keys (assets/ea-split.js),
+   and the editor's lower edge is dragged to make both taller. */
+.ea-markdown-editor.mode-split .ea-md-body {
+  align-items: stretch;
+  height: max(var(--ea-md-min, 144px), min(70vh, 42rem));
+  min-height: 12rem;
+  resize: vertical;
+  overflow: hidden;
+}
+.ea-markdown-editor.mode-split .ea-md-edit-pane { flex: 0 0 var(--ea-split, 50%); min-width: 8rem; }
+.ea-markdown-editor.mode-split .ea-md-preview-pane { min-width: 8rem; overflow: auto; }
+.ea-markdown-editor.mode-split .ea-md-preview-pane > .ea-markdown-preview { min-height: 100%; }
+.ea-markdown-editor.mode-split .ea-md-edit-pane .mantine-Textarea-root,
+.ea-markdown-editor.mode-split .ea-md-edit-pane .mantine-Input-wrapper { height: 100%; }
+.ea-markdown-editor.mode-split .ea-md-edit-pane textarea { height: 100% !important; min-height: 0 !important; resize: none; }
+.ea-markdown-editor.mode-split .ea-md-splitter {
+  display: block;
+  flex: 0 0 14px;
+  align-self: stretch;
+  cursor: col-resize;
+  touch-action: none;
+  position: relative;
+  border-radius: 4px;
+}
+.ea-md-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: 2px;
+  background: var(--mantine-color-gray-3);
+}
+.ea-md-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 8px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 4px;
+  background: var(--mantine-color-gray-5);
+}
+.ea-md-splitter:hover::before, .ea-md-dragging > .ea-md-splitter::before { background: var(--mantine-color-indigo-4); }
+.ea-md-splitter:hover::after, .ea-md-dragging > .ea-md-splitter::after { background: var(--mantine-color-indigo-6); }
+.ea-md-splitter:focus-visible { outline: 2px solid var(--mantine-color-indigo-6); outline-offset: 1px; }
+.ea-md-dragging { cursor: col-resize; user-select: none; }
+/* on a narrow window the preview goes under the text: side by side, neither could be read */
+@media (max-width: 48em) {
+  .ea-markdown-editor.mode-split .ea-md-body { flex-direction: column; height: auto; resize: none; gap: 12px; }
+  .ea-markdown-editor.mode-split .ea-md-edit-pane { flex: none; width: 100%; }
+  .ea-markdown-editor.mode-split .ea-md-edit-pane textarea { height: auto !important; min-height: var(--ea-md-min, 144px) !important; }
+  .ea-markdown-editor.mode-split .ea-md-preview-pane { flex: none; width: 100%; }
+  .ea-markdown-editor.mode-split .ea-md-splitter { display: none; }
+}
+/* Propose: where a proposal lands, three choices across the page; the files and the links side by side */
+.ea-propose-where {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  align-items: start;
+}
+/* a description of one line or two, the three boxes stay level */
+.ea-propose-where .mantine-InputWrapper-description { min-height: 2lh; }
+.ea-propose-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  align-items: start;
+}
+/* a page's front matter, folded away above its preview */
+.ea-front-matter { margin-bottom: 0.5rem; font-size: 0.85rem; }
+.ea-front-matter > summary { cursor: pointer; color: var(--mantine-color-dimmed); }
 .ea-table td, .ea-table th { font-size: 0.88rem; }
 .ea-chip { cursor: pointer; }
 .ea-chip:hover { border-color: #4c6ef5; color: #3b5bdb; }

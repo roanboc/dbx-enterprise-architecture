@@ -799,126 +799,157 @@ def render(ctx: AppContext) -> html.Div:
                 help="propose",
             ),
             _drafts_panel(ctx),
-            dmc.SimpleGrid(
-                [
-                    dmc.Paper(
-                        dmc.Stack(
+            # 1 is a strip of three choices across the page, and 2, the proposal itself, has the
+            # page's whole width below it.
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Text("1 · Where it lands", fw=700, size="sm"),
+                        html.Div(
                             [
-                                dmc.Text("1 · Where it lands", fw=700, size="sm"),
-                                dmc.Select(
-                                    id=ids.PR_BRANCH,
-                                    label="Branch",
-                                    description="An open branch to write to; New creates one from main, named after the proposal when no name is given.",
-                                    data=branch_options,
-                                    value=ctx.branch() if ctx.branch() != MAIN else None,
-                                    searchable=True,
-                                    clearable=True,
-                                    placeholder="New branch (created from main)",
-                                    comboboxProps={"withinPortal": True},
-                                ),
-                                dmc.TextInput(
-                                    id=ids.PR_BRANCH_NEW,
-                                    label="New branch name",
-                                    placeholder="Named after the proposal when left empty",
-                                    style={"display": "none"},
-                                ),
-                                dmc.Select(
-                                    id=ids.PR_WP,
-                                    label="Work package",
-                                    description="The initiative the change belongs to; the document's own says wins when it names one.",
-                                    data=wp_options,
-                                    searchable=True,
-                                    clearable=True,
-                                    placeholder="Existing work package…",
-                                    comboboxProps={"withinPortal": True},
-                                ),
-                                dmc.TextInput(
-                                    id=ids.PR_WP_NEW,
-                                    label="New work package name",
-                                    placeholder="Name of a new initiative",
-                                    style={"display": "none"},
-                                ),
-                                dmc.Divider(),
-                                dmc.Select(
-                                    id=ids.PR_TPL_PICK,
-                                    label="Template",
-                                    description="The shape the page is written in. A page that names its own template in its front matter is read with that one.",
-                                    data=template_options,
-                                    value=template_options[0]["value"] if template_options else None,
-                                    placeholder="The metamodel's own names",
-                                    clearable=True,
-                                    comboboxProps={"withinPortal": True},
-                                ),
-                                dmc.Group(
+                                dmc.Stack(
                                     [
-                                        dmc.Button(
-                                            "Download template",
-                                            id=ids.PR_TEMPLATE,
-                                            variant="light",
-                                            leftSection=icon("tabler:download"),
-                                            disabled=not template_options,
+                                        dmc.Select(
+                                            id=ids.PR_BRANCH,
+                                            label="Branch",
+                                            description="An open branch, or New: one made from main, named after "
+                                            "the proposal unless you name it.",
+                                            data=branch_options,
+                                            value=ctx.branch() if ctx.branch() != MAIN else None,
+                                            searchable=True,
+                                            clearable=True,
+                                            placeholder="New branch (created from main)",
+                                            comboboxProps={"withinPortal": True},
                                         ),
-                                        dmc.Button(
-                                            "Load example",
-                                            id=ids.PR_EXAMPLE,
-                                            variant="subtle",
-                                            color="gray",
-                                            leftSection=icon("tabler:wand"),
-                                            disabled=not template_options,
+                                        dmc.TextInput(
+                                            id=ids.PR_BRANCH_NEW,
+                                            label="New branch name",
+                                            placeholder="Named after the proposal when left empty",
+                                            style={"display": "none"},
                                         ),
                                     ],
                                     gap="xs",
                                 ),
-                                dmc.Text(
-                                    "Start from a template: its tables work without a model key. Load example "
-                                    "puts its worked example straight into the editor on the right."
-                                    if template_options
-                                    else "No template is offered for this organisation's metamodel. A page whose "
-                                    "table headings name element types is read all the same.",
-                                    size="xs",
-                                    c="dimmed",
+                                dmc.Stack(
+                                    [
+                                        dmc.Select(
+                                            id=ids.PR_WP,
+                                            label="Work package",
+                                            description="The initiative the change belongs to; one the page "
+                                            "names wins.",
+                                            data=wp_options,
+                                            searchable=True,
+                                            clearable=True,
+                                            placeholder="Existing work package…",
+                                            comboboxProps={"withinPortal": True},
+                                        ),
+                                        dmc.TextInput(
+                                            id=ids.PR_WP_NEW,
+                                            label="New work package name",
+                                            placeholder="Name of a new initiative",
+                                            style={"display": "none"},
+                                        ),
+                                    ],
+                                    gap="xs",
                                 ),
-                                _template_admin(ctx) if ctx.can("manage_templates") else None,
+                                dmc.Stack(
+                                    [
+                                        dmc.Select(
+                                            id=ids.PR_TPL_PICK,
+                                            label="Template",
+                                            description="The shape the page is written in; a page that names its "
+                                            "own is read with that one.",
+                                            data=template_options,
+                                            value=template_options[0]["value"] if template_options else None,
+                                            placeholder="The metamodel's own names",
+                                            clearable=True,
+                                            comboboxProps={"withinPortal": True},
+                                        ),
+                                        dmc.Group(
+                                            [
+                                                dmc.Button(
+                                                    "Download template",
+                                                    id=ids.PR_TEMPLATE,
+                                                    variant="light",
+                                                    size="xs",
+                                                    leftSection=icon("tabler:download"),
+                                                    disabled=not template_options,
+                                                ),
+                                                dmc.Button(
+                                                    "Load example",
+                                                    id=ids.PR_EXAMPLE,
+                                                    variant="subtle",
+                                                    color="gray",
+                                                    size="xs",
+                                                    leftSection=icon("tabler:wand"),
+                                                    disabled=not template_options,
+                                                ),
+                                            ],
+                                            gap="xs",
+                                        ),
+                                        dmc.Text(
+                                            "Its tables work without a model key. Load example puts its worked "
+                                            "example into the editor below."
+                                            if template_options
+                                            else "No template is offered for this organisation's metamodel. A page "
+                                            "whose table headings name element types is read all the same.",
+                                            size="xs",
+                                            c="dimmed",
+                                        ),
+                                    ],
+                                    gap="xs",
+                                ),
                             ],
-                            gap="sm",
+                            className="ea-propose-where",
                         ),
-                        p="md",
-                        withBorder=True,
-                        className="ea-card",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack(
+                        _template_admin(ctx) if ctx.can("manage_templates") else None,
+                    ],
+                    gap="sm",
+                ),
+                p="md",
+                withBorder=True,
+                className="ea-card",
+                mb="md",
+            ),
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Text("2 · The proposal", fw=700, size="sm"),
+                        markdown_editor(
+                            ids.PR_TEXT,
+                            "Paste the proposal",
+                            placeholder="Paste the design page here (Markdown with the template's tables works without a model key; free text needs the hosted reader)…",
+                            min_rows=16,
+                        ),
+                        html.Div(
                             [
-                                dmc.Text("2 · The proposal", fw=700, size="sm"),
-                                markdown_editor(
-                                    ids.PR_TEXT,
-                                    "Paste the proposal",
-                                    placeholder="Paste the design page here (Markdown with the template's tables works without a model key; free text needs the hosted reader)…",
-                                    min_rows=8,
-                                ),
-                                dcc.Upload(
-                                    id=ids.PR_UPLOAD,
-                                    multiple=True,
-                                    children=dmc.Group(
-                                        [
-                                            icon("tabler:cloud-upload", 20),
-                                            dmc.Text(
-                                                "Drop Markdown, text or CSV files, or a draw.io drawing, here — or click to choose",
-                                                size="sm",
+                                html.Div(
+                                    [
+                                        dcc.Upload(
+                                            id=ids.PR_UPLOAD,
+                                            multiple=True,
+                                            children=dmc.Group(
+                                                [
+                                                    icon("tabler:cloud-upload", 20),
+                                                    dmc.Text(
+                                                        "Drop Markdown, text or CSV files, or a draw.io drawing, here — or click to choose",
+                                                        size="sm",
+                                                    ),
+                                                ],
+                                                gap="sm",
+                                                justify="center",
+                                                py="sm",
+                                                px="sm",
                                             ),
-                                        ],
-                                        gap="sm",
-                                        justify="center",
-                                        py="sm",
-                                    ),
-                                    style={
-                                        "border": "1px dashed #adb5bd",
-                                        "borderRadius": 8,
-                                        "cursor": "pointer",
-                                    },
+                                            style={
+                                                "border": "1px dashed #adb5bd",
+                                                "borderRadius": 8,
+                                                "cursor": "pointer",
+                                            },
+                                        ),
+                                        html.Div(id=ids.PR_FILES),
+                                    ]
                                 ),
-                                html.Div(id=ids.PR_FILES),
-                                dcc.Store(id=ids.PR_STORE, data={}),
                                 dmc.Textarea(
                                     id=ids.PR_LINKS,
                                     label="Links (one per line)",
@@ -926,30 +957,28 @@ def render(ctx: AppContext) -> html.Div:
                                     autosize=True,
                                     minRows=1,
                                 ),
-                                dmc.Group(
-                                    [
-                                        dmc.Text(
-                                            "No document yet? Analyse with nothing pasted and add the rows by hand.",
-                                            size="xs",
-                                            c="dimmed",
-                                        ),
-                                        dmc.Button(
-                                            "Analyse", id=ids.PR_ANALYSE, leftSection=icon("tabler:send")
-                                        ),
-                                    ],
-                                    justify="space-between",
-                                    align="center",
-                                ),
                             ],
-                            gap="sm",
+                            className="ea-propose-inputs",
                         ),
-                        p="md",
-                        withBorder=True,
-                        className="ea-card",
-                    ),
-                ],
-                cols={"base": 1, "md": 2},
-                spacing="md",
+                        dcc.Store(id=ids.PR_STORE, data={}),
+                        dmc.Group(
+                            [
+                                dmc.Text(
+                                    "No document yet? Analyse with nothing pasted and add the rows by hand.",
+                                    size="xs",
+                                    c="dimmed",
+                                ),
+                                dmc.Button("Analyse", id=ids.PR_ANALYSE, leftSection=icon("tabler:send")),
+                            ],
+                            justify="space-between",
+                            align="center",
+                        ),
+                    ],
+                    gap="sm",
+                ),
+                p="md",
+                withBorder=True,
+                className="ea-card",
                 mb="md",
             ),
             dcc.Store(id=ids.PR_RESULT_STORE, data=None),

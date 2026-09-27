@@ -1947,3 +1947,75 @@ def test_a_drawing_handed_back(ui, record, finding):
         _pushback(ui)[:300],
     )
     ui.shot("The drawing's own questions answered, and the draft still waiting on the new shape")
+
+
+MD_WRAP = '[id=\'{"id":"pr-text","type":"md-wrap"}\']'
+MD_MODE = '[id=\'{"id":"pr-text","type":"md-mode"}\']'
+DIVIDER = f"{MD_WRAP} .ea-md-splitter"
+
+
+@pytest.mark.scenario(
+    scenario_id="G25",
+    group="G",
+    title="Where it lands is a strip above the proposal, and the proposal's divider moves",
+    feature="Propose · layout",
+    expected=(
+        "Section 1 lays its three choices — branch, work package, template — side by side, level, across "
+        "the page, and section 2 sits below it with the page's whole width. In Split the text and its "
+        "preview share the width at a divider: dragged, it moves; with the focus, the arrow keys move it "
+        "and say where it stands; the browser keeps where it was left, and the page drawn again finds it "
+        "there. The template's front matter is folded away in the preview, not read as headings."
+    ),
+)
+def test_the_proposal_has_the_room(ui, record):
+    _open(ui)
+    boxes = {i: ui.page.locator(f"#{i}").bounding_box() for i in ("pr-branch", "pr-wp", "pr-tpl-pick")}
+    tops = {round(b["y"]) for b in boxes.values()}
+    ui.check("the three choices stand side by side, level", len(tops) == 1, str(boxes))
+    editor = ui.page.locator(MD_WRAP).first.bounding_box()
+    strip = ui.page.locator(".ea-propose-where").first.bounding_box()
+    ui.check("the proposal sits below where it lands", editor["y"] > strip["y"] + strip["height"])
+    ui.check(
+        "and takes the page's width, not half of it",
+        editor["width"] >= strip["width"] * 0.95,
+        f"{editor['width']:.0f} against {strip['width']:.0f}",
+    )
+    ui.click("pr-example")
+    ui.segmented(MD_MODE, "Split")
+    divider = ui.page.locator(DIVIDER).first
+    ui.must("Split shows the divider", divider.is_visible())
+    body = ui.page.locator(f"{MD_WRAP} .ea-md-body").first.bounding_box()
+    handle = divider.bounding_box()
+    y = handle["y"] + handle["height"] / 2
+    ui.page.mouse.move(handle["x"] + handle["width"] / 2, y)
+    ui.page.mouse.down()
+    ui.page.mouse.move(body["x"] + body["width"] * 0.3, y, steps=8)
+    ui.page.mouse.up()
+    text = ui.page.locator(f"{MD_WRAP} .ea-md-edit-pane").first.bounding_box()
+    ui.check(
+        "dragged, the divider moves: the text takes about a third",
+        abs(text["width"] / body["width"] - 0.3) < 0.04,
+        f"{text['width']:.0f} of {body['width']:.0f}",
+    )
+    divider.focus()
+    ui.page.keyboard.press("ArrowRight")
+    ui.check("an arrow key moves it and says where", divider.get_attribute("aria-valuenow") == "35")
+    ui.page.keyboard.press("End")
+    ui.check("End takes it as far as it goes", divider.get_attribute("aria-valuenow") == "85")
+    ui.page.keyboard.press("Home")
+    ui.page.keyboard.press("ArrowRight")
+    preview = ui.page.locator(f"{MD_WRAP} .ea-md-preview-pane").first
+    ui.check("the front matter is folded away", preview.locator("details.ea-front-matter").count() == 1)
+    ui.check(
+        "its comments are not the preview's headings",
+        not any("The metamodel this template" in h for h in preview.locator("h1, h2").all_inner_texts()),
+    )
+    ui.shot("Propose: where it lands above the proposal, its text and preview split at the divider")
+    ui.goto("/propose")
+    ui.segmented(MD_MODE, "Split")
+    ui.check(
+        "the page drawn again finds the divider where it was left",
+        ui.page.locator(DIVIDER).first.get_attribute("aria-valuenow") == "20",
+        ui.page.locator(DIVIDER).first.get_attribute("aria-valuenow") or "",
+    )
+    ui.page.evaluate("() => { try { localStorage.removeItem('ea-split'); } catch (e) {} }")

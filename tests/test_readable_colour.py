@@ -320,6 +320,7 @@ PAINTED_ON = {
     ".ea-doc": lambda: DOCUMENT,
     ".ea-doc a": lambda: DOCUMENT,
     ".ea-doc blockquote": lambda: DOCUMENT,
+    ".ea-front-matter > summary": lambda: DOCUMENT,  # above a page's preview, on the document
     ".ea-doc th": lambda: _own(".ea-doc th"),
     ".ea-chip:hover": lambda: _own(".ea-chip-wrap:hover .ea-chip"),
     ".ea-copy": lambda: {**_own(".ea-copy"), **_own(".ea-copy:hover")},

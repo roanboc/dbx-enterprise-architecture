@@ -111,6 +111,10 @@ def element_anchor(e: Element | dict[str, Any]) -> dmc.Anchor:
 
 
 MERMAID_FENCE = re.compile(r"```mermaid\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
+#: A page's YAML front matter: its first line `---`, up to the next line that is `---`.
+FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+#: Where the split's divider may be moved to, as a share of the editor's width.
+SPLIT_RANGE = (15, 50, 85)
 MARKDOWN_SNIPPETS = {
     "heading": "## Heading",
     "bold": "**bold text**",
@@ -122,6 +126,20 @@ MARKDOWN_SNIPPETS = {
 def markdown(text: str, block_id: str = "markdown") -> html.Div:
     source = text or "_No description._"
     parts: list[Any] = []
+    # Front matter is data for the reader, not prose: read as Markdown, its `#` comments
+    # became the largest headings on the page. It is folded away, shown as what it is.
+    front = FRONT_MATTER.match(source)
+    if front:
+        parts.append(
+            html.Details(
+                [
+                    html.Summary("Front matter"),
+                    dcc.Markdown(f"```yaml\n{front.group(1)}\n```", className="ea-doc"),
+                ],
+                className="ea-front-matter",
+            )
+        )
+        source = source[front.end() :]
     start = 0
     for i, match in enumerate(MERMAID_FENCE.finditer(source)):
         before = source[start : match.start()].strip()
@@ -199,6 +217,21 @@ def markdown_editor(
                         ),
                         className="ea-md-edit-pane",
                     ),
+                    # In Split, the divider between the text and its preview: dragged, or
+                    # moved with the arrow keys once it has the focus (assets/ea-split.js).
+                    html.Div(
+                        className="ea-md-splitter",
+                        role="separator",
+                        tabIndex=0,
+                        title="Drag to resize; double-click to share the width equally",
+                        **{
+                            "aria-orientation": "vertical",
+                            "aria-label": "Resize the text and its preview",
+                            "aria-valuemin": SPLIT_RANGE[0],
+                            "aria-valuenow": SPLIT_RANGE[1],
+                            "aria-valuemax": SPLIT_RANGE[2],
+                        },
+                    ),
                     html.Div(
                         dmc.Paper(
                             [
@@ -216,10 +249,12 @@ def markdown_editor(
                     ),
                 ],
                 className="ea-md-body",
+                **{"data-editor": editor_id},
             ),
         ],
         id={"type": ids.MD_WRAP, "id": editor_id},
         className="ea-markdown-editor mode-edit",
+        style={"--ea-md-min": f"{min_rows * 24}px"},
     )
 
 
