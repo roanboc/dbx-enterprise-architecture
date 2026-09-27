@@ -7,7 +7,7 @@ that evidence it. It runs on demand — before a demo or a release, or when aske
 ends with a triaged list of findings for the Requester; decision
 [0010](../../architecture/decisions/0010-application-test-round.md) says why.
 
-**502 scenarios in twenty-three groups**, and around fifty minutes end to end. The
+**504 scenarios in twenty-three groups**, and around fifty minutes end to end. The
 command-line group (M, 79 scenarios) needs no browser and also runs in `make check`.
 
 ```bash
@@ -90,7 +90,7 @@ where the round is the only thing that can see it.
 | M | Command line | Every command, and the flags that change who and where | 79 |
 | N | Downloads | Every file the application can produce | 28 |
 | O | Negative paths | What is supposed to fail, failing well | 18 |
-| P | Screen audit | Every screen against the usability checklist | 34 |
+| P | Screen audit | Every screen against the usability checklist | 36 |
 
 ## The usability checklist
 

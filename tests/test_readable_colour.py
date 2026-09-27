@@ -10,7 +10,7 @@ the application paints and inside every alert. The colours the stylesheet writes
 outside the block, are measured the same way on the grounds each is painted on.
 
 This is the arithmetic of the colours, not the round's contrast checkpoint: that one reads
-what a browser has painted, and scenario P30 of the round pins how it composites a stack.
+what a browser has painted, and scenario P32 of the round pins how it composites a stack.
 
 The stock values are the component library's default palette at the shade the theme leaves
 alone (6), with its hover one shade darker (7), and its tints that shade at 10 % and 12 %
@@ -268,7 +268,7 @@ def test_the_compositing_here_agrees_with_a_pixel_the_browser_painted():
     button on Propose), whose label's ground is #c6d6ed on screen. `_paint` lands within two
     levels of it, and the label reads above 6:1 there. This checks the arithmetic of this file,
     not the audit: how the round's contrast checkpoint composites a stack in the browser is
-    pinned by scenario P30 of the round."""
+    pinned by scenario P32 of the round."""
     ground = _paint(_tint("indigo", 0.1), _tint("blue", 0.1), _rgba(SURFACES["the canvas"]))
     assert all(abs(a - b) <= 2 for a, b in zip(ground[:3], _rgba("#c6d6ed")[:3], strict=True)), _hex(ground)
     assert _ratio(_rgba(_var("indigo", "light-color")), ground) > 6

@@ -1,11 +1,14 @@
 """Group P — the screen audit: every screen read against the one usability checklist.
 
-Eleven scenarios, one per screen, each calling the same `audit_screen`, and eighteen more
+Sixteen scenarios, one per screen, each calling the same `audit_screen`, and nineteen more
 for the states those screens hold that no plain address renders — a tab moved, a dialog
-opened, an address refused, a search that matches nothing, a role that may not write. The
-point of a fixed list is comparison: two rounds put side by side show a regression in
-polish as plainly as a regression in behaviour, and a screen that quietly grows an
-unlabelled control is caught the round after it appears.
+opened, an address refused, a search that matches nothing, a role that may not write, a
+branch whose merge log is ticked. One more reads the contrast checkpoint itself against a
+page whose answers are known, since a checkpoint that measures the wrong ground reports a
+clean screen as readily as a broken one. The point of a fixed list is comparison: two
+rounds put side by side show a regression in polish as plainly as a regression in
+behaviour, and a screen that quietly grows an unlabelled control is caught the round after
+it appears.
 
 Checkpoint 13 is the axe-core rule engine at WCAG 2.2 AA, run on every screen the audit
 reads: the industry's rule set beside the repository's own list, so a rule nobody here
@@ -210,7 +213,14 @@ DISABLED_JS = (
 
 CONTRAST_JS = """
 () => {
+  // A colour as the browser computes it: rgb() or rgba(), or color(srgb ...) with channels
+  // from 0 to 1, which is what a colour mixed in CSS comes back as.
   const parse = (s) => {
+    const srgb = (s || '').match(/color\\(srgb\\s+([^)]+)\\)/);
+    if (srgb) {
+      const p = srgb[1].split(/[\\s\\/]+/).filter(Boolean).map(Number);
+      return {r: p[0] * 255, g: p[1] * 255, b: p[2] * 255, a: p.length > 3 ? p[3] : 1};
+    }
     const m = (s || '').match(/rgba?\\(([^)]+)\\)/);
     if (!m) return null;
     const p = m[1].split(/[,\\s\\/]+/).filter(Boolean).map(Number);
@@ -234,19 +244,56 @@ CONTRAST_JS = """
   const white = {r: 255, g: 255, b: 255, a: 1};
   const hex = (c) => '#' + [c.r, c.g, c.b]
     .map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  // A background image that is a gradient from one colour to the same colour is that colour,
+  // laid over the background colour; the data grid draws a ticked row under the pointer so.
+  // Undefined for no image at all, and null for a picture or a real gradient, which no one
+  // colour stands for.
+  const solid = (image) => {
+    if (!image || image === 'none') return undefined;
+    const stops = image.match(/(?:rgba?|color)\\([^()]*\\)/g) || [];
+    if (!/^linear-gradient\\(/.test(image) || !stops.length || stops.some(x => x !== stops[0])) return null;
+    return parse(stops[0]);
+  };
+  // What one node paints under the text inside it, topmost first, or null for a picture. A
+  // pseudo-element laid over the whole node comes first: the data grid marks a ticked or a
+  // hovered row that way rather than with the row's own background, and reading the row
+  // alone measured the merge log's labels on white.
+  // A pseudo-element that is there but not shown (a button keeps its loading veil at
+  // opacity 0 until it is loading) paints nothing, and one half shown paints half its colour.
+  const layers = (node) => {
+    const out = [];
+    const paint = (cs, opacity) => {
+      const image = solid(cs.backgroundImage);
+      if (image === null) return false;
+      for (const c of [image, parse(cs.backgroundColor)]) {
+        if (c && c.a * opacity > 0) out.push({...c, a: c.a * opacity});
+      }
+      return true;
+    };
+    const box = node.getBoundingClientRect();
+    for (const which of ['::after', '::before']) {
+      const ps = getComputedStyle(node, which);
+      if (!ps.content || ps.content === 'none' || ps.display === 'none') continue;
+      if (ps.visibility === 'hidden' || !(Number(ps.opacity) > 0)) continue;
+      if (ps.position !== 'absolute' && ps.position !== 'fixed') continue;
+      const covers = box.width > 0 && box.height > 0
+        && parseFloat(ps.width) >= box.width - 1 && parseFloat(ps.height) >= box.height - 1;
+      if (covers && !paint(ps, Number(ps.opacity))) return null;
+    }
+    return paint(getComputedStyle(node), 1) ? out : null;
+  };
   const background = (el) => {
-    let node = el, gradient = false, acc = null;
+    let node = el, acc = null;
     while (node && node.nodeType === 1) {
-      const cs = getComputedStyle(node);
-      if (cs.backgroundImage && cs.backgroundImage !== 'none') gradient = true;
-      const c = parse(cs.backgroundColor);
-      if (c && c.a > 0) {
+      const found = layers(node);
+      if (found === null) return {colour: white, gradient: true};
+      for (const c of found) {
         acc = acc ? over(acc, c) : c;
-        if (acc.a >= 0.99) return {colour: acc, gradient};
+        if (acc.a >= 0.99) return {colour: acc, gradient: false};
       }
       node = node.parentElement;
     }
-    return {colour: acc ? over(acc, white) : white, gradient};
+    return {colour: acc ? over(acc, white) : white, gradient: false};
   };
   const out = [];
   const nodes = document.querySelectorAll('body *');
@@ -2034,3 +2081,158 @@ def test_focus_audit(ui, record, finding):
             )
             + (f"; {len(unseen)} are invisible" if unseen else ""),
         )
+
+
+# ------------------------------------------------------- the contrast checkpoint itself
+
+#: Four stacks the application paints, on a page of their own so the checkpoint can be read
+#: against a known answer. The first is a draft's Resume button on Propose: the default-colour
+#: light button, indigo at 10 %, inside the blue alert that lists the drafts, blue at 10 %, on
+#: the canvas. The next two are a row of the data grid, ticked and then ticked under the
+#: pointer, drawn as the grid draws them: a pseudo-element laid over the row, not a background
+#: of the row's own. The last is a filled button, which keeps a white veil over itself at
+#: opacity 0 until it is loading. Each probe is a grey chosen to fall below the floor on its
+#: ground, so the checkpoint reports it and says which ground it measured.
+PINNED_STACKS = """<!doctype html>
+<html lang="en"><head><title>Contrast checkpoint</title><style>
+  body { margin: 0; padding: 24px; background: #e9ecef; font: 12px sans-serif; }
+  .alert { background: rgba(34, 139, 230, 0.1); padding: 12px; margin-bottom: 16px; }
+  .light { background: rgba(76, 110, 245, 0.1); border: 0; padding: 4px 10px; font: 600 12px sans-serif; }
+  .row { position: relative; background: #fff; padding: 8px; margin-bottom: 8px; font: 600 13px sans-serif; }
+  .row::before {
+    content: ""; display: block; position: absolute; inset: 0; pointer-events: none;
+    background-color: color-mix(in srgb, transparent, #2196f3 12%);
+  }
+  .filled { position: relative; background: #3b5bdb; color: #fff; border: 0; padding: 6px 12px; font: 600 14px sans-serif; }
+  .filled::before {
+    content: ""; position: absolute; inset: -1px; pointer-events: none; opacity: 0;
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+  .row.hovered::before {
+    background-color: color-mix(in srgb, transparent, #2196f3 8%);
+    background-image: linear-gradient(color-mix(in srgb, transparent, #2196f3 12%),
+                                      color-mix(in srgb, transparent, #2196f3 12%));
+  }
+</style></head><body>
+  <div class="alert">
+    <button class="light" style="color: #2b3f9e">Resume</button>
+    <button class="light" style="color: #7b8794">a probe on the Resume stack</button>
+  </div>
+  <div class="row"><span style="color: #737373">a probe on a ticked row</span></div>
+  <div class="row hovered"><span style="color: #737373">a probe on a ticked row, hovered</span></div>
+  <button class="filled">Merge ticked rows to main</button>
+</body></html>"""
+
+
+def _near(found: str, expected: str, within: int = 2) -> bool:
+    a, b = found.lstrip("#"), expected.lstrip("#")
+    return len(a) == 6 and all(
+        abs(int(a[i : i + 2], 16) - int(b[i : i + 2], 16)) <= within for i in (0, 2, 4)
+    )
+
+
+@pytest.mark.scenario(
+    scenario_id="P32",
+    group="P",
+    title="The contrast checkpoint measures the ground a browser paints",
+    feature="Screen audit · the contrast checkpoint itself",
+    expected="On a page holding four stacks the application paints, the checkpoint lays a tint over a "
+    "tint rather than calling the pair opaque, reads a ticked row of the data grid, at rest and under "
+    "the pointer, from the layer the grid lays over it, and reads nothing from a layer that is not "
+    "shown: the Resume label and the filled button's, which clear the floor on their real grounds, "
+    "are not reported, and each probe is reported on the ground under it.",
+)
+def test_contrast_checkpoint_reads_what_is_painted(ui, record):
+    ui.page.set_content(PINNED_STACKS)
+    try:
+        poor = {p["text"]: p for p in ui.page.evaluate(CONTRAST_JS)}
+        ui.shot("The stacks the contrast checkpoint is pinned on")
+    finally:
+        ui.goto("/")
+    ui.check(
+        "the Resume label is not reported: indigo 10 % over blue 10 % over the canvas is a pale "
+        "blue, not the alert's blue at full strength",
+        "Resume" not in poor,
+        f"reported as {poor['Resume']['fg']} on {poor['Resume']['bg']} at {poor['Resume']['ratio']}:1"
+        if "Resume" in poor
+        else "not reported",
+    )
+    ui.check(
+        "a filled button's label is not reported: its loading veil is at opacity 0 and paints nothing",
+        "Merge ticked rows to main" not in poor,
+        f"reported on {poor['Merge ticked rows to main']['bg']}"
+        if "Merge ticked rows to main" in poor
+        else "not reported",
+    )
+    for text, ground, what in (
+        ("a probe on the Resume stack", "#c7d7ef", "the two tints composited over the canvas"),
+        ("a probe on a ticked row", "#e4f2fe", "the grid's 12 % over the row's white"),
+        ("a probe on a ticked row, hovered", "#d5ebfd", "12 % over 8 % over the row's white"),
+    ):
+        seen = poor.get(text)
+        ui.check(
+            f"{text!r} is measured on {ground}, {what}",
+            seen is not None and _near(seen["bg"], ground),
+            f"{seen['fg']} on {seen['bg']} at {seen['ratio']}:1" if seen else "not reported at all",
+        )
+
+
+@pytest.mark.scenario(
+    scenario_id="P33",
+    group="P",
+    title="Branches on a branch, its merge log ticked, against the usability checklist",
+    feature="Screen audit · Branches on a branch",
+    expected="With the reader on a branch that has changed one element, the stripe above the page names "
+    "the branch, the merge log opens with that row ticked and labelled 'changed', and the checkpoints "
+    "are applied to the screen at rest and with the pointer on the ticked row; the branch is then "
+    "abandoned, leaving main as it was.",
+    branch="p-audit",
+)
+def test_branches_on_a_branch_audit(ui, record, finding):
+    ui.goto("/branches")
+    ui.click("branch-new-open-page")
+    ui.must("the New branch modal opened", ui.visible("branch-new-modal-body"))
+    ui.fill("branch-new-name", "P audit")
+    ui.fill("branch-new-desc", "Group P: one rename, read by the screen audit and thrown away.")
+    ui.click("branch-new-save")
+    ui.must("the reader is on the new branch", "branch" in ui.branch_badge().lower(), ui.branch_badge())
+
+    element = _element_path(ui)
+    ui.goto(element)
+    ui.click("#el-tabs [role='tab']:has-text('Edit')")
+    ui.page.wait_for_timeout(200)
+    name = (ui.page.locator("#el-name").first.input_value() or "").strip()
+    ui.fill("el-name", f"{name} (P audit)")
+    ui.click("el-save")
+    saved = ui.text("el-save-feedback")
+    ui.must("the element was renamed on the branch", "Saved version" in saved, saved[:120])
+
+    ui.goto("/branches?branch=p-audit")
+    stripe = ui.text(".ea-branch-stripe")
+    ui.check("the stripe above the page names the branch", "p-audit" in stripe, stripe[:120])
+    rows = ui.grid_row_ids("br-grid")
+    ui.must("the merge log holds the one row", len(rows) == 1, f"{rows}")
+    row = ui.page.locator(f"#br-grid .ag-center-cols-container .ag-row[row-id='{rows[0]}']").first
+    change = row.locator(".ag-cell[col-id='change']").first
+    ui.check("the row is ticked as the log opens", "ag-row-selected" in (row.get_attribute("class") or ""))
+    ui.check(
+        "and labelled 'changed' in the merge log's colour for it",
+        "ea-changed" in (change.get_attribute("class") or ""),
+        change.get_attribute("class") or "",
+    )
+    ui.page.mouse.move(2, 2)
+    ui.settle()
+    audit_current(ui, finding, "Branches", "on a branch, its merge log ticked")
+    ui.shot("Branches on a branch: the stripe above the page, and the merge log with its row ticked")
+    change.hover()
+    ui.page.wait_for_timeout(200)
+    audit_current(ui, finding, "Branches", "on a branch, the pointer on a ticked row", headings=False)
+
+    ui.click("br-abandon")
+    feedback = ui.text("br-feedback")
+    ui.check("the branch is abandoned afterwards", "its rows are discarded" in feedback, feedback[:160])
+    ui.check(
+        "and the reader is back on main",
+        ui.branch_badge().strip().lower() == "main",
+        ui.branch_badge(),
+    )
