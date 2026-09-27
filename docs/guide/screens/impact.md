@@ -35,7 +35,7 @@ short list is not mistaken for a safe change.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Pick an element"] --> b["Set the hops and Run"]
   b --> c["Upstream: what depends on it"]
   b --> d["Downstream: what it depends on"]

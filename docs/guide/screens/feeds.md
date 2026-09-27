@@ -35,7 +35,7 @@ the same checks as an uploaded file, and the history shows how every load went.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["A source writes rows to staging"] --> b["Run now, or a trigger outside the app"]
   b --> c["The feed checks and loads the rows"]
   c --> d["The branch the feed writes to"]

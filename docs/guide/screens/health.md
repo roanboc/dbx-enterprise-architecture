@@ -36,7 +36,7 @@ rows behind it, so you can go straight to fixing them.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["A figure on Health"] --> b["Browse, narrowed to its rows"]
   b --> c["Fix the rows on a branch"]
   c --> d["Recompute on that branch"]

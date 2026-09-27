@@ -67,6 +67,8 @@ def test_every_screen_has_its_help_in_its_parts(registry, key):
     assert headings[:4] == ["Why", "What you see", "How", "The flow"], (key, headings)
     assert set(headings) <= {"Why", "What you see", "How", "The flow", "Tips"}, (key, headings)
     assert help_.markdown.count("```mermaid") == 1, f"{key} draws its flow once"
+    flow = help_.markdown.split("```mermaid", 1)[1].strip()
+    assert flow.startswith("flowchart TD"), f"{key}'s flow reads top down, to fit the side panel"
     assert all(k in SCREEN_KEYS for k in help_.related), (key, help_.related)
 
 

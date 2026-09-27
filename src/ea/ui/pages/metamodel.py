@@ -1158,6 +1158,48 @@ def _versions_table(ctx: AppContext, versions: list[PackVersion], shown: str) ->
     )
 
 
+def _metamodels_table(ctx: AppContext, shown: str) -> Any:
+    """Every metamodel an admin may manage, one row each: the ones the store holds, whichever
+    organisation applies them or none does, and the ones the repository ships, which an admin
+    adds without making an organisation for them."""
+    names = {o.org_id: o.name for o in ctx.orgs.list()}
+    can_edit = ctx.can("edit_metamodel")
+    rows = []
+    for e in ctx.metamodels.catalogue():
+        newest = e.versions[0] if e.versions else None
+        held = (
+            f"{len(e.versions)} version{'s' if len(e.versions) != 1 else ''}; newest {newest.version} ({newest.status})"
+            if newest
+            else f"shipped with the repository, version {e.shipped.version}; not added yet"
+        )
+        rows.append(
+            [
+                dmc.Group(
+                    [
+                        dmc.Text(e.name, fw=600, size="sm"),
+                        dmc.Badge("shown", color="indigo", size="xs", variant="outline")
+                        if any(v.ref == shown for v in e.versions)
+                        else None,
+                    ],
+                    gap=6,
+                ),
+                held,
+                dmc.Group(
+                    [
+                        dmc.Badge(names.get(o, o), color="teal", variant="light", size="xs")
+                        for o in e.applied_by
+                    ]
+                    or [dmc.Text("nobody", size="xs", c="dimmed")],
+                    gap=4,
+                ),
+                _action("Show", "show", newest.ref, newest.ref != shown, "indigo", "tabler:eye")
+                if newest
+                else _action("Add to the repository", "add", e.pack_id, can_edit, "indigo", "tabler:plus"),
+            ]
+        )
+    return simple_table(["metamodel", "versions held", "applied by", ""], rows)
+
+
 def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
     versions = ctx.metamodels.versions()
     options = [{"value": v.ref, "label": f"{v.label} ({v.status})"} for v in versions]
@@ -1177,6 +1219,16 @@ def _versions_panel(ctx: AppContext, reg: Registry, applied: bool) -> Any:
                 size="sm",
                 c="dimmed",
             ),
+            dmc.Title("Metamodels", order=2, className="ea-section-title"),
+            dmc.Text(
+                "Every metamodel this repository holds or ships, whichever organisation applies it. "
+                "Show one to read and manage its versions; add a shipped one to try it before any "
+                "organisation applies it.",
+                size="sm",
+                c="dimmed",
+            ),
+            html.Div(_metamodels_table(ctx, shown), id=ids.MM_METAMODELS_TABLE),
+            dmc.Title("Versions", order=2, className="ea-section-title", mt="md"),
             html.Div(_versions_table(ctx, versions, shown), id=ids.MM_VERSIONS_TABLE),
             dmc.Group(
                 [
@@ -2192,6 +2244,22 @@ def register(app: dash.Dash) -> None:
                         tab,
                         list_tab,
                         alert(f"{v.label} is published: what it defines is frozen from now on.", "green"),
+                    )
+                    + (no_update,) * 7
+                )
+            if action == "add":
+                pack = ctx.metamodels.add_shipped(ref, ctx.actor)
+                return (
+                    rerender(
+                        ctx,
+                        pack.ref,
+                        tab,
+                        list_tab,
+                        alert(
+                            f"{pack.name} {pack.version} is in the repository now, applied by nobody; it "
+                            "is shown here. Apply it to an organisation on the Organisations page.",
+                            "green",
+                        ),
                     )
                     + (no_update,) * 7
                 )

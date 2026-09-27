@@ -438,7 +438,8 @@ main:focus {
   padding: 0.4rem 0.75rem;
 }
 .ea-tip-text { min-width: 0; }
-.ea-help .ea-mermaid, .ea-guide-screen .ea-mermaid, .ea-guide-persona .ea-mermaid { height: 280px; }
+.ea-help .ea-mermaid { height: 460px; }
+.ea-guide-screen .ea-mermaid, .ea-guide-persona .ea-mermaid { height: 400px; }
 .ea-guide-screen { border-top: 1px solid var(--mantine-color-gray-3); margin-top: 0.75rem; padding-top: 0.5rem; }
 .ea-guide-contents { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; }
 .ea-guide-contents > * { min-width: 10rem; }

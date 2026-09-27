@@ -34,7 +34,7 @@ the search, so you can send a colleague the same list.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Your words and filters"] --> b["Every matching row, sorted"]
   b --> c["The grid, 100 rows a page"]
   c --> d["Open a row"]

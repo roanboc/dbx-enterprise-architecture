@@ -452,6 +452,7 @@ RV_SEND_BACK = "rv-send-back"
 RV_TYPES = "rv-types"
 RV_COMMENT = "rv-comment"
 RV_FEEDBACK = "rv-feedback"
+MM_METAMODELS_TABLE = "mm-metamodels-table"  # every metamodel the repository holds or ships
 MM_REVIEWERS_GRID = "mm-reviewers-grid"
 MM_REVIEWERS_SAVE = "mm-reviewers-save"
 MM_REVIEWERS_FEEDBACK = "mm-reviewers-feedback"

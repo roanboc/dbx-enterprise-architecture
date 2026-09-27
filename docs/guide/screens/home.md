@@ -31,7 +31,7 @@ things it describes and how they connect, so you know where to start.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Pick the organisation in the header"] --> b["Read the model in figures"]
   b --> c["Click a type"]
   c --> d["Browse lists that type"]

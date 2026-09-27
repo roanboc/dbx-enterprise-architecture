@@ -35,7 +35,7 @@ branch.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["main"] --> b["Open: edit, import, propose"]
   b --> c["In review: frozen"]
   c -->|"Send back"| b

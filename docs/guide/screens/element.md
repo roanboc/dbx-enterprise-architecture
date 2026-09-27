@@ -35,7 +35,7 @@ is also where you change the element and link it to others.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Open from Browse"] --> b["Read the Overview"]
   b --> c["Follow Relationships and Graph"]
   b --> d["Press Impact"]

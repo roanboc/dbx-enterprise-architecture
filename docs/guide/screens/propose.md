@@ -35,7 +35,7 @@ about what it cannot settle, and nothing is written until you apply it to a bran
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Hand in a page, files, links or a drawing"] --> b["Analyse into rows"]
   b --> c["Answer questions and edit rows"]
   c --> d["Re-check until nothing stops Apply"]

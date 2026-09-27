@@ -35,7 +35,7 @@ it adds, changes, decommissions or merges, and what is still undecided.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Pick a work package"] --> b["Counts and matrix"]
   a --> c["Marked view"]
   a --> d["Elements and relationships"]

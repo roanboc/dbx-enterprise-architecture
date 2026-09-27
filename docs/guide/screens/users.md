@@ -36,7 +36,7 @@ comes from.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["A group is made in the workspace"] --> b["An admin grants the group a role"]
   b --> c["A member opens the application"]
   c --> d["The highest role of their groups applies"]

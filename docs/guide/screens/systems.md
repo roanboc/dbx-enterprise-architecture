@@ -32,7 +32,7 @@ it may read, so you know what an answer may have consulted.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["An admin connects a system"] --> b["You ask a question"]
   b --> c["The assistant reads the model"]
   b --> d["It may read a connected system too"]

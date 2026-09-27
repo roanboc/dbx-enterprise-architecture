@@ -36,7 +36,7 @@ that colleagues can reuse and rate.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Your question"] --> b["Quick answer"]
   a --> c["Deep dive: settle the brief"]
   b --> d["Answer, diagram and tool trace"]

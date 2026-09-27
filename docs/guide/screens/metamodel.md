@@ -38,7 +38,7 @@ It changes in versions, so a change never quietly breaks content that was alread
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["The version in use"] --> b["New draft"]
   b --> c["Edit, then Save changes"]
   c --> d["Try it in a trial organisation"]
@@ -51,6 +51,9 @@ to the default organisation.
 
 ## Tips
 
+- The **Versions** tab lists every metamodel the repository holds or ships, whichever
+  organisation applies it. **Show** opens one; an admin's **Add to the repository** adds a
+  shipped one, applied by nobody, to try before any organisation applies it.
 - Nothing on **Manage** or **Notation** is stored until you press **Save changes** or
   **Save as a new draft…**. Leaving the page without saving puts deleted rows back.
 - Deleting a type also takes out the relationship types that end at it, and its

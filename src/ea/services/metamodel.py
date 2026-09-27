@@ -10,13 +10,17 @@ validates every element and relationship of the organisation's main against it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from ea import capacity
 from ea.backend.base import DatabaseBackend
 from ea.backend.branching import MAIN, use_branch
 from ea.backend.organisations import use_org
+from ea.config import ROOT
+from ea.metamodel.catalogue import Starter, starters
 from ea.metamodel.diff import PackDiff, diff_packs
+from ea.metamodel.loader import load_pack
 from ea.metamodel.registry import Registry
 from ea.models import (
     PACK_ID_PREFIX,
@@ -43,6 +47,22 @@ MIN_ID_PREFIX = 6
 MAX_ISSUES = 2_000
 
 
+#: Where the metamodels the repository ships live, one folder each.
+SHIPPED_DIR = ROOT / "packs"
+
+
+@dataclass
+class MetamodelEntry:
+    """One metamodel as an admin manages it: the versions the store holds of it, newest first,
+    the organisations applying any of them, and the shipped file where the repository has one."""
+
+    pack_id: str
+    name: str
+    versions: list[PackVersion] = field(default_factory=list)
+    applied_by: list[str] = field(default_factory=list)
+    shipped: Starter | None = None
+
+
 class MetamodelService:
     def __init__(self, backend: DatabaseBackend):
         self.backend = backend
@@ -50,6 +70,33 @@ class MetamodelService:
     # -------------------------------------------------------------- reads
     def versions(self, pack_id: str | None = None) -> list[PackVersion]:
         return self.backend.list_pack_versions(pack_id)
+
+    def catalogue(self, shipped_dir=SHIPPED_DIR) -> list[MetamodelEntry]:
+        """Every metamodel an admin may manage: each one the store holds, whichever
+        organisation applies it or none does, and each one the repository ships that it
+        does not hold yet — the metamodel the reader's organisation applies first."""
+        entries: dict[str, MetamodelEntry] = {}
+        for v in self.versions():
+            e = entries.setdefault(v.pack_id, MetamodelEntry(v.pack_id, v.name or v.pack_id))
+            e.versions.append(v)
+            e.applied_by += [o for o in v.applied_by if o not in e.applied_by]
+        for s in starters(shipped_dir):
+            e = entries.setdefault(s.pack_id, MetamodelEntry(s.pack_id, s.name))
+            e.shipped = s
+        return sorted(entries.values(), key=lambda e: (not e.applied_by, not e.versions, e.name.casefold()))
+
+    def add_shipped(self, pack_id: str, actor: str, shipped_dir=SHIPPED_DIR) -> Pack:
+        """Add a metamodel the repository ships to the ones the store holds, applied by nobody,
+        so an admin can read, draft, compare and export it before any organisation uses it.
+        The file carries its identifier, so adding it twice stores it once."""
+        require("edit_metamodel", what="add a metamodel to the repository")
+        found = next((s for s in starters(shipped_dir) if s.pack_id == pack_id), None)
+        if found is None:
+            raise NotFoundError(pack_id, "shipped metamodel")
+        pack = load_pack(found.path)
+        if any(v.version == pack.version for v in self.versions(pack.id)):
+            return pack
+        return self.save(pack, actor)
 
     def version(self, ref: str) -> PackVersion:
         pack_id, version = self.resolve(ref)

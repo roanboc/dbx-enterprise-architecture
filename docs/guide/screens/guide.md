@@ -36,7 +36,7 @@ button.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Getting started"] --> b["What belongs"]
   b --> c["Your role's page"]
   c --> d["Work on a screen"]

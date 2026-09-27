@@ -9,7 +9,7 @@ reviewed before it is merged into main, which is the model itself.
 ## The product in one picture
 
 ```mermaid
-flowchart LR
+flowchart TD
   main["Main: the model everyone reads"] -->|"find and ask"| discover["Discover"]
   discover -->|"a change is needed"| contribute["Contribute: a branch or a proposal"]
   contribute -->|"request review"| review["Review"]

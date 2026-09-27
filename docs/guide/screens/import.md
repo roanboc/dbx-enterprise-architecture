@@ -34,7 +34,7 @@ be reviewed before it reaches main.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["Spreadsheet or tool export"] --> b["Add the CSV files"]
   b --> c["Validate only"]
   c -->|"Fix the issues"| a

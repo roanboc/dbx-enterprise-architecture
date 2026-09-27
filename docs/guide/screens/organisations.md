@@ -36,7 +36,7 @@ everyone gets it.
 ## The flow
 
 ```mermaid
-flowchart LR
+flowchart TD
   a["The default organisation"] --> b["New organisation, a copy"]
   b --> c["Check, then Apply a draft version"]
   c --> d["Work in the copy"]
