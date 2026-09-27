@@ -12,14 +12,17 @@ import re
 
 import duckdb
 import pytest
-from tests.conftest import HIGHER_ED
+from tests.conftest import HIGHER_ED, new_schema_name
 
 from ea.backend.branching import use_branch
+from ea.backend.duckdb_backend import DuckDBBackend
+from ea.backend.lakebase_backend import LakebaseBackend
 from ea.backend.organisations import DEFAULT_ORG, current_org, org_id_from_name, use_org
 from ea.backend.sql import schema_of, schemas
+from ea.backend.sql_backend import SqlBackend
 from ea.metamodel import Registry
 from ea.metamodel.loader import pack_to_dict
-from ea.models import ConflictError, Element, Forbidden, NotFoundError, Relationship
+from ea.models import ConflictError, Element, Forbidden, NotFoundError, Relationship, RoleGrant
 from ea.services import (
     BranchService,
     MetamodelService,
@@ -396,6 +399,61 @@ def test_a_readers_sql_cannot_reach_a_table_through_one_of_duckdbs_own_macros(lo
                 with pytest.raises(ValueError, match="named in a string"):
                     loaded.query(query)
         assert int(loaded.query("select count(*) as n from element")["n"][0]) == 1
+
+
+@pytest.mark.parametrize("engine", ["duckdb", "lakebase"])
+def test_a_readers_sql_cannot_read_another_deployments_schemas_in_a_database_they_share(
+    engine, request, pack, tmp_path
+):
+    """Two deployments may share one database, each under its own prefix (decision 0018).
+
+    The qualified-name check knew only the store's own schemas, so a reader of one deployment
+    read the other's by naming them — every organisation's rows, and its role grants — and
+    `public.` was never refused at all. Every schema and catalogue the connection can see is
+    refused before a dot, read from the database when the query is checked.
+    """
+    if engine == "duckdb":
+        path = tmp_path / "shared.duckdb"
+
+        def open_store(prefix: str) -> SqlBackend:
+            return DuckDBBackend(path, schema_prefix=prefix)
+    else:
+        dsn = request.getfixturevalue("postgres_dsn")
+
+        def open_store(prefix: str) -> SqlBackend:
+            return LakebaseBackend.from_dsn(dsn, schema=prefix)
+
+    prod_prefix, dev_prefix = new_schema_name(), new_schema_name()
+    prod = open_store(prod_prefix)
+    prod.save_pack(pack)
+    OrganisationService(prod).ensure_default(pack)
+    prod.insert_element(Element("PROD-SECRET", "capability", "Prod's own"), "ada")
+    prod.set_role_grant(RoleGrant("prod-admins", "Prod admins", "admin"), "ada")
+    prod.close()  # a DuckDB file has one process's connection at a time; Postgres does not mind
+    dev = open_store(dev_prefix)
+    try:
+        dev.save_pack(pack)
+        OrganisationService(dev).ensure_default(pack)
+        prod_content, prod_governance = schemas(prod_prefix)[1], schema_of("role_grant", prod_prefix)
+        assert len(dev.query(f"select element_id from {prod_content}.element", scoped=False)) == 1, (
+            "the other deployment's rows are there to be read"
+        )
+        for query in (
+            f"select element_id, name, org_id from {prod_content}.element",
+            f"select group_id, role from {prod_governance}.role_grant",
+            f'select element_id from "{prod_content}"."element"',
+            f"select count(*) as n from {prod_content.upper()} . element",
+            "select count(*) as n from public.element",
+        ):
+            with pytest.raises(ValueError, match="name the table on its own"):
+                dev.query(query)
+        assert int(dev.query("select count(*) as n from element")["n"][0]) == 0
+        assert int(dev.query("select count(*) as n from element e where e.name <> 'x'")["n"][0]) == 0
+    finally:
+        for prefix in (prod_prefix, dev_prefix):
+            for schema in schemas(prefix):
+                dev._execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        dev.close()
 
 
 def test_an_older_store_is_given_its_organisation(backend, pack):

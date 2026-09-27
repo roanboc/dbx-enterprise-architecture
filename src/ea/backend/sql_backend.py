@@ -108,9 +108,19 @@ _FORBIDDEN_RE = re.compile(
     re.IGNORECASE,
 )
 #: The catalogues a reader could find the store's own schema names in, and the qualifiers
-#: that reach a table directly. Refused in a reader's own SQL for the same reason the store's
-#: schemas are: the scoping shadows bare names only.
-_SYSTEM_SCHEMAS = ("information_schema", "pg_catalog", "pg_temp", "main", "memory", "system", "temp")
+#: that reach a table directly whether or not the database lists them (an engine's aliases,
+#: `pg_temp` and `temp`). Refused in a reader's own SQL with every schema and catalogue the
+#: connection can see (`SqlBackend._qualifiers`): the scoping shadows bare names only.
+_SYSTEM_SCHEMAS = (
+    "information_schema",
+    "pg_catalog",
+    "pg_temp",
+    "public",
+    "main",
+    "memory",
+    "system",
+    "temp",
+)
 # The keys of an attribute definition kept in the `extra` JSON column of meta_attribute.
 _ATTR_EXTRA = ("default", "multiple", "unit", "pattern", "min", "max", "group", "help", "properties")
 #: Functions that reach a table, a query or a file by a name written in a string —
@@ -3905,21 +3915,30 @@ class SqlBackend(DatabaseBackend):
             self._execute(f"DELETE FROM {name}")
         return int(held)
 
+    def _qualifiers(self) -> set[str]:
+        """Every name a reader could write before a dot to reach a table the scope does not
+        shadow: each catalogue and schema this connection can see, read from the database when
+        the query is checked — another deployment's too, in a database two of them share
+        (decision 0018) — with the store's own and the engines' aliases no listing shows."""
+        rows = self._fetch_all("SELECT catalog_name, schema_name FROM information_schema.schemata")
+        seen = {name for row in rows for name in row if name}
+        return seen | set(schemas(self.schema_prefix)) | set(_SYSTEM_SCHEMAS)
+
     def _qualified_escape(self, bare: str) -> str:
         """A schema or catalog name in the reader's query that would step around the scope.
 
         The scoping below shadows the content tables by their **bare** names, so `element`
         answers for the reader's organisation and branch. A qualified name — `ea_content.element`,
         or the catalog before it — resolves to the base table instead and no shadow applies,
-        which reads every organisation's rows, not only the reader's. Naming a schema is
-        refused rather than rewritten: there is nothing a reader's query needs from one that
-        the bare name does not already give, and the system catalogues are how the schema
-        names are found in the first place.
+        which reads every organisation's rows, not only the reader's; another deployment's
+        schema in the same database reads that deployment's. Naming a schema is refused rather
+        than rewritten: there is nothing a reader's query needs from one that the bare name
+        does not already give, and the system catalogues are how the schema names are found
+        in the first place.
         """
-        for name in (*schemas(self.schema_prefix), *_SYSTEM_SCHEMAS):
-            if re.search(rf"\b{re.escape(name)}\s*\.", bare, re.IGNORECASE):
-                return name
-        return ""
+        names = "|".join(re.escape(name) for name in sorted(self._qualifiers(), key=len, reverse=True))
+        found = re.search(rf"(?<!\w)({names})\s*\.", bare, re.IGNORECASE)
+        return found.group(1) if found else ""
 
     def query(
         self, sql: str, params: list[Any] | None = None, limit: int = 1000, scoped: bool = True
